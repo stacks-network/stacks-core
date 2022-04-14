@@ -27,32 +27,34 @@ use std::ops::DerefMut;
 use rusqlite::Error as RusqliteError;
 use sha2::{Digest, Sha512_256};
 
+use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::StacksHeaderInfo;
+use crate::chainstate::stacks::index::Error as marf_error;
+use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::codec::MAX_MESSAGE_LEN;
-use address::AddressHashMode;
-use burnchains::Txid;
-use chainstate::burn::operations::LeaderBlockCommitOp;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::accounts::MinerReward;
-use chainstate::stacks::db::blocks::MemPoolRejection;
-use chainstate::stacks::db::StacksHeaderInfo;
-use chainstate::stacks::index::Error as marf_error;
-use clarity_vm::clarity::Error as clarity_error;
-use net::Error as net_error;
-use util::hash::Hash160;
-use util::hash::Sha512Trunc256Sum;
-use util::hash::HASH160_ENCODED_SIZE;
-use util::secp256k1;
-use util::secp256k1::MessageSignature;
-use util::vrf::VRFProof;
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use util_lib::strings::StacksString;
-use vm::contexts::GlobalContext;
-use vm::costs::CostErrors;
-use vm::costs::ExecutionCost;
-use vm::errors::Error as clarity_interpreter_error;
-use vm::representations::{ClarityName, ContractName};
-use vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
+use crate::net::Error as net_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::strings::StacksString;
+use clarity::vm::contexts::GlobalContext;
+use clarity::vm::costs::CostErrors;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as clarity_interpreter_error;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
+};
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::util::secp256k1;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::{
@@ -70,7 +72,7 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
-pub use types::chainstate::{StacksPrivateKey, StacksPublicKey};
+pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -867,15 +869,15 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use chainstate::stacks::StacksPublicKey as PubKey;
-    use chainstate::stacks::*;
-    use core::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
-    use net::*;
-    use util::hash::*;
-    use util::log;
-    use vm::representations::{ClarityName, ContractName};
+    use crate::chainstate::stacks::StacksPublicKey as PubKey;
+    use crate::chainstate::stacks::*;
+    use crate::core::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use clarity::vm::representations::{ClarityName, ContractName};
+    use stacks_common::util::hash::*;
+    use stacks_common::util::log;
 
     use super::*;
 

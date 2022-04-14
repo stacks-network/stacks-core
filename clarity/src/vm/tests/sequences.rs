@@ -18,14 +18,14 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use vm::types::signatures::{ListTypeData, SequenceSubtype};
-use vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use vm::types::{TypeSignature, Value};
+use crate::vm::types::signatures::{ListTypeData, SequenceSubtype};
+use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
+use crate::vm::types::{TypeSignature, Value};
 
+use crate::vm::analysis::errors::CheckError;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::{execute, execute_v2, ClarityVersion};
 use std::convert::TryInto;
-use vm::analysis::errors::CheckError;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::{execute, execute_v2, ClarityVersion};
 
 #[template]
 #[rstest]

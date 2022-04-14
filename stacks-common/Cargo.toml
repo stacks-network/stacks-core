@@ -11,6 +11,7 @@ description = "Common modules for blockstack_lib, libclarity"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 resolver = "2"
+edition = "2021"
 
 [lib]
 name = "stacks_common"

@@ -14,26 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::StacksBlockHeader;
-use clarity_vm::clarity::ClarityInstance;
-use clarity_vm::database::marf::MarfedKV;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::clarity_vm::clarity::ClarityInstance;
+use crate::clarity_vm::database::marf::MarfedKV;
 
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::events::*;
+use crate::vm::tests::execute;
+use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
-use vm::contexts::OwnedEnvironment;
-use vm::costs::ExecutionCost;
-use vm::events::*;
-use vm::tests::execute;
-use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
-use types::chainstate::StacksBlockId;
-use types::StacksEpochId;
-
-use vm::database::MemoryBackingStore;
-
-use chainstate::stacks::index::ClarityMarfTrieId;
+use crate::vm::database::MemoryBackingStore;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)

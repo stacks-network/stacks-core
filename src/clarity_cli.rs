@@ -670,7 +670,7 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     );
 
     let marf_kv = friendly_expect(
-        MarfedKV::open(vm_filename, None),
+        MarfedKV::open(vm_filename, None, None),
         "Failed to open VM database.",
     );
     // return (marf_kv, contract_identifier, vm_filename, content);
@@ -880,8 +880,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             debug!("Initialize {}", &db_name);
             let mut header_db = CLIHeadersDB::new(&db_name, mainnet);
-            let mut marf_kv =
-                friendly_expect(MarfedKV::open(db_name, None), "Failed to open VM database.");
+            let mut marf_kv = friendly_expect(
+                MarfedKV::open(db_name, None, None),
+                "Failed to open VM database.",
+            );
 
             // install bootcode
             let state = in_block(header_db, marf_kv, |header_db, mut marf| {
@@ -1014,7 +1016,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let header_db =
                         friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
                     let marf_kv = friendly_expect(
-                        MarfedKV::open(vm_filename, None),
+                        MarfedKV::open(vm_filename, None, None),
                         "Failed to open VM database.",
                     );
 
@@ -1194,7 +1196,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
-                MarfedKV::open(vm_filename, None),
+                MarfedKV::open(vm_filename, None, None),
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
@@ -1248,7 +1250,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
-                MarfedKV::open(vm_filename, None),
+                MarfedKV::open(vm_filename, None, None),
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
@@ -1321,7 +1323,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
-                MarfedKV::open(vm_filename, None),
+                MarfedKV::open(vm_filename, None, None),
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
@@ -1405,7 +1407,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
-                MarfedKV::open(vm_filename, None),
+                MarfedKV::open(vm_filename, None, None),
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
@@ -1496,7 +1498,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
-                MarfedKV::open(vm_filename, None),
+                MarfedKV::open(vm_filename, None, None),
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();

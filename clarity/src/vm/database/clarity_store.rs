@@ -19,17 +19,17 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use vm::analysis::AnalysisDatabase;
-use vm::database::{
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use vm::errors::{
+use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
     InterpreterResult, RuntimeErrorType,
 };
-use vm::types::QualifiedContractIdentifier;
+use crate::vm::types::QualifiedContractIdentifier;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use crate::vm::contexts::GlobalContext;

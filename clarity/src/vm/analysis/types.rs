@@ -15,14 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use vm::analysis::analysis_db::AnalysisDatabase;
-use vm::analysis::contract_interface_builder::ContractInterface;
-use vm::analysis::errors::{CheckErrors, CheckResult};
-use vm::analysis::type_checker::contexts::TypeMap;
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
-use vm::types::signatures::FunctionSignature;
-use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-use vm::{ClarityName, ClarityVersion, SymbolicExpression};
+use crate::vm::analysis::analysis_db::AnalysisDatabase;
+use crate::vm::analysis::contract_interface_builder::ContractInterface;
+use crate::vm::analysis::errors::{CheckErrors, CheckResult};
+use crate::vm::analysis::type_checker::contexts::TypeMap;
+use crate::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use crate::vm::{ClarityName, SymbolicExpression, ClarityVersion};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =
     "PANIC: Failed to deserialize bad database data in contract analysis.";

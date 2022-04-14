@@ -1,17 +1,17 @@
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost, CostTracker};
-use vm::errors::{
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
+use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::representations::SymbolicExpression;
-use vm::types::{
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature, Value,
 };
-use vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
 
-use vm::database::ClarityDatabase;
-use vm::database::STXBalance;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::database::STXBalance;
 
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use chainstate::stacks::index::storage::TrieStorageConnection;
+use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use std::convert::TryInto;
 use std::error;
 use std::fmt;
@@ -26,17 +26,17 @@ use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
 
-use util::hash::to_hex;
-use util::sleep_ms;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::sleep_ms;
 
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::chainstate::StacksBlockId;
-use types::chainstate::BlockHeaderHash;
 
-use vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::QualifiedContractIdentifier;
 
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use rusqlite::types::{
     FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
@@ -51,14 +51,14 @@ use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
 
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::marf::MarfTransaction;
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::storage::TrieStorageTransaction;
+use crate::chainstate::stacks::index::Error as MARFError;
+use crate::chainstate::stacks::index::MARFValue;
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::types::chainstate::TrieHash;
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::index::marf::MarfTransaction;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::storage::TrieStorageTransaction;
-use chainstate::stacks::index::Error as MARFError;
-use chainstate::stacks::index::MARFValue;
-use chainstate::stacks::index::MarfTrieId;
 
 use rand::thread_rng;
 use rand::Rng;
@@ -71,6 +71,9 @@ pub type DBTx<'a> = rusqlite::Transaction<'a>;
 
 // 256MB
 pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
+
+// 32K
+pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 
 #[derive(Debug)]
 pub enum Error {
@@ -258,11 +261,11 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
 
 macro_rules! impl_byte_array_from_column_only {
     ($thing:ident) => {
-        impl ::util_lib::db::FromColumn<$thing> for $thing {
+        impl crate::util_lib::db::FromColumn<$thing> for $thing {
             fn from_column(
                 row: &rusqlite::Row,
                 column_name: &str,
-            ) -> Result<Self, ::util_lib::db::Error> {
+            ) -> Result<Self, crate::util_lib::db::Error> {
                 Ok(row.get_unwrap::<_, Self>(column_name))
             }
         }
@@ -279,7 +282,7 @@ macro_rules! impl_byte_array_from_column {
                 value: rusqlite::types::ValueRef,
             ) -> rusqlite::types::FromSqlResult<Self> {
                 let hex_str = value.as_str()?;
-                let byte_str = ::util::hash::hex_bytes(hex_str)
+                let byte_str = stacks_common::util::hash::hex_bytes(hex_str)
                     .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
                 let inst = $thing::from_bytes(&byte_str)
                     .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
@@ -287,11 +290,11 @@ macro_rules! impl_byte_array_from_column {
             }
         }
 
-        impl ::util_lib::db::FromColumn<$thing> for $thing {
+        impl crate::util_lib::db::FromColumn<$thing> for $thing {
             fn from_column(
                 row: &rusqlite::Row,
                 column_name: &str,
-            ) -> Result<Self, ::util_lib::db::Error> {
+            ) -> Result<Self, crate::util_lib::db::Error> {
                 Ok(row.get_unwrap::<_, Self>(column_name))
             }
         }
@@ -611,14 +614,15 @@ impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
 }
 
 pub fn tx_busy_handler(run_count: i32) -> bool {
-    let mut sleep_count = 10;
+    let mut sleep_count = 2;
     if run_count > 0 {
         sleep_count = 2u64.saturating_pow(run_count as u32);
     }
     sleep_count = sleep_count.saturating_add(thread_rng().gen::<u64>() % sleep_count);
 
-    if sleep_count > 5000 {
-        sleep_count = 5000;
+    if sleep_count > 100 {
+        let jitter = thread_rng().gen::<u64>() % 20;
+        sleep_count = 100 - jitter;
     }
 
     debug!(
@@ -656,6 +660,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     let db = Connection::open_with_flags(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
+    inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
     if foreign_keys {
         inner_sql_pragma(&db, "foreign_keys", &true)?;
     }
@@ -829,30 +834,24 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         get_indexed(self.index_mut(), header_hash, key)
     }
 
-    pub fn put_indexed_begin(
+    /// Put all keys and values in a single MARF transaction, and seal it.
+    /// This is a one-time operation; subsequent calls will panic.  You should follow this up with
+    /// a commit if you want to save the MARF state.
+    pub fn put_indexed_all(
         &mut self,
         parent_header_hash: &T,
         header_hash: &T,
-    ) -> Result<(), Error> {
-        match self.block_linkage {
-            None => {
-                self.index_mut().begin(parent_header_hash, header_hash)?;
-                self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
-                Ok(())
-            }
-            Some(_) => panic!("Tried to put_indexed_begin twice!"),
-        }
-    }
-
-    /// Put all keys and values in a single MARF transaction.
-    /// No other MARF transactions will be permitted in the lifetime of this transaction.
-    pub fn put_indexed_all(
-        &mut self,
         keys: &Vec<String>,
         values: &Vec<String>,
     ) -> Result<TrieHash, Error> {
         assert_eq!(keys.len(), values.len());
-        assert!(self.block_linkage.is_some());
+        match self.block_linkage {
+            None => {
+                self.index_mut().begin(parent_header_hash, header_hash)?;
+                self.block_linkage = Some((parent_header_hash.clone(), header_hash.clone()));
+            }
+            Some(_) => panic!("Tried to put_indexed_all twice!"),
+        }
 
         let mut marf_values = Vec::with_capacity(values.len());
         for i in 0..values.len() {
@@ -861,11 +860,11 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         }
 
         self.index_mut().insert_batch(&keys, marf_values)?;
-        let root_hash = self.index_mut().get_root_hash()?;
+        let root_hash = self.index_mut().seal()?;
         Ok(root_hash)
     }
 
-    /// Commit the tx
+    /// Commit the MARF transaction
     pub fn commit(mut self) -> Result<(), Error> {
         self.block_linkage = None;
         debug!("Indexed-commit: MARF index");

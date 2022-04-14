@@ -23,11 +23,11 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use vm::errors::{Error, RuntimeErrorType};
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
+use crate::vm::errors::{Error, RuntimeErrorType};
 
-use vm::representations::SymbolicExpression;
-use vm::types::QualifiedContractIdentifier;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::QualifiedContractIdentifier;
 
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
@@ -37,8 +37,8 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::ClarityVersion;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::ClarityVersion;
 
 /// Legacy function
 pub fn parse(
@@ -70,4 +70,45 @@ pub fn build_ast<T: CostTracker>(
     SugarExpander::run_pass(&mut contract_ast, clarity_version)?;
     ExpressionIdentifier::run_expression_pass(&mut contract_ast, clarity_version)?;
     Ok(contract_ast)
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    use crate::vm::ast::build_ast;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::representations::depth_traverse;
+    use crate::vm::types::QualifiedContractIdentifier;
+    use crate::vm::ClarityVersion;
+
+    #[test]
+    fn test_expression_identification_tuples() {
+        for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
+            let progn = "{ a: (+ 1 2 3),
+                           b: 1,
+                           c: 3 }";
+
+            let mut cost_track = LimitedCostTracker::new_free();
+            let ast = build_ast(
+                &QualifiedContractIdentifier::transient(),
+                &progn,
+                &mut cost_track,
+                *version
+            )
+            .unwrap()
+            .expressions;
+
+            let mut visited = HashMap::new();
+
+            for expr in ast.iter() {
+                depth_traverse::<_, _, ()>(expr, |x| {
+                    assert!(!visited.contains_key(&x.id));
+                    visited.insert(x.id, true);
+                    Ok(())
+                })
+                .unwrap();
+            }
+        }
+    }
 }

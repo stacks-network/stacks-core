@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
@@ -201,15 +200,19 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let (mut chainstate, _) =
-                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting chainstate db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let (mut chainstate, _) = match StacksChainState::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                Some(config.node.get_marf_opts()),
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
             let estimator = Box::new(UnitEstimator);
             let metric = Box::new(UnitMetric);
@@ -324,6 +327,7 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
+            Some(config.node.get_marf_opts()),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -351,7 +355,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -382,7 +386,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         let chainstate_path = config.get_chainstate_path_str();
@@ -392,6 +396,7 @@ impl Node {
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chainstate_path,
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(x) => x,
             Err(_e) => panic!(),
@@ -850,7 +855,8 @@ impl Node {
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state.process_blocks(tx, 1)
+                self.chain_state
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
@@ -929,17 +935,13 @@ impl Node {
             &block.header.parent_block,
         );
 
-        let chain_tip = ChainTip {
-            metadata,
-            block,
-            receipts,
-        };
-
         self.event_dispatcher.process_chain_tip(
-            &chain_tip,
+            &block,
+            &metadata,
+            &receipts,
             &parent_index_hash,
             Txid([0; 32]),
-            vec![],
+            &vec![],
             None,
             parent_burn_block_hash,
             parent_burn_block_height,
@@ -948,6 +950,11 @@ impl Node {
             &processed_block.parent_microblocks_cost,
         );
 
+        let chain_tip = ChainTip {
+            metadata,
+            block,
+            receipts,
+        };
         self.chain_tip = Some(chain_tip.clone());
 
         // Unset the `bootstraping_chain` flag.

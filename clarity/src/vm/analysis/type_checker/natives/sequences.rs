@@ -14,24 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
+use crate::vm::types::{FunctionType, TypeSignature};
+use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
+use crate::vm::types::{Value, MAX_VALUE_SIZE};
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use vm::functions::NativeFunctions;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
-use vm::types::{FunctionType, TypeSignature};
-use vm::types::{SequenceSubtype::*, StringSubtype::*};
-use vm::types::{Value, MAX_VALUE_SIZE};
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
-use vm::analysis::type_checker::{
+use crate::vm::analysis::type_checker::{
     check_argument_count, check_arguments_at_least, no_type, CheckErrors, CheckResult, TypeChecker,
     TypeResult, TypingContext,
 };
 
 use crate::vm::ClarityVersion;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 fn get_simple_native_or_user_define(
     function_name: &str,

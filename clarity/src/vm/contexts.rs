@@ -19,36 +19,39 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
-use vm::ast;
-use vm::ast::ContractAST;
-use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::contracts::Contract;
-use vm::costs::{
+use crate::vm::ast;
+use crate::vm::ast::ContractAST;
+use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
+use crate::vm::contracts::Contract;
+use crate::vm::costs::{
     cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
     ExecutionCost, LimitedCostTracker,
 };
-use vm::database::{
+use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
-use vm::events::*;
-use vm::representations::{ClarityName, ContractName, SymbolicExpression};
-use vm::stx_transfer_consolidated;
-use vm::types::signatures::FunctionSignature;
-use vm::types::{
+use crate::vm::errors::{
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+use crate::vm::events::*;
+use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
+use crate::vm::stx_transfer_consolidated;
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TraitIdentifier, TypeSignature, Value,
 };
-use vm::{eval, is_reserved};
+use crate::vm::{eval, is_reserved};
 
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
-use serde::Serialize;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::version::ClarityVersion;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::version::ClarityVersion;
 
-use vm::coverage::CoverageReporter;
+use crate::vm::coverage::CoverageReporter;
+
+use serde::Serialize;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -633,7 +636,7 @@ impl<'a> OwnedEnvironment<'a> {
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        E: From<::vm::errors::Error>,
+        E: From<crate::vm::errors::Error>,
         F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
@@ -716,7 +719,7 @@ impl<'a> OwnedEnvironment<'a> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env(recipient.clone(), None, |env| {
+        self.execute_in_env::<_, _, crate::vm::errors::Error>(recipient.clone(), None, |env| {
             let mut snapshot = env
                 .global_context
                 .database
@@ -730,7 +733,7 @@ impl<'a> OwnedEnvironment<'a> {
                 .increment_ustx_liquid_supply(amount)
                 .unwrap();
 
-            let res: std::result::Result<(), ::vm::errors::Error> = Ok(());
+            let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
             res
         })
         .unwrap();
@@ -1224,7 +1227,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> std::result::Result<O, E>
     where
         F: FnOnce(&mut Self) -> std::result::Result<O, E>,
-        E: From<::vm::errors::Error>,
+        E: From<crate::vm::errors::Error>,
     {
         self.global_context.begin();
         let result = f(self);

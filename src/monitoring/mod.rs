@@ -18,6 +18,9 @@ use std::{fmt, fs, path::PathBuf};
 
 use rusqlite::{OpenFlags, OptionalExtension};
 
+use crate::burnchains::BurnchainSigner;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::Error as DatabaseError;
 use crate::{
     burnchains::Txid,
     core::MemPoolDB,
@@ -25,15 +28,12 @@ use crate::{
     util::get_epoch_time_secs,
     util_lib::db::{tx_busy_handler, DBConn},
 };
-use burnchains::BurnchainSigner;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::uint::{Uint256, Uint512};
 use std::convert::TryInto;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use util::uint::{Uint256, Uint512};
-use util_lib::db::sqlite_open;
-use util_lib::db::Error as DatabaseError;
-use vm::costs::ExecutionCost;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;

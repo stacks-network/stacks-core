@@ -14,18 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use vm::functions::define::DefineFunctionsParsed;
-use vm::functions::tuples;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpressionType::{
+use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::functions::define::DefineFunctionsParsed;
+use crate::vm::functions::tuples;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{
+    parse_name_type_pairs, PrincipalData, TupleTypeSignature, TypeSignature, Value,
+};
 
+use crate::vm::variables::NativeVariables;
 use std::collections::HashMap;
-use vm::variables::NativeVariables;
 
 use crate::vm::ClarityVersion;
 
@@ -101,20 +103,20 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// - CheckErrors::WriteAttemptedInReadOnly
     /// - Contract parsing errors
     fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
-        use vm::functions::define::DefineFunctionsParsed::*;
+        use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
                 // The *arguments* to Constant, PersistedVariable, FT defines must be checked to ensure that
                 //   any *evaluated arguments* supplied to them are valid with respect to read-only requirements.
                 Constant { value, .. } => {
-                    self.check_atomic_expression_is_read_only(value)?;
+                    self.check_read_only(value)?;
                 }
                 PersistedVariable { initial, .. } => {
-                    self.check_atomic_expression_is_read_only(initial)?;
+                    self.check_read_only(initial)?;
                 }
                 BoundedFungibleToken { max_supply, .. } => {
                     // Only the *optional* total supply argument is eval'ed.
-                    self.check_atomic_expression_is_read_only(max_supply)?;
+                    self.check_read_only(max_supply)?;
                 }
                 PrivateFunction { signature, body } | PublicFunction { signature, body } => {
                     let (function_name, is_read_only) =
@@ -139,7 +141,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 }
             }
         } else {
-            self.check_atomic_expression_is_read_only(expression)?;
+            self.check_read_only(expression)?;
         }
         Ok(())
     }
@@ -165,23 +167,58 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
 
-        let is_read_only = self.check_atomic_expression_is_read_only(body)?;
+        let is_read_only = self.check_read_only(body)?;
 
         Ok((function_name.clone(), is_read_only))
     }
 
-    /// Checks an atomic `expression` to determine whether it is read-only correct.
-    /// An atomic expression is one that does not need to be parsed into multiple expressions.
-    ///
-    /// Returns `true` iff the expression is read-only.
-    ///
-    /// # Errors
-    /// - Contract parsing errors
-    fn check_atomic_expression_is_read_only(
-        &mut self,
-        expression: &SymbolicExpression,
-    ) -> CheckResult<bool> {
-        match expression.expr {
+    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+        use crate::vm::functions::define::DefineFunctionsParsed::*;
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
+            match define_type {
+                // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
+                //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
+                Constant { value, .. } => {
+                    self.check_read_only(value)?;
+                }
+                PersistedVariable { initial, .. } => {
+                    self.check_read_only(initial)?;
+                }
+                BoundedFungibleToken { max_supply, .. } => {
+                    // only the *optional* total supply arg is eval'ed
+                    self.check_read_only(max_supply)?;
+                }
+                PrivateFunction { signature, body } | PublicFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
+                    self.defined_functions.insert(f_name, is_read_only);
+                }
+                ReadOnlyFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
+                    if !is_read_only {
+                        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                    } else {
+                        self.defined_functions.insert(f_name, is_read_only);
+                    }
+                }
+                Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
+                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
+                }
+                Trait { .. } | UseTrait { .. } | ImplTrait { .. } => {
+                    // No arguments to (use-trait ...), (define-trait ...). or (impl-trait) are eval'ed.
+                }
+            }
+        } else {
+            self.check_read_only(expr)?;
+        }
+        Ok(())
+    }
+
+    /// Checks the supplied symbolic expressions
+    ///   (1) for whether or not they are valid with respect to read-only requirements.
+    ///   (2) if valid, returns whether or not they are read only.
+    /// Note that because of (1), this function _cannot_ short-circuit on read-only.
+    fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+        match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
             List(ref expression) => self.check_expression_application_is_read_only(expression),
         }
@@ -200,7 +237,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ) -> CheckResult<bool> {
         let mut result = true;
         for expression in expressions.iter() {
-            let expr_read_only = self.check_atomic_expression_is_read_only(expression)?;
+            let expr_read_only = self.check_read_only(expression)?;
             // Note: Don't return early on false, because a subsequent error should be returned.
             result = result && expr_read_only;
         }
@@ -235,7 +272,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         function: &NativeFunctions,
         args: &[SymbolicExpression],
     ) -> CheckResult<bool> {
-        use vm::functions::NativeFunctions::*;
+        use crate::vm::functions::NativeFunctions::*;
 
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
@@ -255,8 +292,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             AtBlock => {
                 check_argument_count(2, args)?;
 
-                let is_block_arg_read_only = self.check_atomic_expression_is_read_only(&args[0])?;
-                let closure_read_only = self.check_atomic_expression_is_read_only(&args[1])?;
+                let is_block_arg_read_only = self.check_read_only(&args[0])?;
+                let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
                     return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into());
                 }
@@ -283,7 +320,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         return Err(CheckErrors::BadSyntaxBinding.into());
                     }
 
-                    if !self.check_atomic_expression_is_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(&pair_expression[1])? {
                         return Ok(false);
                     }
                 }
@@ -324,7 +361,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         return Err(CheckErrors::TupleExpectsPairs.into());
                     }
 
-                    if !self.check_atomic_expression_is_read_only(&pair_expression[1])? {
+                    if !self.check_read_only(&pair_expression[1])? {
                         return Ok(false);
                     }
                 }

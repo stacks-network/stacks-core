@@ -14,38 +14,39 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::ClarityInstance;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::clarity::TransactionConnection;
-use clarity_vm::clarity::ClarityInstance;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use std::collections::HashMap;
-use util::hash::hex_bytes;
-use vm::contexts::Environment;
-use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use vm::database::ClarityDatabase;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::events::StacksTransactionEvent;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpression;
-use vm::test_util::{
+use clarity::vm::contexts::Environment;
+use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::functions::NativeFunctions;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::test_util::{
     execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
-use vm::types::{
+use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
-use vm::ClarityVersion;
+use clarity::vm::ClarityVersion;
+use stacks_common::util::hash::hex_bytes;
+
+use std::collections::HashMap;
 
 use crate::clarity_vm::database::marf::MarfedKV;
-use vm::database::MemoryBackingStore;
+use clarity::vm::database::MemoryBackingStore;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
@@ -55,7 +56,7 @@ lazy_static! {
 }
 
 pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
-    use vm::functions::NativeFunctions::*;
+    use clarity::vm::functions::NativeFunctions::*;
     match function {
         Add => "(+ 1 1)",
         ToUInt => "(to-uint 1)",

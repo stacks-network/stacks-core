@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::type_checker::tests::mem_type_check;
-use vm::analysis::ContractAnalysis;
-use vm::ast::parse;
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::{type_check, ContractAnalysis};
+use crate::vm::ast::parse;
 
 #[test]
 fn test_list_types_must_match() {

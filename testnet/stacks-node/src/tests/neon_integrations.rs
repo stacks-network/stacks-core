@@ -1330,6 +1330,7 @@ fn bitcoind_resubmission_test() {
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
+            None,
         )
         .unwrap();
         let mut tx = chainstate.db_tx_begin().unwrap();
@@ -1730,9 +1731,13 @@ fn microblock_integration_test() {
         let privk =
             find_microblock_privkey(&conf, &stacks_block.header.microblock_pubkey_hash, 1024)
                 .unwrap();
-        let (mut chainstate, _) =
-            StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str())
-                .unwrap();
+        let (mut chainstate, _) = StacksChainState::open(
+            false,
+            CHAIN_ID_TESTNET,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
 
         chainstate
             .reload_unconfirmed_state(&btc_regtest_controller.sortdb_ref().index_conn(), tip_hash)
@@ -5539,7 +5544,7 @@ fn atlas_integration_test() {
 
         // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        let few_blocks = sort_height + 5;
+        let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5561,7 +5566,7 @@ fn atlas_integration_test() {
 
         // From there, let's mine these transaction, and build more blocks.
         let mut sort_height = channel.get_sortitions_processed();
-        let few_blocks = sort_height + 5;
+        let few_blocks = sort_height + 10;
 
         while sort_height < few_blocks {
             next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5572,7 +5577,7 @@ fn atlas_integration_test() {
         // Poll GET v2/attachments/<attachment-hash>
         for i in 1..10 {
             let mut attachments_did_sync = false;
-            let mut timeout = 120;
+            let mut timeout = 60;
             while attachments_did_sync != true {
                 let zonefile_hex = hex_bytes(&format!("facade0{}", i)).unwrap();
                 let hashed_zonefile = Hash160::from_data(&zonefile_hex);
@@ -5594,7 +5599,7 @@ fn atlas_integration_test() {
                 } else {
                     timeout -= 1;
                     if timeout == 0 {
-                        panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
+                        panic!("Failed syncing 9 attachments between 2 neon runloops within 60s (failed at {}) - Something is wrong", &to_hex(&zonefile_hex));
                     }
                     eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                     thread::sleep(Duration::from_millis(1000));
@@ -5688,7 +5693,7 @@ fn atlas_integration_test() {
     // We want to make sure that the miner is able to
     // 1) mine these transactions
     // 2) retrieve the attachments staged on the follower node.
-    // 3) ensure that the follower is also instanciating the attachments after
+    // 3) ensure that the follower is also instantiating the attachments after
     // executing the transactions, once mined.
     let namespace = "passport";
     for i in 1..10 {
@@ -5773,7 +5778,7 @@ fn atlas_integration_test() {
             } else {
                 timeout -= 1;
                 if timeout == 0 {
-                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s - Something is wrong");
+                    panic!("Failed syncing 9 attachments between 2 neon runloops within 60s (failed at {}) - Something is wrong", &to_hex(&zonefile_hex));
                 }
                 eprintln!("Attachment {} not sync'd yet", bytes_to_hex(&zonefile_hex));
                 thread::sleep(Duration::from_millis(1000));
@@ -7043,8 +7048,13 @@ fn use_latest_tip_integration_test() {
     let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
     let tip_hash =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-    let (mut chainstate, _) =
-        StacksChainState::open(false, CHAIN_ID_TESTNET, &conf.get_chainstate_path_str()).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        false,
+        CHAIN_ID_TESTNET,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
 
     // Initialize the unconfirmed state.
     chainstate

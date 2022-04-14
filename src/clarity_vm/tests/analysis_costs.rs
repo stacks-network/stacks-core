@@ -16,29 +16,31 @@
 
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
-use chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use clarity::vm::clarity::TransactionConnection;
-use clarity_vm::clarity::ClarityInstance;
-use util::hash::hex_bytes;
-use vm::contexts::Environment;
-use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::costs::ExecutionCost;
-use vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute as vm_execute;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpression;
-use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use vm::tests::{execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB};
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use crate::clarity_vm::clarity::ClarityInstance;
+use clarity::vm::contexts::Environment;
+use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity::vm::execute as vm_execute;
+use clarity::vm::functions::NativeFunctions;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::tests::{execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB};
+use clarity::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
+use stacks_common::util::hash::hex_bytes;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
-use vm::ClarityVersion;
+use clarity::vm::ClarityVersion;
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();

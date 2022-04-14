@@ -1,20 +1,20 @@
+use crate::vm::analysis;
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
+use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::ast::ContractAST;
+use crate::vm::contexts::Environment;
+use crate::vm::contexts::{AssetMap, OwnedEnvironment};
+use crate::vm::costs::ExecutionCost;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::errors::Error as InterpreterError;
+use crate::vm::events::StacksTransactionEvent;
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, BuffData};
+use crate::vm::ClarityVersion;
+use crate::vm::{ast, SymbolicExpression, Value};
 use stacks_common::types::StacksEpochId;
 use std::fmt;
-use vm::analysis;
-use vm::analysis::ContractAnalysis;
-use vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
-use vm::ast::errors::{ParseError, ParseErrors};
-use vm::ast::ContractAST;
-use vm::contexts::Environment;
-use vm::contexts::{AssetMap, OwnedEnvironment};
-use vm::costs::ExecutionCost;
-use vm::costs::LimitedCostTracker;
-use vm::database::ClarityDatabase;
-use vm::errors::Error as InterpreterError;
-use vm::events::StacksTransactionEvent;
-use vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use vm::ClarityVersion;
-use vm::{ast, SymbolicExpression, Value};
 
 #[derive(Debug)]
 pub enum Error {

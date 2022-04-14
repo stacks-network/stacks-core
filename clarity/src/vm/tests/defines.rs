@@ -18,17 +18,18 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use vm::ast::build_ast;
-use vm::ast::errors::ParseErrors;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
-use vm::{execute, ClarityVersion};
 
 #[template]
 #[rstest]
 #[case(ClarityVersion::Clarity1)]
 #[case(ClarityVersion::Clarity2)]
 fn test_clarity_versions_defines(#[case] version: ClarityVersion) {}
+
+use crate::vm::ast::build_ast;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::{execute, ClarityVersion};
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();

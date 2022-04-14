@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use burnchains::Burnchain;
-use burnchains::Error as burnchain_error;
-use chainstate::burn::ConsensusHash;
+use crate::burnchains::Burnchain;
+use crate::burnchains::Error as burnchain_error;
+use crate::chainstate::burn::ConsensusHash;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::log;
 use std::convert::TryFrom;
-use util::log;
-use vm::costs::ExecutionCost;
 
 pub use self::mempool::MemPoolDB;
 use crate::types::chainstate::StacksBlockId;

@@ -15,15 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-pub use vm::analysis::errors::{CheckError, CheckErrors};
-use vm::execute_v2;
-use vm::types::SequenceSubtype::{BufferType, StringType};
-use vm::types::StringSubtype::ASCII;
-use vm::types::TypeSignature::SequenceType;
-use vm::types::{
+pub use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::execute_v2;
+use crate::vm::types::SequenceSubtype::{BufferType, StringType};
+use crate::vm::types::StringSubtype::ASCII;
+use crate::vm::types::TypeSignature::SequenceType;
+use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use vm::ClarityVersion;
+use crate::vm::ClarityVersion;
 
 #[test]
 fn test_simple_buff_to_int_le() {

@@ -14,28 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{CostTracker, MemoryConsumer};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{CostTracker, MemoryConsumer};
 
-use vm::contexts::{Environment, GlobalContext};
-use vm::errors::Error;
-use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData,
-    TypeSignature, Value,
+use clarity::vm::contexts::{Environment, GlobalContext};
+use clarity::vm::errors::Error;
+use clarity::vm::errors::{
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-
+use clarity::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use clarity::vm::types::{
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData, TypeSignature,
+    Value,
+};
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::util_lib::boot::boot_code_id;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::Error as ChainstateError;
 
-use vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 
 use stacks_common::util::hash::Hash160;
 

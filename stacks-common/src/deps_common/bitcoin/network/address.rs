@@ -22,8 +22,8 @@ use std::fmt;
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 /// A message which can be sent on the Bitcoin network
 pub struct Address {
@@ -141,7 +141,7 @@ mod test {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::str::FromStr;
 
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn serialize_address_test() {

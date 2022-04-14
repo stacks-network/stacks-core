@@ -18,16 +18,17 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use vm::analysis::type_checker::tests::mem_type_check as run_analysis_helper;
-use vm::ast::definition_sorter::DefinitionSorter;
-use vm::ast::errors::ParseErrors;
-use vm::ast::errors::ParseResult;
-use vm::ast::expression_identifier::ExpressionIdentifier;
-use vm::ast::parser;
-use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
-use vm::ClarityVersion;
+
+use crate::vm::analysis::type_checker::tests::mem_type_check as run_analysis_helper;
+use crate::vm::ast::definition_sorter::DefinitionSorter;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::errors::ParseResult;
+use crate::vm::ast::expression_identifier::ExpressionIdentifier;
+use crate::vm::ast::parser;
+use crate::vm::ast::types::{BuildASTPass, ContractAST};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]

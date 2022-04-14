@@ -27,11 +27,12 @@ use crate::types::StacksEpochId;
 use crate::vm::database::MemoryBackingStore;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
-use vm::costs::LimitedCostTracker;
-use vm::database::STORE_CONTRACT_SRC_INTERFACE;
-use vm::representations::SymbolicExpression;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
-use vm::ClarityVersion;
+
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::ClarityVersion;
 
 pub use self::analysis_db::AnalysisDatabase;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -47,7 +48,7 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    use vm::ast::parse;
+    use crate::vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut contract = parse(&contract_identifier, snippet, version).unwrap();
     let mut marf = MemoryBackingStore::new();

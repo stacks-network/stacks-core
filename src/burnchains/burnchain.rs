@@ -27,64 +27,63 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::bitcoin::address::address_type_to_version_byte;
-use burnchains::bitcoin::address::to_c32_version_byte;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::address::BitcoinAddressType;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
-use burnchains::db::BurnchainDB;
-use burnchains::indexer::{
+use crate::burnchains::bitcoin::address::address_type_to_version_byte;
+use crate::burnchains::bitcoin::address::to_c32_version_byte;
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::BitcoinAddressType;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use burnchains::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
     Error as burnchain_error, PoxConstants,
 };
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::{
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::burn::{BlockSnapshot, Opcodes};
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::StacksPublicKey;
-use core::StacksEpoch;
-use core::MINING_COMMITMENT_WINDOW;
-use core::NETWORK_ID_MAINNET;
-use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION_MAINNET;
-use core::PEER_VERSION_TESTNET;
-use core::STACKS_EPOCHS_MAINNET;
-use deps;
-use monitoring::update_burnchain_height;
+use crate::chainstate::burn::{BlockSnapshot, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::StacksEpoch;
+use crate::core::MINING_COMMITMENT_WINDOW;
+use crate::core::NETWORK_ID_MAINNET;
+use crate::core::NETWORK_ID_TESTNET;
+use crate::core::PEER_VERSION_MAINNET;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::deps;
+use crate::monitoring::update_burnchain_height;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::vrf::VRFPublicKey;
-use util_lib::db::DBConn;
-use util_lib::db::DBTx;
-use util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::VRFPublicKey;
 
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use chainstate::stacks::boot::POX_2_TESTNET_CODE;
-use core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
+use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 
-use chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -909,8 +908,17 @@ impl Burnchain {
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
-            .map(|(snapshot, transition, _)| (snapshot, transition))
+        // Do not emit sortition/burn block events to event observer in this method, because this
+        // method is deprecated and only used in defunct helium nodes
+
+        db.evaluate_sortition(
+            &header,
+            blockstack_txs,
+            burnchain,
+            &sortition_tip,
+            None,
+            |_| {},
+        )
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
@@ -1507,43 +1515,43 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
-    use chainstate::burn::ConsensusHashExtensions;
-    use chainstate::stacks::address::StacksAddressExtensions;
-    use chainstate::stacks::index::TrieHashExtension;
+    use crate::chainstate::burn::ConsensusHashExtensions;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
     use ed25519_dalek::Keypair as VRFKeypair;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
     use serde::Serialize;
     use sha2::Sha512;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::TrieHash;
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::*;
-    use burnchains::Txid;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-    use chainstate::burn::distribution::BurnSamplePoint;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::Txid;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+    use crate::chainstate::burn::distribution::BurnSamplePoint;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use chainstate::stacks::StacksPublicKey;
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::hash::to_hex;
-    use util::hash::Hash160;
-    use util::log;
-    use util::secp256k1::Secp256k1PrivateKey;
-    use util::uint::BitArray;
-    use util::uint::Uint256;
-    use util::uint::Uint512;
-    use util::vrf::VRFPrivateKey;
-    use util::vrf::VRFPublicKey;
-    use util_lib::db::Error as db_error;
+    use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::TrieHash;
+    use crate::util_lib::db::Error as db_error;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::log;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::uint::BitArray;
+    use stacks_common::util::uint::Uint256;
+    use stacks_common::util::uint::Uint512;
+    use stacks_common::util::vrf::VRFPrivateKey;
+    use stacks_common::util::vrf::VRFPublicKey;
 
     use crate::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,

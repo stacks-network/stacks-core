@@ -20,25 +20,28 @@ use crate::types::chainstate::StacksBlockId;
 use rstest::rstest;
 #[cfg(any(test, feature = "testing"))]
 use rstest_reuse::{self, *};
-use util::hash::hex_bytes;
-use vm::ast::errors::ParseErrors;
-use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::costs::ExecutionCost;
-use vm::database::ClarityDatabase;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute as vm_execute;
-use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, symbols_from_values, with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+
+use crate::vm::ast;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
+use crate::vm::contracts::Contract;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::execute as vm_execute;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::tests::{
+    execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
+    with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
-use vm::types::{
+use crate::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
-use vm::{ast, ClarityVersion};
+use crate::vm::ClarityVersion;
+use stacks_common::util::hash::hex_bytes;
 
-use vm::database::MemoryBackingStore;
+use crate::vm::database::MemoryBackingStore;
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -121,19 +124,6 @@ fn test_get_block_info_eval() {
     }
 }
 
-fn is_committed(v: &Value) -> bool {
-    match v {
-        Value::Response(ref data) => data.committed,
-        _ => false,
-    }
-}
-
-fn is_err_code(v: &Value, e: i128) -> bool {
-    match v {
-        Value::Response(ref data) => !data.committed && *data.data == Value::Int(e),
-        _ => false,
-    }
-}
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])

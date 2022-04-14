@@ -23,20 +23,20 @@ use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::boot_util::boot_code_id;
-use types::StacksEpochId;
-use vm::ast::ContractAST;
-use vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::database::{clarity_store::NullBackingStore, ClarityDatabase};
-use vm::errors::{Error, InterpreterResult};
-use vm::types::signatures::FunctionType::Fixed;
-use vm::types::signatures::{FunctionSignature, TupleTypeSignature};
-use vm::types::Value::UInt;
-use vm::types::{
+use crate::vm::ast::ContractAST;
+use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::database::{clarity_store::NullBackingStore, ClarityDatabase};
+use crate::vm::errors::{Error, InterpreterResult};
+use crate::vm::types::signatures::FunctionType::Fixed;
+use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
+use crate::vm::types::Value::UInt;
+use crate::vm::types::{
     FunctionArg, FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData,
     TypeSignature, NONE,
 };
-use vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use stacks_common::types::StacksEpochId;
 
 pub mod constants;
 pub mod cost_functions;

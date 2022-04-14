@@ -14,33 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
-use chainstate::stacks::index::ClarityMarfTrieId;
-use clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use util::hash::hex_bytes;
-use vm::ast;
-use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::costs::ExecutionCost;
-use vm::database::ClarityDatabase;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::representations::SymbolicExpression;
-use vm::test_util::*;
-use vm::types::{
+
+use stacks_common::util::hash::hex_bytes;
+use clarity::vm::ast;
+use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::test_util::*;
+use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
-use vm::clarity::TransactionConnection;
+use clarity::vm::clarity::TransactionConnection;
 
-use vm::tests::with_memory_environment;
+use crate::vm::tests::with_memory_environment;
 
 use clarity::vm::version::ClarityVersion;
 

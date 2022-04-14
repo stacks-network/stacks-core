@@ -17,28 +17,28 @@
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
-use vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use vm::contracts::Contract;
-use vm::costs::CostOverflowingMath;
-use vm::costs::ExecutionCost;
-use vm::database::structures::{
+use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::contracts::Contract;
+use crate::vm::costs::CostOverflowingMath;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::database::structures::{
     ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
     STXBalanceSnapshot, SimmedBlock,
 };
-use vm::database::ClarityBackingStore;
-use vm::database::RollbackWrapper;
-use vm::errors::{
+use crate::vm::database::ClarityBackingStore;
+use crate::vm::database::RollbackWrapper;
+use crate::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::representations::ClarityName;
-use vm::types::{
+use crate::vm::representations::ClarityName;
+use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
     QualifiedContractIdentifier, StandardPrincipalData, TupleData, TupleTypeSignature,
     TypeSignature, Value, NONE,
 };
+use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,

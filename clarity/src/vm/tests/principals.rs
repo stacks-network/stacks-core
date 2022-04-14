@@ -1,23 +1,23 @@
-use vm::execute_with_parameters;
-use vm::types::BufferLength;
-use vm::types::SequenceSubtype::{BufferType, StringType};
-use vm::types::StringSubtype::ASCII;
-use vm::types::TypeSignature::{PrincipalType, SequenceType};
-use vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
-use vm::ClarityVersion;
+use crate::vm::execute_with_parameters;
+use crate::vm::types::BufferLength;
+use crate::vm::types::SequenceSubtype::{BufferType, StringType};
+use crate::vm::types::StringSubtype::ASCII;
+use crate::vm::types::TypeSignature::{PrincipalType, SequenceType};
+use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
+use crate::vm::ClarityVersion;
 
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::StacksEpochId;
 use std::collections::HashMap;
-use vm::callables::{DefineType, DefinedFunction};
-use vm::costs::LimitedCostTracker;
-use vm::errors::{
+use crate::vm::callables::{DefineType, DefinedFunction};
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use vm::eval;
-use vm::execute;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
-use vm::{
+use crate::vm::eval;
+use crate::vm::execute;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::{
     CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
 };
 

@@ -1,7 +1,7 @@
 use stacks_common::types::StacksEpochId;
 use std::fmt;
 use std::str::FromStr;
-use vm::errors::{Error, RuntimeErrorType};
+use crate::vm::errors::{Error, RuntimeErrorType};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {

@@ -75,8 +75,8 @@ pub use stacks_common::address;
 pub mod boot_util {
     use crate::vm::representations::ContractName;
     use crate::vm::types::QualifiedContractIdentifier;
+    use stacks_common::types::chainstate::StacksAddress;
     use std::convert::TryFrom;
-    use types::chainstate::StacksAddress;
 
     pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
         let addr = boot_code_addr(mainnet);

@@ -3,31 +3,31 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use crate::util_lib::db::{DBConn, FromRow};
-use address::AddressHashMode;
-use chainstate::burn::BlockSnapshot;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::boot::{
+use crate::address::AddressHashMode;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
-use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo, MINER_REWARD_MATURITY};
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::*;
+use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo, MINER_REWARD_MATURITY};
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::*;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use clarity_vm::database::marf::MarfedKV;
-use core::*;
-use util::hash::to_hex;
-use util::hash::{Sha256Sum, Sha512Trunc256Sum};
-use vm::contexts::OwnedEnvironment;
-use vm::contracts::Contract;
-use vm::costs::CostOverflowingMath;
-use vm::database::*;
-use vm::errors::{
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::core::*;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::CostOverflowingMath;
+use clarity::vm::database::*;
+use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
-use vm::eval;
-use vm::representations::SymbolicExpression;
-use vm::types::Value::Response;
-use vm::types::{
+use clarity::vm::eval;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::types::Value::Response;
+use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
@@ -43,11 +43,11 @@ use crate::{
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     net::test::TestEventObserver,
 };
-use types::chainstate::{
+use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 
-use clarity_vm::clarity::Error as ClarityError;
+use crate::clarity_vm::clarity::Error as ClarityError;
 
 use super::test::*;
 

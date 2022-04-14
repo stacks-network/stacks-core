@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::hash::hex_bytes;
-use vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::database::ClarityDatabase;
-use vm::database::MemoryBackingStore;
-use vm::errors::Error;
-use vm::representations::SymbolicExpression;
-use vm::types::{PrincipalData, ResponseData, Value};
-use vm::StacksEpoch;
+use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
+use crate::vm::contracts::Contract;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::Error;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{PrincipalData, ResponseData, Value};
+use crate::vm::StacksEpoch;
+use stacks_common::util::hash::hex_bytes;
 
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
@@ -33,7 +33,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
-use vm::{
+use crate::vm::{
     analysis::AnalysisDatabase,
     clarity::{ClarityConnection, TransactionConnection},
     contexts::AssetMap,

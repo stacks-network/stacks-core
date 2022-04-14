@@ -19,19 +19,23 @@ use super::contracts::type_check;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use std::convert::TryInto;
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::type_checker::tests::mem_type_check;
-use vm::ast::parse;
-use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature};
-use vm::ClarityVersion;
 
 #[template]
 #[rstest]
 #[case(ClarityVersion::Clarity1)]
 #[case(ClarityVersion::Clarity2)]
 fn test_clarity_versions_assets(#[case] version: ClarityVersion) {}
+
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::ast::parse;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::{
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
+};
+use crate::vm::ClarityVersion;
+use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
@@ -131,6 +135,8 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion) {
 
 #[test]
 fn test_bad_asset_usage() {
+    use crate::vm::analysis::type_check;
+
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",
         "(ft-get-balance u1234 tx-sender)",

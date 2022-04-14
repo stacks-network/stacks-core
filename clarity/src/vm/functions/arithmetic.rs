@@ -14,18 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
+use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value};
 use std::convert::TryFrom;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value};
 
 use integer_sqrt::IntegerSquareRoot;
-use vm::costs::runtime_cost;
+use crate::vm::costs::runtime_cost;
 
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};
-use vm::version::ClarityVersion;
-use vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};
+use crate::vm::version::ClarityVersion;
+use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
 struct U128Ops();
 struct I128Ops();

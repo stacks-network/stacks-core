@@ -14,22 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::functions::tuples;
-
 use std::convert::{TryFrom, TryInto};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost, CostTracker};
-use vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
-use vm::errors::{
+use crate::vm::functions::tuples;
+
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
+use crate::vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
+use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::representations::SymbolicExpression;
-use vm::types::{
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{
     AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
     SequenceData, TypeSignature, Value,
 };
-use vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
 
 use crate::types::StacksEpochId;
 

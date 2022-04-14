@@ -19,17 +19,18 @@ use crate::vm::ClarityVersion;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use vm::analysis::type_checker::tests::mem_type_check;
-use vm::analysis::{
+
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::{
     arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
     arithmetic_checker::Error::*, ContractAnalysis,
 };
-use vm::ast::parse;
-use vm::costs::LimitedCostTracker;
-use vm::functions::define::DefineFunctions;
-use vm::functions::NativeFunctions;
-use vm::types::QualifiedContractIdentifier;
-use vm::variables::NativeVariables;
+use crate::vm::ast::parse;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::variables::NativeVariables;
 
 #[template]
 #[rstest]
@@ -54,8 +55,8 @@ fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error
     ArithmeticOnlyChecker::run(&analysis)
 }
 
-fn check_good(contract: &str) {
-    let analysis = mem_type_check(contract).unwrap().1;
+fn check_good(contract: &str, version: ClarityVersion) {
+    let analysis = mem_type_check(contract, version).unwrap().1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
@@ -129,7 +130,7 @@ fn test_variables_fail_arithmetic_check_clarity1() {
     ];
 
     for contract in tests.iter() {
-        check_good(contract);
+        check_good(contract, ClarityVersion::Clarity1);
     }
 }
 
@@ -413,6 +414,7 @@ fn test_functions_contract() {
     ];
 
     for contract in good_tests.iter() {
-        check_good(contract);
+        check_good(contract, ClarityVersion::Clarity1);
+        check_good(contract, ClarityVersion::Clarity2);
     }
 }

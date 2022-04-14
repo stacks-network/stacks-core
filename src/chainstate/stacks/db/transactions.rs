@@ -22,42 +22,42 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use chainstate::burn::db::sortdb::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
     Error as clarity_error,
 };
-use net::Error as net_error;
-use util::hash::to_hex;
-use util_lib::db::Error as db_error;
-use util_lib::db::{query_count, query_rows, DBConn};
+use crate::net::Error as net_error;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{query_count, query_rows, DBConn};
+use stacks_common::util::hash::to_hex;
 
-use util_lib::strings::{StacksString, VecDisplay};
-pub use vm::analysis::errors::CheckErrors;
-use vm::analysis::run_analysis;
-use vm::analysis::types::ContractAnalysis;
-use vm::ast::build_ast;
-use vm::clarity::TransactionConnection;
-use vm::contexts::{AssetMap, AssetMapEntry, Environment};
-use vm::contracts::Contract;
-use vm::costs::cost_functions;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::runtime_cost;
-use vm::costs::CostTracker;
-use vm::costs::ExecutionCost;
-use vm::database::ClarityDatabase;
-use vm::errors::Error as InterpreterError;
-use vm::representations::ClarityName;
-use vm::representations::ContractName;
-use vm::types::{
+use crate::util_lib::strings::{StacksString, VecDisplay};
+pub use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::analysis::types::ContractAnalysis;
+use clarity::vm::ast::build_ast;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::cost_functions;
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::runtime_cost;
+use clarity::vm::costs::CostTracker;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::representations::ClarityName;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
-use chainstate::stacks::StacksMicroblockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
 
 impl StacksTransactionReceipt {
@@ -1184,19 +1184,19 @@ impl StacksChainState {
 pub mod test {
     use rand::Rng;
 
-    use burnchains::Address;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::storage::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::*;
-    use chainstate::*;
-    use util::hash::*;
-    use vm::contracts::Contract;
-    use vm::representations::ClarityName;
-    use vm::representations::ContractName;
-    use vm::test_util::TEST_BURN_STATE_DB;
-    use vm::types::*;
+    use crate::burnchains::Address;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::index::storage::*;
+    use crate::chainstate::stacks::index::*;
+    use crate::chainstate::stacks::Error;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::*;
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::representations::ClarityName;
+    use clarity::vm::representations::ContractName;
+    use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::types::*;
+    use stacks_common::util::hash::*;
 
     use super::*;
 

@@ -23,13 +23,13 @@ use regex::Regex;
 use crate::codec::StacksMessageCodec;
 use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
 
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot::boot_code_id;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::ConsensusHash;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
-use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc};
 
 use crate::types::chainstate::BlockHeaderHash;
 
@@ -45,6 +45,10 @@ pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 pub const MAX_RETRY_DELAY: u64 = 600; // seconds
+/// This is the maximum number of pending attachments batches allowed
+///  in the synchronized channel before the coordinator will stall
+///  waiting for attachments to be processed.
+pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
 lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();

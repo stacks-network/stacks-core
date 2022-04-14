@@ -16,19 +16,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use vm::analysis::AnalysisDatabase;
-use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use vm::functions::NativeFunctions;
-use vm::representations::PreSymbolicExpressionType::{
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
+use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use vm::representations::{
+use crate::vm::representations::{
     ClarityName, PreSymbolicExpression, SymbolicExpression, TraitDefinition,
 };
-use vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
-use vm::ClarityVersion;
+use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}
 

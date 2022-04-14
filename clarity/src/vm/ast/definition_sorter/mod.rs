@@ -14,20 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-use vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use vm::ast::types::{BuildASTPass, ContractAST};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use vm::functions::define::DefineFunctions;
-use vm::functions::NativeFunctions;
-use vm::representations::PreSymbolicExpressionType::{
+use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::types::{BuildASTPass, ContractAST};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
+use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, FieldIdentifier, List, SugaredContractIdentifier, SugaredFieldIdentifier,
     TraitReference, Tuple,
 };
-use vm::representations::{ClarityName, PreSymbolicExpression};
-use vm::types::Value;
+use crate::vm::representations::{ClarityName, PreSymbolicExpression};
+use crate::vm::types::Value;
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 
 use crate::vm::ClarityVersion;
 

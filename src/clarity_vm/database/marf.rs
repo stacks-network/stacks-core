@@ -2,18 +2,20 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 
-use chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
-use chainstate::stacks::index::{Error, MarfTrieId};
-use core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use util_lib::db::IndexDBConn;
-use vm::analysis::AnalysisDatabase;
-use vm::database::{
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::{Error, MarfTrieId};
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::util_lib::db::IndexDBConn;
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
 };
-use vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType};
-use vm::types::QualifiedContractIdentifier;
+use clarity::vm::errors::{
+    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+};
+use clarity::vm::types::QualifiedContractIdentifier;
 
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
 use clarity::vm::database::SpecialCaseHandler;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -35,7 +37,11 @@ pub struct MarfedKV {
 }
 
 impl MarfedKV {
-    fn setup_db(path_str: &str, unconfirmed: bool) -> InterpreterResult<MARF<StacksBlockId>> {
+    fn setup_db(
+        path_str: &str,
+        unconfirmed: bool,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> InterpreterResult<MARF<StacksBlockId>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -47,11 +53,14 @@ impl MarfedKV {
             .ok_or_else(|| InterpreterError::BadFileName)?
             .to_string();
 
+        let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
+        marf_opts.external_blobs = true;
+
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
-            MARF::from_path_unconfirmed(&marf_path)
+            MARF::from_path_unconfirmed(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         } else {
-            MARF::from_path(&marf_path)
+            MARF::from_path(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         };
 
@@ -71,8 +80,12 @@ impl MarfedKV {
         Ok(marf)
     }
 
-    pub fn open(path_str: &str, miner_tip: Option<&StacksBlockId>) -> InterpreterResult<MarfedKV> {
-        let marf = MarfedKV::setup_db(path_str, false)?;
+    pub fn open(
+        path_str: &str,
+        miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> InterpreterResult<MarfedKV> {
+        let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -84,8 +97,9 @@ impl MarfedKV {
     pub fn open_unconfirmed(
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> InterpreterResult<MarfedKV> {
-        let marf = MarfedKV::setup_db(path_str, true)?;
+        let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(ref miner_tip) => *miner_tip.clone(),
             None => StacksBlockId::sentinel(),
@@ -97,8 +111,8 @@ impl MarfedKV {
     // used by benchmarks
     pub fn temporary() -> MarfedKV {
         use rand::Rng;
+        use stacks_common::util::hash::to_hex;
         use std::env;
-        use util::hash::to_hex;
 
         let mut path = env::temp_dir();
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
@@ -108,6 +122,7 @@ impl MarfedKV {
             path.to_str()
                 .expect("Inexplicably non-UTF-8 character in filename"),
             false,
+            None,
         )
         .unwrap();
 
@@ -221,14 +236,6 @@ impl MarfedKV {
 
     pub fn set_chain_tip(&mut self, bhh: &StacksBlockId) {
         self.chain_tip = bhh.clone();
-    }
-
-    // This function *should not* be called by
-    //   a smart-contract, rather it should only be used by the VM
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.marf
-            .get_root_hash_at(&self.chain_tip)
-            .expect("FATAL: Failed to read MARF root hash")
     }
 
     pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
@@ -497,12 +504,8 @@ impl<'a> WritableMarfStore<'a> {
         });
     }
 
-    // This function *should not* be called by
-    //   a smart-contract, rather it should only be used by the VM
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.marf
-            .get_root_hash_at(&self.chain_tip)
-            .expect("FATAL: Failed to read MARF root hash")
+    pub fn seal(&mut self) -> TrieHash {
+        self.marf.seal().expect("FATAL: failed to .seal() MARF")
     }
 }
 

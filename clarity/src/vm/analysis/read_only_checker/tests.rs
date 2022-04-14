@@ -14,12 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::type_checker::tests::{contracts::type_check, mem_type_check};
-use vm::analysis::{CheckError, CheckErrors};
-use vm::ast::parse;
-use vm::database::MemoryBackingStore;
-use vm::types::QualifiedContractIdentifier;
-use vm::ClarityVersion;
+#[cfg(test)]
+use rstest::rstest;
+#[cfg(test)]
+use rstest_reuse::{self, *};
+
+use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::{CheckError, CheckErrors};
+use crate::vm::ast::parse;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::ClarityVersion;
 
 #[template]
 #[rstest]
@@ -209,15 +215,15 @@ fn test_contract_call_read_only_violations(#[case] version: ClarityVersion) {
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
         db.test_insert_contract_hash(&contract_1_id);
-        type_check(&contract_1_id, &mut contract1, db, true)
+        type_check(&contract_1_id, &mut contract1, db, true, &version)
     })
     .unwrap();
 
     let err = db
-        .execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true))
+        .execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true, &version))
         .unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false))
+    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, false, &version))
         .unwrap();
 }

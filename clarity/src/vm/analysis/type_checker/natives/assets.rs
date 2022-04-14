@@ -15,16 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
+
 use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
-use std::convert::TryFrom;
-use vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost};
-use vm::representations::SymbolicExpression;
-use vm::types::{
-    BlockInfoProperty, BufferLength, SequenceSubtype, TupleTypeSignature, TypeSignature,
-    MAX_VALUE_SIZE,
-};
+use crate::vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{BlockInfoProperty, BufferLength, SequenceSubtype, TupleTypeSignature, TypeSignature, MAX_VALUE_SIZE};
 
 pub fn check_special_get_owner(
     checker: &mut TypeChecker,

@@ -55,9 +55,9 @@ use backtrace::Backtrace;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
-        eprintln!("Process abort due to thread panic: {}", panic_info);
+        error!("Process abort due to thread panic: {}", panic_info);
         let bt = Backtrace::new();
-        eprintln!("{:?}", &bt);
+        error!("Panic backtrace: {:?}", &bt);
 
         // force a core dump
         #[cfg(unix)]

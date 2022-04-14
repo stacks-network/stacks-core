@@ -13,6 +13,28 @@ This release will contain consensus-breaking changes.
 
 - Clarity function `stx-transfer?` now takes a 4th optional argument, which is a memo.
 
+## [2.05.0.2.0]
+
+### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+calculations, and yields a performance improvement of anywhere between 10x and
+200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+Clarity database). This improves read performance by a factor of 10x to 14x
+(#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
+- Sortition processing performance has been improved by about an order of
+  magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
+applying this change to an existing chainstate directory will take a few
+minutes when the node starts up.
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
+
 ## [2.05.0.1.0]
 
 ### Added 

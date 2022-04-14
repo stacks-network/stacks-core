@@ -27,23 +27,23 @@ use rusqlite::Connection;
 use rusqlite::Transaction;
 use sha2::Sha256;
 
-use burnchains::Address;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use core::SYSTEM_FORK_SET_VERSION;
-use util::hash::Hash32;
-use util::hash::Sha512Trunc256Sum;
-use util::hash::{to_hex, Hash160};
-use util::log;
-use util::uint::Uint256;
-use util::vrf::VRFProof;
-use util_lib::db::Error as db_error;
+use crate::burnchains::Address;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::Hash32;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::log;
+use stacks_common::util::uint::Uint256;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
-pub use types::chainstate::ConsensusHash;
+pub use stacks_common::types::chainstate::ConsensusHash;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -383,15 +383,15 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::stacks::index::TrieHashExtension;
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::util_lib::db::Error as db_error;
     use rusqlite::Connection;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, Hash160};
-    use util::log;
-    use util_lib::db::Error as db_error;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::log;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 

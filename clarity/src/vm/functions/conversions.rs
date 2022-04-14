@@ -15,17 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::runtime_cost;
-use vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
-use vm::representations::SymbolicExpression;
-use vm::types::SequenceSubtype::{BufferType, StringType};
-use vm::types::StringSubtype::ASCII;
-use vm::types::TypeSignature::SequenceType;
-use vm::types::{
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::runtime_cost;
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::SequenceSubtype::{BufferType, StringType};
+use crate::vm::types::StringSubtype::ASCII;
+use crate::vm::types::TypeSignature::SequenceType;
+use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use vm::{apply, eval, lookup_function, Environment, LocalContext};
+use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {

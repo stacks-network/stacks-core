@@ -18,31 +18,33 @@
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check as mem_run_analysis;
-use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
-use vm::analysis::types::ContractAnalysis;
-use vm::analysis::AnalysisDatabase;
-use vm::ast::errors::ParseErrors;
-use vm::ast::{build_ast, parse};
-use vm::contexts::OwnedEnvironment;
-use vm::representations::SymbolicExpression;
-use vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
-    QualifiedContractIdentifier, StringUTF8Length, TypeSignature, Value, BUFF_32, BUFF_64,
+
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::mem_type_check as mem_run_analysis;
+use crate::vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
+use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::{build_ast, parse};
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{
+    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    BUFF_32, BUFF_64
 };
 
-use vm::database::MemoryBackingStore;
-use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
-use vm::types::{SequenceSubtype::*, StringSubtype::*};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
+use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use vm::types::signatures::TypeSignature::OptionalType;
-use vm::types::Value::Sequence;
+use crate::vm::types::signatures::TypeSignature::OptionalType;
+use crate::vm::types::signatures::{StringUTF8Length, ListTypeData};
+use crate::vm::types::Value::Sequence;
 
 use super::CheckResult;
-use vm::ClarityVersion;
+use crate::vm::ClarityVersion;
 
 mod assets;
 pub mod contracts;
@@ -1661,6 +1663,8 @@ fn test_response_inference(#[case] version: ClarityVersion) {
 
 #[test]
 fn test_function_arg_names() {
+    use crate::vm::analysis::type_check;
+
     let functions = vec![
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))

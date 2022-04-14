@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::types::{
+    FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
+};
+use crate::vm::ClarityName;
 use std::collections::{BTreeMap, BTreeSet};
-use vm::analysis::types::ContractAnalysis;
-use vm::types::{FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature};
-use vm::ClarityName;
 
 use crate::vm::ClarityVersion;
 
@@ -173,8 +175,8 @@ impl ContractInterfaceAtomType {
     }
 
     pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
-        use vm::types::TypeSignature::*;
-        use vm::types::{SequenceSubtype::*, StringSubtype::*};
+        use crate::vm::types::TypeSignature::*;
+        use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
         match sig {
             NoType => ContractInterfaceAtomType::none,
