@@ -1010,6 +1010,13 @@ impl<
         )
     }
 
+    /// Thie function is provided the receipt of a processed block, and is only called if the
+    /// burnchain has designated an exit reward cycle contract.
+    /// It reads and process the exit reward cycle contract.
+    /// If the parent of the current block is in a lower reward cycle, then this function
+    /// either tallies votes, or, if there is an active proposal, the function read the
+    /// rejection state to determine if an exit reward cycle was successfully confirmed.
+    /// The function stores a BlockExitRewardCycleInfo object for each block.
     fn process_exit_reward_cycle(
         &mut self,
         block_receipt: &StacksEpochReceipt,
@@ -1017,16 +1024,20 @@ impl<
         canonical_sortition_tip: &SortitionId,
         exit_contract_id: &QualifiedContractIdentifier,
     ) -> Result<(), Error> {
-        let current_block_height = block_receipt.header.burn_header_height as u64;
+        let current_burn_block_height = block_receipt.header.burn_header_height as u64;
         let current_reward_cycle = self
             .burnchain
-            .block_height_to_reward_cycle(current_block_height)
+            .block_height_to_reward_cycle(current_burn_block_height)
             .ok_or_else(|| DBError::NotFoundError)?;
         let parent_reward_cycle = self
             .burnchain
             .block_height_to_reward_cycle(block_receipt.parent_burn_block_height as u64)
             .ok_or_else(|| DBError::NotFoundError)?;
 
+        // We process the previous reward cycle as soon as we transition to the next one.
+        // If the parent block is more than one reward cycle in the past, the processing
+        // continues as normal. The node processes the exit contract information in the that
+        // parent reward cycle.
         if parent_reward_cycle < current_reward_cycle {
             // set up data
             let mut current_exit_at_rc = None;

@@ -2544,20 +2544,17 @@ impl SortitionDB {
 
     fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         let tx = self.tx_begin()?;
-        let mut updated = false;
-        while !updated {
+        let mut cur_version = "1".to_string();
+        while cur_version != SORTITION_DB_VERSION {
             match SortitionDB::get_schema_version(&tx) {
                 Ok(Some(version)) => {
-                    let expected_version = SORTITION_DB_VERSION.to_string();
-                    if version == expected_version {
-                        return Ok(());
-                    }
+                    cur_version = version.clone();
+
                     if version == "1" {
                         SortitionDB::apply_schema_2(&tx, epochs)?;
                     } else if version == "2" {
                         SortitionDB::apply_schema_3(&tx)?;
-                        updated = true;
-                    } else {
+                    } else if version != SORTITION_DB_VERSION {
                         panic!("The schema version of the sortition DB is invalid.")
                     }
                 }

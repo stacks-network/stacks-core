@@ -464,6 +464,7 @@ impl Burnchain {
         })
     }
 
+    /// WARNING: BROKEN! DO NOT USE FUNCTION IN NEW PLACES.
     pub fn is_mainnet(&self) -> bool {
         self.network_id == NETWORK_ID_MAINNET
     }
