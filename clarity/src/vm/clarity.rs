@@ -10,7 +10,7 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, BuffData};
+use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::ClarityVersion;
 use crate::vm::{ast, SymbolicExpression, Value};
 use stacks_common::types::StacksEpochId;

@@ -124,7 +124,6 @@ fn test_get_block_info_eval() {
     }
 }
 
-
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
 }

@@ -22,6 +22,7 @@ use std::convert::TryFrom;
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
+use crate::vm::types::signatures::{BufferLength, SequenceSubtype};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -29,7 +30,6 @@ use crate::vm::types::{
     TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
     MAX_VALUE_SIZE,
 };
-use crate::vm::types::signatures::{SequenceSubtype, BufferLength};
 use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;

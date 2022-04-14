@@ -20,8 +20,8 @@ use crate::vm::contexts::{ContractContext, Environment, GlobalContext, LocalCont
 use crate::vm::errors::InterpreterResult as Result;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{apply, eval_all, Value};
 use crate::vm::version::ClarityVersion;
+use crate::vm::{apply, eval_all, Value};
 use std::convert::TryInto;
 
 #[derive(Serialize, Deserialize)]

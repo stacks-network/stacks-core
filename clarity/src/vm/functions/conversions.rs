@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
@@ -26,6 +25,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
+use std::convert::TryFrom;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EndianDirection {

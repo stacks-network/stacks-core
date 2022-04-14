@@ -1379,11 +1379,11 @@ impl fmt::Display for FunctionArg {
 mod test {
     use super::CheckErrors::*;
     use super::*;
+    use crate::vm::{execute, ClarityVersion};
     #[cfg(test)]
     use rstest::rstest;
     #[cfg(test)]
     use rstest_reuse::{self, *};
-    use crate::vm::{execute, ClarityVersion};
 
     #[template]
     #[rstest]

@@ -27,8 +27,8 @@ use rstest_reuse::{self, *};
 fn test_clarity_versions_assets(#[case] version: ClarityVersion) {}
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::analysis::type_checker::tests::mem_type_check;
+use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{

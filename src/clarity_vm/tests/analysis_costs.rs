@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
-use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use clarity::vm::clarity::TransactionConnection;
-use crate::clarity_vm::clarity::ClarityInstance;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
@@ -29,7 +29,9 @@ use clarity::vm::execute as vm_execute;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::tests::{execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB};
+use clarity::vm::tests::{
+    execute, symbols_from_values, with_memory_environment, UnitTestBurnStateDB,
+};
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };

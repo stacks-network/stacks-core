@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{CheckErrors, CheckResult};
@@ -22,7 +21,8 @@ use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-use crate::vm::{ClarityName, SymbolicExpression, ClarityVersion};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =
     "PANIC: Failed to deserialize bad database data in contract analysis.";

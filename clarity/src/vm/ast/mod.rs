@@ -94,7 +94,7 @@ mod test {
                 &QualifiedContractIdentifier::transient(),
                 &progn,
                 &mut cost_track,
-                *version
+                *version,
             )
             .unwrap()
             .expressions;

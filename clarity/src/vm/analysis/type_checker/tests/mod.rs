@@ -29,19 +29,19 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
-    BUFF_32, BUFF_64
+    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
+    TypeSignature, Value, BUFF_32, BUFF_64,
 };
 
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
+use crate::vm::types::signatures::TypeSignature::OptionalType;
+use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
+use crate::vm::types::Value::Sequence;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use crate::vm::types::signatures::TypeSignature::OptionalType;
-use crate::vm::types::signatures::{StringUTF8Length, ListTypeData};
-use crate::vm::types::Value::Sequence;
 
 use super::CheckResult;
 use crate::vm::ClarityVersion;

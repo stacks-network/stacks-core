@@ -23,7 +23,6 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
-use stacks_common::util::hash::hex_bytes;
 use clarity::vm::ast;
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
@@ -36,6 +35,7 @@ use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use stacks_common::util::hash::hex_bytes;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;

@@ -30,9 +30,11 @@ use crate::vm::tests::execute;
 use crate::vm::types::signatures::*;
 use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
 use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
-use crate::vm::{eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters};
-use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use crate::vm::ClarityVersion;
+use crate::vm::{
+    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
+};
+use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use stacks_common::address::c32;
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;

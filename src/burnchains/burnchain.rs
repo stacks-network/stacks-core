@@ -78,10 +78,10 @@ use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
+use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 

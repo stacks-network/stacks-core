@@ -58,9 +58,15 @@ fn test_dynamic_dispatch_by_defining_trait(#[case] version: ClarityVersion) {
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }
@@ -251,9 +257,15 @@ fn test_get_trait_reference_from_tuple(#[case] version: ClarityVersion) {
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -286,7 +298,7 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(#[case] version: ClarityVers
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )
         })
         .unwrap_err();
@@ -368,9 +380,15 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion) {
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -404,9 +422,15 @@ fn test_dynamic_dispatch_unknown_method(#[case] version: ClarityVersion) {
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -450,16 +474,22 @@ fn test_nested_literal_implicitly_compliant(#[case] version: ClarityVersion) {
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
         type_check(
             &nested_target_contract_id,
             &mut nested_target_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }
@@ -487,7 +517,7 @@ fn test_passing_trait_reference_instances(#[case] version: ClarityVersion) {
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )
     })
     .unwrap();
@@ -517,7 +547,7 @@ fn test_passing_nested_trait_reference_instances(#[case] version: ClarityVersion
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )
     })
     .unwrap();
@@ -652,16 +682,22 @@ fn test_dynamic_dispatch_importing_non_existant_trait(#[case] version: ClarityVe
                 &mut contract_defining_trait,
                 db,
                 true,
-                &version
+                &version,
             )?;
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -704,16 +740,22 @@ fn test_dynamic_dispatch_importing_trait(#[case] version: ClarityVersion) {
             &mut contract_defining_trait,
             db,
             true,
-            &version
+            &version,
         )?;
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }
@@ -774,29 +816,35 @@ fn test_dynamic_dispatch_including_nested_trait(#[case] version: ClarityVersion)
             &mut contract_defining_nested_trait,
             db,
             true,
-            &version
+            &version,
         )?;
         type_check(
             &contract_defining_trait_id,
             &mut contract_defining_trait,
             db,
             true,
-            &version
+            &version,
         )?;
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)?;
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )?;
         type_check(
             &target_nested_contract_id,
             &mut target_nested_contract,
             db,
             true,
-            &version
+            &version,
         )
     })
     .unwrap();
@@ -859,29 +907,35 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(#[case] version: ClarityVe
                 &mut contract_defining_nested_trait,
                 db,
                 true,
-                &version
+                &version,
             )?;
             type_check(
                 &contract_defining_trait_id,
                 &mut contract_defining_trait,
                 db,
                 true,
-                &version
+                &version,
             )?;
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)?;
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )?;
             type_check(
                 &target_nested_contract_id,
                 &mut target_nested_contract,
                 db,
                 true,
-                &version
+                &version,
             )
         })
         .unwrap_err();
@@ -920,9 +974,15 @@ fn test_dynamic_dispatch_mismatched_args(#[case] version: ClarityVersion) {
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -957,9 +1017,15 @@ fn test_dynamic_dispatch_mismatched_returns(#[case] version: ClarityVersion) {
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )
         })
         .unwrap_err();
     match err.err {
@@ -1109,15 +1175,21 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
             &mut contract_defining_trait,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)?;
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )?;
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )
     })
     .unwrap();
@@ -1162,15 +1234,21 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
                 &mut contract_defining_trait,
                 db,
                 true,
-                &version
+                &version,
             )?;
-            type_check(&target_contract_id, &mut target_contract, db, true, &version)?;
+            type_check(
+                &target_contract_id,
+                &mut target_contract,
+                db,
+                true,
+                &version,
+            )?;
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
                 db,
                 true,
-                &version
+                &version,
             )
         })
         .unwrap_err();
@@ -1338,9 +1416,15 @@ fn test_return_trait_with_contract_of(#[case] version: ClarityVersion) {
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }
@@ -1371,9 +1455,15 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(#[case] version: ClarityV
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }
@@ -1404,9 +1494,15 @@ fn test_return_trait_with_contract_of_wrapped_in_let(#[case] version: ClarityVer
             &mut dispatching_contract,
             db,
             true,
-            &version
+            &version,
         )?;
-        type_check(&target_contract_id, &mut target_contract, db, true, &version)
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )
     })
     .unwrap();
 }

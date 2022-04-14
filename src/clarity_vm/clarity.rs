@@ -20,9 +20,11 @@ use std::fmt;
 use std::thread;
 
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, POX_2_NAME
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, POX_2_NAME,
 };
 use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -43,18 +45,16 @@ use crate::core::StacksEpoch;
 use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
+use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::BurnchainHeaderHash;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::strings::StacksString;
 use crate::{
     burnchains::Burnchain,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
-use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
 use clarity::vm::analysis;
 use clarity::vm::analysis::AnalysisDatabase;
@@ -70,7 +70,8 @@ use clarity::vm::database::{
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    TypeSignature, Value,
 };
 use clarity::vm::ContractName;
 

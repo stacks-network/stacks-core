@@ -28,8 +28,8 @@ fn test_clarity_versions_defines(#[case] version: ClarityVersion) {}
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::{execute, ClarityVersion};
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
+use crate::vm::{execute, ClarityVersion};
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();

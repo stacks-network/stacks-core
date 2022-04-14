@@ -50,7 +50,7 @@ use crate::{
     core::StacksEpoch,
     core::StacksEpochId,
     types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed, SortitionId
+        BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
     },
 };
 
@@ -301,10 +301,7 @@ fn cost_2_contract_is_arithmetic_only() {
 }
 
 impl BurnStateDB for TestSimBurnStateDB {
-    fn get_burn_block_height(
-        &self,
-        sortition_id: &SortitionId,
-    ) -> Option<u32> {
+    fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         panic!("Not implemented in TestSim");
     }
 

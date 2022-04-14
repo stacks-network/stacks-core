@@ -19,6 +19,12 @@ use clarity::vm::costs::{CostTracker, MemoryConsumer};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
+use crate::chainstate::stacks::boot::POX_1_NAME;
+use crate::chainstate::stacks::boot::POX_2_NAME;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::Error as ChainstateError;
+use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::util_lib::boot::boot_code_id;
 use clarity::vm::contexts::{Environment, GlobalContext};
 use clarity::vm::errors::Error;
 use clarity::vm::errors::{
@@ -26,15 +32,9 @@ use clarity::vm::errors::{
 };
 use clarity::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use clarity::vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData, TypeSignature,
-    Value,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData,
+    TypeSignature, Value,
 };
-use crate::chainstate::stacks::boot::POX_1_NAME;
-use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::util_lib::boot::boot_code_id;
 
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 

@@ -16,11 +16,13 @@
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value};
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+};
 use std::convert::TryFrom;
 
-use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::runtime_cost;
+use integer_sqrt::IntegerSquareRoot;
 
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};

@@ -29,9 +29,9 @@ use crate::vm::analysis::type_checker::{
     TypeResult, TypingContext,
 };
 
-use crate::vm::ClarityVersion;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
     function_name: &str,
