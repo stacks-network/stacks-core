@@ -9,11 +9,14 @@ use stacks::burnchains::Error as BurnchainError;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use stacks::util::hash::to_hex;
+use crate::burnchains::l1_events::burnchain_from_config;
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
     let db_path_dir = random_sortdb_test_dir();
     let mut config = BurnchainConfig::default();
+    config.chain = "stacks_layer_1".to_string();
+    config.mode = "hyperchain".to_string();
     config.indexer_base_db_path = db_path_dir;
     config.first_burn_header_hash =
         "0101010101010101010101010101010101010101010101010101010101010101".to_string();
@@ -242,7 +245,8 @@ fn test_db_sync_with_indexer() {
             .0,
     );
 
-    let mut burnchain = Burnchain::new(&burnchain_dir, "mockstack", "hyperchain")
+
+    let mut burnchain = burnchain_from_config(&burnchain_dir, &config)
         .expect("Could not create Burnchain.");
     let (sortition_db, burn_db) = burnchain
         .connect_db(

@@ -187,21 +187,21 @@ impl L1BlockDownloader {
     }
 }
 
-/// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
+/// Build a `Burnchain` from values in `config`. Call `Burnchain::populate_with_default_values`, which sets defaults
 /// and then override the "first block" information using `config`.
-pub fn burnchain_from_config(config: &Config) -> Result<Burnchain, BurnchainError> {
-    let mut burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
+pub fn burnchain_from_config(burn_db_path:&String, config: &BurnchainConfig) -> Result<Burnchain, BurnchainError> {
+    let mut burnchain = Burnchain::populate_with_default_values(
+        &burn_db_path,
+        &config.chain,
+        &config.mode,
     )?;
     burnchain.first_block_hash =
-        BurnchainHeaderHash::from_hex(&config.burnchain.first_burn_header_hash).expect(&format!(
+        BurnchainHeaderHash::from_hex(&config.first_burn_header_hash).expect(&format!(
             "Could not parse BurnchainHeaderHash: {}",
-            &config.burnchain.first_burn_header_hash
+            &config.first_burn_header_hash
         ));
-    burnchain.first_block_height = config.burnchain.first_burn_header_height;
-    burnchain.first_block_timestamp = config.burnchain.first_burn_header_timestamp as u32;
+    burnchain.first_block_height = config.first_burn_header_height;
+    burnchain.first_block_timestamp = config.first_burn_header_timestamp as u32;
 
     Ok(burnchain)
 }
@@ -209,7 +209,7 @@ pub fn burnchain_from_config(config: &Config) -> Result<Burnchain, BurnchainErro
 impl L1Controller {
     pub fn new(config: Config, coordinator: CoordinatorChannels) -> Result<L1Controller, Error> {
         let indexer = DBBurnchainIndexer::new(config.burnchain.clone(), true)?;
-        let burnchain = burnchain_from_config(&config)?;
+        let burnchain = burnchain_from_config(&config.get_burn_db_path(), &config.burnchain)?;
         Ok(L1Controller {
             burnchain,
             config,

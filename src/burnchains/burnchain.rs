@@ -182,7 +182,8 @@ impl BurnchainBlock {
 }
 
 impl Burnchain {
-    pub fn new(
+    /// Creates a burnchain using default values chosen based on chain and network.
+    pub fn populate_with_default_values(
         working_dir: &str,
         chain_name: &str,
         network_name: &str,
@@ -250,7 +251,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(
+        let ret = Burnchain::populate_with_default_values(
             working_dir,
             &"mockstack".to_string(),
             &"hyperchain".to_string(),
@@ -264,7 +265,7 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        let mut ret = Burnchain::new(
+        let mut ret = Burnchain::populate_with_default_values(
             &"/tmp/stacks-node-tests/unit-tests".to_string(),
             &"mockstack".to_string(),
             &"hyperchain".to_string(),
@@ -777,24 +778,34 @@ impl Burnchain {
             })
             .unwrap();
 
+        let first_block_hash = self.first_block_hash.clone();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
                 .spawn(move || {
                     let mut last_processed = burn_chain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
-                        debug!("Try recv next parsed block");
+                        debug!("Try recv next parsed block, {:?}", &burnchain_block);
 
                         let block_height = burnchain_block.block_height();
 
                         let insert_start = get_epoch_time_ms();
-                        last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)
-                                .map_err(|e| {
-                                    warn!("Error processing block {:?}", e);
-                                    e
-                                })
-                                .unwrap();
+                        // The first block is added to Burnchain as a special case.
+                        if burnchain_block.block_hash() != first_block_hash {
+                            last_processed = Burnchain::process_block(
+                                &myself,
+                                &mut burnchain_db,
+                                &burnchain_block,
+                            )
+                            .map_err(|e| {
+                                warn!(
+                                    "Error processing block {:?}, error: {:?}, first_hash {:?}",
+                                    &burnchain_block, e, &first_block_hash
+                                );
+                                e
+                            })
+                            .unwrap();
+                        }
                         if !coord_comm.announce_new_burn_block() {
                             warn!("Coordinator communication failed");
                             return Err(burnchain_error::CoordinatorClosed);
