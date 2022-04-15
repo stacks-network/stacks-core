@@ -2240,7 +2240,8 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        let stable_block_height = if chain_tip.block_height < burnchain.stable_confirmations as u64 {
+        let stable_block_height = if chain_tip.block_height < burnchain.stable_confirmations as u64
+        {
             burnchain.first_block_height
         } else {
             chain_tip.block_height - (burnchain.stable_confirmations as u64)
