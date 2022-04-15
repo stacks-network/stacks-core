@@ -7,6 +7,7 @@ use std::time::Instant;
 use reqwest::Error as ReqwestError;
 use stacks::burnchains;
 use stacks::burnchains::events::NewBlock;
+use stacks::burnchains::indexer::BurnchainChannel;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -22,8 +23,13 @@ pub mod mock_events;
 /// This module is for production, it's driven by the L1 chain.
 pub mod l1_events;
 
+pub mod db_indexer;
+
+mod tests;
+
 #[derive(Debug)]
 pub enum Error {
+    UnsupportedBurnchain(String),
     CoordinatorClosed,
     IndexerError(burnchains::Error),
     RPCError(String),
@@ -33,8 +39,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CoordinatorClosed => write!(f, "ControllerError(ChainsCoordinator closed)"),
-            Error::IndexerError(ref e) => write!(f, "ControllerError(Indexer Error: {:?})", e),
+            Error::UnsupportedBurnchain(ref chain_name) => {
+                write!(f, "Burnchain is not supported: {:?}", chain_name)
+            }
+            Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
+            Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
             Error::RPCError(ref e) => write!(f, "ControllerError(RPCError: {})", e),
             Error::BadCommitment => write!(f, "ControllerError(BadCommitment))"),
         }
@@ -53,27 +62,6 @@ impl From<burnchains::Error> for Error {
     }
 }
 
-pub trait BurnchainChannel: Send + Sync {
-    /// Push a block into the channel.
-    fn push_block(&self, new_block: NewBlock);
-
-    /// Get a single block according to `fetch_height`.
-    /// TODO: What is `fetch_height` relative to?
-    fn get_block(&self, fetch_height: u64) -> Option<NewBlock>;
-
-    /// Fill `into` according to the relative heights.
-    /// If `end_block` is None, fill until the heighest block.
-    fn fill_blocks(
-        &self,
-        into: &mut Vec<NewBlock>,
-        start_block: u64,
-        end_block: Option<u64>,
-    ) -> Result<(), stacks::burnchains::Error>;
-
-    /// Get the height of the latest block.
-    /// TODO: Is this right?
-    fn highest_block(&self) -> u64;
-}
 /// The `BurnchainController` manages overall relations with the underlying burnchain.
 /// In the case of a hyper-chain, the burnchain is the Stacks L1 chain.
 pub trait BurnchainController {

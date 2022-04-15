@@ -92,11 +92,14 @@ fn make_mock_byte_string(from: u64) -> [u8; 32] {
 }
 
 impl BurnchainChannel for MockChannel {
-    fn push_block(&self, new_block: NewBlock) {
+    fn push_block(&self, new_block: NewBlock) -> Result<(), stacks::burnchains::Error> {
         let mut blocks = self.blocks.lock().unwrap();
-        blocks.push(new_block)
+        blocks.push(new_block);
+        Ok(())
     }
+}
 
+impl MockChannel {
     fn get_block(&self, fetch_height: u64) -> Option<NewBlock> {
         let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
         let blocks = self.blocks.lock().unwrap();
@@ -484,13 +487,14 @@ pub struct MockParser {
     watch_contract: QualifiedContractIdentifier,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MockHeader {
     pub height: u64,
     pub index_hash: StacksBlockId,
     pub parent_index_hash: StacksBlockId,
+    pub time_stamp: u64,
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BlockIPC(pub NewBlock);
 
 impl BurnHeaderIPC for MockHeader {
@@ -507,6 +511,12 @@ impl BurnHeaderIPC for MockHeader {
     fn header_hash(&self) -> [u8; 32] {
         self.index_hash.0.clone()
     }
+    fn parent_header_hash(&self) -> [u8; 32] {
+        self.parent_index_hash.0.clone()
+    }
+    fn time_stamp(&self) -> u64 {
+        self.time_stamp
+    }
 }
 
 impl From<&NewBlock> for MockHeader {
@@ -515,6 +525,7 @@ impl From<&NewBlock> for MockHeader {
             index_hash: b.index_block_hash.clone(),
             parent_index_hash: b.parent_index_block_hash.clone(),
             height: b.block_height,
+            time_stamp: b.burn_block_time,
         }
     }
 }
@@ -575,8 +586,12 @@ impl BurnchainIndexer for MockIndexer {
     type B = BlockIPC;
     type D = MockBlockDownloader;
 
-    fn connect(&mut self) -> Result<(), BurnchainError> {
+    fn connect(&mut self, _readwrite: bool) -> Result<(), BurnchainError> {
         Ok(())
+    }
+
+    fn get_channel(&self) -> Arc<(dyn BurnchainChannel + 'static)> {
+        todo!()
     }
 
     fn get_first_block_height(&self) -> u64 {

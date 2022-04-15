@@ -1,10 +1,12 @@
 use std::convert::TryInto;
+use std::fmt::Display;
 use std::fmt::Formatter;
 
 use burnchains::Txid;
 use serde::de::Error as DeserError;
 use serde::Deserialize;
 use serde::Deserializer;
+use serde::Serializer;
 use util::HexError;
 use vm::types::Value as ClarityValue;
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
@@ -18,10 +20,11 @@ use super::StacksHyperBlock;
 use super::StacksHyperOp;
 use super::StacksHyperOpType;
 use clarity::vm::types::PrincipalData;
+use std::fmt::Write;
 
 /// Parsing struct for the transaction event types of the
 /// `stacks-node` events API
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Serialize)]
 pub enum TxEventType {
     ContractEvent,
     Other,
@@ -29,24 +32,31 @@ pub enum TxEventType {
 
 /// Parsing struct for the contract_event field in transaction events
 /// of the `stacks-node` events API
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ContractEvent {
+    #[serde(serialize_with = "ser_contract_identifier")]
     #[serde(deserialize_with = "deser_contract_identifier")]
     pub contract_identifier: QualifiedContractIdentifier,
     pub topic: String,
-    #[serde(rename = "raw_value", deserialize_with = "deser_clarity_value")]
+    #[serde(rename = "raw_value", serialize_with = "ser_clarity_value")]
+    #[serde(deserialize_with = "deser_clarity_value")]
     pub value: ClarityValue,
 }
 
 /// Parsing struct for the transaction events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NewBlockTxEvent {
+    #[serde(serialize_with = "ser_as_hexstr")]
     #[serde(deserialize_with = "deser_txid")]
     pub txid: Txid,
     pub event_index: usize,
     pub committed: bool,
-    #[serde(rename = "type", deserialize_with = "deser_tx_event_type")]
+    #[serde(
+        rename = "type",
+        serialize_with = "ser_tx_event_type",
+        deserialize_with = "deser_tx_event_type"
+    )]
     pub event_type: TxEventType,
     #[serde(default)]
     pub contract_event: Option<ContractEvent>,
@@ -54,12 +64,14 @@ pub struct NewBlockTxEvent {
 
 /// Parsing struct for the new block events of the `stacks-node`
 /// events API
-#[derive(Deserialize, Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NewBlock {
     pub block_height: u64,
     pub burn_block_time: u64,
+    #[serde(serialize_with = "ser_as_hexstr")]
     #[serde(deserialize_with = "deser_stacks_block_id")]
     pub index_block_hash: StacksBlockId,
+    #[serde(serialize_with = "ser_as_hexstr")]
     #[serde(deserialize_with = "deser_stacks_block_id")]
     pub parent_index_block_hash: StacksBlockId,
     pub events: Vec<NewBlockTxEvent>,
@@ -89,6 +101,28 @@ where
     ClarityValue::try_deserialize_hex_untyped(&str_val).map_err(DeserError::custom)
 }
 
+/// Convert a slice of u8 to a hex string. TODO: use general fn.
+pub fn to_hex(s: &[u8]) -> String {
+    let mut r = String::with_capacity(s.len() * 2);
+    for b in s.iter() {
+        write!(r, "{:02x}", b).unwrap();
+    }
+    return r;
+}
+
+/// Serialize a clarity value to work with `deser_clarity_value`.
+fn ser_clarity_value<S>(value: &ClarityValue, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut byte_serialization = Vec::new();
+    value
+        .serialize_write(&mut byte_serialization)
+        .expect("IOError filling byte buffer.");
+    let string_value = to_hex(byte_serialization.as_slice());
+    s.serialize_str(&string_value)
+}
+
 /// Method for deserializing a contract identifier from `contract_identifier` fields in
 /// transaction events.
 fn deser_contract_identifier<'de, D>(deser: D) -> Result<QualifiedContractIdentifier, D::Error>
@@ -97,6 +131,17 @@ where
 {
     let str_val = String::deserialize(deser)?;
     QualifiedContractIdentifier::parse(&str_val).map_err(DeserError::custom)
+}
+
+/// Serialize a contract to work with `deser_contract_identifier`.
+fn ser_contract_identifier<S>(
+    contract_id: &QualifiedContractIdentifier,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    s.serialize_str(&contract_id.to_string())
 }
 
 /// Method for deserializing a `Txid` from transaction events.
@@ -123,6 +168,14 @@ where
     }
 }
 
+// Only works if Display implementation uses a hex string, which Txid and StacksBlockId do
+fn ser_as_hexstr<T: Display, S: Serializer>(input: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&format!("0x{}", &input.to_string()))
+}
+
 /// Method for deserializing a `TxEventType` from transaction events.
 /// This module is currently only interested in `contract_event` types,
 /// so all other events are parsed as `Other`.
@@ -135,6 +188,18 @@ where
         "contract_event" => Ok(TxEventType::ContractEvent),
         _ => Ok(TxEventType::Other),
     }
+}
+
+/// Counter-part for deser_tx_event_type.
+fn ser_tx_event_type<S: Serializer>(input: &TxEventType, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let as_str = match input {
+        TxEventType::ContractEvent => "contract_event",
+        TxEventType::Other => "other",
+    };
+    serializer.serialize_str(as_str)
 }
 
 impl StacksHyperOp {

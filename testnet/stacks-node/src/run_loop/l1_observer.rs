@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::burnchains::BurnchainChannel;
 use stacks::burnchains::events::NewBlock;
+use stacks::burnchains::indexer::BurnchainChannel;
 use std::thread;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
@@ -27,7 +27,12 @@ async fn handle_new_block(
     let parsed_block: NewBlock =
         serde_json::from_str(&block.to_string()).expect("Failed to parse events JSON");
     info!("handle_new_block receives new block {:?}", &parsed_block);
-    channel.push_block(parsed_block);
+    match channel.push_block(parsed_block) {
+        Ok(_) => {}
+        // TODO: It might be possible to return an error from this method for more graceful
+        // failure.
+        Err(e) => panic!("error {:?}", &e),
+    };
     Ok(warp::http::StatusCode::OK)
 }
 

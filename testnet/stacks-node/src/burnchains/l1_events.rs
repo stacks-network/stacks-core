@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -32,9 +33,11 @@ use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 
+use super::db_indexer::DBBurnchainIndexer;
 use super::mock_events::BlockIPC;
 use super::{BurnchainChannel, Error};
 use crate::burnchains::mock_events::MockHeader;
+use crate::config::BurnchainConfig;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
@@ -45,9 +48,9 @@ pub struct L1Channel {
 }
 
 pub struct L1Controller {
-    burnchain: Option<Burnchain>,
+    burnchain: Burnchain,
     config: Config,
-    indexer: L1Indexer,
+    indexer: DBBurnchainIndexer,
 
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
@@ -113,11 +116,14 @@ fn make_mock_byte_string_for_first_l1_block() -> [u8; 32] {
 }
 
 impl BurnchainChannel for L1Channel {
-    fn push_block(&self, new_block: NewBlock) {
+    fn push_block(&self, new_block: NewBlock) -> Result<(), stacks::burnchains::Error> {
         let mut blocks = self.blocks.lock().unwrap();
-        blocks.push(new_block)
+        blocks.push(new_block);
+        Ok(())
     }
+}
 
+impl L1Channel {
     fn get_block(&self, fetch_height: u64) -> Option<NewBlock> {
         let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
         let blocks = self.blocks.lock().unwrap();
@@ -181,12 +187,31 @@ impl L1BlockDownloader {
     }
 }
 
+/// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
+/// and then override the "first block" information using `config`.
+pub fn burnchain_from_config(config: &Config) -> Result<Burnchain, BurnchainError> {
+    let mut burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )?;
+    burnchain.first_block_hash =
+        BurnchainHeaderHash::from_hex(&config.burnchain.first_burn_header_hash).expect(&format!(
+            "Could not parse BurnchainHeaderHash: {}",
+            &config.burnchain.first_burn_header_hash
+        ));
+    burnchain.first_block_height = config.burnchain.first_burn_header_height;
+    burnchain.first_block_timestamp = config.burnchain.first_burn_header_timestamp as u32;
+
+    Ok(burnchain)
+}
+
 impl L1Controller {
-    pub fn new(config: Config, coordinator: CoordinatorChannels) -> L1Controller {
-        let contract_identifier = config.burnchain.contract_identifier.clone();
-        let indexer = L1Indexer::new(contract_identifier.clone());
-        L1Controller {
-            burnchain: None,
+    pub fn new(config: Config, coordinator: CoordinatorChannels) -> Result<L1Controller, Error> {
+        let indexer = DBBurnchainIndexer::new(config.burnchain.clone(), true)?;
+        let burnchain = burnchain_from_config(&config)?;
+        Ok(L1Controller {
+            burnchain,
             config,
             indexer,
             db: None,
@@ -194,7 +219,7 @@ impl L1Controller {
             should_keep_running: Some(Arc::new(AtomicBool::new(true))),
             coordinator,
             chain_tip: None,
-        }
+        })
     }
 
     fn receive_blocks(
@@ -430,7 +455,7 @@ impl BurnchainController for L1Controller {
         )
     }
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
-        STATIC_EVENTS_STREAM.clone()
+        self.indexer.get_channel()
     }
 
     fn submit_operation(
@@ -497,6 +522,8 @@ impl BurnchainController for L1Controller {
 
     fn connect_dbs(&mut self) -> Result<(), Error> {
         let burnchain = self.get_burnchain();
+
+        self.indexer.connect(true)?;
         burnchain.connect_db(
             &self.indexer,
             true,
@@ -511,16 +538,7 @@ impl BurnchainController for L1Controller {
     }
 
     fn get_burnchain(&self) -> Burnchain {
-        match &self.burnchain {
-            Some(burnchain) => burnchain.clone(),
-            None => {
-                let working_dir = self.config.get_burn_db_path();
-                Burnchain::new(&working_dir, "mockstack", "hyperchain").unwrap_or_else(|e| {
-                    error!("Failed to instantiate burnchain: {}", e);
-                    panic!()
-                })
-            }
-        }
+        self.burnchain.clone()
     }
 
     fn wait_for_sortitions(&mut self, height_to_wait: Option<u64>) -> Result<BurnchainTip, Error> {
@@ -614,8 +632,12 @@ impl BurnchainIndexer for L1Indexer {
     type B = BlockIPC;
     type D = L1BlockDownloader;
 
-    fn connect(&mut self) -> Result<(), BurnchainError> {
+    fn connect(&mut self, _readwrite: bool) -> Result<(), BurnchainError> {
         Ok(())
+    }
+
+    fn get_channel(&self) -> Arc<(dyn BurnchainChannel + 'static)> {
+        todo!()
     }
 
     fn get_first_block_height(&self) -> u64 {
