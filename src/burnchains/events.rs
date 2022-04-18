@@ -115,10 +115,7 @@ fn ser_clarity_value<S>(value: &ClarityValue, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let mut byte_serialization = Vec::new();
-    value
-        .serialize_write(&mut byte_serialization)
-        .expect("IOError filling byte buffer.");
+    let byte_serialization = value.serialize_to_vec();
     let string_value = to_hex(byte_serialization.as_slice());
     s.serialize_str(&string_value)
 }
