@@ -170,7 +170,7 @@ fn ser_as_hexstr<T: Display, S: Serializer>(input: &T, serializer: S) -> Result<
 where
     S: Serializer,
 {
-    serializer.serialize_str(&format!("0x{}", &input.to_string()))
+    serializer.serialize_str(&format!("0x{}", &input))
 }
 
 /// Method for deserializing a `TxEventType` from transaction events.
