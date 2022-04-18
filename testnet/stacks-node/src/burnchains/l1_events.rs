@@ -187,14 +187,14 @@ impl L1BlockDownloader {
     }
 }
 
-/// Build a `Burnchain` from values in `config`. Call `Burnchain::populate_with_default_values`, which sets defaults
+/// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
 /// and then override the "first block" information using `config`.
 pub fn burnchain_from_config(
     burn_db_path: &String,
     config: &BurnchainConfig,
 ) -> Result<Burnchain, BurnchainError> {
     let mut burnchain =
-        Burnchain::populate_with_default_values(&burn_db_path, &config.chain, &config.mode)?;
+        Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
     burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&config.first_burn_header_hash)
         .expect(&format!(
             "Could not parse BurnchainHeaderHash: {}",

@@ -183,7 +183,7 @@ impl BurnchainBlock {
 
 impl Burnchain {
     /// Creates a burnchain using default values chosen based on chain and network.
-    pub fn populate_with_default_values(
+    pub fn new(
         working_dir: &str,
         chain_name: &str,
         network_name: &str,
@@ -251,7 +251,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::populate_with_default_values(
+        let ret = Burnchain::new(
             working_dir,
             &"mockstack".to_string(),
             &"hyperchain".to_string(),
@@ -265,7 +265,7 @@ impl Burnchain {
         first_block_height: u64,
         first_block_hash: &BurnchainHeaderHash,
     ) -> Burnchain {
-        let mut ret = Burnchain::populate_with_default_values(
+        let mut ret = Burnchain::new(
             &"/tmp/stacks-node-tests/unit-tests".to_string(),
             &"mockstack".to_string(),
             &"hyperchain".to_string(),
