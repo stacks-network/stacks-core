@@ -11,6 +11,7 @@ use util::HexError;
 use vm::types::Value as ClarityValue;
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
+use util::hash::to_hex;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::vm::types::CharType;
@@ -99,15 +100,6 @@ where
 {
     let str_val = String::deserialize(deser)?;
     ClarityValue::try_deserialize_hex_untyped(&str_val).map_err(DeserError::custom)
-}
-
-/// Convert a slice of u8 to a hex string. TODO: use general fn.
-pub fn to_hex(s: &[u8]) -> String {
-    let mut r = String::with_capacity(s.len() * 2);
-    for b in s.iter() {
-        write!(r, "{:02x}", b).unwrap();
-    }
-    return r;
 }
 
 /// Serialize a clarity value to work with `deser_clarity_value`.
