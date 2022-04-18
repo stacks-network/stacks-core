@@ -799,8 +799,10 @@ impl Burnchain {
                             )
                             .map_err(|e| {
                                 warn!(
-                                    "Error processing block {:?}, error: {:?}, first_hash {:?}",
-                                    &burnchain_block, e, &first_block_hash
+                                    "Error processing block";
+                                    "burnchain_block" => ?burnchain_block,
+                                    "error" => ?e,
+                                    "first_hash" => ?first_block_hash
                                 );
                                 e
                             })
