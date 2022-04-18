@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.2.0]
+
 WARNING: Please be aware that using this node on chainstate prior to this release will cause
 the node to spend up to 30 minutes migrating the data to a new schema.
-
-## [Unreleased]
 
 ### Changed
 - The MARF implementation will now defer calculating the root hash of a new trie
