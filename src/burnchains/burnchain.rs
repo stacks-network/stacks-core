@@ -785,7 +785,7 @@ impl Burnchain {
                 .spawn(move || {
                     let mut last_processed = burn_chain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
-                        debug!("Try recv next parsed block, {:?}", &burnchain_block);
+                        debug!("Try recv next parsed block"; "burnchain_block" => ?burnchain_block);
 
                         let block_height = burnchain_block.block_height();
 
@@ -799,8 +799,10 @@ impl Burnchain {
                             )
                             .map_err(|e| {
                                 warn!(
-                                    "Error processing block {:?}, error: {:?}, first_hash {:?}",
-                                    &burnchain_block, e, &first_block_hash
+                                    "Error processing block";
+                                    "burnchain_block" => ?burnchain_block,
+                                    "error" => ?e,
+                                    "first_hash" => ?first_block_hash
                                 );
                                 e
                             })
