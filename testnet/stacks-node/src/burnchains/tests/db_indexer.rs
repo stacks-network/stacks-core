@@ -367,6 +367,135 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
         )
         .expect("Call to `sync_with_indexer` should succeed.");
 
+    // The block "4" is the highest block. So we tracked the fork.
+    assert_eq!(3, result.block_height);
+    assert_eq!(
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        result.block_hash.to_string()
+    );
+}
+
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
+/// a fork, and just call sync_with_indexer once at the end.
+#[test]
+fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
+    let mut indexer = make_test_indexer();
+    let config = make_test_config();
+    let burnchain_dir = random_sortdb_test_dir();
+
+    let first_burn_header_hash = BurnchainHeaderHash(
+        StacksBlockId::from_hex(&config.first_burn_header_hash)
+            .expect("Could not parse `first_burn_header_hash`.")
+            .0,
+    );
+
+    let mut burnchain =
+        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
+    let (sortition_db, burn_db) = burnchain
+        .connect_db(
+            &indexer,
+            true,
+            first_burn_header_hash,
+            config.first_burn_header_timestamp,
+        )
+        .expect("Could not connect burnchain.");
+
+    let (_receivers, channels) = CoordinatorCommunication::instantiate();
+
+    let target_block_height_opt = Some(10);
+
+    let input_channel = indexer.get_channel();
+
+    input_channel
+        .push_block(make_test_new_block(
+            1,
+            1 as u8,
+            0 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    let result = burnchain.sync_with_indexer(
+        &mut indexer,
+        channels.clone(),
+        target_block_height_opt,
+        None,
+        None,
+    );
+
+    // TODO: Is this right?
+    assert_eq!("Try synchronizing again", result.unwrap_err().to_string());
+
+    input_channel
+        .push_block(make_test_new_block(
+            2,
+            3,
+            1 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    let result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("Call to `sync_with_indexer` should succeed.");
+
+    // So far chain tip is block 3.
+    assert_eq!(2, result.block_height);
+    assert_eq!(
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        result.block_hash.to_string()
+    );
+    input_channel
+        .push_block(make_test_new_block(
+            2,
+            2,
+            1 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    let result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("Call to `sync_with_indexer` should succeed.");
+
+    // Chain tip is still node 3, which beats 2 by lexicographic sort.
+    assert_eq!(2, result.block_height);
+    assert_eq!(
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        result.block_hash.to_string()
+    );
+    input_channel
+        .push_block(make_test_new_block(
+            3,
+            4,
+            2 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    let result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("Call to `sync_with_indexer` should succeed.");
+
+    // Chain tip is 4, which has higher height than 3, and constitutes reorg.
     assert_eq!(3, result.block_height);
     assert_eq!(
         "0404040404040404040404040404040404040404040404040404040404040404",
