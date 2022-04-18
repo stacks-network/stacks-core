@@ -376,7 +376,7 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
 }
 
 /// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
-/// a fork, and just call sync_with_indexer once at the end.
+/// a fork, and call `sync_with_indexer` interspersed with the adding of blocks.
 #[test]
 fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
     let mut indexer = make_test_indexer();
