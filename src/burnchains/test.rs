@@ -990,32 +990,45 @@ fn create_stacks_events_failures_block_commit() {
 fn create_stacks_events_failures_deposit_ft() {
     let inputs = [
         (
-            r#"{ event: "deposit-ft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft",
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft"   }"#,
             "No 'ft-amount' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft"  }"#,
             "No 'ft-name' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, hc-function-name: "hyperchain-deposit-simple-ft" }"#,
             "No 'sender' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, ft-name: "simple-ft",
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-deposit-simple-ft"  }"#,
             "No 'l1-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H, ft-name: "simple-ft",
+            hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft"  }"#,
             "Expected 'l1-contract-id' to be a contract principal",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft"  }"#,
             "No 'hc-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, sender: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-deposit-simple-ft"  }"#,
             "Expected 'hc-contract-id' to be a contract principal",
+        ),
+        (
+            r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            "No 'hc-function-name' field in Clarity tuple",
         ),
     ];
 
@@ -1037,28 +1050,41 @@ fn create_stacks_events_failures_deposit_ft() {
 fn create_stacks_events_failures_deposit_nft() {
     let inputs = [
         (
-            r#"{ event: "deposit-nft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-nft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-deposit-simple-nft"  }"#,
             "No 'nft-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft }"#,
+            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, hc-function-name: "hyperchain-deposit-simple-nft" }"#,
             "No 'sender' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-nft", nft-id: u100, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-nft", nft-id: u100, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-nft"  }"#,
             "No 'l1-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H,
+            hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-deposit-simple-nft"  }"#,
             "Expected 'l1-contract-id' to be a contract principal",
         ),
         (
-            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-nft"  }"#,
             "No 'hc-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, sender: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, sender: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-deposit-simple-nft"  }"#,
             "Expected 'hc-contract-id' to be a contract principal",
+        ),
+        (
+            r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,
+            "No 'hc-function-name' field in Clarity tuple",
         ),
     ];
 
@@ -1080,32 +1106,50 @@ fn create_stacks_events_failures_deposit_nft() {
 fn create_stacks_events_failures_withdraw_ft() {
     let inputs = [
         (
-            r#"{ event: "withdraw-ft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "No 'ft-amount' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "No 'ft-name' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            hc-function-name: "hyperchain-withdraw-simple-ft" }"#,
             "No 'recipient' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "No 'l1-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H,
+            ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "Expected 'l1-contract-id' to be a contract principal",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "No 'hc-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,
             "Expected 'hc-contract-id' to be a contract principal",
+        ),
+        (
+            r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            ft-name: "simple-ft", hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            recipient: 'ST000000000000000000002AMW42H  }"#,
+            "No 'hc-function-name' field in Clarity tuple",
         ),
     ];
 
@@ -1127,28 +1171,42 @@ fn create_stacks_events_failures_withdraw_ft() {
 fn create_stacks_events_failures_withdraw_nft() {
     let inputs = [
         (
-            r#"{ event: "withdraw-nft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-nft", l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-nft"  }"#,
             "No 'nft-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft }"#,
+            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, hc-function-name: "hyperchain-withdraw-simple-nft" }"#,
             "No 'recipient' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-nft", nft-id: u100, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-nft", nft-id: u100, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft,
+            recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#,
             "No 'l1-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H,
+            hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-nft"  }"#,
             "Expected 'l1-contract-id' to be a contract principal",
         ),
         (
-            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#,
             "No 'hc-contract-id' field in Clarity tuple",
         ),
         (
-            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, recipient: 'ST000000000000000000002AMW42H  }"#,
+            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH, recipient: 'ST000000000000000000002AMW42H,
+            hc-function-name: "hyperchain-withdraw-simple-nft"  }"#,
             "Expected 'hc-contract-id' to be a contract principal",
+        ),
+        (
+            r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+            hc-contract-id: 'STTHM8422MZMP02R6KHPSCBAHKDTZZ6Y4FRH7CSH.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,
+            "No 'hc-function-name' field in Clarity tuple",
         ),
     ];
 
@@ -1281,7 +1339,7 @@ fn create_stacks_event_block_for_deposit_ft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft" }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1296,7 +1354,7 @@ fn create_stacks_event_block_for_deposit_ft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1311,7 +1369,7 @@ fn create_stacks_event_block_for_deposit_ft() {
                     ContractEvent {
                         contract_identifier: ignored_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#)
+                        value: execute(r#"{ event: "deposit-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-ft" }"#)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1371,7 +1429,8 @@ fn create_stacks_event_block_for_deposit_nft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-nft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1386,7 +1445,8 @@ fn create_stacks_event_block_for_deposit_nft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-nft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1401,7 +1461,8 @@ fn create_stacks_event_block_for_deposit_nft() {
                     ContractEvent {
                         contract_identifier: ignored_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H  }"#)
+                        value: execute(r#"{ event: "deposit-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, sender: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-deposit-simple-nft"  }"#)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1446,7 +1507,8 @@ fn create_stacks_event_block_for_withdraw_ft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, ft-name: "simple-ft",
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1461,7 +1523,8 @@ fn create_stacks_event_block_for_withdraw_ft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1476,7 +1539,8 @@ fn create_stacks_event_block_for_withdraw_ft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#,)
+                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#,)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1491,7 +1555,8 @@ fn create_stacks_event_block_for_withdraw_ft() {
                     ContractEvent {
                         contract_identifier: ignored_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#)
+                        value: execute(r#"{ event: "withdraw-ft", ft-amount: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                ft-name: "simple-ft", hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-ft"  }"#)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1526,6 +1591,7 @@ fn create_stacks_event_block_for_withdraw_nft() {
         index_block_hash: StacksBlockId([1; 32]),
         parent_index_block_hash: StacksBlockId([0; 32]),
         events: vec![
+            // Invalid since this event is badly formed
             NewBlockTxEvent {
                 txid: Txid([0; 32]),
                 event_index: 0,
@@ -1535,11 +1601,13 @@ fn create_stacks_event_block_for_withdraw_nft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#, )
+                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#, )
                             .unwrap().unwrap(),
                     }
                 )
             },
+            // Invalid since committed=false
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
                 event_index: 1,
@@ -1549,12 +1617,13 @@ fn create_stacks_event_block_for_withdraw_nft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#, )
+                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#, )
                             .unwrap().unwrap(),
                     }
                 )
             },
-            // this is the good event
+            // Valid transaction
             NewBlockTxEvent {
                 txid: Txid([1; 32]),
                 event_index: 2,
@@ -1564,11 +1633,13 @@ fn create_stacks_event_block_for_withdraw_nft() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#, )
+                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#, )
                             .unwrap().unwrap(),
                     }
                 )
             },
+            // Invalid since this event is from `ignored_contract`
             NewBlockTxEvent {
                 txid: Txid([2; 32]),
                 event_index: 3,
@@ -1578,7 +1649,8 @@ fn create_stacks_event_block_for_withdraw_nft() {
                     ContractEvent {
                         contract_identifier: ignored_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft, hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H  }"#)
+                        value: execute(r#"{ event: "withdraw-nft", nft-id: u100, l1-contract-id: 'ST000000000000000000002AMW42H.simple-ft,
+                                hc-contract-id: 'ST000000000000000000002AMW42H.simple-ft, recipient: 'ST000000000000000000002AMW42H, hc-function-name: "hyperchain-withdraw-simple-nft"  }"#)
                             .unwrap().unwrap(),
                     }
                 )

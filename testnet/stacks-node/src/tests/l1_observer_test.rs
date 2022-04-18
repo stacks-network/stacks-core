@@ -4,13 +4,23 @@ use std::thread::{self, JoinHandle};
 
 use crate::neon;
 use crate::tests::neon_integrations::{get_account, submit_tx};
-use crate::tests::{make_contract_publish, to_addr};
+use crate::tests::{make_contract_publish, to_addr, make_contract_call};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::vm::types::QualifiedContractIdentifier;
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use clarity::util::get_epoch_time_secs;
+use clarity::vm::Value;
+use clarity::vm::types::PrincipalData;
+use clarity::types::chainstate::StacksAddress;
+use stacks::net::{RPCPeerInfoData, CallReadOnlyRequestBody};
+use clarity::vm::database::ClaritySerializable;
+use reqwest::Response;
+use clarity::vm::representations::ContractName;
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -36,6 +46,25 @@ lazy_static! {
         "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
     )
     .unwrap();
+}
+
+pub fn call_read_only(http_origin: &str, addr: &StacksAddress, contract_name: &str, function_name: &str) -> serde_json::Value {
+    let client = reqwest::blocking::Client::new();
+
+    let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, addr, contract_name, function_name);
+    let principal: PrincipalData = addr.clone().into();
+    let body = CallReadOnlyRequestBody {
+        sender: principal.to_string(),
+        arguments: vec![Value::Principal(principal).serialize()]
+    };
+
+    let read_info = client
+        .post(&path)
+        .json(&body)
+        .send()
+        .unwrap().json::<serde_json::Value>().unwrap();
+
+    read_info
 }
 
 impl StacksL1Controller {
@@ -194,8 +223,19 @@ fn l1_integration_test() {
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
 
+    let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
+    let miner_addr = to_addr(&MOCKNET_PRIVATE_KEY_2);
+    config.add_initial_balance(
+        user_addr.to_string(),
+        10000000,
+    );
+    config.add_initial_balance(
+        miner_addr.to_string(),
+        10000000,
+    );
+
     config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
-        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
+        user_addr.into(),
         "hyperchain-controller".into(),
     );
 
@@ -228,18 +268,43 @@ fn l1_integration_test() {
         &nft_trait_content,
     );
 
+    // Publish a simple FT and NFT
+    let ft_content =
+        include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
+    let ft_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        2,
+        1_000_000,
+        "simple-ft",
+        &ft_content,
+    );
+    let ft_contract_name = ContractName::from("simple-ft");
+    let ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ft_contract_name);
+    let nft_content =
+        include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
+    let nft_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        3,
+        1_000_000,
+        "simple-nft",
+        &nft_content,
+    );
+
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        2,
+        4,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
 
+
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
+    submit_tx(l1_rpc_origin, &nft_publish);
+    submit_tx(l1_rpc_origin, &ft_publish);
     // Because the nonce ensures that the FT contract and NFT contract
     // are published before the HC contract, we can broadcast them
     // all at once, even though the HC contract depends on those
@@ -274,11 +339,94 @@ fn l1_integration_test() {
     // test the miner's nonce has incremented: this shows that L2 blocks have
     //  been mined (because the coinbase transactions bump the miner's nonce)
     let account = get_account(&l2_rpc_origin, &miner_account);
-    assert_eq!(account.balance, 0);
     assert!(
         account.nonce >= 2,
         "Miner should have produced at least 2 coinbase transactions"
     );
+
+    // Publish hyperchains contract for ft-token
+    let hyperchain_simple_ft = "
+    (define-fungible-token ft-token)
+
+    (define-public (hyperchain-deposit-ft-token (amount uint) (recipient principal))
+      (ft-mint? ft-token amount recipient)
+    )
+
+    (define-read-only (get-token-balance (user principal))
+        (ft-get-balance ft-token user)
+    )
+    ";
+    let hyperchain_ft_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        0,
+        1_000_000,
+        "simple-ft",
+        hyperchain_simple_ft,
+    );
+    let hc_ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-ft"));
+
+    // Mint a ft-token for user on L1 chain
+    let l1_mint_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        5,
+        1_000_000,
+        &user_addr,
+        "simple-ft",
+        "gift-tokens",
+        &[
+            Value::Principal(user_addr.into()),
+        ]
+    );
+    // Setup hyperchains contract
+    let hc_setup_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        6,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "setup-allowed-contracts",
+        &[]
+    );
+
+    submit_tx(&l2_rpc_origin, &hyperchain_ft_publish);
+    submit_tx(l1_rpc_origin, &l1_mint_tx);
+    submit_tx(l1_rpc_origin, &hc_setup_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(20));
+
+    // Check that the user does not own any of the fungible tokens on the hyperchain now
+    let res = call_read_only(&l2_rpc_origin, &user_addr, "simple-ft", "get-token-balance");
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    assert_eq!(res["result"], "0x0100000000000000000000000000000000");
+
+    let l1_deposit_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        7,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "deposit-ft-asset",
+        &[
+            Value::UInt(1),
+            Value::Principal(user_addr.into()),
+            Value::none(),
+            Value::Principal(PrincipalData::Contract(ft_contract_id)),
+            Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
+        ]
+    );
+    // deposit ft-token into hc contract on L1
+    submit_tx(&l1_rpc_origin, &l1_deposit_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(20));
+
+    // Check that the user owns a fungible tokens on the hyperchain now
+    let res = call_read_only(&l2_rpc_origin, &user_addr, "simple-ft", "get-token-balance");
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    assert_eq!(res["result"], "0x0100000000000000000000000000000001");
 
     channel.stop_chains_coordinator();
     stacks_l1_controller.kill_process();

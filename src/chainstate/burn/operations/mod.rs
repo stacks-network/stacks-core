@@ -49,6 +49,7 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::ClarityName;
 
 pub mod deposit_ft;
 pub mod deposit_nft;
@@ -229,6 +230,8 @@ pub struct DepositFtOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute deposit
+    pub hc_function_name: ClarityName,
     // Name of fungible token
     pub name: String,
     // Amount of the fungible token that was deposited
@@ -248,6 +251,8 @@ pub struct DepositNftOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this NFT
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute deposit
+    pub hc_function_name: ClarityName,
     // The ID of the NFT transferred
     pub id: u128,
     // The principal that performed the deposit
@@ -265,6 +270,8 @@ pub struct WithdrawFtOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute withdrawal
+    pub hc_function_name: ClarityName,
     // The name of the fungible token
     pub name: String,
     // Amount of the fungible token that was deposited
@@ -284,6 +291,8 @@ pub struct WithdrawNftOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this NFT
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute withdrawal
+    pub hc_function_name: ClarityName,
     // The ID of the NFT being withdrawn
     pub id: u128,
     // The principal the contract is sending the NFT to

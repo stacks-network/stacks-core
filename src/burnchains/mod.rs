@@ -46,6 +46,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use clarity::vm::types::PrincipalData;
 pub use types::{Address, PrivateKey, PublicKey};
 use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use vm::ClarityName;
 
 pub mod burnchain;
 pub mod db;
@@ -205,6 +206,7 @@ pub enum StacksHyperOpType {
     DepositFt {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,
+        hc_function_name: ClarityName,
         name: String,
         amount: u128,
         sender: PrincipalData,
@@ -212,12 +214,14 @@ pub enum StacksHyperOpType {
     DepositNft {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,
+        hc_function_name: ClarityName,
         id: u128,
         sender: PrincipalData,
     },
     WithdrawFt {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,
+        hc_function_name: ClarityName,
         name: String,
         amount: u128,
         recipient: PrincipalData,
@@ -225,6 +229,7 @@ pub enum StacksHyperOpType {
     WithdrawNft {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,
+        hc_function_name: ClarityName,
         id: u128,
         recipient: PrincipalData,
     },

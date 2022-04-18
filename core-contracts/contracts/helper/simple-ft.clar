@@ -13,7 +13,7 @@
 
 ;; returns the token name
 (define-read-only (get-name)
-  (ok "Example Token"))
+  (ok "ft-token"))
 
 ;; the symbol or "ticker" for this token
 (define-read-only (get-symbol)

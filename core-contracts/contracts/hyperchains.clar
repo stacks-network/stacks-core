@@ -16,10 +16,11 @@
 
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY
-    'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP))
+    'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP
+    'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
 
 ;; Map of allowed contracts for asset transfers
-(define-map allowed-contracts principal bool)
+(define-map allowed-contracts principal (string-ascii 45))
 
 ;; Testing info for 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5:
 ;;      secret_key: 7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801
@@ -36,8 +37,8 @@
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
-        (asserts! (map-insert allowed-contracts .simple-ft true) (err ERR_ASSET_ALREADY_ALLOWED))
-        (asserts! (map-insert allowed-contracts .simple-nft true) (err ERR_ASSET_ALREADY_ALLOWED))
+        (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
+        (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-simple-nft") (err ERR_ASSET_ALREADY_ALLOWED))
 
         (ok true)
     )
@@ -107,15 +108,17 @@
 ;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
 (define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>) (hc-contract-id principal))
-    (begin
-        ;; Check that the asset belongs to the allowed-contracts map
-        (asserts! (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
+    (let (
+            ;; Check that the asset belongs to the allowed-contracts map
+            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)))
+        )
 
         ;; Try to transfer the NFT to this contract
         (asserts! (unwrap! (inner-deposit-nft-asset id sender nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
-        (print { event: "deposit-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id, sender: sender })
+        (print { event: "deposit-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id,
+                 sender: sender, hc-function-name: hc-function-name })
 
         (ok true)
     )
@@ -139,17 +142,18 @@
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
 (define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (hc-contract-id principal))
-    (begin
+    (let (
+            ;; Check that the asset belongs to the allowed-contracts map
+            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)))
+        )
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-
-        ;; Check that the asset belongs to the allowed-contracts map
-        (asserts! (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
 
         (asserts! (unwrap! (inner-withdraw-nft-asset id recipient nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
-        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id, recipient: recipient })
+        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id,
+                recipient: recipient, hc-function-name: hc-function-name })
 
         (ok true)
     )
@@ -175,11 +179,10 @@
 ;; The function emits a print with details of this event.
 ;; Returns response<int, bool>
 (define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
-    (begin
-
-        ;; Check that the asset belongs to the allowed-contracts map
-        (asserts! (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
-
+    (let (
+            ;; Check that the asset belongs to the allowed-contracts map
+            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)))
+        )
         ;; Try to transfer the FT to this contract
         (asserts! (unwrap! (inner-deposit-ft-asset amount sender memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
@@ -188,7 +191,7 @@
             )
             ;; Emit a print event - the node consumes this
             (print { event: "deposit-ft", ft-amount: amount, l1-contract-id: ft-contract,
-                        ft-name: ft-name, hc-contract-id: hc-contract-id, sender: sender })
+                        ft-name: ft-name, hc-contract-id: hc-contract-id, sender: sender, hc-function-name: hc-function-name })
         )
 
         (ok true)
@@ -213,12 +216,12 @@
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
 (define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
-    (begin
+    (let (
+            ;; Check that the asset belongs to the allowed-contracts map
+            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)))
+        )
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-
-        ;; Check that the asset belongs to the allowed-contracts map
-        (asserts! (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)) (err ERR_DISALLOWED_ASSET))
 
         (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
@@ -226,7 +229,8 @@
                 (ft-name (contract-call? ft-contract get-name))
             )
             ;; Emit a print event - the node consumes this
-            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id, recipient: recipient, ft-name: ft-name })
+            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id,
+                    recipient: recipient, ft-name: ft-name, hc-function-name: hc-function-name })
         )
 
         (ok true)
