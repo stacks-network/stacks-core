@@ -93,7 +93,11 @@ impl UnconfirmedState {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
     fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+        let marf = MarfedKV::open_unconfirmed(
+            &chainstate.clarity_state_index_root,
+            None,
+            chainstate.marf_opts.clone(),
+        )?;
 
         let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
@@ -126,7 +130,11 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         tip: StacksBlockId,
     ) -> Result<UnconfirmedState, Error> {
-        let marf = MarfedKV::open_unconfirmed(&chainstate.clarity_state_index_root, None)?;
+        let marf = MarfedKV::open_unconfirmed(
+            &chainstate.clarity_state_index_root,
+            None,
+            chainstate.marf_opts.clone(),
+        )?;
 
         let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);

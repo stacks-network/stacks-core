@@ -147,8 +147,14 @@ fn make_block(
 
     let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
 
+    // instantiate the inner MARF
     chainstate_tx
-        .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
+        .put_indexed_all(
+            &StacksBlockId::new(&parent.0, &parent.1),
+            &new_index_hash,
+            &vec![],
+            &vec![],
+        )
         .unwrap();
 
     StacksChainState::insert_stacks_block_header(

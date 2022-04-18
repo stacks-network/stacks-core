@@ -41,7 +41,8 @@ use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::{
-    MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
+    MARFOpenOpts, MarfConnection, BLOCK_HASH_TO_HEIGHT_MAPPING_KEY,
+    BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -115,6 +116,7 @@ pub struct StacksChainState {
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
     pub unconfirmed_state: Option<UnconfirmedState>,
+    marf_opts: Option<MARFOpenOpts>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,10 +320,6 @@ impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
 }
 
 impl<'a, 'b> ClarityTx<'a, 'b> {
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.block.get_root_hash()
-    }
-
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
     }
@@ -355,6 +353,10 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         let result = todo(self);
         let new_tracker = self.set_cost_tracker(original_tracker);
         (result, new_tracker)
+    }
+
+    pub fn seal(&mut self) -> TrieHash {
+        self.block.seal()
     }
 
     #[cfg(test)]
@@ -1003,7 +1005,9 @@ impl StacksChainState {
 
     pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
-        let marf = MARF::from_path(marf_path).map_err(|e| db_error::IndexError(e))?;
+        let mut open_opts = MARFOpenOpts::default();
+        open_opts.external_blobs = true;
+        let marf = MARF::from_path(marf_path, open_opts).map_err(|e| db_error::IndexError(e))?;
         Ok(marf)
     }
 
@@ -1482,8 +1486,8 @@ impl StacksChainState {
                 &first_index_hash
             );
 
-            tx.put_indexed_begin(&parent_hash, &first_index_hash)?;
-            let first_root_hash = tx.put_indexed_all(&vec![], &vec![])?;
+            let first_root_hash =
+                tx.put_indexed_all(&parent_hash, &first_index_hash, &vec![], &vec![])?;
 
             test_debug!(
                 "Boot code headers index_commit {}-{}",
@@ -1515,22 +1519,20 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None)
+        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
     pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open(self.mainnet, self.chain_id, &self.root_path)
-    }
-
-    pub fn open_testnet<F>(
-        chain_id: u32,
-        path_str: &str,
-        boot_data: Option<&mut ChainStateBootData>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(false, chain_id, path_str, boot_data)
+        StacksChainState::open(
+            self.mainnet,
+            self.chain_id,
+            &self.root_path,
+            self.marf_opts.clone(),
+        )
     }
 
     pub fn blocks_path(mut path: PathBuf) -> PathBuf {
@@ -1578,6 +1580,7 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
     ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
@@ -1620,6 +1623,7 @@ impl StacksChainState {
                 &MINER_BLOCK_CONSENSUS_HASH,
                 &MINER_BLOCK_HEADER_HASH,
             )),
+            marf_opts.clone(),
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
@@ -1635,6 +1639,7 @@ impl StacksChainState {
             clarity_state_index_root: clarity_state_index_root,
             root_path: path_str.to_string(),
             unconfirmed_state: None,
+            marf_opts: marf_opts,
         };
 
         let mut receipts = vec![];
@@ -2138,9 +2143,12 @@ impl StacksChainState {
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash)
         );
-        headers_tx
-            .put_indexed_begin(&parent_hash, &new_tip.index_block_hash(new_consensus_hash))?;
-        let root_hash = headers_tx.put_indexed_all(&vec![], &vec![])?;
+        let root_hash = headers_tx.put_indexed_all(
+            &parent_hash,
+            &new_tip.index_block_hash(new_consensus_hash),
+            &vec![],
+            &vec![],
+        )?;
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
@@ -2161,18 +2169,22 @@ impl StacksChainState {
         };
 
         StacksChainState::insert_stacks_block_header(
-            headers_tx,
+            headers_tx.deref_mut(),
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
         )?;
-        StacksChainState::insert_miner_payment_schedule(headers_tx, block_reward, user_burns)?;
+        StacksChainState::insert_miner_payment_schedule(
+            headers_tx.deref_mut(),
+            block_reward,
+            user_burns,
+        )?;
 
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
             let args: &[&dyn ToSql] = &[&index_block_hash];
-            headers_tx.execute(sql, args)?;
+            headers_tx.deref_mut().execute(sql, args)?;
         }
 
         debug!(
@@ -2237,14 +2249,16 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
             .unwrap()
             .0
     }
 
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path).unwrap().0
+        StacksChainState::open(mainnet, chain_id, &path, None)
+            .unwrap()
+            .0
     }
 
     pub fn chainstate_path(test_name: &str) -> String {
@@ -2338,7 +2352,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(false, 0x80000000, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 
@@ -2428,7 +2442,7 @@ pub mod test {
         };
 
         let mut chainstate =
-            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data))
+            StacksChainState::open_and_exec(true, 0x000000001, &path, Some(&mut boot_data), None)
                 .unwrap()
                 .0;
 

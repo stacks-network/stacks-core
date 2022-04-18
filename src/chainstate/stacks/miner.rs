@@ -1460,7 +1460,7 @@ impl StacksBlockBuilder {
 
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
         let tx_merkle_root = merkle_tree.root();
-        let state_root_hash = clarity_tx.get_root_hash();
+        let state_root_hash = clarity_tx.seal();
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
@@ -2958,6 +2958,13 @@ pub mod test {
             .borrow_storage_backend()
             .read_block_root_hash(&index_block_hash)
             .unwrap();
+        test_debug!(
+            "checking {}/{} state root: expecting {}, got {}",
+            consensus_hash,
+            &stacks_header.block_hash(),
+            &stacks_header.state_index_root,
+            &state_root
+        );
         state_root == stacks_header.state_index_root
     }
 
@@ -6206,8 +6213,8 @@ pub mod test {
             .unwrap();
 
         let stacks_block = builder.mine_anchored_block(clarity_tx);
-
         let mut microblocks = vec![];
+
         for i in 0..3 {
             // make a contract call
             let tx_contract_call_signed = make_contract_call(
@@ -6217,9 +6224,9 @@ pub mod test {
                 6,
                 2,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();
@@ -6304,9 +6311,8 @@ pub mod test {
                 6,
                 0,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();
@@ -10173,7 +10179,7 @@ pub mod test {
             get_bulk_initial_namespaces: None,
         };
 
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data))
+        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
             .unwrap()
             .0
     }

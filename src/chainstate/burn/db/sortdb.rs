@@ -51,6 +51,7 @@ use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
@@ -2025,7 +2026,8 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
+        let open_opts = MARFOpenOpts::default();
+        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
@@ -4255,10 +4257,12 @@ impl<'a> SortitionHandleTx<'a> {
         values.append(&mut block_arrival_values);
 
         // store each indexed field
-        //  -- marf tx _must_ have already began
-        self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
-
-        let root_hash = self.put_indexed_all(&keys, &values)?;
+        let root_hash = self.put_indexed_all(
+            &parent_snapshot.sortition_id,
+            &snapshot.sortition_id,
+            &keys,
+            &values,
+        )?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
