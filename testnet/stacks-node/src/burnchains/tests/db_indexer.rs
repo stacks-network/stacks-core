@@ -1,3 +1,4 @@
+use crate::burnchains::l1_events::burnchain_from_config;
 use crate::burnchains::tests::{make_test_new_block, random_sortdb_test_dir};
 use crate::config::BurnchainConfig;
 use crate::{burnchains::db_indexer::DBBurnchainIndexer, rand::RngCore};
@@ -9,7 +10,6 @@ use stacks::burnchains::Error as BurnchainError;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use stacks::util::hash::to_hex;
-use crate::burnchains::l1_events::burnchain_from_config;
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
@@ -245,9 +245,8 @@ fn test_db_sync_with_indexer() {
             .0,
     );
 
-
-    let mut burnchain = burnchain_from_config(&burnchain_dir, &config)
-        .expect("Could not create Burnchain.");
+    let mut burnchain =
+        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
     let (sortition_db, burn_db) = burnchain
         .connect_db(
             &indexer,
@@ -289,6 +288,88 @@ fn test_db_sync_with_indexer() {
     assert_eq!(10, result.block_height);
     assert_eq!(
         "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+        result.block_hash.to_string()
+    );
+}
+
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
+/// a fork, and just call sync_with_indexer once at the end.
+#[test]
+fn test_db_sync_with_indexer_with_fork_call_at_end() {
+    let mut indexer = make_test_indexer();
+    let config = make_test_config();
+    let burnchain_dir = random_sortdb_test_dir();
+
+    let first_burn_header_hash = BurnchainHeaderHash(
+        StacksBlockId::from_hex(&config.first_burn_header_hash)
+            .expect("Could not parse `first_burn_header_hash`.")
+            .0,
+    );
+
+    let mut burnchain =
+        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
+    let (sortition_db, burn_db) = burnchain
+        .connect_db(
+            &indexer,
+            true,
+            first_burn_header_hash,
+            config.first_burn_header_timestamp,
+        )
+        .expect("Could not connect burnchain.");
+
+    let (_receivers, channels) = CoordinatorCommunication::instantiate();
+
+    let target_block_height_opt = Some(10);
+
+    let input_channel = indexer.get_channel();
+
+    input_channel
+        .push_block(make_test_new_block(
+            1,
+            1 as u8,
+            0 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    input_channel
+        .push_block(make_test_new_block(
+            2,
+            3,
+            1 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+    input_channel
+        .push_block(make_test_new_block(
+            2,
+            2,
+            1 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+    input_channel
+        .push_block(make_test_new_block(
+            3,
+            4,
+            2 as u8,
+            make_test_config().contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+
+    let result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("Call to `sync_with_indexer` should succeed.");
+
+    assert_eq!(3, result.block_height);
+    assert_eq!(
+        "0404040404040404040404040404040404040404040404040404040404040404",
         result.block_hash.to_string()
     );
 }
