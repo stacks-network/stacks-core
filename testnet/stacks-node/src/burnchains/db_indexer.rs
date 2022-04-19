@@ -152,15 +152,10 @@ fn process_reorg(
             break;
         }
 
-        match transaction.execute(
+        transaction.execute(
             "UPDATE headers SET is_canonical = 0 WHERE header_hash = ?1",
             &[&down_cursor],
-        ) {
-            Ok(_) => {}
-            Err(e) => {
-                return Err(BurnchainError::DBError(db_error::SqliteError(e)));
-            }
-        };
+        )?;
 
         down_cursor = cursor_header.parent_header_hash;
     }
