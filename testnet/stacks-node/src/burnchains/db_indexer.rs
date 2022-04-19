@@ -315,10 +315,8 @@ impl BurnHeaderIPC for BurnBlockIndexRow {
 impl FromRow<BurnBlockIndexRow> for BurnBlockIndexRow {
     fn from_row<'a>(row: &'a Row) -> Result<BurnBlockIndexRow, db_error> {
         let height: u32 = row.get_unwrap("height");
-        let header_hash: BurnchainHeaderHash =
-            BurnchainHeaderHash::from_column(row, "header_hash")?;
-        let parent_header_hash: BurnchainHeaderHash =
-            BurnchainHeaderHash::from_column(row, "parent_header_hash")?;
+        let header_hash = BurnchainHeaderHash::from_column(row, "header_hash")?;
+        let parent_header_hash = BurnchainHeaderHash::from_column(row, "parent_header_hash")?;
         let time_stamp: u32 = row.get_unwrap("time_stamp");
         let is_canonical: u32 = row.get_unwrap("is_canonical");
         let block: String = row.get_unwrap("block");
@@ -608,19 +606,12 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         let sql_query = "SELECT * FROM block_index WHERE height >= ?1 AND height < ?2 and is_canonical = true ORDER BY height";
         let sql_args: &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
 
-        let mut stmt = self
-            .connection
-            .as_ref()
-            .unwrap()
-            .prepare(sql_query)?;
+        let mut stmt = self.connection.as_ref().unwrap().prepare(sql_query)?;
 
-        let mut rows = stmt
-            .query(sql_args)?;
+        let mut rows = stmt.query(sql_args)?;
 
         let mut headers: Vec<MockHeader> = vec![];
-        while let Some(row) = rows
-            .next()?
-        {
+        while let Some(row) = rows.next()? {
             let next_header = BurnBlockIndexRow::from_row(&row)?;
             headers.push(row_to_mock_header(&next_header));
         }
