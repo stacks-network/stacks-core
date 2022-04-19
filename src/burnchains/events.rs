@@ -11,16 +11,17 @@ use util::HexError;
 use vm::types::Value as ClarityValue;
 use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
-use util::hash::to_hex;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
+use util::hash::to_hex;
 
 use super::StacksHyperBlock;
 use super::StacksHyperOp;
 use super::StacksHyperOpType;
 use clarity::vm::types::PrincipalData;
+use stacks_common::codec::StacksMessageCodec;
 use std::fmt::Write;
 
 /// Parsing struct for the transaction event types of the

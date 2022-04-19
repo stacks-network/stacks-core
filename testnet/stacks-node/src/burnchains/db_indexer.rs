@@ -22,6 +22,7 @@ use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 use stacks::util_lib::db::{ensure_base_directory_exists, Error as DBError};
 use stacks::util_lib::db::{query_row, u64_to_sql, FromRow};
 use stacks::util_lib::db::{sqlite_open, Error as db_error};
+use std::path::PathBuf;
 
 const DB_BURNCHAIN_SCHEMA: &'static str = &r#"
     CREATE TABLE headers(
@@ -194,25 +195,6 @@ fn find_first_canonical_ancestor(
         cursor = cursor_header.parent_header_hash;
     }
 }
-
-// /// Waits until we have received our first block.
-// ///
-// /// Returns the height of the highest block found.
-// fn wait_for_first_block(connection: &DBConn) -> Result<u64, burnchains::Error> {
-//     loop {
-//         match get_canonical_chain_tip(connection)? {
-//             Some(canonical_tip) => {
-//                 return Ok(canonical_tip.height);
-//             }
-//             None => {
-//                 // pass, stay in loop
-//             }
-//         }
-
-//         info!("Waiting for first block.");
-//         sleep_ms(1000);
-//     }
-// }
 
 struct DBBurnBlockInputChannel {
     /// Path to the db file underlying this logic.
@@ -405,21 +387,34 @@ fn connect_db_and_maybe_instantiate(
 
 /// Tracks burnchain forks by storing the block headers in a database.
 pub struct DBBurnchainIndexer {
+    /// The path to the db for this.
+    indexer_base_db_path: String,
     /// Store the config options.
     config: BurnchainConfig,
-    /// Database connection.
-    connection: DBConn,
-    /// The chain tip that was canonical the last time `find_chain_reorg` was called.
+    /// Database connection. This will be None until connected.
+    connection: Option<DBConn>,
+    /// The chain tip that was canonical the last time `find_chain_reorg` was called. None until we connect to DB.
     /// Note: The chain tip in the database may have changed multiple times since this was set.
     last_canonical_tip: Option<BurnHeaderDBRow>,
     /// The hash of the first block that the system will store.
     first_burn_header_hash: BurnchainHeaderHash,
 }
 
+/// Creates a path for the indexer based on the base chainstate directory by adding "db_indexer".
+fn create_indexer_base_db_path(chainstate_dir: &String) -> String {
+    let mut path = PathBuf::from(chainstate_dir);
+    path.push("db_indexer");
+    path.to_str().expect("Unable to produce path").to_string()
+}
+
 impl DBBurnchainIndexer {
     /// Create a new indexer and connect to the database. If the database schema doesn't exist,
     /// if `readwrite` is true, instantiate it, otherwise error.
-    pub fn new(config: BurnchainConfig, readwrite: bool) -> Result<DBBurnchainIndexer, Error> {
+    pub fn new(
+        chainstate_base_path: &String,
+        config: BurnchainConfig,
+        readwrite: bool,
+    ) -> Result<DBBurnchainIndexer, Error> {
         info!("Creating DBBurnchainIndexer with config: {:?}", &config);
         let first_burn_header_hash = BurnchainHeaderHash(
             StacksBlockId::from_hex(&config.first_burn_header_hash)
@@ -427,12 +422,13 @@ impl DBBurnchainIndexer {
                 .0,
         );
 
-        let connection = connect_db_and_maybe_instantiate(&config.indexer_base_db_path, readwrite)?;
-        let last_canonical_tip = get_canonical_chain_tip(&connection)?;
+        let indexer_base_db_path = create_indexer_base_db_path(chainstate_base_path);
+
         Ok(DBBurnchainIndexer {
+            indexer_base_db_path,
             config,
-            connection,
-            last_canonical_tip,
+            connection: None,
+            last_canonical_tip: None,
             first_burn_header_hash,
         })
     }
@@ -517,6 +513,11 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 
     /// `connect` is a no-op now. TODO: remove it?
     fn connect(&mut self, readwrite: bool) -> Result<(), BurnchainError> {
+        self.connection = Some(connect_db_and_maybe_instantiate(
+            &self.indexer_base_db_path,
+            readwrite,
+        )?);
+        self.last_canonical_tip = get_canonical_chain_tip(self.connection.as_ref().unwrap())?;
         Ok(())
     }
 
@@ -544,7 +545,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
     }
 
     fn get_headers_path(&self) -> String {
-        self.config.indexer_base_db_path.clone()
+        self.indexer_base_db_path.clone()
     }
 
     fn get_headers_height(&self) -> Result<u64, BurnchainError> {
@@ -553,7 +554,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
     }
 
     fn get_highest_header_height(&self) -> Result<u64, BurnchainError> {
-        match get_canonical_chain_tip(&self.connection)? {
+        match get_canonical_chain_tip(&self.connection.as_ref().unwrap())? {
             Some(row) => Ok(row.height),
             None => Ok(self.get_first_block_height()),
         }
@@ -563,7 +564,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         let last_canonical_tip = match self.last_canonical_tip.as_ref() {
             Some(tip) => tip,
             None => {
-                let new_tip = get_canonical_chain_tip(&self.connection)?;
+                let new_tip = get_canonical_chain_tip(&self.connection.as_ref().unwrap())?;
                 self.last_canonical_tip = new_tip;
                 return match &self.last_canonical_tip {
                     Some(tip) => Ok(tip.height()),
@@ -573,7 +574,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         };
 
         let still_canonical = is_canonical(
-            &self.connection,
+            &self.connection.as_ref().unwrap(),
             BurnchainHeaderHash(last_canonical_tip.header_hash()),
         )
         .expect("Couldn't get is_canonical.");
@@ -583,12 +584,12 @@ impl BurnchainIndexer for DBBurnchainIndexer {
             self.get_highest_header_height()
         } else {
             find_first_canonical_ancestor(
-                &self.connection,
+                &self.connection.as_ref().unwrap(),
                 BurnchainHeaderHash(last_canonical_tip.header_hash()),
             )
         };
 
-        let current_tip = get_canonical_chain_tip(&self.connection)?;
+        let current_tip = get_canonical_chain_tip(&self.connection.as_ref().unwrap())?;
         self.last_canonical_tip = current_tip;
         result
     }
@@ -617,6 +618,8 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 
         let mut stmt = self
             .connection
+            .as_ref()
+            .unwrap()
             .prepare(sql_query)
             .map_err(|e| BurnchainError::DBError(db_error::SqliteError(e)))?;
 
@@ -651,7 +654,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 impl DBBurnchainIndexer {
     pub fn get_header_for_hash(&self, hash: &BurnchainHeaderHash) -> BurnHeaderDBRow {
         let row = query_row::<BurnHeaderDBRow, _>(
-            &self.connection,
+            &self.connection.as_ref().unwrap(),
             "SELECT * FROM headers WHERE header_hash = ?1",
             &[&hash],
         )

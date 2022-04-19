@@ -193,8 +193,7 @@ pub fn burnchain_from_config(
     burn_db_path: &String,
     config: &BurnchainConfig,
 ) -> Result<Burnchain, BurnchainError> {
-    let mut burnchain =
-        Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
+    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
     burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&config.first_burn_header_hash)
         .expect(&format!(
             "Could not parse BurnchainHeaderHash: {}",
@@ -208,7 +207,11 @@ pub fn burnchain_from_config(
 
 impl L1Controller {
     pub fn new(config: Config, coordinator: CoordinatorChannels) -> Result<L1Controller, Error> {
-        let indexer = DBBurnchainIndexer::new(config.burnchain.clone(), true)?;
+        let indexer = DBBurnchainIndexer::new(
+            &config.get_chainstate_path_str(),
+            config.burnchain.clone(),
+            true,
+        )?;
         let burnchain = burnchain_from_config(&config.get_burn_db_path(), &config.burnchain)?;
         Ok(L1Controller {
             burnchain,
@@ -449,6 +452,7 @@ impl BurnchainController for L1Controller {
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), Error> {
+        self.indexer.connect(true)?;
         self.receive_blocks(
             false,
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),

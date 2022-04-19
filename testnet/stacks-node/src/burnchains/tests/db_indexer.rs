@@ -13,11 +13,9 @@ use stacks::util::hash::to_hex;
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
-    let db_path_dir = random_sortdb_test_dir();
     let mut config = BurnchainConfig::default();
     config.chain = "stacks_layer_1".to_string();
     config.mode = "hyperchain".to_string();
-    config.indexer_base_db_path = db_path_dir;
     config.first_burn_header_hash =
         "0101010101010101010101010101010101010101010101010101010101010101".to_string();
     config.first_burn_header_timestamp = 1u64;
@@ -26,7 +24,8 @@ fn make_test_config() -> BurnchainConfig {
 
 /// Make indexer with test settings.
 fn make_test_indexer() -> DBBurnchainIndexer {
-    DBBurnchainIndexer::new(make_test_config(), true).expect("Couldn't create indexer.")
+    DBBurnchainIndexer::new(&random_sortdb_test_dir(), make_test_config(), true)
+        .expect("Couldn't create indexer.")
 }
 
 /// Tests that we can make a DBBurnchainIndexer and connect.
@@ -207,7 +206,8 @@ fn test_first_header_hash_requires_waiting() {
 
     config.first_burn_header_hash =
         "0303030303030303030303030303030303030303030303030303030303030303".to_string();
-    let mut indexer = DBBurnchainIndexer::new(config, true).expect("Couldn't create indexer.");
+    let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), config, true)
+        .expect("Couldn't create indexer.");
 
     indexer.connect(true).expect("Couldn't connect.");
 

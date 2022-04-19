@@ -966,10 +966,6 @@ pub struct BurnchainConfig {
     pub first_burn_header_timestamp: u64,
     /// Block height for the first header.
     pub first_burn_header_height: u64,
-    /// Base header path for the burnchain indexer db.
-    /// Note: This is an implementation detail separate from the burnchain itself. But, we
-    /// group this in for now, until it's worth making a new struct.
-    pub indexer_base_db_path: String,
     /// The anchor mode for any transactions submitted to L1
     pub anchor_mode: TransactionAnchorMode,
 }
@@ -1001,7 +997,6 @@ impl Default for BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             contract_identifier: QualifiedContractIdentifier::transient(),
-            indexer_base_db_path: "".to_string(),
             first_burn_header_hash: "".to_string(),
             first_burn_header_height: 0u64,
             first_burn_header_timestamp: 0u64,

@@ -427,11 +427,10 @@ impl BurnchainController for MockController {
             Some(burnchain) => burnchain.clone(),
             None => {
                 let working_dir = self.config.get_burn_db_path();
-                Burnchain::new(&working_dir, "mockstack", "hyperchain")
-                    .unwrap_or_else(|e| {
-                        error!("Failed to instantiate burnchain: {}", e);
-                        panic!()
-                    })
+                Burnchain::new(&working_dir, "mockstack", "hyperchain").unwrap_or_else(|e| {
+                    error!("Failed to instantiate burnchain: {}", e);
+                    panic!()
+                })
             }
         }
     }
