@@ -114,13 +114,6 @@ impl Drop for StacksL1Controller {
     }
 }
 
-pub fn random_sortdb_test_dir() -> String {
-    let mut rng = rand::thread_rng();
-    let mut buf = [0u8; 32];
-    rng.fill_bytes(&mut buf);
-    format!("/tmp/stacks-node-tests/sortdb/test-{}", to_hex(&buf))
-}
-
 /// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
 /// from the Stacks-L1 chain.
 #[test]
@@ -201,7 +194,6 @@ fn l1_integration_test() {
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
-    let db_path_dir = random_sortdb_test_dir();
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
@@ -308,8 +300,6 @@ fn l1_integration_test() {
         account.nonce >= 2,
         "Miner should have produced at least 2 coinbase transactions"
     );
-
-    thread::sleep(Duration::from_secs(6));
 
     channel.stop_chains_coordinator();
     stacks_l1_controller.kill_process();

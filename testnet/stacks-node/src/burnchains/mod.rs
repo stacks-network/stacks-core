@@ -25,6 +25,7 @@ pub mod l1_events;
 
 pub mod db_indexer;
 
+#[cfg(test)]
 mod tests;
 
 #[derive(Debug)]
