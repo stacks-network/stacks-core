@@ -22,27 +22,28 @@ use std::fmt::Write;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
-use burnchains::{
+use crate::burnchains::{
     db::{BurnchainBlockData, BurnchainDB, BurnchainDBTransaction, BurnchainHeaderReader},
     Address, Burnchain, BurnchainBlockHeader, Error, PoxConstants, Txid,
 };
-use chainstate::burn::{
+use crate::chainstate::burn::{
     db::sortdb::SortitionDB,
     operations::leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     operations::BlockstackOperationType,
     operations::LeaderBlockCommitOp,
     BlockSnapshot, ConsensusHash,
 };
-use util::db::DBConn;
-use util::db::Error as DBError;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as DBError;
 
-use core::StacksEpochId;
+use crate::core::StacksEpochId;
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress,
     StacksBlockId,
 };
-use crate::util::boot::boot_code_id;
+use crate::util_lib::boot::boot_code_id;
 
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),

@@ -24,25 +24,25 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use address::AddressHashMode;
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksPublicKey;
-use core::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::db::Error as db_error;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -53,6 +53,8 @@ use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
+
+pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod affirmation;
@@ -158,24 +160,6 @@ impl BurnchainParameters {
             _ => false,
         }
     }
-}
-
-pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
-}
-
-pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-}
-
-pub trait Address: Clone + fmt::Debug + fmt::Display {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn from_string(from: &str) -> Option<Self>
-    where
-        Self: Sized;
-    fn is_burn(&self) -> bool;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -287,7 +271,7 @@ pub struct BurnchainBlockHeader {
     pub timestamp: u64,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
@@ -303,7 +287,7 @@ pub struct Burnchain {
     pub initial_reward_start_block: u64,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxConstants {
     /// the length (in burn blocks) of the reward cycle
     pub reward_cycle_length: u32,
@@ -626,8 +610,8 @@ impl BurnchainView {
                     use sha2::Digest;
                     use sha2::Sha256;
                     let mut hasher = Sha256::new();
-                    hasher.input(&i.to_le_bytes());
-                    hasher.result()
+                    hasher.update(&i.to_le_bytes());
+                    hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];
                 data_32.copy_from_slice(&data[0..32]);

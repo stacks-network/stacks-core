@@ -3,18 +3,18 @@ use std::convert::TryFrom;
 use std::sync::Mutex;
 
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, Error as ChainstateError, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAuth,
-    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
+    StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
+    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::CHAIN_ID_TESTNET;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
-use stacks::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
-};
+use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,
@@ -24,6 +24,8 @@ use stacks::{address::AddressHashMode, chainstate::stacks::TransactionAnchorMode
 
 use crate::helium::RunLoop;
 use crate::Keychain;
+use stacks::core::StacksEpochId;
+use stacks::vm::costs::ExecutionCost;
 
 use super::{
     make_coinbase, make_contract_call, make_contract_publish, make_poison, make_stacks_transfer,
@@ -119,6 +121,8 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx1,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -131,6 +135,8 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx2,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -148,6 +154,8 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx3,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -165,6 +173,8 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
 
@@ -182,6 +192,8 @@ fn mempool_setup_chainstate() {
                         &consensus_hash,
                         &header_hash,
                         publish_tx4,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
                     )
                     .unwrap();
             }
@@ -197,7 +209,12 @@ fn mempool_setup_chainstate() {
 
             let chainstate_path = { CHAINSTATE_PATH.lock().unwrap().clone().unwrap() };
 
-            let _mempool = MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+            let estimator = Box::new(UnitEstimator);
+            let metric = Box::new(UnitMetric);
+
+            let _mempool =
+                MemPoolDB::open(false, CHAIN_ID_TESTNET, &chainstate_path, estimator, metric)
+                    .unwrap();
 
             if round == 3 {
                 let block_header = chain_tip.metadata.clone();

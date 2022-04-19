@@ -1,32 +1,12 @@
-FROM rust:bullseye
+FROM stacks-node:integrations AS test
 
-WORKDIR /src/
-
-COPY . .
-
-WORKDIR /src/testnet/stacks-node
-RUN cargo test --no-run
-
-RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
-RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
-
-RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
-
+ARG test_name
 ENV BITCOIND_TEST 1
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::microblock_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_check_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::cost_voting_integration
-RUN cargo test -- --test-threads 1 --ignored tests::integrations::integration_test_get_info
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::bitcoind_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::liquid_ustx_integration
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::stx_transfer_btc_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::bitcoind_forking_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::should_fix_2771
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::pox_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::bitcoin_regtest::bitcoind_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::should_succeed_handling_malformed_and_valid_txs
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
-RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::antientropy_integration_test
+
+RUN cargo build && \
+    cargo test -- --test-threads 1 --ignored "$test_name"
+
+RUN grcov . --binary-path ../../target/debug/ -s ../.. -t lcov --branch --ignore-not-existing --ignore "/*" -o /lcov.info
+
+FROM scratch AS export-stage
+COPY --from=test /lcov.info /

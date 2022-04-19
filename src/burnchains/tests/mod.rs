@@ -20,29 +20,30 @@ pub mod db;
 
 use std::collections::HashMap;
 
-use address::*;
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::db::*;
-use burnchains::Burnchain;
-use burnchains::*;
-use burnchains::*;
-use chainstate::burn::db::sortdb::*;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::coordinator::comm::*;
-use chainstate::coordinator::*;
-use chainstate::stacks::*;
-use util::db::*;
-use util::get_epoch_time_secs;
-use util::hash::*;
-use util::secp256k1::*;
-use util::vrf::*;
+use crate::burnchains::db::*;
+use crate::burnchains::Burnchain;
+use crate::burnchains::*;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::comm::*;
+use crate::chainstate::coordinator::*;
+use crate::chainstate::stacks::*;
+use crate::cost_estimates::{CostEstimator, FeeEstimator};
+use crate::util_lib::db::*;
+use stacks_common::address::*;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::secp256k1::*;
+use stacks_common::util::vrf::*;
 
 use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
-use deps::bitcoin::network::serialize::BitcoinHash;
 
-use burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
+use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+
+use super::*;
 
 // all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the
 // same SPV header timestamps regardless of when they are instantiated.
@@ -65,24 +66,6 @@ impl Txid {
         hb.copy_from_slice(h.as_bytes());
 
         Txid(hb)
-    }
-}
-
-impl BurnchainHeaderHash {
-    pub fn from_test_data(
-        block_height: u64,
-        index_root: &TrieHash,
-        noise: u64,
-    ) -> BurnchainHeaderHash {
-        let mut bytes = vec![];
-        bytes.extend_from_slice(&block_height.to_be_bytes());
-        bytes.extend_from_slice(index_root.as_bytes());
-        bytes.extend_from_slice(&noise.to_be_bytes());
-        let h = DoubleSha256::from_data(&bytes[..]);
-        let mut hb = [0u8; 32];
-        hb.copy_from_slice(h.as_bytes());
-
-        BurnchainHeaderHash(hb)
     }
 }
 
@@ -573,11 +556,11 @@ impl TestBurnchainBlock {
         new_snapshot.0
     }
 
-    pub fn mine_pox<'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider>(
+    pub fn mine_pox<'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider, CE: CostEstimator, FE: FeeEstimator>(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R>,
+        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -709,11 +692,13 @@ impl TestBurnchainFork {
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
+        CE: CostEstimator,
+        FE: FeeEstimator
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R>,
+        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();

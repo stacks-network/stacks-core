@@ -14,30 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::PEER_VERSION_TESTNET;
+use crate::core::PEER_VERSION_TESTNET;
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use crate::net::asn::ASEntry4;
+use crate::net::db::PeerDB;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
 
-use net::codec::*;
-use net::*;
+use crate::net::codec::*;
+use crate::net::*;
 
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleP2P;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleP2P;
 
-use net::db::LocalPeer;
+use crate::net::db::LocalPeer;
 
-use net::p2p::*;
+use crate::net::p2p::*;
 
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
 
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use std::cmp;
 use std::mem;
@@ -46,16 +46,16 @@ use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
 
 use rand::prelude::*;
 use rand::thread_rng;
-use util::get_epoch_time_secs;
-use util::hash::*;
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::log;
 
 #[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
@@ -1709,15 +1709,18 @@ impl NeighborWalk {
 }
 
 impl PeerNetwork {
-    /// Get some initial fresh random neighbor(s) to crawl
+    /// Get some initial fresh random neighbor(s) to crawl,
+    /// given the number of neighbors and current burn block height
     pub fn walk_get_random_neighbors(
         &self,
         num_neighbors: u64,
         block_height: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
+        let cur_epoch = self.get_current_epoch();
         let neighbors = PeerDB::get_random_walk_neighbors(
             &self.peerdb.conn(),
             self.local_peer.network_id,
+            cur_epoch.network_epoch,
             num_neighbors as u32,
             block_height,
         )
@@ -1887,10 +1890,16 @@ impl PeerNetwork {
         Ok((count, num_allowed_peers as u64))
     }
 
-    /// Instantiate the neighbor walk to an always-allowed node
-    fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
-        let allowed_peers =
-            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+    /// Instantiate the neighbor walk to an always-allowed node.
+    /// If we're in the initial block download, then this must also be a *bootstrap* peer.
+    fn instantiate_walk_to_always_allowed(&mut self, ibd: bool) -> Result<(), net_error> {
+        let allowed_peers = if ibd {
+            // only get bootstrap peers
+            PeerDB::get_bootstrap_peers(&self.peerdb.conn(), self.local_peer.network_id)?
+        } else {
+            // can be any peer
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?
+        };
 
         let mut count = 0;
         for allowed in allowed_peers.iter() {
@@ -2761,7 +2770,7 @@ impl PeerNetwork {
     /// Mask errors by restarting the graph walk.
     /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
     /// walk was finished (i.e. we either completed the walk, or we reset the walk)
-    pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
+    pub fn walk_peer_graph(&mut self, ibd: bool) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
             if (self.walk_count > self.connection_opts.num_initial_walks
@@ -2796,7 +2805,7 @@ impl PeerNetwork {
             );
 
             // always ensure we're connected to always-allowed outbound peers
-            let walk_res = match self.instantiate_walk_to_always_allowed() {
+            let walk_res = match self.instantiate_walk_to_always_allowed(ibd) {
                 Ok(x) => Ok(x),
                 Err(net_error::NotFoundError) => {
                     if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
@@ -3076,13 +3085,17 @@ impl PeerNetwork {
 #[cfg(test)]
 mod test {
     use super::*;
-    use net::asn::*;
-    use net::chat::*;
-    use net::db::*;
-    use net::test::*;
-    use util::hash::*;
-    use util::sleep_ms;
-    use util::test::*;
+    use crate::core::{
+        StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+        STACKS_EPOCH_MAX,
+    };
+    use crate::net::asn::*;
+    use crate::net::chat::*;
+    use crate::net::db::*;
+    use crate::net::test::*;
+    use crate::util_lib::test::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 
@@ -3378,6 +3391,103 @@ mod test {
                 };
 
                 i += 1;
+            }
+
+            assert!(peer_1.network.public_ip_learned);
+            assert!(!peer_1.network.public_ip_confirmed);
+            assert!(peer_1.network.local_peer.public_ip_address.is_none());
+
+            assert!(peer_2.network.public_ip_learned);
+            assert!(!peer_2.network.public_ip_confirmed);
+            assert!(peer_2.network.local_peer.public_ip_address.is_none());
+        })
+    }
+
+    #[test]
+    #[ignore]
+    fn test_step_walk_1_neighbor_bad_epoch() {
+        with_timeout(600, || {
+            let mut peer_1_config = TestPeerConfig::from_port(31998);
+            let mut peer_2_config = TestPeerConfig::from_port(31990);
+
+            peer_1_config.connection_opts.walk_retry_count = 10;
+            peer_2_config.connection_opts.walk_retry_count = 10;
+            peer_1_config.connection_opts.walk_interval = 1;
+            peer_2_config.connection_opts.walk_interval = 1;
+
+            // peer 1 thinks its always epoch 2.0
+            peer_1_config.peer_version = 0x18000000;
+            peer_1_config.epochs = Some(vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            }]);
+
+            // peer 2 thinks its always epoch 2.05
+            peer_2_config.peer_version = 0x18000005;
+            peer_2_config.epochs = Some(vec![StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            }]);
+
+            // peers know about each other, but peer 2 never talks to peer 1 since it believes that
+            // it's in a wholly different epoch
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let mut i = 0;
+            let mut walk_1_count = 0;
+            let mut walk_2_count = 0;
+            let mut walk_1_retries = 0;
+            let mut walk_2_retries = 0;
+            let mut walk_1_total = 0;
+            let mut walk_2_total = 0;
+
+            // walks just don't start.
+            // neither peer learns their public IP addresses.
+            while walk_1_retries < 20 && walk_2_retries < 20 {
+                let _ = peer_1.step();
+                let _ = peer_2.step();
+
+                walk_1_count = peer_1.network.walk_total_step_count;
+                walk_2_count = peer_2.network.walk_total_step_count;
+
+                walk_1_total = peer_1.network.walk_count;
+                walk_2_total = peer_2.network.walk_count;
+
+                assert_eq!(walk_1_total, 0);
+                assert_eq!(walk_2_total, 0);
+
+                walk_1_retries = peer_1.network.walk_attempts;
+                walk_2_retries = peer_2.network.walk_attempts;
+
+                match peer_1.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                match peer_2.network.walk {
+                    Some(ref w) => {
+                        assert_eq!(w.result.broken_connections.len(), 0);
+                        assert_eq!(w.result.replaced_neighbors.len(), 0);
+                    }
+                    None => {}
+                };
+
+                i += 1;
+
+                debug!("attempts: {},{}", walk_1_retries, walk_2_retries);
             }
 
             assert!(peer_1.network.public_ip_learned);
@@ -5612,7 +5722,7 @@ mod test {
                 random_order[i] = i;
             }
             let mut rng = thread_rng();
-            &mut &random_order.shuffle(&mut rng);
+            let _ = &mut &random_order.shuffle(&mut rng);
 
             for i in random_order.into_iter() {
                 let _ = peers[i].step();

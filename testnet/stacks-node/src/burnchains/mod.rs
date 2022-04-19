@@ -15,6 +15,8 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 
+use stacks::core::StacksEpoch;
+
 #[derive(Debug)]
 pub enum Error {
     CoordinatorClosed,
@@ -27,6 +29,12 @@ impl fmt::Display for Error {
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
             Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
         }
+    }
+}
+
+impl From<burnchains::Error> for Error {
+    fn from(e: burnchains::Error) -> Self {
+        Error::IndexerError(e)
     }
 }
 
@@ -43,6 +51,11 @@ pub trait BurnchainController {
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
     fn get_chain_tip(&self) -> BurnchainTip;
+    fn get_headers_height(&self) -> u64;
+    /// Invoke connect() on underlying burnchain and sortition databases, to perform any migration
+    ///  or instantiation before other callers may use open()
+    fn connect_dbs(&mut self) -> Result<(), Error>;
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch>;
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, blocks_count: u64);

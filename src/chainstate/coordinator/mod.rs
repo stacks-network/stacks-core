@@ -17,10 +17,12 @@
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
-use burnchains::{
+use crate::burnchains::{
     affirmation::{AffirmationMap, AffirmationMapEntry},
     bitcoin::indexer::BitcoinIndexer,
     db::{
@@ -29,49 +31,49 @@ use burnchains::{
     },
     Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, PoxConstants, Txid,
 };
-use chainstate::burn::{
+use crate::chainstate::burn::{
     db::sortdb::SortitionDB,
     operations::leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    operations::BlockstackOperationType,
     operations::LeaderBlockCommitOp,
+    operations::BlockstackOperationType,
     BlockSnapshot, ConsensusHash,
 };
-use chainstate::coordinator::comm::{
+use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::{
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::{
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksEpochReceipt, StacksHeaderInfo,
     },
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
-    Error as ChainstateError, StacksBlock, TransactionPayload,
+    Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
 };
-use monitoring::{
+use crate::core::StacksEpoch;
+use crate::monitoring::{
     increment_contract_calls_processed, increment_stx_blocks_processed_counter,
-    update_stacks_tip_height,
 };
-use net::atlas::{AtlasConfig, AttachmentInstance};
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as DBError;
-use util::get_epoch_time_secs;
-use vm::{
+use crate::net::atlas::{AtlasConfig, AttachmentInstance};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as DBError;
+use clarity::vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
 };
 
-use core::StacksEpochId;
-
+use crate::core::StacksEpochId;
+use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockHeader,
-    StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
-use crate::util::boot::boot_code_id;
+use clarity::vm::database::BurnStateDB;
 
 pub use self::comm::CoordinatorCommunication;
+
+use stacks_common::util::get_epoch_time_secs;
 
 pub mod comm;
 #[cfg(test)]
@@ -127,16 +129,18 @@ impl RewardCycleInfo {
 pub trait BlockEventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlock,
-        metadata: StacksHeaderInfo,
-        receipts: Vec<StacksTransactionReceipt>,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
-        matured_rewards: Vec<MinerReward>,
-        matured_rewards_info: Option<MinerRewardInfo>,
+        matured_rewards: &Vec<MinerReward>,
+        matured_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
     );
 
     /// called whenever a burn block is about to be
@@ -160,6 +164,8 @@ pub struct ChainsCoordinator<
     T: BlockEventDispatcher,
     N: CoordinatorNotices,
     R: RewardSetProvider,
+    CE: CostEstimator + ?Sized,
+    FE: FeeEstimator + ?Sized,
 > {
     canonical_sortition_tip: Option<SortitionId>,
     canonical_chain_tip: Option<StacksBlockId>,
@@ -171,6 +177,8 @@ pub struct ChainsCoordinator<
     burnchain: Burnchain,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
     dispatcher: Option<&'a T>,
+    cost_estimator: Option<&'a mut CE>,
+    fee_estimator: Option<&'a mut FE>,
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
@@ -265,16 +273,18 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     }
 }
 
-impl<'a, T: BlockEventDispatcher>
-    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider>
+impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator + ?Sized>
+    ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE>
 {
     pub fn run(
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-        dispatcher: &mut T,
+        dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
+        cost_estimator: Option<&mut CE>,
+        fee_estimator: Option<&mut FE>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -317,6 +327,8 @@ impl<'a, T: BlockEventDispatcher>
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
             reward_set_provider: OnChainRewardSetProvider(),
+            cost_estimator,
+            fee_estimator,
             atlas_config,
         };
 
@@ -345,7 +357,7 @@ impl<'a, T: BlockEventDispatcher>
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T, (), U> {
+impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T, (), U, (), ()> {
     #[cfg(test)]
     pub fn test_new(
         burnchain: &Burnchain,
@@ -353,7 +365,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         path: &str,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
-    ) -> ChainsCoordinator<'a, T, (), U> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         ChainsCoordinator::test_new_with_observer(
             burnchain,
             chain_id,
@@ -372,7 +384,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
         reward_set_provider: U,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
         dispatcher: Option<&'a T>,
-    ) -> ChainsCoordinator<'a, T, (), U> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), ()> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -390,7 +402,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
-            ExecutionCost::max_value(),
+            None,
         )
         .unwrap();
         let canonical_sortition_tip =
@@ -412,6 +424,8 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             sortition_db,
             burnchain,
             dispatcher,
+            cost_estimator: None,
+            fee_estimator: None,
             reward_set_provider,
             notifier: (),
             attachments_tx,
@@ -480,8 +494,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 &stacks_block_hash,
             )?;
             let anchor_status = if anchor_block_known {
-                let block_id =
-                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block_hash);
+                let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(
                     burn_height,
                     chain_state,
@@ -598,8 +611,14 @@ fn forget_orphan_stacks_blocks(
     }
 }
 
-impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
-    ChainsCoordinator<'a, T, N, U>
+impl<
+        'a,
+        T: BlockEventDispatcher,
+        N: CoordinatorNotices,
+        U: RewardSetProvider,
+        CE: CostEstimator + ?Sized,
+        FE: FeeEstimator + ?Sized,
+    > ChainsCoordinator<'a, T, N, U, CE, FE>
 {
     pub fn handle_new_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         if let Some(pox_anchor) = self.process_ready_blocks()? {
@@ -1278,7 +1297,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                 );
             }
 
-            let (next_snapshot, _, reward_set_info) = self
+            // bind a reference here to avoid tripping up the borrow-checker
+            let dispatcher_ref = &self.dispatcher;
+            let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
                     &header,
@@ -1286,15 +1307,21 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     &self.burnchain,
                     &last_processed_ancestor,
                     reward_cycle_info,
+                    |reward_set_info| {
+                        if let Some(dispatcher) = dispatcher_ref {
+                            dispatcher_announce_burn_ops(
+                                *dispatcher,
+                                &header,
+                                paid_rewards,
+                                reward_set_info,
+                            );
+                        }
+                    },
                 )
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
                 })?;
-
-            if let Some(dispatcher) = self.dispatcher {
-                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, reward_set_info);
-            }
 
             let sortition_id = next_snapshot.sortition_id;
 
@@ -1384,7 +1411,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
     }
 
     /// Process any Atlas attachment events and forward them to the Atlas subsystem
-    fn process_atlas_attachment_events(&self, block_receipt: &StacksEpochReceipt) {
+    fn process_atlas_attachment_events(&self, block_receipt: &StacksEpochReceipt, canonical_stacks_tip_height: u64) {
         let mut attachments_instances = HashSet::new();
         for receipt in block_receipt.tx_receipts.iter() {
             if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
@@ -1400,8 +1427,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                                     &event_data.value,
                                     &contract_id,
                                     block_receipt.header.index_block_hash(),
-                                    block_receipt.header.block_height,
+                                    block_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
+                                    Some(canonical_stacks_tip_height)
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);
@@ -1514,9 +1542,9 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         );
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-        let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
-        let stacks_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())?;
-        update_stacks_tip_height(stacks_tip.canonical_stacks_tip_height as i64);
+        let mut processed_blocks =
+            self.chain_state_db
+                .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
@@ -1544,7 +1572,7 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
 
-                    self.process_atlas_attachment_events(&block_receipt);
+                    self.process_atlas_attachment_events(&block_receipt, new_canonical_block_snapshot.canonical_stacks_tip_height);
 
                     let block_hash = block_receipt.header.anchored_header.block_hash();
                     let winner_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1555,36 +1583,35 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                     .expect("FAIL: could not find block snapshot for winning block hash")
                     .expect("FAIL: could not find block snapshot for winning block hash");
 
-                    if let Some(dispatcher) = self.dispatcher {
-                        let metadata = &block_receipt.header;
-                        let block: StacksBlock = {
-                            let block_path = StacksChainState::get_block_path(
-                                &self.chain_state_db.blocks_path,
-                                &metadata.consensus_hash,
-                                &block_hash,
-                            )
-                            .unwrap();
-                            StacksChainState::consensus_load(&block_path).unwrap()
-                        };
-                        let stacks_block =
-                            StacksBlockId::new(&metadata.consensus_hash, &block_hash);
-
-                        let parent = self
-                            .chain_state_db
-                            .get_parent(&stacks_block)
-                            .expect("BUG: failed to get parent for processed block");
-                        dispatcher.announce_block(
-                            block,
-                            block_receipt.header,
-                            block_receipt.tx_receipts,
-                            &parent,
-                            winner_snapshot.winning_block_txid.clone(),
-                            block_receipt.matured_rewards,
-                            block_receipt.matured_rewards_info,
-                            block_receipt.parent_burn_block_hash,
-                            block_receipt.parent_burn_block_height,
-                            block_receipt.parent_burn_block_timestamp,
+                    // update cost estimator
+                    if let Some(ref mut estimator) = self.cost_estimator {
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
+                            .expect("Could not find a stacks epoch.");
+                        estimator.notify_block(
+                            &block_receipt.tx_receipts,
+                            &stacks_epoch.block_limit,
+                            &stacks_epoch.epoch_id,
                         );
+                    }
+
+                    // update fee estimator
+                    if let Some(ref mut estimator) = self.fee_estimator {
+                        let stacks_epoch = self
+                            .sortition_db
+                            .index_conn()
+                            .get_stacks_epoch_by_epoch_id(&block_receipt.evaluated_epoch)
+                            .expect("Could not find a stacks epoch.");
+                        if let Err(e) =
+                            estimator.notify_block(&block_receipt, &stacks_epoch.block_limit)
+                        {
+                            warn!("FeeEstimator failed to process block receipt";
+                                  "stacks_block" => %block_hash,
+                                  "stacks_height" => %block_receipt.header.stacks_block_height,
+                                  "error" => %e);
+                        }
                     }
 
                     // Was this block sufficiently confirmed by the prepare phase that it was a PoX
@@ -1609,8 +1636,11 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
                             StacksEpochId::Epoch10 => {
                                 panic!("BUG: Snapshot predates Stacks 2.0");
                             }
-                            StacksEpochId::Epoch20 => {
-                                // 2.0 behavior: only consult the sortition DB
+                            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                                // 2.0/2.05 behavior: only consult the sortition DB
+                                // if, just after processing the block, we _know_ that this block is a pox anchor, that means
+                                //   that sortitions have already begun processing that didn't know about this pox anchor.
+                                //   we need to trigger an unwind
                                 info!("Discovered an old anchor block: {}", &pox_anchor);
                                 return Ok(Some(pox_anchor));
                             }
@@ -1662,7 +1692,10 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
             // TODO: do something with a poison result
 
             let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-            processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+            // Right before a block is set to processed, the event dispatcher will emit a new block event
+            processed_blocks =
+                self.chain_state_db
+                    .process_blocks(sortdb_handle, 1, self.dispatcher)?;
         }
 
         Ok(None)
@@ -1722,4 +1755,57 @@ impl<'a, T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>
         // Start processing from the beginning of the new PoX reward set
         self.handle_new_burnchain_block()
     }
+}
+
+/// Determine whether or not the current chainstate databases are up-to-date with the current
+/// epoch.
+pub fn check_chainstate_db_versions(
+    epochs: &[StacksEpoch],
+    sortdb_path: &str,
+    chainstate_path: &str,
+) -> Result<bool, DBError> {
+    let mut cur_epoch_opt = None;
+    if fs::metadata(&sortdb_path).is_ok() {
+        // check sortition DB and load up the current epoch
+        let max_height = SortitionDB::get_highest_block_height_from_path(&sortdb_path)
+            .expect("FATAL: could not query sortition DB for maximum block height");
+        let cur_epoch_idx = StacksEpoch::find_epoch(epochs, max_height).expect(&format!(
+            "FATAL: no epoch defined for burn height {}",
+            max_height
+        ));
+        let cur_epoch = epochs[cur_epoch_idx].epoch_id;
+
+        // save for later
+        cur_epoch_opt = Some(cur_epoch.clone());
+        let db_version = SortitionDB::get_db_version_from_path(&sortdb_path)?
+            .expect("FATAL: could not load sortition DB version");
+
+        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, &db_version) {
+            error!(
+                "Sortition DB at {} does not support epoch {}",
+                &sortdb_path, cur_epoch
+            );
+            return Ok(false);
+        }
+    } else {
+        warn!("Sortition DB {} does not exist; assuming it will be instantiated with the correct version", sortdb_path);
+    }
+
+    if fs::metadata(&chainstate_path).is_ok() {
+        let cur_epoch = cur_epoch_opt.expect(
+            "FATAL: chainstate corruption: sortition DB does not exist, but chainstate does.",
+        );
+        let db_config = StacksChainState::get_db_config_from_path(&chainstate_path)?;
+        if !db_config.supports_epoch(cur_epoch) {
+            error!(
+                "Chainstate DB at {} does not support epoch {}",
+                &chainstate_path, cur_epoch
+            );
+            return Ok(false);
+        }
+    } else {
+        warn!("Chainstate DB {} does not exist; assuming it will be instantiated with the correct version", chainstate_path);
+    }
+
+    Ok(true)
 }

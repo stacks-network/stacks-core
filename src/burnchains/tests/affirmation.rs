@@ -25,28 +25,28 @@ use std::sync::{
 
 use rusqlite::Connection;
 
-use address;
-use burnchains::affirmation::*;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::tests::db::*;
-use burnchains::{db::*, *};
-use burnchains::{BurnchainBlock, BurnchainBlockHeader, Txid};
-use chainstate;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::operations::leader_block_commit::*;
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::coordinator::{Error as CoordError, *};
-use chainstate::stacks::*;
-use clarity_vm::clarity::ClarityConnection;
-use core;
-use core::*;
-use monitoring::increment_stx_blocks_processed_counter;
-use util::hash::{hex_bytes, Hash160};
-use util::vrf::*;
-use vm::{
+use crate::address;
+use crate::burnchains::affirmation::*;
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::tests::db::*;
+use crate::burnchains::{db::*, *};
+use crate::burnchains::{BurnchainBlock, BurnchainBlockHeader, Txid};
+use crate::chainstate;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::operations::leader_block_commit::*;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::ClarityConnection;
+use crate::core;
+use crate::core::*;
+use crate::monitoring::increment_stx_blocks_processed_counter;
+use crate::util::hash::{hex_bytes, Hash160};
+use crate::util::vrf::*;
+use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
     types::QualifiedContractIdentifier,
@@ -57,10 +57,10 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use crate::types::proof::TrieHash;
 use crate::{types, util};
 
-use chainstate::coordinator::tests::*;
+use crate::chainstate::coordinator::tests::*;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 
 #[test]
 fn affirmation_map_encode_decode() {

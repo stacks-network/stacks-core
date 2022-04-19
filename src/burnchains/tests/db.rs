@@ -17,33 +17,31 @@
 use std::cmp;
 use std::convert::TryInto;
 
-use address::*;
-use burnchains::affirmation::AffirmationMap;
-use burnchains::bitcoin::address::*;
-use burnchains::bitcoin::blocks::*;
-use burnchains::bitcoin::*;
-use burnchains::db::*;
-use burnchains::PoxConstants;
-use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use burnchains::*;
-use burnchains::{BurnchainBlock, BurnchainBlockHeader, Txid};
-use chainstate::burn::operations::{
-    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
-};
-use chainstate::burn::*;
-use chainstate::coordinator::tests::*;
-use chainstate::stacks::*;
-use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
-use deps::bitcoin::network::serialize::deserialize;
-use util::db::Error as DBError;
-use util::db::*;
-use util::hash::*;
-
-use crate::types::proof::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
+
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::burnchains::bitcoin::address::*;
+use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::bitcoin::blocks::*;
+use crate::burnchains::bitcoin::*;
+use crate::burnchains::PoxConstants;
+use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use crate::chainstate::burn::*;
+use crate::chainstate::burn::operations::{
+    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
+};
+use crate::chainstate::stacks::*;
+use crate::chainstate::coordinator::tests::*;
+use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+use crate::util_lib::db::Error as DBError;
+use stacks_common::util::hash::*;
+
+use super::*;
 
 fn make_tx(hex_str: &str) -> BtcTx {
     let tx_bin = hex_bytes(hex_str).unwrap();

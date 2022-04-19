@@ -14,4 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod analysis_costs;
+pub mod ast;
+pub mod costs;
 pub mod epoch_switch;
+pub mod events;
+pub mod forking;
+pub mod large_contract;
+pub mod simple_tests;

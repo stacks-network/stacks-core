@@ -20,36 +20,38 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
-use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-use deps::bitcoin::blockdata::constants::genesis_block;
-use deps::bitcoin::network::constants::Network;
-use deps::bitcoin::network::encodable::VarInt;
-use deps::bitcoin::network::message as btc_message;
-use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
-use deps::bitcoin::util::hash::Sha256dHash;
+use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+use stacks_common::deps_common::bitcoin::blockdata::constants::genesis_block;
+use stacks_common::deps_common::bitcoin::network::constants::Network;
+use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
+use stacks_common::deps_common::bitcoin::network::message as btc_message;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize, serialize, BitcoinHash,
+};
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-use util::uint::Uint256;
+use stacks_common::util::uint::Uint256;
 
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::PeerMessage;
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::bitcoin::PeerMessage;
 
-use types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
-use util::db::{
-    query_row, query_rows, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow,
+use crate::util_lib::db::{
+    query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn,
+    DBTx, Error as db_error, FromColumn, FromRow,
 };
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex};
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -96,24 +98,9 @@ pub struct SpvClient {
     check_txcount: bool,
 }
 
-impl FromSql for Sha256dHash {
-    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
-        let hex_str = value.as_str()?;
-        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
-        Ok(hash)
-    }
-}
-
 impl FromColumn<Sha256dHash> for Sha256dHash {
     fn from_column(row: &Row, column_name: &str) -> Result<Sha256dHash, db_error> {
         Ok(row.get_unwrap::<_, Self>(column_name))
-    }
-}
-
-impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let hex_str = self.be_hex_string();
-        Ok(hex_str.into())
     }
 }
 
@@ -222,11 +209,8 @@ impl SpvClient {
             }
         };
 
-        let mut conn =
-            Connection::open_with_flags(headers_path, open_flags).map_err(db_error::SqliteError)?;
-
-        conn.busy_handler(Some(tx_busy_handler))
-            .map_err(db_error::SqliteError)?;
+        let mut conn = sqlite_open(headers_path, open_flags, false)
+            .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
         if create_flag {
             SpvClient::db_instantiate(&mut conn)?;
@@ -973,16 +957,18 @@ impl BitcoinMessageHandler for SpvClient {
 mod test {
 
     use super::*;
-    use burnchains::bitcoin::Error as btc_error;
-    use burnchains::bitcoin::*;
+    use crate::burnchains::bitcoin::Error as btc_error;
+    use crate::burnchains::bitcoin::*;
 
     use std::fs::*;
 
-    use deps::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
-    use deps::bitcoin::network::serialize::{deserialize, serialize, BitcoinHash};
-    use deps::bitcoin::util::hash::Sha256dHash;
+    use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
+    use stacks_common::deps_common::bitcoin::network::serialize::{
+        deserialize, serialize, BitcoinHash,
+    };
+    use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
-    use util::log;
+    use stacks_common::util::log;
 
     use std::env;
 
