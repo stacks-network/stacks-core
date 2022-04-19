@@ -441,6 +441,9 @@ fn main() {
             let mut delta_tx_fees = vec![];
             let empty_txids = vec![];
             let txids = tx_mined_deltas.get(&delta).unwrap_or(&empty_txids);
+            if txids.len() == 0 {
+                continue;
+            }
             for txid in txids.iter() {
                 delta_tx_fees.push(*tx_fees.get(txid).unwrap_or(&0));
             }
