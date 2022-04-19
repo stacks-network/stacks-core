@@ -581,30 +581,3 @@ impl BurnchainController for L1Controller {
         todo!()
     }
 }
-
-pub struct L1Parser {
-    watch_contract: QualifiedContractIdentifier,
-}
-
-impl BurnchainBlockDownloader for L1BlockDownloader {
-    type B = BlockIPC;
-
-    fn download(&mut self, header: &MockHeader) -> Result<BlockIPC, BurnchainError> {
-        let block = self.channel.get_block(header.height).ok_or_else(|| {
-            warn!("Failed to mock download height = {}", header.height);
-            BurnchainError::BurnchainPeerBroken
-        })?;
-
-        Ok(BlockIPC(block))
-    }
-}
-
-impl BurnchainBlockParser for L1Parser {
-    type B = BlockIPC;
-
-    fn parse(&mut self, block: &BlockIPC) -> Result<BurnchainBlock, BurnchainError> {
-        Ok(BurnchainBlock::StacksHyperBlock(
-            StacksHyperBlock::from_new_block_event(&self.watch_contract, block.block()),
-        ))
-    }
-}

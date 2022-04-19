@@ -24,8 +24,10 @@ fn make_test_config() -> BurnchainConfig {
 
 /// Make indexer with test settings.
 fn make_test_indexer() -> DBBurnchainIndexer {
-    DBBurnchainIndexer::new(&random_sortdb_test_dir(), make_test_config(), true)
-        .expect("Couldn't create indexer.")
+    let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), make_test_config(), true)
+        .expect("Couldn't create indexer.");
+    indexer.connect(true);
+    indexer
 }
 
 /// Tests that we can make a DBBurnchainIndexer and connect.
@@ -373,6 +375,15 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
         "0404040404040404040404040404040404040404040404040404040404040404",
         result.block_hash.to_string()
     );
+
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(3, canonical_tip.block_height);
+    assert_eq!(
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        canonical_tip.block_hash.to_string()
+    );
 }
 
 /// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
@@ -423,7 +434,6 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         None,
     );
 
-    // TODO: Is this right?
     assert_eq!("Try synchronizing again", result.unwrap_err().to_string());
 
     input_channel
@@ -451,6 +461,15 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         "0303030303030303030303030303030303030303030303030303030303030303",
         result.block_hash.to_string()
     );
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(2, canonical_tip.block_height);
+    assert_eq!(
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        canonical_tip.block_hash.to_string()
+    );
+
     input_channel
         .push_block(make_test_new_block(
             2,
@@ -476,6 +495,14 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         "0303030303030303030303030303030303030303030303030303030303030303",
         result.block_hash.to_string()
     );
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(2, canonical_tip.block_height);
+    assert_eq!(
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        canonical_tip.block_hash.to_string()
+    );
     input_channel
         .push_block(make_test_new_block(
             3,
@@ -500,5 +527,13 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
     assert_eq!(
         "0404040404040404040404040404040404040404040404040404040404040404",
         result.block_hash.to_string()
+    );
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(3, canonical_tip.block_height);
+    assert_eq!(
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        canonical_tip.block_hash.to_string()
     );
 }
