@@ -25,7 +25,7 @@ use stacks::util_lib::db::{sqlite_open, Error as db_error};
 use std::path::PathBuf;
 
 const DB_BURNCHAIN_SCHEMA: &'static str = &r#"
-    CREATE TABLE headers(
+    CREATE TABLE block_index(
         height INTEGER NOT NULL,
         header_hash TEXT PRIMARY KEY NOT NULL,
         parent_header_hash TEXT NOT NULL,
@@ -42,7 +42,7 @@ fn is_canonical(
 ) -> Result<bool, BurnchainError> {
     let row = query_row::<u64, _>(
         connection,
-        "SELECT is_canonical FROM headers WHERE header_hash = ?1",
+        "SELECT is_canonical FROM block_index WHERE header_hash = ?1",
         &[&header_hash],
     )
     .expect(&format!(
@@ -82,7 +82,7 @@ fn compare_headers(a: &BurnHeaderDBRow, b: &BurnHeaderDBRow) -> Ordering {
 fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnHeaderDBRow>, BurnchainError> {
     query_row::<BurnHeaderDBRow, _>(
         connection,
-        "SELECT * FROM headers ORDER BY height DESC, header_hash DESC LIMIT 1",
+        "SELECT * FROM block_index ORDER BY height DESC, header_hash DESC LIMIT 1",
         NO_PARAMS,
     )
     .map_err(|e| BurnchainError::DBError(e))
@@ -105,13 +105,12 @@ fn process_reorg(
     let greatest_common_ancestor = loop {
         let cursor_header = match query_row::<BurnHeaderDBRow, _>(
             &transaction,
-            "SELECT * FROM headers WHERE header_hash = ?1",
+            "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&up_cursor],
         )? {
             Some(header) => header,
             None => {
-                // TODO: Make this an error.
-                panic!("Couldn't find `is_canonical`.")
+                return Err(BurnchainError::MissingHeaders);
             }
         };
         if cursor_header.is_canonical != 0 {
@@ -120,7 +119,7 @@ fn process_reorg(
         }
 
         match transaction.execute(
-            "UPDATE headers SET is_canonical = 1 WHERE header_hash = ?1",
+            "UPDATE block_index SET is_canonical = 1 WHERE header_hash = ?1",
             &[&up_cursor],
         ) {
             Ok(_) => {}
@@ -138,13 +137,12 @@ fn process_reorg(
     loop {
         let cursor_header = match query_row::<BurnHeaderDBRow, _>(
             &transaction,
-            "SELECT * FROM headers WHERE header_hash = ?1",
+            "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&down_cursor],
         )? {
             Some(header) => header,
             None => {
-                // TODO: Should this be an error?
-                panic!("Do we hit here?");
+                return Err(BurnchainError::MissingHeaders);
             }
         };
 
@@ -153,7 +151,7 @@ fn process_reorg(
         }
 
         transaction.execute(
-            "UPDATE headers SET is_canonical = 0 WHERE header_hash = ?1",
+            "UPDATE block_index SET is_canonical = 0 WHERE header_hash = ?1",
             &[&down_cursor],
         )?;
 
@@ -173,13 +171,12 @@ fn find_first_canonical_ancestor(
     loop {
         let cursor_header = match query_row::<BurnHeaderDBRow, _>(
             connection,
-            "SELECT * FROM headers WHERE header_hash = ?1",
+            "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&cursor],
         )? {
             Some(header) => header,
             None => {
-                // TODO: Should this be an error?
-                panic!("Do we hit here?");
+                return Err(BurnchainError::MissingHeaders);
             }
         };
 
@@ -199,11 +196,11 @@ struct DBBurnBlockInputChannel {
 }
 
 impl BurnchainChannel for DBBurnBlockInputChannel {
-    /// TODO: add comment.
-    /// TODO: Make this method sensitive to `first_burn_header_hash`, and don't push
-    /// anything until we have seen that block.
+    /// Add `new_block` to the `block_index` database. We will only start adding blocks to the DB once either:
+    ///   1) we have already added a block
+    ///   2) the new block's header hash is `self.first_burn_header_hash`
     fn push_block(&self, new_block: NewBlock) -> Result<(), BurnchainError> {
-        info!("BurnchainChannel::push_block pushing: {:?}", &new_block);
+        debug!("BurnchainChannel::push_block pushing: {:?}", &new_block);
         // Re-open the connection.
         let open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE;
         let mut connection = sqlite_open(&self.output_db_path, open_flags, true)?;
@@ -244,10 +241,8 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         // Insert this header.
         let block_string =
             serde_json::to_string(&new_block).map_err(|e| BurnchainError::ParseError)?;
-        info!("output block_string {}", &block_string);
 
         let decoded: NewBlock = serde_json::from_str(&block_string).expect("why not?");
-        info!("decoded {:?}", &decoded);
 
         let params: &[&dyn ToSql] = &[
             &(header.height() as u32),
@@ -264,7 +259,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
             }
         };
         transaction.execute(
-            "INSERT INTO headers (height, header_hash, parent_header_hash, time_stamp, is_canonical, block) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO block_index (height, header_hash, parent_header_hash, time_stamp, is_canonical, block) VALUES (?, ?, ?, ?, ?, ?)",
             params,
         )?;
 
@@ -286,7 +281,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 }
 
 #[derive(Debug, Clone)]
-/// Corresponds to a row in the `headers` table.
+/// Corresponds to a row in the `block_index` table.
 pub struct BurnHeaderDBRow {
     pub height: u64,
     pub header_hash: BurnchainHeaderHash,
@@ -410,7 +405,7 @@ impl DBBurnchainIndexer {
         config: BurnchainConfig,
         readwrite: bool,
     ) -> Result<DBBurnchainIndexer, Error> {
-        info!("Creating DBBurnchainIndexer with config: {:?}", &config);
+        debug!("Creating DBBurnchainIndexer with config: {:?}", &config);
         let first_burn_header_hash = BurnchainHeaderHash(
             StacksBlockId::from_hex(&config.first_burn_header_hash)
                 .expect("Could not parse `first_burn_header_hash`.")
@@ -458,13 +453,12 @@ impl BurnchainBlockDownloader for DBBlockDownloader {
         let params: &[&dyn ToSql] = &[&header_hash];
         let header = query_row::<BurnHeaderDBRow, _>(
             &connection,
-            "SELECT * FROM headers WHERE header_hash = ?1",
+            "SELECT * FROM block_index WHERE header_hash = ?1",
             params,
         )?;
 
         let block = match header {
             Some(header) => {
-                info!("block_string {:?}", &header.block);
                 serde_json::from_str(&header.block).map_err(|_e| BurnchainError::ParseError)?
             }
             None => {
@@ -608,7 +602,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         start_block: u64,
         end_block: u64,
     ) -> Result<Vec<MockHeader>, BurnchainError> {
-        let sql_query = "SELECT * FROM headers WHERE height >= ?1 AND height < ?2 and is_canonical = true ORDER BY height";
+        let sql_query = "SELECT * FROM block_index WHERE height >= ?1 AND height < ?2 and is_canonical = true ORDER BY height";
         let sql_args: &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
 
         let mut stmt = self
@@ -650,7 +644,7 @@ impl DBBurnchainIndexer {
     pub fn get_header_for_hash(&self, hash: &BurnchainHeaderHash) -> BurnHeaderDBRow {
         let row = query_row::<BurnHeaderDBRow, _>(
             &self.connection.as_ref().unwrap(),
-            "SELECT * FROM headers WHERE header_hash = ?1",
+            "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&hash],
         )
         .expect(&format!(
