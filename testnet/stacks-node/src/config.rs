@@ -1442,7 +1442,7 @@ impl MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 5_000,
-            subsequent_attempt_time_ms: 180_000,
+            subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
         }
