@@ -370,10 +370,12 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 
 #[cfg(test)]
 mod test {
+    use super::super::c32_old::{
+        c32_address as c32_address_old, c32_address_decode as c32_address_decode_old,
+    };
     use super::*;
-    use rand::Rng;
     use crate::util::hash::hex_bytes;
-    use super::super::c32_old::{c32_address as c32_address_old, c32_address_decode as c32_address_decode_old};
+    use rand::Rng;
 
     #[test]
     fn old_c32_validation() {

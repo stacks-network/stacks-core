@@ -1,10 +1,10 @@
+extern crate blockstack_lib;
 extern crate criterion;
 extern crate rand;
-extern crate blockstack_lib;
 
 use blockstack_lib::address::c32::{c32_address, c32_address_decode};
-use blockstack_lib::address::c32_old::{c32_address_decode as c32_address_decode_old};
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use blockstack_lib::address::c32_old::c32_address_decode as c32_address_decode_old;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use rand::Rng;
 
 fn bench_c32_decoding(c: &mut Criterion) {
@@ -21,10 +21,12 @@ fn bench_c32_decoding(c: &mut Criterion) {
     }
 
     for addr in addrs.iter() {
-        group.bench_with_input(BenchmarkId::new("Legacy", addr), addr, 
-            |b, i| b.iter(|| c32_address_decode_old(i)));
-        group.bench_with_input(BenchmarkId::new("Updated", addr), addr, 
-            |b, i| b.iter(|| c32_address_decode(i)));
+        group.bench_with_input(BenchmarkId::new("Legacy", addr), addr, |b, i| {
+            b.iter(|| c32_address_decode_old(i))
+        });
+        group.bench_with_input(BenchmarkId::new("Updated", addr), addr, |b, i| {
+            b.iter(|| c32_address_decode(i))
+        });
     }
     group.finish();
 }
