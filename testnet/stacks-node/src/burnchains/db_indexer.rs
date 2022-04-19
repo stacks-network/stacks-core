@@ -612,17 +612,14 @@ impl BurnchainIndexer for DBBurnchainIndexer {
             .connection
             .as_ref()
             .unwrap()
-            .prepare(sql_query)
-            .map_err(|e| BurnchainError::DBError(db_error::SqliteError(e)))?;
+            .prepare(sql_query)?;
 
         let mut rows = stmt
-            .query(sql_args)
-            .map_err(|e| BurnchainError::DBError(db_error::SqliteError(e)))?;
+            .query(sql_args)?;
 
         let mut headers: Vec<MockHeader> = vec![];
         while let Some(row) = rows
-            .next()
-            .map_err(|e| BurnchainError::DBError(db_error::SqliteError(e)))?
+            .next()?
         {
             let next_header = BurnBlockIndexRow::from_row(&row)?;
             headers.push(row_to_mock_header(&next_header));
