@@ -15,6 +15,9 @@ This release will contain consensus-breaking changes.
 
 ## [2.05.0.2.0]
 
+WARNING: Please be aware that using this node on chainstate prior to this release will cause
+the node to spend up to 30 minutes migrating the data to a new schema.
+
 ### Changed
 - The MARF implementation will now defer calculating the root hash of a new trie
   until the moment the trie is committed to disk.  This avoids gratuitous hash
@@ -34,6 +37,9 @@ minutes when the node starts up.
   an event is sent through the event dispatcher. This fixes #3015. 
 - Expose a node's public key and public key hash160 (i.e. what appears in
   /v2/neighbors) via the /v2/info API endpoint (#3046)
+- Reduced the default subsequent block attempt timeout from 180 seconds to 30
+  seconds, based on benchmarking the new MARF performance data during a period
+of network congestion (#3098)
 
 ## [2.05.0.1.0]
 
