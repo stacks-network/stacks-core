@@ -310,7 +310,7 @@ impl StacksChainState {
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
     pub fn insert_miner_payment_schedule<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
     ) -> Result<(), Error> {
@@ -425,7 +425,7 @@ impl StacksChainState {
 
     /// Get the scheduled miner rewards at a particular index hash
     pub fn get_scheduled_block_rewards_at_block<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =

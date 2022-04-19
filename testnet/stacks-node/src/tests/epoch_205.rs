@@ -559,6 +559,7 @@ fn transition_empty_blocks() {
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
+            None,
         )
         .unwrap();
         let res = StacksChainState::block_crosses_epoch_boundary(

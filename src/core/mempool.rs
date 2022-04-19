@@ -776,7 +776,7 @@ impl MemPoolDB {
             }
         }
 
-        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
+        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path, None)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));

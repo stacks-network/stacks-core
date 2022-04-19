@@ -5369,13 +5369,13 @@ impl StacksChainState {
                 }
             }
 
-            let root_hash = clarity_tx.get_root_hash();
+            let root_hash = clarity_tx.seal();
             if root_hash != block.header.state_index_root {
                 let msg = format!(
                     "Block {} state root mismatch: expected {}, got {}",
                     block.block_hash(),
+                    block.header.state_index_root,
                     root_hash,
-                    block.header.state_index_root
                 );
                 warn!("{}", &msg);
 
@@ -10484,7 +10484,7 @@ pub mod test {
             .burnchain
             .block_height_to_reward_cycle(last_stacks_block_height)
             .unwrap();
-        let mut chainstate = StacksChainState::open(false, 0x80000000, &chainstate_path)
+        let mut chainstate = StacksChainState::open(false, 0x80000000, &chainstate_path, None)
             .unwrap()
             .0;
 
