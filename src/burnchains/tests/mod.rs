@@ -31,6 +31,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
+use crate::core::STACKS_EPOCH_2_1_MARKER;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::util_lib::db::*;
 use stacks_common::address::*;
@@ -476,6 +477,7 @@ impl TestBurnchainBlock {
         txop.txid =
             Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
+        txop.memo = vec![STACKS_EPOCH_2_1_MARKER << 3];
         self.txs
             .push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
 
