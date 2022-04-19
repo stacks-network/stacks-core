@@ -241,9 +241,9 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
     let mut iter_c32_digits = Vec::<u8>::with_capacity(input_str.len());
 
     for x in input_str.as_bytes().iter().rev() {
-        match C32_CHARACTERS_MAP[*x as usize] {
-            Some(x) => iter_c32_digits.push(x),
-            None => {}
+        match C32_CHARACTERS_MAP.get(*x as usize) {
+            Some(&Some(x)) => iter_c32_digits.push(x),
+            _ => {}
         }
     }
 
