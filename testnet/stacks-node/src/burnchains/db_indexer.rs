@@ -79,7 +79,9 @@ fn compare_headers(a: &BurnBlockIndexRow, b: &BurnBlockIndexRow) -> Ordering {
 
 /// Returns the "canonical" chain tip from the rows in the db. This is the block
 /// with the highest height, breaking ties by lexicographic ordering.
-fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnBlockIndexRow>, BurnchainError> {
+fn get_canonical_chain_tip(
+    connection: &DBConn,
+) -> Result<Option<BurnBlockIndexRow>, BurnchainError> {
     query_row::<BurnBlockIndexRow, _>(
         connection,
         "SELECT * FROM block_index ORDER BY height DESC, header_hash DESC LIMIT 1",
@@ -96,7 +98,7 @@ fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnBlockIndexR
 ///
 /// `transaction` should be commited outside of this function.
 fn process_reorg(
-    transaction: &mut Transaction,
+    transaction: &Transaction,
     new_tip: &BurnBlockIndexRow,
     old_tip: &BurnBlockIndexRow,
 ) -> Result<u64, BurnchainError> {
@@ -254,7 +256,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         // Possibly process re-org in the database representation.
         if needs_reorg {
             process_reorg(
-                &mut transaction,
+                &transaction,
                 &header,
                 current_canonical_tip_opt
                     .as_ref()
