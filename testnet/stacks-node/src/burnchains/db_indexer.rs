@@ -242,8 +242,6 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         let block_string =
             serde_json::to_string(&new_block).map_err(|e| BurnchainError::ParseError)?;
 
-        let decoded: NewBlock = serde_json::from_str(&block_string).expect("why not?");
-
         let params: &[&dyn ToSql] = &[
             &(header.height() as u32),
             &BurnchainHeaderHash(header.header_hash()),
