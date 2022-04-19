@@ -113,7 +113,7 @@ fn process_reorg(
                 return Err(BurnchainError::MissingHeaders);
             }
         };
-        if cursor_header.is_canonical != 0 {
+        if cursor_header.is_canonical() {
             // First canonical ancestor is the greatest common ancestor.
             break cursor_header;
         }
@@ -180,7 +180,7 @@ fn find_first_canonical_ancestor(
             }
         };
 
-        if cursor_header.is_canonical != 0 {
+        if cursor_header.is_canonical() {
             return Ok(cursor_header.height);
         }
 
@@ -284,12 +284,19 @@ pub struct BurnBlockIndexRow {
     pub parent_header_hash: BurnchainHeaderHash,
     /// Time stamp that the burn block claims to be created at.
     pub time_stamp: u64,
-    /// If 1, this block is on the path to the "canonical" chain tip (i.e., the active one).
+    /// If 1, this block is on the path to the "canonical" chain tip (i.e., the active one). If 0, it's not.
+    /// Note: This is a boolean represented as an integer for SQL storage.
     pub is_canonical: u64,
     /// A serde_json serialization of the `NewBlock` to string format.
     pub block: String,
 }
 
+impl BurnBlockIndexRow {
+    /// Returns `is_canonical` as a boolean, instead of an integer.
+    fn is_canonical(&self) -> bool {
+        self.is_canonical != 0
+    }
+}
 impl BurnHeaderIPC for BurnBlockIndexRow {
     type H = BurnBlockIndexRow;
     fn header(&self) -> Self::H {
