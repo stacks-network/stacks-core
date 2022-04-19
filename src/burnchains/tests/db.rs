@@ -23,22 +23,22 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
 
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::affirmation::AffirmationMap;
+use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::blocks::*;
 use crate::burnchains::bitcoin::*;
 use crate::burnchains::PoxConstants;
 use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use crate::chainstate::burn::*;
 use crate::chainstate::burn::operations::{
     leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
 };
-use crate::chainstate::stacks::*;
+use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::*;
+use crate::util_lib::db::Error as DBError;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-use crate::util_lib::db::Error as DBError;
 use stacks_common::util::hash::*;
 
 use super::*;

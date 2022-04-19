@@ -445,7 +445,7 @@ impl StacksEpochExtension for StacksEpoch {
             },
         ]
     }
-    
+
     #[cfg(test)]
     fn unit_test_2_05_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
@@ -534,7 +534,7 @@ impl StacksEpochExtension for StacksEpoch {
             },
         ]
     }
-    
+
     #[cfg(test)]
     fn unit_test_2_1_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
@@ -585,7 +585,6 @@ impl StacksEpochExtension for StacksEpoch {
             },
         ]
     }
-
 
     #[cfg(test)]
     fn unit_test(stacks_epoch_id: StacksEpochId, first_burnchain_height: u64) -> Vec<StacksEpoch> {

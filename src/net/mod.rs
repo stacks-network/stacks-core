@@ -2059,13 +2059,13 @@ pub mod test {
 
     use crate::address::*;
     use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::bitcoin::keys::*;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::*;
     use crate::burnchains::*;
-    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::chainstate::burn::db::sortdb;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
@@ -2551,7 +2551,7 @@ pub mod test {
         pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
             TestPeer::new_with_observer(config, None)
         }
-        
+
         pub fn test_path(config: &TestPeerConfig) -> String {
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",

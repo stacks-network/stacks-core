@@ -38,11 +38,11 @@ use crate::util_lib::db::Error as DBError;
 use crate::burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 
+use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::MagicBytes;
 use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use crate::types::chainstate::BurnchainHeaderHash;
-use crate::burnchains::BurnchainBlockHeader;
 
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::encodable::VarInt;

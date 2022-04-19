@@ -360,7 +360,7 @@ impl BurnchainHeaderHash {
         // little-endian form (which is also how most libraries work).
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
     }
-    
+
     pub fn to_bitcoin_hash(&self) -> Sha256dHash {
         let mut bytes = self.0.to_vec();
         bytes.reverse();

@@ -31,8 +31,8 @@ use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
-    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::StacksPublicKey;
@@ -52,9 +52,7 @@ use stacks_common::util::uint::Uint512;
 use stacks_common::util::vrf::VRFPrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
-};
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 #[test]
 fn test_process_block_ops() {

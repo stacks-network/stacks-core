@@ -25,15 +25,15 @@ use rusqlite::{
 use serde_json;
 
 use crate::burnchains::affirmation::*;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
-use crate::chainstate::burn::BlockSnapshot;
 use crate::burnchains::Txid;
 use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
 use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_rows, query_row_panic, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
-    u64_to_sql, Error as DBError, FromColumn, FromRow, DBConn 
+    opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,
+    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;

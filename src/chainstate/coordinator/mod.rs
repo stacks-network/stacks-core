@@ -34,8 +34,8 @@ use crate::burnchains::{
 use crate::chainstate::burn::{
     db::sortdb::SortitionDB,
     operations::leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
-    operations::LeaderBlockCommitOp,
     operations::BlockstackOperationType,
+    operations::LeaderBlockCommitOp,
     BlockSnapshot, ConsensusHash,
 };
 use crate::chainstate::coordinator::comm::{
@@ -1411,7 +1411,11 @@ impl<
     }
 
     /// Process any Atlas attachment events and forward them to the Atlas subsystem
-    fn process_atlas_attachment_events(&self, block_receipt: &StacksEpochReceipt, canonical_stacks_tip_height: u64) {
+    fn process_atlas_attachment_events(
+        &self,
+        block_receipt: &StacksEpochReceipt,
+        canonical_stacks_tip_height: u64,
+    ) {
         let mut attachments_instances = HashSet::new();
         for receipt in block_receipt.tx_receipts.iter() {
             if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
@@ -1429,7 +1433,7 @@ impl<
                                     block_receipt.header.index_block_hash(),
                                     block_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
-                                    Some(canonical_stacks_tip_height)
+                                    Some(canonical_stacks_tip_height),
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);
@@ -1572,7 +1576,10 @@ impl<
                     self.notifier.notify_stacks_block_processed();
                     increment_stx_blocks_processed_counter();
 
-                    self.process_atlas_attachment_events(&block_receipt, new_canonical_block_snapshot.canonical_stacks_tip_height);
+                    self.process_atlas_attachment_events(
+                        &block_receipt,
+                        new_canonical_block_snapshot.canonical_stacks_tip_height,
+                    );
 
                     let block_hash = block_receipt.header.anchored_header.block_hash();
                     let winner_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(

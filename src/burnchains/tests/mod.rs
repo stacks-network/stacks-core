@@ -20,10 +20,10 @@ pub mod db;
 
 use std::collections::HashMap;
 
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
 use crate::burnchains::Burnchain;
 use crate::burnchains::*;
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::*;
@@ -556,7 +556,14 @@ impl TestBurnchainBlock {
         new_snapshot.0
     }
 
-    pub fn mine_pox<'a, T: BlockEventDispatcher, N: CoordinatorNotices, R: RewardSetProvider, CE: CostEstimator, FE: FeeEstimator>(
+    pub fn mine_pox<
+        'a,
+        T: BlockEventDispatcher,
+        N: CoordinatorNotices,
+        R: RewardSetProvider,
+        CE: CostEstimator,
+        FE: FeeEstimator,
+    >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
@@ -693,7 +700,7 @@ impl TestBurnchainFork {
         N: CoordinatorNotices,
         R: RewardSetProvider,
         CE: CostEstimator,
-        FE: FeeEstimator
+        FE: FeeEstimator,
     >(
         &mut self,
         db: &mut SortitionDB,

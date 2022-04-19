@@ -40,8 +40,7 @@ use crate::util_lib::db::Error as DBError;
 use crate::core::StacksEpochId;
 
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress,
-    StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
 };
 use crate::util_lib::boot::boot_code_id;
 
