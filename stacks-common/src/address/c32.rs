@@ -23,7 +23,13 @@ use std::convert::TryFrom;
 const C32_CHARACTERS: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// C32 chars as an array, indexed by their ASCII code for O(1) lookups.
-/// Supports lookups by uppercase, lowercase, and special (i.e. `O, L, I`) chars.
+/// Supports lookups by uppercase and lowercase.
+///
+/// The table also encodes the special characters `O, L, I`:
+///   * `O` and `o` as `0`
+///   * `L` and `l` as `1`
+///   * `I` and `i` as `1`
+///
 /// Table can be generated with:
 /// ```
 /// let mut table: [isize; 128] = [-1; 128];
