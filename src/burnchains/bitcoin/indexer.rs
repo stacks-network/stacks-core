@@ -927,6 +927,10 @@ impl BurnchainIndexer for BitcoinIndexer {
     fn parser(&self) -> BitcoinBlockParser {
         BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes)
     }
+
+    fn reader(&self) -> BitcoinIndexer {
+        self.dup()
+    }
 }
 
 impl BurnchainHeaderReader for BitcoinIndexer {

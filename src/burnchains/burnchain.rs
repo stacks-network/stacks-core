@@ -974,7 +974,7 @@ impl Burnchain {
     /// Returns new latest block height.
     pub fn sync<I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send>(
         &mut self,
-        indexer: I,
+        indexer: &mut I,
         comms: &CoordinatorChannels,
         target_block_height_opt: Option<u64>,
         max_blocks_opt: Option<u64>,
@@ -996,9 +996,9 @@ impl Burnchain {
         I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send,
     >(
         &mut self,
-        mut indexer: I,
+        indexer: &mut I,
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
-        self.setup_chainstate(&mut indexer)?;
+        self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
@@ -1023,7 +1023,7 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let (sync_height, did_reorg) = Burnchain::sync_reorg(&mut indexer)?;
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
         if did_reorg {
             // a reorg happened
             warn!(
@@ -1067,6 +1067,7 @@ impl Burnchain {
         let mut downloader = indexer.downloader();
         let mut parser = indexer.parser();
         let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
+        let parser_indexer = indexer.reader();
 
         let burnchain_config = self.clone();
 
@@ -1138,7 +1139,7 @@ impl Burnchain {
                     &mut sortdb,
                     &mut burnchain_db,
                     &burnchain_config,
-                    &indexer,
+                    &parser_indexer,
                     &burnchain_block,
                 )?;
                 last_processed = (tip, Some(transition));
@@ -1243,7 +1244,7 @@ impl Burnchain {
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
     pub fn sync_with_indexer<I>(
         &mut self,
-        mut indexer: I,
+        indexer: &mut I,
         coord_comm: CoordinatorChannels,
         target_block_height_opt: Option<u64>,
         max_blocks_opt: Option<u64>,
@@ -1252,7 +1253,7 @@ impl Burnchain {
     where
         I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send,
     {
-        self.setup_chainstate(&mut indexer)?;
+        self.setup_chainstate(indexer)?;
         let (_, mut burnchain_db) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
@@ -1268,7 +1269,7 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let (sync_height, did_reorg) = Burnchain::sync_reorg(&mut indexer)?;
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
         if did_reorg {
             // a reorg happened
             warn!(
@@ -1378,6 +1379,7 @@ impl Burnchain {
 
         let myself = self.clone();
         let input_headers = indexer.read_headers(start_block + 1, end_block + 1)?;
+        let parser_indexer = indexer.reader();
 
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
@@ -1474,7 +1476,7 @@ impl Burnchain {
 
                         let insert_start = get_epoch_time_ms();
                         last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &indexer, &burnchain_block)?;
+                            Burnchain::process_block(&myself, &mut burnchain_db, &parser_indexer, &burnchain_block)?;
                         if !coord_comm.announce_new_burn_block() {
                             return Err(burnchain_error::CoordinatorClosed);
                         }
