@@ -1,11 +1,6 @@
 use std::convert::TryInto;
-use std::io::BufReader;
-use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use std::{env, thread};
 
 use rand::RngCore;
-use std::thread::JoinHandle;
 
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
@@ -26,7 +21,6 @@ use stacks::vm::database::BurnStateDB;
 use stacks::vm::types::PrincipalData;
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
-use std::io::BufRead;
 
 use super::Config;
 
@@ -426,118 +420,4 @@ fn make_microblock(
         .mine_next_microblock_from_txs(mempool_txs, privk)
         .unwrap();
     microblock
-}
-
-#[derive(std::fmt::Debug)]
-pub enum SubprocessError {
-    SpawnFailed(String),
-}
-
-type SubprocessResult<T> = Result<T, SubprocessError>;
-
-/// The StacksL1Controller will terminate after this many empty lines. Consecutive empty lines indicate
-/// the underlying process is hung.
-const MAX_CONSECUTIVE_EMPTY_LINES: u64 = 10; // consecutive empty lines indicate L1 has crashed or stopped
-/// In charge of running L1 `stacks-node`.
-pub struct StacksL1Controller {
-    sub_process: Option<Child>,
-    config_path: String,
-    printer_handle: Option<JoinHandle<()>>,
-    log_process: bool,
-}
-
-lazy_static! {
-    pub static ref MOCKNET_PRIVATE_KEY_1: StacksPrivateKey = StacksPrivateKey::from_hex(
-        "aaf57b4730f713cf942bc63f0801c4a62abe5a6ac8e3da10389f9ca3420b0dc701"
-    )
-    .unwrap();
-    pub static ref MOCKNET_PRIVATE_KEY_2: StacksPrivateKey = StacksPrivateKey::from_hex(
-        "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
-    )
-    .unwrap();
-}
-
-impl StacksL1Controller {
-    pub fn new(config_path: String, log_process: bool) -> StacksL1Controller {
-        StacksL1Controller {
-            sub_process: None,
-            config_path,
-            printer_handle: None,
-            log_process,
-        }
-    }
-
-    pub fn start_process(&mut self) -> SubprocessResult<()> {
-        let binary = match env::var("STACKS_BASE_DIR") {
-            Err(_) => {
-                // assume stacks-node is in path
-                "stacks-node".into()
-            }
-            Ok(path) => path,
-        };
-        let mut command = Command::new(&binary);
-        command
-            .stderr(Stdio::piped())
-            .arg("start")
-            .arg("--config=".to_owned() + &self.config_path);
-
-        info!("stacks-node mainchain spawn: {:?}", command);
-
-        let mut process = match command.spawn() {
-            Ok(child) => child,
-            Err(e) => return Err(SubprocessError::SpawnFailed(format!("{:?}", e))),
-        };
-
-        let printer_handle = if self.log_process {
-            let child_out = process.stderr.take().unwrap();
-            Some(thread::spawn(|| {
-                info!("spawned thread process");
-
-                let mut buffered_out = BufReader::new(child_out);
-                let mut buf = String::new();
-                let mut consecutive_empty_lines = 0;
-                loop {
-                    buffered_out
-                        .read_line(&mut buf)
-                        .expect("reading a line didn't work");
-
-                    let trimmed_line = buf.trim();
-                    if !trimmed_line.is_empty() {
-                        // Print the L1 log line in yellow.
-                        info!("\x1b[0;33mL1: {}\x1b[0m", &buf);
-                        consecutive_empty_lines = 0;
-                    } else {
-                        consecutive_empty_lines += 1;
-                        if consecutive_empty_lines >= MAX_CONSECUTIVE_EMPTY_LINES {
-                            warn!("L1 chain seems to be dead. Stopping the thread.");
-                            break;
-                        }
-                    }
-
-                    buf.clear();
-                }
-            }))
-        } else {
-            None
-        };
-
-        info!("stacks-node mainchain spawned, waiting for startup");
-
-        self.sub_process = Some(process);
-        self.printer_handle = printer_handle;
-
-        Ok(())
-    }
-
-    pub fn kill_process(&mut self) {
-        if let Some(mut sub_process) = self.sub_process.take() {
-            sub_process.kill().unwrap();
-        }
-    }
-}
-
-impl Drop for StacksL1Controller {
-    fn drop(&mut self) {
-        self.kill_process();
-    }
 }
