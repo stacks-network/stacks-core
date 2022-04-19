@@ -252,12 +252,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
             &(is_canonical as u32),
             &block_string,
         ];
-        let mut transaction = match connection.transaction() {
-            Ok(transaction) => transaction,
-            Err(e) => {
-                return Err(BurnchainError::DBError(db_error::SqliteError(e)));
-            }
-        };
+        let mut transaction = match connection.transaction()?;
         transaction.execute(
             "INSERT INTO block_index (height, header_hash, parent_header_hash, time_stamp, is_canonical, block) VALUES (?, ?, ?, ?, ?, ?)",
             params,
