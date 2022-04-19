@@ -24,6 +24,7 @@ use stacks::util_lib::db::{query_row, u64_to_sql, FromRow};
 use stacks::util_lib::db::{sqlite_open, Error as db_error};
 use std::path::PathBuf;
 
+/// Defines the table underlying the DBBurnchainIndexer.
 const DB_BURNCHAIN_SCHEMA: &'static str = &r#"
     CREATE TABLE block_index(
         height INTEGER NOT NULL,
@@ -34,6 +35,22 @@ const DB_BURNCHAIN_SCHEMA: &'static str = &r#"
         block TEXT NOT NULL  -- json serilization of the NewBlock
     );
     "#;
+
+/// Returns the header with header hash `hash`.
+pub fn get_header_for_hash(connection:&DBConn, hash: &BurnchainHeaderHash) -> Result<BurnBlockIndexRow, BurnchainError> {
+    let row_option = query_row::<BurnBlockIndexRow, _>(
+        &connection,
+        "SELECT * FROM headers WHERE header_hash = ?1",
+        &[&hash],
+    )
+    ?;
+
+    match row_option {
+        Some(row) => Ok(row),
+        None => Err(BurnchainError::MissingHeaders)
+    }
+}
+
 
 /// Returns true iff the header with index `header_hash` is marked as `is_canonical` in the db.
 fn is_canonical(
@@ -628,25 +645,5 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         DBBlockDownloader {
             output_db_path: self.get_headers_path(),
         }
-    }
-}
-
-impl DBBurnchainIndexer {
-    pub fn get_header_for_hash(&self, hash: &BurnchainHeaderHash) -> BurnBlockIndexRow {
-        let row = query_row::<BurnBlockIndexRow, _>(
-            &self.connection.as_ref().unwrap(),
-            "SELECT * FROM block_index WHERE header_hash = ?1",
-            &[&hash],
-        )
-        .expect(&format!(
-            "DBBurnchainIndexer: No header found for hash: {:?}",
-            &hash
-        ))
-        .expect(&format!(
-            "DBBurnchainIndexer: No header found for hash: {:?}",
-            &hash
-        ));
-
-        row
     }
 }
