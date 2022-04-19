@@ -18,24 +18,24 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
-use vm::costs::{
+use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
-use vm::functions::define::DefineFunctionsParsed;
-use vm::functions::NativeFunctions;
-use vm::representations::SymbolicExpressionType::{
+use crate::vm::functions::define::DefineFunctionsParsed;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use vm::types::signatures::{FunctionSignature, BUFF_20};
-use vm::types::{
+use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
+use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
     QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value,
 };
-use vm::variables::NativeVariables;
+use crate::vm::variables::NativeVariables;
+use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
 
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
@@ -47,8 +47,8 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
-use vm::contexts::Environment;
-use vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::contexts::Environment;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
 mod tests;
@@ -289,7 +289,7 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
-        use vm::variables::NativeVariables::*;
+        use crate::vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::PrincipalType,
             ContractCaller => TypeSignature::PrincipalType,

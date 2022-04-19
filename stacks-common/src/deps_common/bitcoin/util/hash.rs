@@ -29,10 +29,12 @@ use ripemd::Ripemd160;
 use sha2::Digest;
 use sha2::Sha256;
 
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, BitcoinHash, RawEncoder, SimpleEncoder};
-use util::uint::Uint256;
-use util::HexError;
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{
+    self, BitcoinHash, RawEncoder, SimpleEncoder,
+};
+use crate::util::uint::Uint256;
+use crate::util::HexError;
 
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
 pub struct Sha256dHash(pub [u8; 32]);
@@ -421,9 +423,9 @@ impl<T: BitcoinHash> MerkleRoot for Vec<T> {
 mod tests {
 
     use super::*;
-    use deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
-    use util::uint::Uint256;
+    use crate::deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::uint::Uint256;
 
     #[test]
     fn test_sha256d() {

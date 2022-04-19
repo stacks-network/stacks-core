@@ -243,7 +243,7 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
 mod test {
     use super::*;
     use rand::Rng;
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
     use super::super::c32_old::{c32_address as c32_address_old, c32_address_decode as c32_address_decode_old};
 
     #[test]

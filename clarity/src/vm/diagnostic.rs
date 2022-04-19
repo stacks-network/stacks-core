@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::representations::Span;
 use std::fmt;
-use vm::representations::Span;
 
 /// In a near future, we can go further in our static analysis and provide different levels
 /// of diagnostics, such as warnings, hints, best practices, etc.

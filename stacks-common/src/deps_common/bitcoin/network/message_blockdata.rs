@@ -18,10 +18,10 @@
 //! Bitcoin data (blocks and transactions) around.
 //!
 
-use deps_common::bitcoin::network::constants;
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
-use deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::deps_common::bitcoin::network::constants;
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 /// The type of an inventory object
@@ -137,9 +137,9 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Inventory {
 mod tests {
     use super::{GetBlocksMessage, GetHeadersMessage};
 
-    use util::hash::hex_bytes as hex_decode;
+    use crate::util::hash::hex_bytes as hex_decode;
 
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
     use std::default::Default;
 
     #[test]

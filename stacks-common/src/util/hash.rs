@@ -20,16 +20,16 @@ use std::fmt;
 use std::fmt::Write;
 use std::mem;
 
-use util::log;
-use util::pair::*;
-use util::secp256k1::Secp256k1PublicKey;
-use util::HexError;
+use crate::util::log;
+use crate::util::pair::*;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::HexError;
 
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
 
-use util::uint::Uint256;
+use crate::util::uint::Uint256;
 
 use crate::types::StacksPublicKeyBuffer;
 

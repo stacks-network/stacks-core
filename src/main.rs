@@ -50,8 +50,10 @@ use blockstack_lib::burnchains::db::BurnchainDB;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::Burnchain;
 use blockstack_lib::chainstate::burn::ConsensusHash;
+use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
 use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
+use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
 use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
 use blockstack_lib::chainstate::stacks::index::marf::MARF;
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
@@ -239,7 +241,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -286,7 +288,7 @@ check if the associated microblocks can be downloaded
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -467,7 +469,7 @@ simulating a miner.
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
         let chain_id = CHAIN_ID_MAINNET;
-        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path)
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
             .expect("Failed to get sortition chain tip");
@@ -620,7 +622,8 @@ simulating a miner.
         }
 
         let marf_bhh = StacksBlockId::from_hex(marf_tip).expect("Bad MARF block hash");
-        let mut marf = MARF::from_path(&marf_path).expect("Failed to open MARF");
+        let marf_opts = MARFOpenOpts::default();
+        let mut marf = MARF::from_path(&marf_path, marf_opts).expect("Failed to open MARF");
         let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
 
         if let Some(value) = value_opt {
@@ -671,7 +674,9 @@ simulating a miner.
         let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
         let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[5];
-        let mut marf = MARF::from_path(path).unwrap();
+
+        let marf_opts = MARFOpenOpts::default();
+        let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
             Some(x) => println!("{}", x),
@@ -734,13 +739,16 @@ simulating a miner.
     if argv[1] == "process-block" {
         let path = &argv[2];
         let sort_path = &argv[3];
-        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path).unwrap();
+        let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path, None).unwrap();
         let mut sortition_db = SortitionDB::open(sort_path, true).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
             .unwrap()
             .sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-        chainstate.process_next_staging_block(&mut tx).unwrap();
+        let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+        chainstate
+            .process_next_staging_block(&mut tx, null_event_dispatcher)
+            .unwrap();
         return;
     }
 
@@ -758,7 +766,7 @@ simulating a miner.
         let burnchain_db_path = &argv[6];
 
         let (old_chainstate, _) =
-            StacksChainState::open(false, 0x80000000, old_chainstate_path).unwrap();
+            StacksChainState::open(false, 0x80000000, old_chainstate_path, None).unwrap();
         let old_sortition_db = SortitionDB::open(old_sort_path, true).unwrap();
 
         // initial argon balances -- see testnet/stacks-node/conf/testnet-follower-conf.toml
@@ -847,6 +855,7 @@ simulating a miner.
             0x80000000,
             new_chainstate_path,
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
 
@@ -909,7 +918,7 @@ simulating a miner.
             )
             .unwrap();
         let (mut p2p_chainstate, _) =
-            StacksChainState::open(false, 0x80000000, new_chainstate_path).unwrap();
+            StacksChainState::open(false, 0x80000000, new_chainstate_path, None).unwrap();
 
         let _ = thread::spawn(move || {
             loop {
@@ -946,6 +955,7 @@ simulating a miner.
                         &burnchain,
                         &sortition_tip.sortition_id,
                         None,
+                        |_| {},
                     )
                     .unwrap()
             };
@@ -1038,7 +1048,10 @@ simulating a miner.
                         .unwrap()
                         .sortition_id;
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
-                let receipts = new_chainstate.process_blocks(sortition_tx, 1).unwrap();
+                let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
+                let receipts = new_chainstate
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
+                    .unwrap();
                 if receipts.len() == 0 {
                     break;
                 }

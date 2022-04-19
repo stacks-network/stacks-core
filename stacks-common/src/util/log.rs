@@ -234,7 +234,7 @@ fn make_logger() -> Logger {
     }
 }
 
-pub fn get_loglevel() -> slog::Level {
+fn inner_get_loglevel() -> slog::Level {
     if env::var("STACKS_LOG_TRACE") == Ok("1".into()) {
         slog::Level::Trace
     } else if env::var("STACKS_LOG_DEBUG") == Ok("1".into()) {
@@ -244,6 +244,14 @@ pub fn get_loglevel() -> slog::Level {
     } else {
         slog::Level::Info
     }
+}
+
+lazy_static! {
+    static ref LOGLEVEL: slog::Level = inner_get_loglevel();
+}
+
+pub fn get_loglevel() -> slog::Level {
+    *LOGLEVEL
 }
 
 #[macro_export]

@@ -14,21 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
-use vm::callables::{DefineType, DefinedFunction};
-use vm::contexts::{ContractContext, Environment, LocalContext};
-use vm::errors::{
+use crate::vm::callables::{DefineType, DefinedFunction};
+use crate::vm::contexts::{ContractContext, Environment, LocalContext};
+use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::eval;
-use vm::representations::SymbolicExpressionType::{Atom, AtomValue, Field, List, LiteralValue};
-use vm::representations::{ClarityName, SymbolicExpression};
-use vm::types::signatures::FunctionSignature;
-use vm::types::{
+use crate::vm::eval;
+use crate::vm::representations::SymbolicExpressionType::{
+    Atom, AtomValue, Field, List, LiteralValue,
+};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{
     parse_name_type_pairs, PrincipalData, QualifiedContractIdentifier, TraitIdentifier,
     TupleTypeSignature, TypeSignature, Value,
 };
+use std::collections::{BTreeMap, HashMap};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),

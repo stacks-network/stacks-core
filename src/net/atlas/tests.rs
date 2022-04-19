@@ -19,20 +19,20 @@ use std::convert::TryFrom;
 use std::thread;
 use std::time;
 
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::StacksChainState;
-use net::connection::ConnectionOptions;
-use net::{
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::connection::ConnectionOptions;
+use crate::net::{
     AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
     PeerHost, Requestable,
 };
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::strings::UrlString;
+use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
-use util::hash::Hash160;
-use util_lib::boot::boot_code_id;
-use util_lib::strings::UrlString;
-use vm::types::QualifiedContractIdentifier;
+use stacks_common::util::hash::Hash160;
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
@@ -145,8 +145,8 @@ fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpRespons
 
 #[test]
 fn test_attachment_instance_parsing() {
-    use util::hash::MerkleHashFunc;
-    use vm;
+    use clarity::vm;
+    use stacks_common::util::hash::MerkleHashFunc;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let stacks_block_height = 0;

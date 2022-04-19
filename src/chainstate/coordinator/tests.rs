@@ -25,43 +25,43 @@ use std::sync::{
 
 use rusqlite::Connection;
 
-use address;
-use burnchains::{db::*, *};
-use chainstate;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::leader_block_commit::*;
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::coordinator::{Error as CoordError, *};
-use chainstate::stacks::db::{
+use crate::burnchains::{db::*, *};
+use crate::chainstate;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::*;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
-use chainstate::stacks::*;
-use clarity_vm::clarity::ClarityConnection;
-use core;
-use core::*;
-use monitoring::increment_stx_blocks_processed_counter;
-use util::hash::{to_hex, Hash160};
-use util::vrf::*;
-use vm::{
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::ClarityConnection;
+use crate::core;
+use crate::core::*;
+use crate::monitoring::increment_stx_blocks_processed_counter;
+use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
     types::QualifiedContractIdentifier,
     Value,
 };
+use stacks_common::address;
+use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::boot::COSTS_2_NAME;
+use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
-use chainstate::stacks::boot::COSTS_2_NAME;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::database::BurnStateDB;
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-use util_lib::boot::boot_code_id;
-use vm::clarity::TransactionConnection;
-use vm::database::BurnStateDB;
 
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
@@ -292,6 +292,7 @@ pub fn setup_states(
             0x80000000,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
     }
@@ -302,13 +303,13 @@ pub struct NullEventDispatcher;
 impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_block(
         &self,
-        _block: StacksBlock,
-        _metadata: StacksHeaderInfo,
-        _receipts: Vec<StacksTransactionReceipt>,
+        _block: &StacksBlock,
+        _metadata: &StacksHeaderInfo,
+        _receipts: &Vec<StacksTransactionReceipt>,
         _parent: &StacksBlockId,
         _winner_txid: Txid,
-        _rewards: Vec<MinerReward>,
-        _rewards_info: Option<MinerRewardInfo>,
+        _rewards: &Vec<MinerReward>,
+        _rewards_info: Option<&MinerRewardInfo>,
         _parent_burn_block_hash: BurnchainHeaderHash,
         _parent_burn_block_height: u32,
         _parent_burn_block_timestamp: u64,
@@ -401,7 +402,7 @@ pub fn get_chainstate_path_str(path: &str) -> String {
 
 pub fn get_chainstate(path: &str) -> StacksChainState {
     let (chainstate, _) =
-        StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path)).unwrap();
+        StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path), None).unwrap();
     chainstate
 }
 

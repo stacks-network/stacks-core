@@ -16,9 +16,9 @@
 
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
-use vm::analysis::ContractAnalysis;
-use vm::costs::ExecutionCost;
-use vm::types::{
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
     Value,
 };

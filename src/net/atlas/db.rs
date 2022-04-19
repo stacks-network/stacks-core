@@ -24,26 +24,26 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use util_lib::db::sqlite_open;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
 };
 
-use util;
-use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
-use util::log;
-use util::macros::is_big_endian;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util;
+use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
+use stacks_common::util::log;
+use stacks_common::util::macros::is_big_endian;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::QualifiedContractIdentifier;
 
+use crate::burnchains::Txid;
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksBlockId;
-use burnchains::Txid;
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 

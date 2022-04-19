@@ -37,8 +37,8 @@
 //! assert_eq!(&bytes[..], &[0xF9, 0xBE, 0xB4, 0xD9]);
 //! ```
 
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 /// Version of the protocol as appearing in network message headers
 pub const PROTOCOL_VERSION: u32 = 70001;
@@ -122,7 +122,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Network {
 #[cfg(test)]
 mod tests {
     use super::Network;
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn serialize_test() {

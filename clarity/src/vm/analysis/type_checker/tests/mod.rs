@@ -14,24 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
-use vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
-use vm::analysis::types::ContractAnalysis;
-use vm::analysis::AnalysisDatabase;
-use vm::ast::errors::ParseErrors;
-use vm::ast::{build_ast, parse};
-use vm::contexts::OwnedEnvironment;
-use vm::representations::SymbolicExpression;
-use vm::types::{
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
+use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::{build_ast, parse};
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{
     FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
     BUFF_32, BUFF_64,
 };
 
-use vm::database::MemoryBackingStore;
-use vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
-use vm::types::{SequenceSubtype::*, StringSubtype::*};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
+use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
 use std::convert::TryInto;
 
@@ -1287,7 +1287,7 @@ fn test_response_inference() {
 
 #[test]
 fn test_function_arg_names() {
-    use vm::analysis::type_check;
+    use crate::vm::analysis::type_check;
 
     let functions = vec![
         "(define-private (test (x int)) (ok 0))

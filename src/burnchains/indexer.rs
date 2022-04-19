@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use burnchains::BurnchainBlock;
-use burnchains::Error as burnchain_error;
-use burnchains::*;
+use crate::burnchains::BurnchainBlock;
+use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::*;
 
+use crate::core::StacksEpoch;
 use crate::types::chainstate::BurnchainHeaderHash;
-use core::StacksEpoch;
 
 // IPC messages between threads
 pub trait BurnHeaderIPC {
@@ -75,7 +75,7 @@ pub trait BurnchainIndexer {
         end_height: Option<u64>,
     ) -> Result<u64, burnchain_error>;
     fn drop_headers(&mut self, new_height: u64) -> Result<(), burnchain_error>;
-
+    /// Return headers that fall within the range. If end_block extends beyond the downloaded header range, then the result is truncated.
     fn read_headers(&self, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;
 
     fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;

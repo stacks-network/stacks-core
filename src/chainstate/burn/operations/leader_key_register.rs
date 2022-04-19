@@ -16,31 +16,31 @@
 
 use std::io::{Read, Write};
 
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainTransaction;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::BurnchainTransaction;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::stacks::StacksPrivateKey;
-use chainstate::stacks::StacksPublicKey;
-use net::Error as net_error;
-use util::hash::DoubleSha256;
-use util::log;
-use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
-use util_lib::db::DBConn;
-use util_lib::db::DBTx;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::StacksPrivateKey;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::net::Error as net_error;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -253,23 +253,23 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use chainstate::stacks::address::StacksAddressExtensions;
-    use chainstate::stacks::index::TrieHashExtension;
+    use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, to_hex};
-    use util::log;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, to_hex};
+    use stacks_common::util::log;
 
     use crate::types::chainstate::SortitionId;
 

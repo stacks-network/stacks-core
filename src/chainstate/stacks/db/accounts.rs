@@ -19,17 +19,17 @@ use std::collections::HashMap;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 
-use burnchains::Address;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use util_lib::db::Error as db_error;
-use util_lib::db::*;
-use vm::database::clarity_store::*;
-use vm::database::*;
-use vm::types::*;
+use crate::burnchains::Address;
+use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::*;
+use clarity::vm::database::clarity_store::*;
+use clarity::vm::database::*;
+use clarity::vm::types::*;
 
 use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
@@ -153,8 +153,8 @@ impl StacksChainState {
         })
     }
 
-    pub fn get_account_ft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_ft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
@@ -168,8 +168,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn get_account_nft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_nft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         token_value: &Value,
@@ -310,7 +310,7 @@ impl StacksChainState {
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
     pub fn insert_miner_payment_schedule<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
     ) -> Result<(), Error> {
@@ -425,7 +425,7 @@ impl StacksChainState {
 
     /// Get the scheduled miner rewards at a particular index hash
     pub fn get_scheduled_block_rewards_at_block<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =
@@ -660,8 +660,8 @@ impl StacksChainState {
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners.
-    pub fn find_mature_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn find_mature_miner_rewards(
+        clarity_tx: &mut ClarityTx,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
@@ -740,14 +740,14 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use burnchains::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::*;
-    use util::hash::*;
-    use vm::costs::ExecutionCost;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::index::*;
+    use crate::chainstate::stacks::Error;
+    use crate::chainstate::stacks::*;
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::util::hash::*;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 

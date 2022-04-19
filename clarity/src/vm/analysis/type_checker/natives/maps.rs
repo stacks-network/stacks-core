@@ -14,19 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{PrincipalData, TypeSignature, Value};
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{PrincipalData, TypeSignature, Value};
 
-use vm::functions::tuples;
+use crate::vm::functions::tuples;
 
 use super::check_special_tuple_cons;
-use vm::analysis::type_checker::{
+use crate::vm::analysis::type_checker::{
     check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker, TypeResult,
     TypingContext,
 };
 
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
 
 pub fn check_special_fetch_entry(
     checker: &mut TypeChecker,

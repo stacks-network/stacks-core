@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::costs::{CostErrors, ExecutionCost};
+use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{TupleTypeSignature, TypeSignature, Value};
 use std::error;
 use std::fmt;
-use vm::costs::{CostErrors, ExecutionCost};
-use vm::diagnostic::{DiagnosableError, Diagnostic};
-use vm::representations::SymbolicExpression;
-use vm::types::{TupleTypeSignature, TypeSignature, Value};
 
 pub type CheckResult<T> = Result<T, CheckError>;
 
