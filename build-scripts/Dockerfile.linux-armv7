@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y git gcc-arm-linux-gnueabihf
 RUN CC=arm-linux-gnueabihf-gcc \
     CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc \
     CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc \
-    cargo build --release --workspace=./ --target armv7-unknown-linux-gnueabihf
+    cargo build --release --workspace --target armv7-unknown-linux-gnueabihf
 
 RUN mkdir /out && cp -R /src/target/armv7-unknown-linux-gnueabihf/release/. /out
 
