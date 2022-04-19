@@ -284,9 +284,7 @@ fn inner_setup_states(
         let burnchain = get_burnchain(path, pox_consts.clone());
 
         let epochs = match start_epoch {
-            StacksEpochId::Epoch2_05 => {
-                StacksEpoch::unit_test_2_05_only(burnchain.first_block_height)
-            }
+            StacksEpochId::Epoch2_05 => StacksEpoch::unit_test_2_05(burnchain.first_block_height),
             StacksEpochId::Epoch21 => StacksEpoch::unit_test_2_1_only(burnchain.first_block_height),
             _ => panic!("Cannot start in epoch 1.0 or 2.0"),
         };
