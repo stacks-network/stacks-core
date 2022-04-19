@@ -60,7 +60,7 @@ fn is_canonical(
 /// Returns a comparison between `a` and `b`.
 /// Headers are sorted by height (higher is greater), and then lexicographically by
 /// the header hash (greater in string space is greater).
-fn compare_headers(a: &BurnHeaderDBRow, b: &BurnHeaderDBRow) -> Ordering {
+fn compare_headers(a: &BurnBlockIndexRow, b: &BurnBlockIndexRow) -> Ordering {
     if a.height() > b.height() {
         Ordering::Less
     } else if a.height() < b.height() {
@@ -79,8 +79,8 @@ fn compare_headers(a: &BurnHeaderDBRow, b: &BurnHeaderDBRow) -> Ordering {
 
 /// Returns the "canonical" chain tip from the rows in the db. This is the block
 /// with the highest height, breaking ties by lexicographic ordering.
-fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnHeaderDBRow>, BurnchainError> {
-    query_row::<BurnHeaderDBRow, _>(
+fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnBlockIndexRow>, BurnchainError> {
+    query_row::<BurnBlockIndexRow, _>(
         connection,
         "SELECT * FROM block_index ORDER BY height DESC, header_hash DESC LIMIT 1",
         NO_PARAMS,
@@ -97,13 +97,13 @@ fn get_canonical_chain_tip(connection: &DBConn) -> Result<Option<BurnHeaderDBRow
 /// `transaction` should be commited outside of this function.
 fn process_reorg(
     transaction: &mut Transaction,
-    new_tip: &BurnHeaderDBRow,
-    old_tip: &BurnHeaderDBRow,
+    new_tip: &BurnBlockIndexRow,
+    old_tip: &BurnBlockIndexRow,
 ) -> Result<u64, BurnchainError> {
     // Step 1: Set `is_canonical` to true for ancestors of the new tip.
     let mut up_cursor = BurnchainHeaderHash(new_tip.parent_header_hash());
     let greatest_common_ancestor = loop {
-        let cursor_header = match query_row::<BurnHeaderDBRow, _>(
+        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
             &transaction,
             "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&up_cursor],
@@ -135,7 +135,7 @@ fn process_reorg(
     // common ancestor (exclusive).
     let mut down_cursor = BurnchainHeaderHash(old_tip.header_hash());
     loop {
-        let cursor_header = match query_row::<BurnHeaderDBRow, _>(
+        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
             &transaction,
             "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&down_cursor],
@@ -169,7 +169,7 @@ fn find_first_canonical_ancestor(
 ) -> Result<u64, BurnchainError> {
     let mut cursor = last_canonical_tip;
     loop {
-        let cursor_header = match query_row::<BurnHeaderDBRow, _>(
+        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
             connection,
             "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&cursor],
@@ -206,7 +206,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         let mut connection = sqlite_open(&self.output_db_path, open_flags, true)?;
 
         let current_canonical_tip_opt = get_canonical_chain_tip(&connection)?;
-        let header = BurnHeaderDBRow::from(&new_block);
+        let header = BurnBlockIndexRow::from(&new_block);
 
         // In order to record this block, we either: 1) have already started recording, or 2) this
         // block has the "first hash" we're looking for.
@@ -282,7 +282,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 
 #[derive(Debug, Clone)]
 /// Corresponds to a row in the `block_index` table.
-pub struct BurnHeaderDBRow {
+pub struct BurnBlockIndexRow {
     pub height: u64,
     pub header_hash: BurnchainHeaderHash,
     pub parent_header_hash: BurnchainHeaderHash,
@@ -291,8 +291,8 @@ pub struct BurnHeaderDBRow {
     pub block: String,
 }
 
-impl BurnHeaderIPC for BurnHeaderDBRow {
-    type H = BurnHeaderDBRow;
+impl BurnHeaderIPC for BurnBlockIndexRow {
+    type H = BurnBlockIndexRow;
     fn header(&self) -> Self::H {
         self.clone()
     }
@@ -309,8 +309,8 @@ impl BurnHeaderIPC for BurnHeaderDBRow {
         self.time_stamp
     }
 }
-impl FromRow<BurnHeaderDBRow> for BurnHeaderDBRow {
-    fn from_row<'a>(row: &'a Row) -> Result<BurnHeaderDBRow, db_error> {
+impl FromRow<BurnBlockIndexRow> for BurnBlockIndexRow {
+    fn from_row<'a>(row: &'a Row) -> Result<BurnBlockIndexRow, db_error> {
         let height: u32 = row.get_unwrap("height");
         let header_hash: BurnchainHeaderHash =
             BurnchainHeaderHash::from_column(row, "header_hash")?;
@@ -320,7 +320,7 @@ impl FromRow<BurnHeaderDBRow> for BurnHeaderDBRow {
         let is_canonical: u32 = row.get_unwrap("is_canonical");
         let block: String = row.get_unwrap("block");
 
-        Ok(BurnHeaderDBRow {
+        Ok(BurnBlockIndexRow {
             height: height.into(),
             header_hash,
             parent_header_hash,
@@ -385,7 +385,7 @@ pub struct DBBurnchainIndexer {
     connection: Option<DBConn>,
     /// The chain tip that was canonical the last time `find_chain_reorg` was called. None until we connect to DB.
     /// Note: The chain tip in the database may have changed multiple times since this was set.
-    last_canonical_tip: Option<BurnHeaderDBRow>,
+    last_canonical_tip: Option<BurnBlockIndexRow>,
     /// The hash of the first block that the system will store.
     first_burn_header_hash: BurnchainHeaderHash,
 }
@@ -451,7 +451,7 @@ impl BurnchainBlockDownloader for DBBlockDownloader {
         let connection = sqlite_open(&self.output_db_path, open_flags, true)?;
         let header_hash = BurnchainHeaderHash(header.index_hash.0);
         let params: &[&dyn ToSql] = &[&header_hash];
-        let header = query_row::<BurnHeaderDBRow, _>(
+        let header = query_row::<BurnBlockIndexRow, _>(
             &connection,
             "SELECT * FROM block_index WHERE header_hash = ?1",
             params,
@@ -470,7 +470,7 @@ impl BurnchainBlockDownloader for DBBlockDownloader {
     }
 }
 
-fn row_to_mock_header(input: &BurnHeaderDBRow) -> MockHeader {
+fn row_to_mock_header(input: &BurnBlockIndexRow) -> MockHeader {
     MockHeader {
         height: input.height,
         index_hash: StacksBlockId(input.header_hash.0),
@@ -479,12 +479,12 @@ fn row_to_mock_header(input: &BurnHeaderDBRow) -> MockHeader {
     }
 }
 
-impl From<&NewBlock> for BurnHeaderDBRow {
+impl From<&NewBlock> for BurnBlockIndexRow {
     fn from(b: &NewBlock) -> Self {
         let block_string = serde_json::to_string(&b)
             .map_err(|e| BurnchainError::ParseError)
             .expect("Serialization of `NewBlock` has failed.");
-        BurnHeaderDBRow {
+        BurnBlockIndexRow {
             header_hash: BurnchainHeaderHash(b.index_block_hash.0.clone()),
             parent_header_hash: BurnchainHeaderHash(b.parent_index_block_hash.0.clone()),
             height: b.block_height,
@@ -621,7 +621,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
             .next()
             .map_err(|e| BurnchainError::DBError(db_error::SqliteError(e)))?
         {
-            let next_header = BurnHeaderDBRow::from_row(&row)?;
+            let next_header = BurnBlockIndexRow::from_row(&row)?;
             headers.push(row_to_mock_header(&next_header));
         }
 
@@ -641,8 +641,8 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 }
 
 impl DBBurnchainIndexer {
-    pub fn get_header_for_hash(&self, hash: &BurnchainHeaderHash) -> BurnHeaderDBRow {
-        let row = query_row::<BurnHeaderDBRow, _>(
+    pub fn get_header_for_hash(&self, hash: &BurnchainHeaderHash) -> BurnBlockIndexRow {
+        let row = query_row::<BurnBlockIndexRow, _>(
             &self.connection.as_ref().unwrap(),
             "SELECT * FROM block_index WHERE header_hash = ?1",
             &[&hash],
