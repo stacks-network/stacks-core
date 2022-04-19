@@ -238,7 +238,7 @@ fn main() {
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let (chainstate, _) =
-            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path).unwrap();
+            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
 
         let (consensus_hash, block_hash) = chainstate
             .get_block_header_hashes(&index_block_hash)
@@ -318,7 +318,7 @@ fn main() {
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let (chainstate, _) =
-            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path).unwrap();
+            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
 
