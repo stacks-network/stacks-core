@@ -276,11 +276,17 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 #[derive(Debug, Clone)]
 /// Corresponds to a row in the `block_index` table.
 pub struct BurnBlockIndexRow {
+    /// Block height for this burnchain block.
     pub height: u64,
+    /// Header hash for this block. This is a unique key referencing the block.
     pub header_hash: BurnchainHeaderHash,
+    /// Header hash for the parent of this block, allows us to recreate the tree structure.
     pub parent_header_hash: BurnchainHeaderHash,
+    /// Time stamp that the burn block claims to be created at.
     pub time_stamp: u64,
+    /// If 1, this block is on the path to the "canonical" chain tip (i.e., the active one).
     pub is_canonical: u64,
+    /// A serde_json serialization of the `NewBlock` to string format.
     pub block: String,
 }
 
