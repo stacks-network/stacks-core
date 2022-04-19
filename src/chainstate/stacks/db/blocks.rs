@@ -4237,7 +4237,7 @@ impl StacksChainState {
     /// not orphaned.
     /// Return Ok(Some(microblocks)) if we got microblocks (even if it's an empty stream)
     /// Return Ok(None) if there are no staging microblocks yet
-    fn find_parent_microblock_stream(
+    pub fn find_parent_microblock_stream(
         blocks_conn: &DBConn,
         staging_block: &StagingBlock,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
