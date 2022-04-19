@@ -4843,6 +4843,9 @@ impl StacksChainState {
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
+    ///
+    /// The argument `miner_id_opt` is Some(..) if this is called from the miner.  It's `None` if
+    /// called from the block validation logic.
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
@@ -4862,20 +4865,22 @@ impl StacksChainState {
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
-            let latest_miners = StacksChainState::get_scheduled_block_rewards(
-                chainstate_tx.deref_mut(),
-                chain_tip,
-            )?;
+            let latest_miners =
+                StacksChainState::get_scheduled_block_rewards(chainstate_tx.deref_mut(), chain_tip)
+                    .expect("FATAL: failed to query scheduled block rewards");
             let parent_miner = StacksChainState::get_parent_matured_miner(
                 chainstate_tx.deref_mut(),
                 mainnet,
                 &latest_miners,
-            )?;
+            )
+            .expect("FATAL: failed to query matured miner in parent block");
             (latest_miners, parent_miner)
         };
 
-        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)?;
-        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)?;
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)
+            .expect("FATAL: failed to query `stack-stx` burnchain ops");
+        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)
+            .expect("FATAL: failed to query `transfer-stx` burnchain ops");
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -4884,13 +4889,12 @@ impl StacksChainState {
             let cost = StacksChainState::get_stacks_block_anchored_cost(
                 &chainstate_tx.deref().deref(),
                 &parent_index_hash,
-            )?
-            .ok_or_else(|| {
-                Error::InvalidStacksBlock(format!(
-                    "Failed to load parent block cost. parent_stacks_block_id = {}",
-                    &parent_index_hash
-                ))
-            })?;
+            )
+            .expect("FATAL: failed to query stacks anchored block cost")
+            .expect(&format!(
+                "FATAL: no block cost stored for parent_stacks_block_id = {}",
+                &parent_index_hash
+            ));
 
             debug!(
                 "Parent block {}/{} cost {:?}",
@@ -4914,25 +4918,13 @@ impl StacksChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
 
-        let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
+        let matured_miner_rewards_opt = StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
             &chain_tip,
             latest_matured_miners,
             matured_miner_parent,
-        ) {
-            Ok(miner_rewards_opt) => miner_rewards_opt,
-            Err(e) => {
-                if let Some(_) = miner_id_opt {
-                    return Err(e);
-                } else {
-                    let msg = format!("Failed to load miner rewards: {:?}", &e);
-                    warn!("{}", &msg);
-
-                    clarity_tx.rollback_block();
-                    return Err(Error::InvalidStacksBlock(msg));
-                }
-            }
-        };
+        )
+        .expect("FATAL: failed to find mature miner rewards");
 
         if let Some(miner_id) = miner_id_opt {
             debug!(
@@ -4988,7 +4980,8 @@ impl StacksChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)
+                .expect("FATAL: failed to process epoch transition");
 
         // process stacking & transfer operations from bitcoin ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
@@ -5034,45 +5027,41 @@ impl StacksChainState {
                 miner_reward,
                 user_rewards,
                 parent_reward,
-            )?;
+            )
+            .expect("FATAL: failed to process matured miner rewards");
 
             clarity_tx.increment_ustx_liquid_supply(matured_ustx);
         }
 
         // process unlocks
-        let (new_unlocked_ustx, lockup_events) = StacksChainState::process_stx_unlocks(clarity_tx)?;
+        let (new_unlocked_ustx, lockup_events) = StacksChainState::process_stx_unlocks(clarity_tx)
+            .expect("FATAL: failed to process STX unlocks");
 
         clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
         // mark microblock public key as used
-        match StacksChainState::insert_microblock_pubkey_hash(
+        StacksChainState::insert_microblock_pubkey_hash(
             clarity_tx,
             block_height,
             &mblock_pubkey_hash,
-        ) {
-            Ok(_) => {
-                debug!(
-                    "Added microblock public key {} at height {}",
-                    &mblock_pubkey_hash, block_height
-                );
-            }
-            Err(e) => {
-                let msg = format!(
-                    "Failed to insert microblock pubkey hash {} at height {}: {:?}",
-                    &mblock_pubkey_hash, block_height, &e
-                );
-                warn!("{}", &msg);
+        )
+        .expect("FATAL: failed to insert microblock public key hash");
 
-                return Err(Error::InvalidStacksBlock(msg));
-            }
-        }
+        debug!(
+            "Added microblock public key {} at height {}",
+            &mblock_pubkey_hash, block_height
+        );
 
-        Ok(lockup_events)
+        let res: Result<_, Error> = Ok(lockup_events);
+        res
     }
 
     /// Process the next pre-processed staging block.
     /// We've already processed `parent_chain_tip`, whereas `chain_tip` refers to a block we have _not_
     /// processed yet.
+    ///
+    /// The block and microblocks will have already been validated against their sortitions, their
+    /// parents, and their static checks.  They are at least well-formed.
     ///
     /// Returns a `StacksEpochReceipt` containing receipts and events from the transactions executed
     /// in the block, and a `PreCommitClarityBlock` struct.
@@ -5122,7 +5111,9 @@ impl StacksChainState {
             chainstate_tx.deref(),
             &parent_chain_tip.consensus_hash,
             &parent_chain_tip.anchored_header.block_hash(),
-        )? {
+        )
+        .expect("FATAL: failed to check epoch boundary")
+        {
             debug!(
                 "Block {}/{} (mblock parent {}) crosses epoch boundary from parent {}/{}",
                 chain_tip_consensus_hash,
@@ -5184,7 +5175,8 @@ impl StacksChainState {
         let parent_burn_hash = SortitionDB::get_block_snapshot_consensus(
             &burn_dbconn.tx(),
             &chain_tip_consensus_hash,
-        )?
+        )
+        .expect("FATAL: failed to query snapshot by consensus hash")
         .expect("BUG: Failed to load snapshot for block snapshot during Stacks block processing")
         .parent_burn_header_hash;
 
@@ -5211,7 +5203,12 @@ impl StacksChainState {
             microblocks,
             mainnet,
             None,
-        )?;
+        )
+        .map_err(|e| {
+            // can fail if the microblock stream is invalid
+            warn!("Failed to set up block {}: {:?}", &block.block_hash(), &e);
+            e
+        })?;
 
         let block_limit = clarity_tx.block_limit().unwrap_or_else(|| {
             warn!("Failed to read transaction block limit");
@@ -5236,7 +5233,9 @@ impl StacksChainState {
                     match SortitionDB::get_block_snapshot_consensus(
                         burn_dbconn,
                         &parent_consensus_hash,
-                    )? {
+                    )
+                    .expect("FATAL: failed to query burn block snapshot by consensus hash")
+                    {
                         Some(sn) => (
                             sn.burn_header_hash,
                             sn.block_height as u32,
@@ -5244,11 +5243,10 @@ impl StacksChainState {
                         ),
                         None => {
                             // shouldn't happen
-                            warn!(
-                                "CORRUPTION: block {}/{} does not correspond to a burn block",
+                            panic!(
+                                "FATAL: block {}/{} does not correspond to a burn block",
                                 &parent_consensus_hash, &parent_block_hash
                             );
-                            (BurnchainHeaderHash([0; 32]), 0, 0)
                         }
                     }
                 };
@@ -5275,14 +5273,7 @@ impl StacksChainState {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    let msg = format!(
-                        "Failed to determine microblock if public key hash {} is used: {:?}",
-                        &block.header.microblock_pubkey_hash, &e
-                    );
-                    warn!("{}", &msg);
-
-                    clarity_tx.rollback_block();
-                    return Err(e);
+                    panic!("FATAL: failed to determine if microblock public key hash {} is already used: {:?}", &block.header.microblock_pubkey_hash, &e);
                 }
             }
 
@@ -5352,7 +5343,13 @@ impl StacksChainState {
                     clarity_tx.rollback_block();
                     return Err(Error::InvalidStacksBlock(e));
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    panic!(
+                        "FATAL: failed to finish block {}: {:?}",
+                        &block.block_hash(),
+                        &e
+                    );
+                }
                 Ok(lockup_events) => lockup_events,
             };
 
@@ -5396,7 +5393,8 @@ impl StacksChainState {
             let accumulated_rewards = SortitionDB::get_block_snapshot_consensus(
                 burn_dbconn.tx(),
                 chain_tip_consensus_hash,
-            )?
+            )
+            .expect("FATAL: failed to query burn block snapshot by consensus hash")
             .expect("CORRUPTION: failed to load snapshot that elected processed block")
             .accumulated_coinbase_ustx;
 

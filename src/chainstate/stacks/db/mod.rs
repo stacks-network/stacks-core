@@ -2143,12 +2143,15 @@ impl StacksChainState {
             &parent_hash,
             &new_tip.index_block_hash(new_consensus_hash)
         );
-        let root_hash = headers_tx.put_indexed_all(
-            &parent_hash,
-            &new_tip.index_block_hash(new_consensus_hash),
-            &vec![],
-            &vec![],
-        )?;
+        let root_hash = headers_tx
+            .put_indexed_all(
+                &parent_hash,
+                &new_tip.index_block_hash(new_consensus_hash),
+                &vec![],
+                &vec![],
+            )
+            .expect("FATAL: failed to calculate new root hash for block");
+
         let index_block_hash = new_tip.index_block_hash(&new_consensus_hash);
         test_debug!(
             "Headers index_indexed_all finished {}-{}",
@@ -2173,18 +2176,24 @@ impl StacksChainState {
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
-        )?;
+        )
+        .expect("FATAL: failed to insert new Stacks header");
+
         StacksChainState::insert_miner_payment_schedule(
             headers_tx.deref_mut(),
             block_reward,
             user_burns,
-        )?;
+        )
+        .expect("FATAL: failed to insert new miner payments for Stacks block");
 
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
             let args: &[&dyn ToSql] = &[&index_block_hash];
-            headers_tx.deref_mut().execute(sql, args)?;
+            headers_tx
+                .deref_mut()
+                .execute(sql, args)
+                .expect("FATAL: failed to apply epoch transition marker");
         }
 
         debug!(
@@ -2192,7 +2201,9 @@ impl StacksChainState {
             new_consensus_hash,
             new_tip.block_hash()
         );
-        Ok(new_tip_info)
+
+        let res: Result<_, Error> = Ok(new_tip_info);
+        res
     }
 }
 
