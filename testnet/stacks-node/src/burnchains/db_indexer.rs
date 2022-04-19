@@ -37,41 +37,29 @@ const DB_BURNCHAIN_SCHEMA: &'static str = &r#"
     "#;
 
 /// Returns the header with header hash `hash`.
-pub fn get_header_for_hash(connection:&DBConn, hash: &BurnchainHeaderHash) -> Result<BurnBlockIndexRow, BurnchainError> {
+pub fn get_header_for_hash(
+    connection: &DBConn,
+    hash: &BurnchainHeaderHash,
+) -> Result<BurnBlockIndexRow, BurnchainError> {
     let row_option = query_row::<BurnBlockIndexRow, _>(
         &connection,
-        "SELECT * FROM headers WHERE header_hash = ?1",
+        "SELECT * FROM block_index WHERE header_hash = ?1",
         &[&hash],
-    )
-    ?;
+    )?;
 
     match row_option {
         Some(row) => Ok(row),
-        None => Err(BurnchainError::MissingHeaders)
+        None => Err(BurnchainError::MissingHeaders),
     }
 }
-
 
 /// Returns true iff the header with index `header_hash` is marked as `is_canonical` in the db.
 fn is_canonical(
     connection: &DBConn,
-    header_hash: BurnchainHeaderHash,
+    header_hash: &BurnchainHeaderHash,
 ) -> Result<bool, BurnchainError> {
-    let row = query_row::<u64, _>(
-        connection,
-        "SELECT is_canonical FROM block_index WHERE header_hash = ?1",
-        &[&header_hash],
-    )
-    .expect(&format!(
-        "DBBurnchainIndexer: No header found for hash: {:?}",
-        &header_hash
-    ))
-    .expect(&format!(
-        "DBBurnchainIndexer: No header found for hash: {:?}",
-        &header_hash
-    ));
-
-    Ok(row != 0)
+    let row = get_header_for_hash(connection, header_hash)?;
+    Ok(row.is_canonical())
 }
 
 /// Returns a comparison between `a` and `b`.
@@ -122,16 +110,7 @@ fn process_reorg(
     // Step 1: Set `is_canonical` to true for ancestors of the new tip.
     let mut up_cursor = BurnchainHeaderHash(new_tip.parent_header_hash());
     let greatest_common_ancestor = loop {
-        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
-            &transaction,
-            "SELECT * FROM block_index WHERE header_hash = ?1",
-            &[&up_cursor],
-        )? {
-            Some(header) => header,
-            None => {
-                return Err(BurnchainError::MissingHeaders);
-            }
-        };
+        let cursor_header = get_header_for_hash(&transaction, &up_cursor)?;
         if cursor_header.is_canonical() {
             // First canonical ancestor is the greatest common ancestor.
             break cursor_header;
@@ -149,16 +128,7 @@ fn process_reorg(
     // common ancestor (exclusive).
     let mut down_cursor = BurnchainHeaderHash(old_tip.header_hash());
     loop {
-        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
-            &transaction,
-            "SELECT * FROM block_index WHERE header_hash = ?1",
-            &[&down_cursor],
-        )? {
-            Some(header) => header,
-            None => {
-                return Err(BurnchainError::MissingHeaders);
-            }
-        };
+        let cursor_header = get_header_for_hash(&transaction, &down_cursor)?;
 
         if cursor_header.header_hash == greatest_common_ancestor.header_hash {
             break;
@@ -183,16 +153,7 @@ fn find_first_canonical_ancestor(
 ) -> Result<u64, BurnchainError> {
     let mut cursor = last_canonical_tip;
     loop {
-        let cursor_header = match query_row::<BurnBlockIndexRow, _>(
-            connection,
-            "SELECT * FROM block_index WHERE header_hash = ?1",
-            &[&cursor],
-        )? {
-            Some(header) => header,
-            None => {
-                return Err(BurnchainError::MissingHeaders);
-            }
-        };
+        let cursor_header = get_header_for_hash(&connection, &cursor)?;
 
         if cursor_header.is_canonical() {
             return Ok(cursor_header.height);
@@ -582,7 +543,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 
         let still_canonical = is_canonical(
             &self.connection.as_ref().unwrap(),
-            BurnchainHeaderHash(last_canonical_tip.header_hash()),
+            &BurnchainHeaderHash(last_canonical_tip.header_hash()),
         )
         .expect("Couldn't get is_canonical.");
 
