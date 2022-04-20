@@ -38,7 +38,7 @@
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
-        (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-simple-nft") (err ERR_ASSET_ALREADY_ALLOWED))
+        (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-nft-token") (err ERR_ASSET_ALREADY_ALLOWED))
 
         (ok true)
     )
@@ -187,7 +187,7 @@
         (asserts! (unwrap! (inner-deposit-ft-asset amount sender memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (let (
-                (ft-name (contract-call? ft-contract get-name))
+                (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
             )
             ;; Emit a print event - the node consumes this
             (print { event: "deposit-ft", ft-amount: amount, l1-contract-id: ft-contract,
@@ -226,7 +226,7 @@
         (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (let (
-                (ft-name (contract-call? ft-contract get-name))
+                (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
             )
             ;; Emit a print event - the node consumes this
             (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id,

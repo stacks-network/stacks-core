@@ -89,8 +89,6 @@ impl BurnchainStateTransition {
         // block commits discovered in this block.
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
-        assert!(Burnchain::ops_are_sorted(block_ops));
-
         // accept all leader keys we found.
         // don't treat block commits and user burn supports just yet.
         for block_op in block_ops.iter() {

@@ -48,14 +48,14 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn call_read_only(http_origin: &str, addr: &StacksAddress, contract_name: &str, function_name: &str) -> serde_json::Value {
+pub fn call_read_only(http_origin: &str, addr: &StacksAddress, contract_name: &str, function_name: &str, args: Vec<String>) -> serde_json::Value {
     let client = reqwest::blocking::Client::new();
 
     let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, addr, contract_name, function_name);
     let principal: PrincipalData = addr.clone().into();
     let body = CallReadOnlyRequestBody {
         sender: principal.to_string(),
-        arguments: vec![Value::Principal(principal).serialize()]
+        arguments: args
     };
 
     let read_info = client
@@ -207,6 +207,7 @@ fn l1_integration_test() {
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
+    let mut l1_nonce = 0;
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -222,6 +223,7 @@ fn l1_integration_test() {
     config.node.rpc_bind = "127.0.0.1:30443".into();
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
+    let mut l2_nonce = 0;
 
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
     let miner_addr = to_addr(&MOCKNET_PRIVATE_KEY_2);
@@ -253,52 +255,58 @@ fn l1_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        0,
+        l1_nonce,
         1_000_000,
         &ft_trait_name,
         &ft_trait_content,
     );
+    l1_nonce += 1;
     let nft_trait_content =
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        1,
+        l1_nonce,
         1_000_000,
         &nft_trait_name,
         &nft_trait_content,
     );
-
+    l1_nonce += 1;
     // Publish a simple FT and NFT
     let ft_content =
         include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
     let ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        2,
+        l1_nonce,
         1_000_000,
         "simple-ft",
         &ft_content,
     );
+    l1_nonce += 1;
     let ft_contract_name = ContractName::from("simple-ft");
     let ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ft_contract_name);
     let nft_content =
         include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
     let nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        3,
+        l1_nonce,
         1_000_000,
         "simple-nft",
         &nft_content,
     );
+    l1_nonce += 1;
+    let nft_contract_name = ContractName::from("simple-nft");
+    let nft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), nft_contract_name);
 
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        4,
+        l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
+    l1_nonce += 1;
 
 
     submit_tx(l1_rpc_origin, &ft_trait_publish);
@@ -358,17 +366,40 @@ fn l1_integration_test() {
     ";
     let hyperchain_ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        0,
+        l2_nonce,
         1_000_000,
         "simple-ft",
         hyperchain_simple_ft,
     );
+    l2_nonce += 1;
     let hc_ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-ft"));
+    // Publish hyperchains contract for nft-token
+    let hyperchain_simple_nft = "
+    (define-non-fungible-token nft-token uint)
 
-    // Mint a ft-token for user on L1 chain
-    let l1_mint_tx = make_contract_call(
+    (define-public (hyperchain-deposit-nft-token (id uint) (recipient principal))
+      (nft-mint? nft-token id recipient)
+    )
+
+    (define-read-only (get-token-owner (id uint))
+        (nft-get-owner? nft-token id)
+    )
+    ";
+    let hyperchain_nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        5,
+        l2_nonce,
+        1_000_000,
+        "simple-nft",
+        hyperchain_simple_nft,
+    );
+    l2_nonce += 1;
+    let hc_nft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-nft"));
+
+
+    // Mint a ft-token for user on L1 chain (amount = 1)
+    let l1_mint_ft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
         1_000_000,
         &user_addr,
         "simple-ft",
@@ -377,33 +408,70 @@ fn l1_integration_test() {
             Value::Principal(user_addr.into()),
         ]
     );
+    l1_nonce += 1;
+    // Mint a nft-token for user on L1 chain (ID = 1)
+    let l1_mint_nft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        "simple-nft",
+        "test-mint",
+        &[
+            Value::Principal(user_addr.into()),
+        ]
+    );
+    l1_nonce += 1;
+
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
-        6,
+        l1_nonce,
         1_000_000,
         &user_addr,
         config.burnchain.contract_identifier.name.as_str(),
         "setup-allowed-contracts",
         &[]
     );
+    l1_nonce += 1;
 
     submit_tx(&l2_rpc_origin, &hyperchain_ft_publish);
-    submit_tx(l1_rpc_origin, &l1_mint_tx);
+    submit_tx(&l2_rpc_origin, &hyperchain_nft_publish);
+    submit_tx(l1_rpc_origin, &l1_mint_ft_tx);
+    submit_tx(l1_rpc_origin, &l1_mint_nft_tx);
     submit_tx(l1_rpc_origin, &hc_setup_tx);
 
     // Sleep to give the run loop time to mine a block
-    thread::sleep(Duration::from_secs(20));
+    thread::sleep(Duration::from_secs(30));
 
     // Check that the user does not own any of the fungible tokens on the hyperchain now
-    let res = call_read_only(&l2_rpc_origin, &user_addr, "simple-ft", "get-token-balance");
+    let res = call_read_only(
+        &l2_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-token-balance",
+        vec![Value::Principal(user_addr.into()).serialize()]
+    );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
     assert_eq!(res["result"], "0x0100000000000000000000000000000000");
+    // Check that the user does not own the NFT on the hyperchain now
+    let res = call_read_only(
+        &l2_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-token-owner",
+        vec![Value::UInt(1).serialize()]
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let mut result = res["result"].as_str().unwrap().to_string();
+    result = result.strip_prefix("0x").unwrap().to_string();
+    assert_eq!(result, Value::none().serialize());
 
-    let l1_deposit_tx = make_contract_call(
+    let l1_deposit_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
-        7,
+        l1_nonce,
         1_000_000,
         &user_addr,
         config.burnchain.contract_identifier.name.as_str(),
@@ -416,17 +484,55 @@ fn l1_integration_test() {
             Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
         ]
     );
-    // deposit ft-token into hc contract on L1
-    submit_tx(&l1_rpc_origin, &l1_deposit_tx);
+    l1_nonce += 1;
+    let l1_deposit_nft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "deposit-nft-asset",
+        &[
+            Value::UInt(1),
+            Value::Principal(user_addr.into()),
+            Value::Principal(PrincipalData::Contract(nft_contract_id)),
+            Value::Principal(PrincipalData::Contract(hc_nft_contract_id.clone())),
+        ]
+    );
+    l1_nonce += 1;
+
+    // deposit ft-token into hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_deposit_ft_tx);
+    // deposit nft-token into hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_deposit_nft_tx);
 
     // Sleep to give the run loop time to mine a block
-    thread::sleep(Duration::from_secs(20));
+    thread::sleep(Duration::from_secs(25));
 
-    // Check that the user owns a fungible tokens on the hyperchain now
-    let res = call_read_only(&l2_rpc_origin, &user_addr, "simple-ft", "get-token-balance");
+    // Check that the user owns a fungible token on the hyperchain now
+    let res = call_read_only(
+        &l2_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-token-balance",
+        vec![Value::Principal(user_addr.into()).serialize()]
+    );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
     assert_eq!(res["result"], "0x0100000000000000000000000000000001");
+    // Check that the user owns the NFT on the hyperchain now
+    let res = call_read_only(
+        &l2_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-token-owner",
+        vec![Value::UInt(1).serialize()]
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let mut result = res["result"].as_str().unwrap().to_string();
+    result = result.strip_prefix("0x").unwrap().to_string();
+    assert_eq!(result, Value::some(Value::Principal(user_addr.into())).unwrap().serialize());
 
     channel.stop_chains_coordinator();
     stacks_l1_controller.kill_process();

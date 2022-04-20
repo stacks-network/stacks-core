@@ -227,8 +227,6 @@ impl StacksHyperOp {
                     .get("ft-name")
                     .map_err(|_| "No 'ft-name' field in Clarity tuple")?
                     .clone()
-                    .expect_result()
-                    .expect("Result should be ok")
                     .expect_ascii();
                 let sender = tuple
                     .get("sender")
@@ -349,8 +347,6 @@ impl StacksHyperOp {
                     .get("ft-name")
                     .map_err(|_| "No 'ft-name' field in Clarity tuple")?
                     .clone()
-                    .expect_result()
-                    .expect("Result should be ok")
                     .expect_ascii();
                 let recipient = tuple
                     .get("recipient")
