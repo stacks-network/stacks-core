@@ -179,7 +179,7 @@ impl L1BlockDownloader {
 /// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
 /// and then override the "first block" information using `config`.
 pub fn burnchain_from_config(
-    burn_db_path: &String,
+    burn_db_path: &str,
     config: &BurnchainConfig,
 ) -> Result<Burnchain, BurnchainError> {
     let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;

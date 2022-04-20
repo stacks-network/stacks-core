@@ -313,7 +313,7 @@ impl FromRow<BurnBlockIndexRow> for BurnBlockIndexRow {
 /// Creates a DB connection, connects, and instantiates the DB if needed.
 /// If DB needs instantiation and `readwrite` is false, error.
 fn connect_db_and_maybe_instantiate(
-    db_path: &String,
+    db_path: &str,
     readwrite: bool,
 ) -> Result<DBConn, BurnchainError> {
     ensure_base_directory_exists(db_path)?;
@@ -370,7 +370,7 @@ pub struct DBBurnchainIndexer {
 }
 
 /// Creates a path for the indexer based on the base chainstate directory by adding "db_indexer".
-fn create_indexer_base_db_path(chainstate_dir: &String) -> String {
+fn create_indexer_base_db_path(chainstate_dir: &str) -> String {
     let mut path = PathBuf::from(chainstate_dir);
     path.push("db_indexer");
     path.to_str().expect("Unable to produce path").to_string()
@@ -380,7 +380,7 @@ impl DBBurnchainIndexer {
     /// Create a new indexer and connect to the database. If the database schema doesn't exist,
     /// if `readwrite` is true, instantiate it, otherwise error.
     pub fn new(
-        chainstate_base_path: &String,
+        chainstate_base_path: &str,
         config: BurnchainConfig,
         readwrite: bool,
     ) -> Result<DBBurnchainIndexer, Error> {
