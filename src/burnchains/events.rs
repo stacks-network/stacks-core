@@ -1,4 +1,4 @@
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Formatter;
 
 use burnchains::Txid;
@@ -11,9 +11,9 @@ use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use crate::vm::representations::ClarityName;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
-use crate::vm::representations::ClarityName;
 
 use super::StacksHyperBlock;
 use super::StacksHyperOp;
@@ -239,9 +239,7 @@ impl StacksHyperOp {
                     .clone()
                     .expect_ascii();
                 let hc_function_name = ClarityName::try_from(hc_function_name)
-                    .map_err(|e| {
-                        format!("Failed to parse Clarity name: {:?}", e)
-                    })?;
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -297,9 +295,7 @@ impl StacksHyperOp {
                     .clone()
                     .expect_ascii();
                 let hc_function_name = ClarityName::try_from(hc_function_name)
-                    .map_err(|e| {
-                        format!("Failed to parse Clarity name: {:?}", e)
-                    })?;
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -359,9 +355,7 @@ impl StacksHyperOp {
                     .clone()
                     .expect_ascii();
                 let hc_function_name = ClarityName::try_from(hc_function_name)
-                    .map_err(|e| {
-                        format!("Failed to parse Clarity name: {:?}", e)
-                    })?;
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -417,9 +411,7 @@ impl StacksHyperOp {
                     .clone()
                     .expect_ascii();
                 let hc_function_name = ClarityName::try_from(hc_function_name)
-                    .map_err(|e| {
-                    format!("Failed to parse Clarity name: {:?}", e)
-                })?;
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,

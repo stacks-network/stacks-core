@@ -4456,7 +4456,7 @@ impl StacksChainState {
                                 &hc_contract_id,
                                 &*hc_function_name,
                                 &[Value::UInt(amount), Value::Principal(sender)],
-                                |_, _| false
+                                |_, _| false,
                             )
                         });
                         let mut execution_cost = clarity_tx.cost_so_far();
@@ -4518,7 +4518,7 @@ impl StacksChainState {
                                 &hc_contract_id,
                                 &*hc_function_name,
                                 &[Value::UInt(id), Value::Principal(sender)],
-                                |_, _| false
+                                |_, _| false,
                             )
                         });
                         let mut execution_cost = clarity_tx.cost_so_far();

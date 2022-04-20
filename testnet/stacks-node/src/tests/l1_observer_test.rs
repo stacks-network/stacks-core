@@ -4,23 +4,23 @@ use std::thread::{self, JoinHandle};
 
 use crate::neon;
 use crate::tests::neon_integrations::{get_account, submit_tx};
-use crate::tests::{make_contract_publish, to_addr, make_contract_call};
+use crate::tests::{make_contract_call, make_contract_publish, to_addr};
+use clarity::types::chainstate::StacksAddress;
+use clarity::util::get_epoch_time_secs;
+use clarity::vm::database::ClaritySerializable;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::Value;
+use reqwest::Response;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::net::{CallReadOnlyRequestBody, RPCPeerInfoData};
 use stacks::vm::types::QualifiedContractIdentifier;
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use clarity::util::get_epoch_time_secs;
-use clarity::vm::Value;
-use clarity::vm::types::PrincipalData;
-use clarity::types::chainstate::StacksAddress;
-use stacks::net::{RPCPeerInfoData, CallReadOnlyRequestBody};
-use clarity::vm::database::ClaritySerializable;
-use reqwest::Response;
-use clarity::vm::representations::ContractName;
+use std::time::{Duration, Instant};
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -48,21 +48,32 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn call_read_only(http_origin: &str, addr: &StacksAddress, contract_name: &str, function_name: &str, args: Vec<String>) -> serde_json::Value {
+pub fn call_read_only(
+    http_origin: &str,
+    addr: &StacksAddress,
+    contract_name: &str,
+    function_name: &str,
+    args: Vec<String>,
+) -> serde_json::Value {
     let client = reqwest::blocking::Client::new();
 
-    let path = format!("{}/v2/contracts/call-read/{}/{}/{}", &http_origin, addr, contract_name, function_name);
+    let path = format!(
+        "{}/v2/contracts/call-read/{}/{}/{}",
+        &http_origin, addr, contract_name, function_name
+    );
     let principal: PrincipalData = addr.clone().into();
     let body = CallReadOnlyRequestBody {
         sender: principal.to_string(),
-        arguments: args
+        arguments: args,
     };
 
     let read_info = client
         .post(&path)
         .json(&body)
         .send()
-        .unwrap().json::<serde_json::Value>().unwrap();
+        .unwrap()
+        .json::<serde_json::Value>()
+        .unwrap();
 
     read_info
 }
@@ -227,19 +238,11 @@ fn l1_integration_test() {
 
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
     let miner_addr = to_addr(&MOCKNET_PRIVATE_KEY_2);
-    config.add_initial_balance(
-        user_addr.to_string(),
-        10000000,
-    );
-    config.add_initial_balance(
-        miner_addr.to_string(),
-        10000000,
-    );
+    config.add_initial_balance(user_addr.to_string(), 10000000);
+    config.add_initial_balance(miner_addr.to_string(), 10000000);
 
-    config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
-        user_addr.into(),
-        "hyperchain-controller".into(),
-    );
+    config.burnchain.contract_identifier =
+        QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
 
     config.node.miner = true;
 
@@ -272,8 +275,7 @@ fn l1_integration_test() {
     );
     l1_nonce += 1;
     // Publish a simple FT and NFT
-    let ft_content =
-        include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
+    let ft_content = include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
     let ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
@@ -284,8 +286,7 @@ fn l1_integration_test() {
     l1_nonce += 1;
     let ft_contract_name = ContractName::from("simple-ft");
     let ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ft_contract_name);
-    let nft_content =
-        include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
+    let nft_content = include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
     let nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
@@ -307,7 +308,6 @@ fn l1_integration_test() {
         &contract_content,
     );
     l1_nonce += 1;
-
 
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
@@ -372,7 +372,8 @@ fn l1_integration_test() {
         hyperchain_simple_ft,
     );
     l2_nonce += 1;
-    let hc_ft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-ft"));
+    let hc_ft_contract_id =
+        QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-ft"));
     // Publish hyperchains contract for nft-token
     let hyperchain_simple_nft = "
     (define-non-fungible-token nft-token uint)
@@ -393,8 +394,8 @@ fn l1_integration_test() {
         hyperchain_simple_nft,
     );
     l2_nonce += 1;
-    let hc_nft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-nft"));
-
+    let hc_nft_contract_id =
+        QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-nft"));
 
     // Mint a ft-token for user on L1 chain (amount = 1)
     let l1_mint_ft_tx = make_contract_call(
@@ -404,9 +405,7 @@ fn l1_integration_test() {
         &user_addr,
         "simple-ft",
         "gift-tokens",
-        &[
-            Value::Principal(user_addr.into()),
-        ]
+        &[Value::Principal(user_addr.into())],
     );
     l1_nonce += 1;
     // Mint a nft-token for user on L1 chain (ID = 1)
@@ -417,9 +416,7 @@ fn l1_integration_test() {
         &user_addr,
         "simple-nft",
         "test-mint",
-        &[
-            Value::Principal(user_addr.into()),
-        ]
+        &[Value::Principal(user_addr.into())],
     );
     l1_nonce += 1;
 
@@ -431,7 +428,7 @@ fn l1_integration_test() {
         &user_addr,
         config.burnchain.contract_identifier.name.as_str(),
         "setup-allowed-contracts",
-        &[]
+        &[],
     );
     l1_nonce += 1;
 
@@ -450,7 +447,7 @@ fn l1_integration_test() {
         &user_addr,
         "simple-ft",
         "get-token-balance",
-        vec![Value::Principal(user_addr.into()).serialize()]
+        vec![Value::Principal(user_addr.into()).serialize()],
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
@@ -461,7 +458,7 @@ fn l1_integration_test() {
         &user_addr,
         "simple-nft",
         "get-token-owner",
-        vec![Value::UInt(1).serialize()]
+        vec![Value::UInt(1).serialize()],
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
@@ -482,7 +479,7 @@ fn l1_integration_test() {
             Value::none(),
             Value::Principal(PrincipalData::Contract(ft_contract_id)),
             Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
-        ]
+        ],
     );
     l1_nonce += 1;
     let l1_deposit_nft_tx = make_contract_call(
@@ -497,7 +494,7 @@ fn l1_integration_test() {
             Value::Principal(user_addr.into()),
             Value::Principal(PrincipalData::Contract(nft_contract_id)),
             Value::Principal(PrincipalData::Contract(hc_nft_contract_id.clone())),
-        ]
+        ],
     );
     l1_nonce += 1;
 
@@ -515,7 +512,7 @@ fn l1_integration_test() {
         &user_addr,
         "simple-ft",
         "get-token-balance",
-        vec![Value::Principal(user_addr.into()).serialize()]
+        vec![Value::Principal(user_addr.into()).serialize()],
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
@@ -526,13 +523,18 @@ fn l1_integration_test() {
         &user_addr,
         "simple-nft",
         "get-token-owner",
-        vec![Value::UInt(1).serialize()]
+        vec![Value::UInt(1).serialize()],
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
     let mut result = res["result"].as_str().unwrap().to_string();
     result = result.strip_prefix("0x").unwrap().to_string();
-    assert_eq!(result, Value::some(Value::Principal(user_addr.into())).unwrap().serialize());
+    assert_eq!(
+        result,
+        Value::some(Value::Principal(user_addr.into()))
+            .unwrap()
+            .serialize()
+    );
 
     channel.stop_chains_coordinator();
     stacks_l1_controller.kill_process();

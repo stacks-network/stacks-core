@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::index::storage::TrieStorageConnection;
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 use std::error;
 use std::fmt;
 use std::fs;
@@ -232,10 +232,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 }
 
 impl FromColumn<ClarityName> for ClarityName {
-    fn from_column<'a>(
-        row: &'a Row,
-        column_name: &str,
-    ) -> Result<ClarityName, Error> {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ClarityName, Error> {
         let value: String = row.get_unwrap(column_name);
         ClarityName::try_from(value).map_err(|_| Error::ParseError)
     }
