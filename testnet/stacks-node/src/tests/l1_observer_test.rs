@@ -1,5 +1,6 @@
 use std;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::thread::{self, JoinHandle};
 
 use crate::burnchains::db_indexer::DBBurnchainIndexer;
@@ -142,7 +143,8 @@ fn l1_basic_listener_test() {
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
-    thread::spawn(move || run_loop.start(None, 0));
+    let mut termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
@@ -171,8 +173,9 @@ fn l1_basic_listener_test() {
     // We check that we have moved past 3 just to establish we are reliably getting blocks.
     assert!(tip.block_height > 3);
 
-    channel.stop_chains_coordinator();
+    termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
+    run_loop_thread.join();
 }
 
 #[test]
@@ -216,7 +219,8 @@ fn l1_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
-    thread::spawn(move || run_loop.start(None, 0));
+    let mut termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop time to start.
     thread::sleep(Duration::from_millis(2_000));
@@ -301,6 +305,7 @@ fn l1_integration_test() {
         "Miner should have produced at least 2 coinbase transactions"
     );
 
-    channel.stop_chains_coordinator();
+    termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
+    run_loop_thread.join();
 }
