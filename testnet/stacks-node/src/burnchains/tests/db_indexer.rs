@@ -325,39 +325,34 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
 
     let input_channel = indexer.get_channel();
 
-    input_channel
-        .push_block(make_test_new_block(
-            1,
-            1 as u8,
-            0 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
+    // Convenience method to push a block.
+    let push_height_block_parent = |block_height: u64, block_idx: u8, parent_block_idx: u8| {
+        input_channel
+            .push_block(make_test_new_block(
+                block_height,
+                block_idx,
+                parent_block_idx,
+                make_test_config().contract_identifier.clone(),
+            ))
+            .expect("Failed to push block");
+    };
 
-    input_channel
-        .push_block(make_test_new_block(
-            2,
-            3,
-            1 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-    input_channel
-        .push_block(make_test_new_block(
-            2,
-            2,
-            1 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-    input_channel
-        .push_block(make_test_new_block(
-            3,
-            4,
-            2 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
+    // Fork is:
+    // 1 -> 2 -> 3 -> 4 -> 5 -> 10
+    //   \-> 6 -> 7 -> 8 -> 9
+    //
+    // Order is:
+    // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
+    push_height_block_parent(1, 1, 0);
+    push_height_block_parent(2, 2, 1);
+    push_height_block_parent(3, 3, 2);
+    push_height_block_parent(2, 6, 1);
+    push_height_block_parent(4, 4, 3);
+    push_height_block_parent(3, 7, 6);
+    push_height_block_parent(5, 5, 4);
+    push_height_block_parent(4, 8, 7);
+    push_height_block_parent(5, 9, 8);
+    push_height_block_parent(6, 10, 5);
 
     let result = burnchain
         .sync_with_indexer(
@@ -369,25 +364,25 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
         )
         .expect("Call to `sync_with_indexer` should succeed.");
 
-    // The block "4" is the highest block. So we tracked the fork.
-    assert_eq!(3, result.block_height);
+    // The longest chain is node 10 with height 6 by inspection of the fork.
+    assert_eq!(6, result.block_height);
     assert_eq!(
-        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
         result.block_hash.to_string()
     );
 
     let canonical_tip = burn_db
         .get_canonical_chain_tip()
         .expect("Should have a chain tip.");
-    assert_eq!(3, canonical_tip.block_height);
+    assert_eq!(6, canonical_tip.block_height);
     assert_eq!(
-        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
         canonical_tip.block_hash.to_string()
     );
 }
 
-/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
-/// a fork, and call `sync_with_indexer` interspersed with the adding of blocks.
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Call `sync_with_indexer`
+/// and check result after each push.
 #[test]
 fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
     let mut indexer = make_test_indexer();
@@ -467,73 +462,6 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
     assert_eq!(2, canonical_tip.block_height);
     assert_eq!(
         "0303030303030303030303030303030303030303030303030303030303030303",
-        canonical_tip.block_hash.to_string()
-    );
-
-    input_channel
-        .push_block(make_test_new_block(
-            2,
-            2,
-            1 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-
-    let result = burnchain
-        .sync_with_indexer(
-            &mut indexer,
-            channels.clone(),
-            target_block_height_opt,
-            None,
-            None,
-        )
-        .expect("Call to `sync_with_indexer` should succeed.");
-
-    // Chain tip is still node 3, which beats 2 by lexicographic sort.
-    assert_eq!(2, result.block_height);
-    assert_eq!(
-        "0303030303030303030303030303030303030303030303030303030303030303",
-        result.block_hash.to_string()
-    );
-    let canonical_tip = burn_db
-        .get_canonical_chain_tip()
-        .expect("Should have a chain tip.");
-    assert_eq!(2, canonical_tip.block_height);
-    assert_eq!(
-        "0303030303030303030303030303030303030303030303030303030303030303",
-        canonical_tip.block_hash.to_string()
-    );
-    input_channel
-        .push_block(make_test_new_block(
-            3,
-            4,
-            2 as u8,
-            make_test_config().contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-
-    let result = burnchain
-        .sync_with_indexer(
-            &mut indexer,
-            channels.clone(),
-            target_block_height_opt,
-            None,
-            None,
-        )
-        .expect("Call to `sync_with_indexer` should succeed.");
-
-    // Chain tip is 4, which has higher height than 3, and constitutes reorg.
-    assert_eq!(3, result.block_height);
-    assert_eq!(
-        "0404040404040404040404040404040404040404040404040404040404040404",
-        result.block_hash.to_string()
-    );
-    let canonical_tip = burn_db
-        .get_canonical_chain_tip()
-        .expect("Should have a chain tip.");
-    assert_eq!(3, canonical_tip.block_height);
-    assert_eq!(
-        "0404040404040404040404040404040404040404040404040404040404040404",
         canonical_tip.block_hash.to_string()
     );
 }
