@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y git gcc-mingw-w64-x86-64
 
 RUN CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc \
     CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
-    cargo build --release --workspace=./ --target x86_64-pc-windows-gnu
+    cargo build --release --workspace --target x86_64-pc-windows-gnu
     
 RUN mkdir /out && cp -R /src/target/x86_64-pc-windows-gnu/release/. /out
 
