@@ -16,7 +16,7 @@ RUN wget -nc -O /tmp/osxcross.tar.zst "https://github.com/hirosystems/docker-osx
 RUN mkdir /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
 
 RUN . /opt/osxcross/env-macos-aarch64 && \
-    cargo build --target aarch64-apple-darwin --release --workspace=./
+    cargo build --target aarch64-apple-darwin --release --workspace
 
 RUN mkdir /out && cp -R /src/target/aarch64-apple-darwin/release/. /out
 
