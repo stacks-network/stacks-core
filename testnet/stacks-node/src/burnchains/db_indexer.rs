@@ -584,13 +584,17 @@ impl BurnchainIndexer for DBBurnchainIndexer {
             None => self.get_highest_header_height(),
         };
 
-        let current_tip = get_canonical_chain_tip(&self.connection)?;
-
-        // Update the cursor the next call to this function.
-        set_last_canonical_chain_tip(
-            &self.connection,
-            &BurnchainHeaderHash(current_tip.unwrap().header_hash()),
-        )?;
+        // Update the "last canonical tip" if we have a canonical tip now.
+        match get_canonical_chain_tip(&self.connection)? {
+            Some(current_tip) => {
+                // Update the cursor the next call to this function.
+                set_last_canonical_chain_tip(
+                    &self.connection,
+                    &BurnchainHeaderHash(current_tip.header_hash()),
+                )?;
+            }
+            None => {}
+        }
 
         result
     }
