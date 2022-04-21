@@ -78,6 +78,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    allow_rbf: bool,
 }
 
 struct OngoingBlockCommit {
@@ -262,6 +263,7 @@ impl BitcoinRegtestController {
             burnchain_config,
             ongoing_block_commit: None,
             should_keep_running,
+            allow_rbf: true,
         }
     }
 
@@ -306,6 +308,7 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
+            allow_rbf: true,
         }
     }
 
@@ -619,7 +622,7 @@ impl BitcoinRegtestController {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                false,
+                !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
                 total_required,
                 &utxos_to_exclude,
                 block_height,
@@ -653,7 +656,7 @@ impl BitcoinRegtestController {
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
                     filter_addresses.clone(),
-                    false,
+                    !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
                     total_required,
                     &utxos_to_exclude,
                     block_height,
@@ -1034,7 +1037,7 @@ impl BitcoinRegtestController {
         _attempt: u64,
     ) -> Option<Transaction> {
         // Are we currently tracking an operation?
-        if self.ongoing_block_commit.is_none() {
+        if self.ongoing_block_commit.is_none() || !self.allow_rbf {
             // Good to go, let's build the transaction and send it.
             let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
@@ -1325,7 +1328,9 @@ impl BitcoinRegtestController {
         unimplemented!()
     }
 
-    fn send_transaction(&self, transaction: SerializedTx) -> bool {
+    /// Send a serialized tx to the Bitcoin node.  Return true on successful send; false on
+    /// failure.
+    pub fn send_transaction(&self, transaction: SerializedTx) -> bool {
         let result = BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex());
         match result {
             Ok(_) => true,
@@ -1446,6 +1451,51 @@ impl BitcoinRegtestController {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn get_mining_pubkey(&self) -> Option<String> {
+        self.config.burnchain.local_mining_public_key.clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_mining_pubkey(&mut self, pubkey: String) -> Option<String> {
+        let old_key = self.config.burnchain.local_mining_public_key.take();
+        self.config.burnchain.local_mining_public_key = Some(pubkey);
+        old_key
+    }
+
+    #[cfg(test)]
+    pub fn set_allow_rbf(&mut self, val: bool) {
+        self.allow_rbf = val;
+    }
+
+    pub fn make_operation_tx(
+        &mut self,
+        operation: BlockstackOperationType,
+        op_signer: &mut BurnchainOpSigner,
+        attempt: u64,
+    ) -> Option<SerializedTx> {
+        let transaction = match operation {
+            BlockstackOperationType::LeaderBlockCommit(payload) => {
+                self.build_leader_block_commit_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::LeaderKeyRegister(payload) => {
+                self.build_leader_key_register_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::UserBurnSupport(payload) => {
+                self.build_user_burn_support_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::PreStx(payload) => {
+                self.build_pre_stacks_tx(payload, op_signer)
+            }
+            BlockstackOperationType::TransferStx(payload) => {
+                self.build_transfer_stacks_tx(payload, op_signer, None)
+            }
+            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
+        };
+
+        transaction.map(|tx| SerializedTx::new(tx))
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -1554,28 +1604,11 @@ impl BurnchainController for BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
     ) -> bool {
-        let transaction = match operation {
-            BlockstackOperationType::LeaderBlockCommit(payload) => {
-                self.build_leader_block_commit_tx(payload, op_signer, attempt)
+        let transaction = match self.make_operation_tx(operation, op_signer, attempt) {
+            Some(tx) => tx,
+            None => {
+                return false;
             }
-            BlockstackOperationType::LeaderKeyRegister(payload) => {
-                self.build_leader_key_register_tx(payload, op_signer, attempt)
-            }
-            BlockstackOperationType::UserBurnSupport(payload) => {
-                self.build_user_burn_support_tx(payload, op_signer, attempt)
-            }
-            BlockstackOperationType::PreStx(payload) => {
-                self.build_pre_stacks_tx(payload, op_signer)
-            }
-            BlockstackOperationType::TransferStx(payload) => {
-                self.build_transfer_stacks_tx(payload, op_signer, None)
-            }
-            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
-        };
-
-        let transaction = match transaction {
-            Some(tx) => SerializedTx::new(tx),
-            _ => return false,
         };
 
         self.send_transaction(transaction)
@@ -1632,8 +1665,8 @@ impl UTXOSet {
 }
 
 #[derive(Debug, Clone)]
-struct SerializedTx {
-    bytes: Vec<u8>,
+pub struct SerializedTx {
+    pub bytes: Vec<u8>,
 }
 
 impl SerializedTx {
@@ -1741,7 +1774,7 @@ impl ParsedUTXO {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct BitcoinRPCRequest {
+pub struct BitcoinRPCRequest {
     /// The name of the RPC call
     pub method: String,
     /// Parameters to the RPC call
