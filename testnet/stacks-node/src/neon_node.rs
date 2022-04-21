@@ -93,6 +93,9 @@ fn store_delayed_tx(tx: SerializedTx, send_height: u64) {
     }
 }
 
+#[cfg(not(test))]
+fn store_delayed_tx(_tx: SerializedTx, _send_height: u64) {}
+
 #[cfg(test)]
 fn get_delayed_txs(height: u64) -> Vec<SerializedTx> {
     match DELAYED_TXS.lock() {
@@ -101,6 +104,11 @@ fn get_delayed_txs(height: u64) -> Vec<SerializedTx> {
             panic!("Poisoned DELAYED_TXS mutex");
         }
     }
+}
+
+#[cfg(not(test))]
+fn get_delayed_txs(_height: u64) -> Vec<SerializedTx> {
+    vec![]
 }
 
 struct AssembledAnchorBlock {

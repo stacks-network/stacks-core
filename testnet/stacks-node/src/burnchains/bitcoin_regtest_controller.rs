@@ -1469,6 +1469,9 @@ impl BitcoinRegtestController {
         self.allow_rbf = val;
     }
 
+    #[cfg(not(test))]
+    pub fn set_allow_rbf(&mut self, _val: bool) {}
+
     pub fn make_operation_tx(
         &mut self,
         operation: BlockstackOperationType,
