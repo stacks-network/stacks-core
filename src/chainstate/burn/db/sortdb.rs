@@ -2151,7 +2151,21 @@ impl SortitionDB {
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
         use crate::core::StacksEpochExtension;
+        SortitionDB::connect_test_with_epochs(
+            first_block_height,
+            first_burn_hash,
+            StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+        )
+    }
 
+    /// Open a burn database at random tmp dir (used for testing)
+    /// But, take a particular epoch configuration
+    #[cfg(test)]
+    pub fn connect_test_with_epochs(
+        first_block_height: u64,
+        first_burn_hash: &BurnchainHeaderHash,
+        epochs: Vec<StacksEpoch>,
+    ) -> Result<SortitionDB, db_error> {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
@@ -2165,7 +2179,7 @@ impl SortitionDB {
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+            &epochs,
             PoxConstants::test_default(),
             true,
         )
@@ -3726,7 +3740,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn store_burn_distribution(
         &mut self,
         new_sortition: &SortitionId,
@@ -3742,7 +3756,7 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute(sql, args).unwrap();
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "testing")))]
     fn store_burn_distribution(
         &mut self,
         _new_sortition: &SortitionId,
