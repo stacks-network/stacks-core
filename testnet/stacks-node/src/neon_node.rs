@@ -61,6 +61,7 @@ use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
+use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -71,6 +72,36 @@ use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
+
+lazy_static! {
+    static ref DELAYED_TXS: Mutex<HashMap<u64, Vec<SerializedTx>>> = Mutex::new(HashMap::new());
+}
+
+#[cfg(test)]
+fn store_delayed_tx(tx: SerializedTx, send_height: u64) {
+    match DELAYED_TXS.lock() {
+        Ok(ref mut tx_map) => {
+            if let Some(tx_list) = tx_map.get_mut(&send_height) {
+                tx_list.push(tx);
+            } else {
+                tx_map.insert(send_height, vec![tx]);
+            }
+        }
+        Err(_) => {
+            panic!("Poisoned DELAYED_TXS mutex");
+        }
+    }
+}
+
+#[cfg(test)]
+fn get_delayed_txs(height: u64) -> Vec<SerializedTx> {
+    match DELAYED_TXS.lock() {
+        Ok(tx_map) => tx_map.get(&height).cloned().unwrap_or(vec![]),
+        Err(_) => {
+            panic!("Poisoned DELAYED_TXS mutex");
+        }
+    }
+}
 
 struct AssembledAnchorBlock {
     parent_consensus_hash: ConsensusHash,
@@ -298,6 +329,7 @@ fn inner_generate_block_commit_op(
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
+
     let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
@@ -2120,13 +2152,52 @@ impl StacksNode {
             "attempt" => attempt
         );
 
-        let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
-        if !res {
-            if !config.node.mock_mining {
-                warn!("Failed to submit Bitcoin transaction");
-                return None;
-            } else {
-                debug!("Mock-mining enabled; not sending Bitcoin transaction");
+        let mut send_tx = true;
+        if cfg!(test) {
+            // fault injection for testing: force the use of a bad burn modulus
+            let mut do_fault = false;
+            if let Ok(bad_height_str) = std::env::var("STX_TEST_LATE_BLOCK_COMMIT") {
+                if let Ok(bad_height) = bad_height_str.parse::<u64>() {
+                    if bad_height == cur_burn_chain_tip.block_height {
+                        do_fault = true;
+                    }
+                }
+            }
+            if do_fault {
+                test_debug!("Fault injection: don't send the block-commit right away; hold onto it for one block");
+                bitcoin_controller.set_allow_rbf(false);
+                let tx = bitcoin_controller
+                    .make_operation_tx(op.clone(), &mut op_signer, attempt)
+                    .unwrap();
+                store_delayed_tx(tx, burn_block.block_height + 1);
+
+                // don't actually send it yet
+                send_tx = false;
+            }
+
+            // send all delayed txs for this block height
+            let delayed_txs = get_delayed_txs(burn_block.block_height);
+            for tx in delayed_txs.into_iter() {
+                test_debug!("Fault injection: submit delayed tx {}", &to_hex(&tx.bytes));
+                let res = bitcoin_controller.send_transaction(tx.clone());
+                if !res {
+                    test_debug!(
+                        "Fault injection: failed to send delayed tx {}",
+                        &to_hex(&tx.bytes)
+                    );
+                }
+            }
+        }
+
+        if send_tx {
+            let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
+            if !res {
+                if !config.node.mock_mining {
+                    warn!("Failed to submit Bitcoin transaction");
+                    return None;
+                } else {
+                    debug!("Mock-mining enabled; not sending Bitcoin transaction");
+                }
             }
         }
 
