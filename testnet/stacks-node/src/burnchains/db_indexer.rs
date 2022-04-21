@@ -380,7 +380,7 @@ impl DBBurnchainIndexer {
     /// Create a new indexer and connect to the database. If the database schema doesn't exist,
     /// if `readwrite` is true, instantiate it, otherwise error.
     pub fn new(
-        chainstate_base_path: &str,
+        burnstate_db_path: &str,
         config: BurnchainConfig,
         readwrite: bool,
     ) -> Result<DBBurnchainIndexer, Error> {
@@ -391,13 +391,18 @@ impl DBBurnchainIndexer {
                 .0,
         );
 
-        let indexer_base_db_path = create_indexer_base_db_path(chainstate_base_path);
+        let indexer_base_db_path = create_indexer_base_db_path(burnstate_db_path);
+        let connection = Some(connect_db_and_maybe_instantiate(
+            &indexer_base_db_path,
+            readwrite,
+        )?);
+        let last_canonical_tip = get_canonical_chain_tip(connection.as_ref().unwrap())?;
 
         Ok(DBBurnchainIndexer {
             indexer_base_db_path,
             config,
-            connection: None,
-            last_canonical_tip: None,
+            connection,
+            last_canonical_tip,
             first_burn_header_hash,
         })
     }
@@ -481,11 +486,6 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 
     /// `connect` is a no-op now. TODO: remove it?
     fn connect(&mut self, readwrite: bool) -> Result<(), BurnchainError> {
-        self.connection = Some(connect_db_and_maybe_instantiate(
-            &self.indexer_base_db_path,
-            readwrite,
-        )?);
-        self.last_canonical_tip = get_canonical_chain_tip(self.connection.as_ref().unwrap())?;
         Ok(())
     }
 

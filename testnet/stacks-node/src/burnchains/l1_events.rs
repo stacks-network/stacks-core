@@ -197,7 +197,7 @@ pub fn burnchain_from_config(
 impl L1Controller {
     pub fn new(config: Config, coordinator: CoordinatorChannels) -> Result<L1Controller, Error> {
         let indexer = DBBurnchainIndexer::new(
-            &config.get_chainstate_path_str(),
+            &config.get_burnchain_path_str(),
             config.burnchain.clone(),
             true,
         )?;
