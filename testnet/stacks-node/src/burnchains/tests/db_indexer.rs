@@ -455,10 +455,10 @@ fn test_db_sync_with_indexer_long_fork_repeated_calls() {
         };
 
     // Fork is:
-    // 1 -> 2 -> 3 -> 4 -> 5 -> 10
-    //   \-> 6 -> 7 -> 8 -> 9
+    // 1 -> 2 -> 3 -> 4 -> 9 -> 10
+    //   \-> 6 -> 7 -> 8 -> 5
     //
-    // Order is:
+    // Order added is:
     // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
     push_height_block_parent(1, 1, 0, 1, &"01".repeat(32));
     push_height_block_parent(2, 2, 1, 2, &"02".repeat(32));
@@ -466,10 +466,10 @@ fn test_db_sync_with_indexer_long_fork_repeated_calls() {
     push_height_block_parent(2, 6, 1, 3, &"03".repeat(32));
     push_height_block_parent(4, 4, 3, 4, &"04".repeat(32));
     push_height_block_parent(3, 7, 6, 4, &"04".repeat(32));
-    push_height_block_parent(5, 5, 4, 5, &"05".repeat(32));
-    push_height_block_parent(4, 8, 7, 5, &"05".repeat(32));
-    push_height_block_parent(5, 9, 8, 5, &"05".repeat(32));
-    push_height_block_parent(6, 10, 5, 6, &"0a".repeat(32));
+    push_height_block_parent(5, 9, 4, 5, &"09".repeat(32));
+    push_height_block_parent(4, 8, 7, 5, &"09".repeat(32));
+    push_height_block_parent(5, 5, 8, 5, &"05".repeat(32));
+    push_height_block_parent(6, 10, 9, 6, &"0a".repeat(32));
 }
 
 /// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
@@ -519,7 +519,7 @@ fn test_db_sync_with_indexer_long_fork_call_at_end() {
     // 1 -> 2 -> 3 -> 4 -> 5 -> 10
     //   \-> 6 -> 7 -> 8 -> 9
     //
-    // Order is:
+    // Order added is:
     // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
     push_height_block_parent(1, 1, 0);
     push_height_block_parent(2, 2, 1);
