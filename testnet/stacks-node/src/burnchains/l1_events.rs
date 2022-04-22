@@ -499,7 +499,7 @@ impl BurnchainController for L1Controller {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, blocks_count: u64) {
+    fn bootstrap_chain(&mut self, _blocks_count: u64) {
         todo!()
     }
 }

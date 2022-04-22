@@ -1,15 +1,10 @@
+use crate::burnchains::db_indexer::DBBurnchainIndexer;
 use crate::burnchains::l1_events::burnchain_from_config;
 use crate::burnchains::tests::{make_test_new_block, random_sortdb_test_dir};
 use crate::config::BurnchainConfig;
-use crate::{burnchains::db_indexer::DBBurnchainIndexer, rand::RngCore};
-use rand;
-use stacks::burnchains::events::{NewBlock, NewBlockTxEvent};
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::Burnchain;
-use stacks::burnchains::Error as BurnchainError;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
-use stacks::util::hash::to_hex;
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
@@ -27,7 +22,9 @@ fn make_test_config() -> BurnchainConfig {
 fn make_test_indexer() -> DBBurnchainIndexer {
     let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), make_test_config(), true)
         .expect("Couldn't create indexer.");
-    indexer.connect(true);
+    indexer
+        .connect(true)
+        .expect("Could not connect test indexer.");
     indexer
 }
 
@@ -164,7 +161,7 @@ fn test_detect_reorg() {
 fn test_sync_headers() {
     let mut indexer = make_test_indexer_add_10_block_branch();
 
-    /// No matter what the inputs, the answer is `10`, the max height.
+    // No matter what the inputs, the answer is `10`, the max height.
     assert_eq!(
         10,
         indexer
@@ -248,7 +245,7 @@ fn test_db_sync_with_indexer() {
 
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
-    let (sortition_db, burn_db) = burnchain
+    let _ = burnchain
         .connect_db(
             &indexer,
             true,
@@ -309,7 +306,7 @@ fn test_db_sync_with_indexer_short_sequence() {
 
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
-    let (sortition_db, burn_db) = burnchain
+    let (_sortition_db, burn_db) = burnchain
         .connect_db(
             &indexer,
             true,
@@ -407,7 +404,7 @@ fn test_db_sync_with_indexer_long_fork_repeated_calls() {
 
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
-    let (sortition_db, burn_db) = burnchain
+    let (_sortition_db, burn_db) = burnchain
         .connect_db(
             &indexer,
             true,
@@ -491,7 +488,7 @@ fn test_db_sync_with_indexer_long_fork_call_at_end() {
 
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
-    let (sortition_db, burn_db) = burnchain
+    let (_sortition_db, burn_db) = burnchain
         .connect_db(
             &indexer,
             true,

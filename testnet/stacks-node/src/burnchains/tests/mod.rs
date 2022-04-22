@@ -1,17 +1,14 @@
 use crate::rand::RngCore;
-use stacks::burnchains::indexer::BurnBlockIPC;
 use stacks::vm::Value as ClarityValue;
 use stacks::{
     burnchains::{
         events::{ContractEvent, NewBlock, NewBlockTxEvent, TxEventType},
         Txid,
     },
-    types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId},
+    types::chainstate::StacksBlockId,
     util::hash::to_hex,
-    vm::types::{ContractIdentifier, QualifiedContractIdentifier, TupleData},
+    vm::types::{QualifiedContractIdentifier, TupleData},
 };
-
-use super::mock_events::BlockIPC;
 
 pub mod db_indexer;
 
