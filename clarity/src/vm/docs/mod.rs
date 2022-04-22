@@ -133,6 +133,13 @@ const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
     example: "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
 };
 
+const CHAINID_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "chain-id",
+    output_type: "uint",
+    description: "Returns the 32-bit chain ID of the blockchain running this transaction",
+    example: "(print chain-id) ;; Will print 'u1' if the code is running on mainnet, and 'u2147483648' on testnet, and other values on different chains."
+};
+
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
     output_type: "(optional ?)",
@@ -1975,6 +1982,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
         NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
         NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
         NativeVariables::Mainnet => Some(MAINNET_KEYWORD.clone()),
+        NativeVariables::ChainId => Some(CHAINID_KEYWORD.clone()),
         NativeVariables::TxSponsor => Some(TX_SPONSOR_KEYWORD.clone()),
     }
 }
@@ -2075,6 +2083,7 @@ mod test {
     };
 
     use crate::vm::costs::ExecutionCost;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
@@ -2221,6 +2230,7 @@ mod test {
             ContractContext::new(contract_id.clone(), ClarityVersion::latest());
         let mut global_context = GlobalContext::new(
             false,
+            CHAIN_ID_TESTNET,
             conn,
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,

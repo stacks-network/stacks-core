@@ -13,6 +13,8 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};
 
+use stacks_common::consts::CHAIN_ID_TESTNET;
+
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
 #[derive(Serialize)]
@@ -72,6 +74,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
+        CHAIN_ID_TESTNET,
         conn,
         LimitedCostTracker::new_free(),
         DOCS_GENERATION_EPOCH,
