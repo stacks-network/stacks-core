@@ -113,8 +113,8 @@ fn is_canonical(
 }
 
 /// Returns a comparison between `a` and `b`.
-/// Headers are sorted by height (higher is greater), and then lexicographically by
-/// the header hash (greater in string space is greater).
+/// Headers are sorted by height (higher is earlier), and then lexicographically by
+/// the header hash (lower in string space is earlier).
 fn compare_headers(a: &BurnBlockIndexRow, b: &BurnBlockIndexRow) -> Ordering {
     if a.height() > b.height() {
         Ordering::Less
@@ -122,9 +122,9 @@ fn compare_headers(a: &BurnBlockIndexRow, b: &BurnBlockIndexRow) -> Ordering {
         Ordering::Greater
     } else {
         // Heights are the same, compare the hashes.
-        if a.header_hash() > b.header_hash() {
+        if a.header_hash() < b.header_hash() {
             Ordering::Less
-        } else if a.header_hash() < b.header_hash() {
+        } else if a.header_hash() > b.header_hash() {
             Ordering::Greater
         } else {
             Ordering::Equal
@@ -139,7 +139,7 @@ fn get_canonical_chain_tip(
 ) -> Result<Option<BurnBlockIndexRow>, BurnchainError> {
     query_row::<BurnBlockIndexRow, _>(
         connection,
-        "SELECT * FROM block_index ORDER BY height DESC, header_hash DESC LIMIT 1",
+        "SELECT * FROM block_index ORDER BY height DESC, header_hash ASC LIMIT 1",
         NO_PARAMS,
     )
     .map_err(|e| BurnchainError::DBError(e))
@@ -258,6 +258,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
                         // The new block is greater than the previous tip. It is canonical, and we need a reorg.
                         (true, true)
                     } else {
+                        // The new block is not a descendant of the current tip, and also isn't longer.
                         (false, false)
                     }
                 }
@@ -593,8 +594,6 @@ impl BurnchainIndexer for DBBurnchainIndexer {
 
         // Update the "last canonical tip" if we have a canonical tip now.
         let current_canonical = get_canonical_chain_tip(&self.connection)?;
-        info!("current_canonical {:?}", &current_canonical);
-
         match current_canonical {
             Some(current_tip) => {
                 // Update the cursor the next call to this function.
