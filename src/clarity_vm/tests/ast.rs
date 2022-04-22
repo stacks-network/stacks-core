@@ -6,6 +6,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::version::ClarityVersion;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 
 #[cfg(test)]
 use rstest::rstest;
@@ -29,7 +30,7 @@ fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u6
     }
 
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(false, marf);
+    let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
     clarity_instance
         .begin_test_genesis_block(

@@ -27,6 +27,7 @@ use crate::vm::tests::execute;
 use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -48,7 +49,12 @@ fn helper_execute_epoch(
     let sender = execute(address).expect_principal();
 
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
+    let chain_id = if use_mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    };
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     let mut genesis = clarity_instance.begin_test_genesis_block(
         &StacksBlockId::sentinel(),
         &StacksBlockHeader::make_index_block_hash(
