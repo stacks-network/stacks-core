@@ -1294,7 +1294,7 @@ mod test {
         let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 1);
         let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 2);
 
-        let mut block_commit = LeaderBlockCommitOp {
+        let block_commit = LeaderBlockCommitOp {
             block_header_hash: header.block_hash(),
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
