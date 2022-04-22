@@ -321,7 +321,7 @@ fn main() {
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let (chainstate, _) =
             StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
-        let sort_db = SortitionDB::open(&sort_db_path, false)
+        let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
             .expect(&format!("Failed to open {}", &sort_db_path));
 
         let num_blocks = argv[3].parse::<u64>().unwrap();

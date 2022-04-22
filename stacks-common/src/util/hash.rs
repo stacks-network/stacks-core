@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
+use std::convert::TryInto;
 use std::fmt;
 use std::fmt::Write;
 use std::mem;
@@ -307,21 +308,13 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
 
 impl Keccak256Hash {
     pub fn from_data(data: &[u8]) -> Keccak256Hash {
-        let mut tmp = [0u8; 32];
-        let mut digest = Keccak256::new();
-        digest.update(data);
-        tmp.copy_from_slice(digest.finalize().as_slice());
-        Keccak256Hash(tmp)
+        Keccak256Hash(Keccak256::digest(data).try_into().unwrap())
     }
 }
 
 impl Sha256Sum {
     pub fn from_data(data: &[u8]) -> Sha256Sum {
-        let mut tmp = [0u8; 32];
-        let mut sha2_1 = Sha256::new();
-        sha2_1.update(data);
-        tmp.copy_from_slice(sha2_1.finalize().as_slice());
-        Sha256Sum(tmp)
+        Sha256Sum(Sha256::digest(data).try_into().unwrap())
     }
     pub fn zero() -> Sha256Sum {
         Sha256Sum([0u8; 32])
@@ -330,17 +323,8 @@ impl Sha256Sum {
 
 impl DoubleSha256 {
     pub fn from_data(data: &[u8]) -> DoubleSha256 {
-        let mut tmp = [0u8; 32];
-
-        let mut sha2 = Sha256::new();
-        sha2.update(data);
-        tmp.copy_from_slice(sha2.finalize().as_slice());
-
-        let mut sha2_2 = Sha256::new();
-        sha2_2.update(&tmp);
-        tmp.copy_from_slice(sha2_2.finalize().as_slice());
-
-        DoubleSha256(tmp)
+        let hashed = Sha256::digest(Sha256::digest(data));
+        DoubleSha256(hashed.try_into().unwrap())
     }
 
     /// Converts a hash to a little-endian Uint256
