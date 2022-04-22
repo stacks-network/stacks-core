@@ -1,12 +1,18 @@
 use std;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::thread::{self, JoinHandle};
 
+use crate::burnchains::db_indexer::DBBurnchainIndexer;
 use crate::neon;
+use crate::stacks::burnchains::indexer::BurnchainIndexer;
 use crate::tests::neon_integrations::{get_account, submit_tx};
 use crate::tests::{make_contract_publish, to_addr};
+use clarity::util::hash::to_hex;
+use rand::RngCore;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 use std::env;
 use std::io::{BufRead, BufReader};
@@ -112,7 +118,7 @@ impl Drop for StacksL1Controller {
 /// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
 /// from the Stacks-L1 chain.
 #[test]
-fn l1_observer_test() {
+fn l1_basic_listener_test() {
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
         return;
     }
@@ -126,6 +132,9 @@ fn l1_observer_test() {
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
+    config.burnchain.first_burn_header_hash =
+        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
+    config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
@@ -134,7 +143,15 @@ fn l1_observer_test() {
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
-    thread::spawn(move || run_loop.start(None, 0));
+    let mut termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    // Start Stacks L1.
+    let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let _stacks_res = stacks_l1_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
 
     // Sleep to give the run loop time to listen to blocks.
     thread::sleep(Duration::from_millis(45000));
@@ -156,8 +173,9 @@ fn l1_observer_test() {
     // We check that we have moved past 3 just to establish we are reliably getting blocks.
     assert!(tip.block_height > 3);
 
-    channel.stop_chains_coordinator();
+    termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
+    run_loop_thread.join();
 }
 
 #[test]
@@ -174,16 +192,14 @@ fn l1_integration_test() {
     let nft_trait_name = "nft-trait-standard";
     let ft_trait_name = "ft-trait-standard";
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
-    let _stacks_res = stacks_l1_controller
-        .start_process()
-        .expect("stacks l1 controller didn't start");
-
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
+    config.burnchain.first_burn_header_hash =
+        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
+    config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
@@ -203,7 +219,16 @@ fn l1_integration_test() {
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let channel = run_loop.get_coordinator_channel().unwrap();
-    thread::spawn(move || run_loop.start(None, 0));
+    let mut termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop time to start.
+    thread::sleep(Duration::from_millis(2_000));
+
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let _stacks_res = stacks_l1_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
 
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
@@ -280,6 +305,7 @@ fn l1_integration_test() {
         "Miner should have produced at least 2 coinbase transactions"
     );
 
-    channel.stop_chains_coordinator();
+    termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
+    run_loop_thread.join();
 }

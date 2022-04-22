@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{self, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::StacksPrivateKey;
@@ -959,6 +959,13 @@ pub struct BurnchainConfig {
     pub epochs: Option<Vec<StacksEpoch>>,
     /// The layer 1 contract that the hyperchain will watch for Stacks events.
     pub contract_identifier: QualifiedContractIdentifier,
+    /// Hash of the first L1 Stacks block that we are going to index. The L2 indexer
+    /// will follow all decendents of this.
+    pub first_burn_header_hash: String,
+    /// Time stamp for the first header we are looking for.
+    pub first_burn_header_timestamp: u64,
+    /// Block height for the first header.
+    pub first_burn_header_height: u64,
     /// The anchor mode for any transactions submitted to L1
     pub anchor_mode: TransactionAnchorMode,
 }
@@ -990,6 +997,9 @@ impl Default for BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             contract_identifier: QualifiedContractIdentifier::transient(),
+            first_burn_header_hash: "".to_string(),
+            first_burn_header_height: 0u64,
+            first_burn_header_timestamp: 0u64,
             anchor_mode: TransactionAnchorMode::Any,
         }
     }
@@ -1214,20 +1224,20 @@ impl Config {
     pub fn make_burnchain_controller(
         &self,
         coordinator: CoordinatorChannels,
-    ) -> Option<Box<dyn BurnchainController + Send>> {
+    ) -> Result<Box<dyn BurnchainController + Send>, super::burnchains::Error> {
         match self.burnchain.chain.as_str() {
             BURNCHAIN_NAME_MOCKSTACK => {
-                Some(Box::new(MockController::new(self.clone(), coordinator)))
+                Ok(Box::new(MockController::new(self.clone(), coordinator)))
             }
-            BURNCHAIN_NAME_STACKS_L1 => {
-                Some(Box::new(L1Controller::new(self.clone(), coordinator)))
-            }
+            BURNCHAIN_NAME_STACKS_L1 => Ok(Box::new(L1Controller::new(self.clone(), coordinator)?)),
             _ => {
                 warn!(
                     "No matching controller for `chain`: {}",
                     self.burnchain.chain.as_str()
                 );
-                None
+                Err(super::burnchains::Error::UnsupportedBurnchain(
+                    self.burnchain.chain.clone(),
+                ))
             }
         }
     }
