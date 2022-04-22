@@ -16,6 +16,7 @@ fn make_test_config() -> BurnchainConfig {
     let mut config = BurnchainConfig::default();
     config.chain = "stacks_layer_1".to_string();
     config.mode = "hyperchain".to_string();
+    config.first_burn_header_height = 1;
     config.first_burn_header_hash =
         "0101010101010101010101010101010101010101010101010101010101010101".to_string();
     config.first_burn_header_timestamp = 1u64;
@@ -97,45 +98,12 @@ fn test_detect_reorg() {
     let contract_identifier = make_test_config().contract_identifier.clone();
     input_channel
         .push_block(make_test_new_block(
-            0,
+            1,
             1u8,
             0u8,
             contract_identifier.clone(),
         ))
         .expect("Failed to push block");
-    // Highest height is 0.
-    assert_eq!(
-        0,
-        indexer
-            .find_chain_reorg()
-            .expect("Call to `find_chain_reorg` failed.")
-    );
-
-    input_channel
-        .push_block(make_test_new_block(
-            1,
-            3u8,
-            1u8,
-            contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-    // Only one chain, at height 1.
-    assert_eq!(
-        1,
-        indexer
-            .find_chain_reorg()
-            .expect("Call to `find_chain_reorg` failed.")
-    );
-
-    input_channel
-        .push_block(make_test_new_block(
-            1,
-            2u8,
-            1u8,
-            contract_identifier.clone(),
-        ))
-        .expect("Failed to push block");
-    // Chain tip hasn't changed based on lexicographic tie-breaking. Same chain tip as before.
     assert_eq!(
         1,
         indexer
@@ -146,14 +114,45 @@ fn test_detect_reorg() {
     input_channel
         .push_block(make_test_new_block(
             2,
+            3u8,
+            1u8,
+            contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+    assert_eq!(
+        2,
+        indexer
+            .find_chain_reorg()
+            .expect("Call to `find_chain_reorg` failed.")
+    );
+
+    input_channel
+        .push_block(make_test_new_block(
+            2,
+            2u8,
+            1u8,
+            contract_identifier.clone(),
+        ))
+        .expect("Failed to push block");
+    // Chain tip hasn't changed based on lexicographic tie-breaking. Same chain tip as before.
+    assert_eq!(
+        2,
+        indexer
+            .find_chain_reorg()
+            .expect("Call to `find_chain_reorg` failed.")
+    );
+
+    input_channel
+        .push_block(make_test_new_block(
+            3,
             4u8,
             2u8,
             contract_identifier.clone(),
         ))
         .expect("Failed to push block");
-    // New chain tip, common ancestor is at height 0.
+    // New chain tip, common ancestor is block 1 at height 1.
     assert_eq!(
-        0,
+        1,
         indexer
             .find_chain_reorg()
             .expect("Call to `find_chain_reorg` failed.")
@@ -325,17 +324,31 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
 
     let input_channel = indexer.get_channel();
 
-    // Convenience method to push a block.
-    let push_height_block_parent = |block_height: u64, block_idx: u8, parent_block_idx: u8| {
-        input_channel
-            .push_block(make_test_new_block(
-                block_height,
-                block_idx,
-                parent_block_idx,
-                make_test_config().contract_identifier.clone(),
-            ))
-            .expect("Failed to push block");
-    };
+    // Convenience method to push a block. Test the running chain tip against `expected_tip_height`.
+    let mut push_height_block_parent =
+        |block_height: u64, block_idx: u8, parent_block_idx: u8, expected_tip_height: u64| {
+            input_channel
+                .push_block(make_test_new_block(
+                    block_height,
+                    block_idx,
+                    parent_block_idx,
+                    make_test_config().contract_identifier.clone(),
+                ))
+                .expect("Failed to push block");
+
+            let _ = burnchain.sync_with_indexer(
+                &mut indexer,
+                channels.clone(),
+                target_block_height_opt,
+                None,
+                None,
+            );
+
+            let canonical_tip = burn_db
+                .get_canonical_chain_tip()
+                .expect("Should have a chain tip.");
+            assert_eq!(expected_tip_height, canonical_tip.block_height);
+        };
 
     // Fork is:
     // 1 -> 2 -> 3 -> 4 -> 5 -> 10
@@ -343,42 +356,16 @@ fn test_db_sync_with_indexer_with_fork_call_at_end() {
     //
     // Order is:
     // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
-    push_height_block_parent(1, 1, 0);
-    push_height_block_parent(2, 2, 1);
-    push_height_block_parent(3, 3, 2);
-    push_height_block_parent(2, 6, 1);
-    push_height_block_parent(4, 4, 3);
-    push_height_block_parent(3, 7, 6);
-    push_height_block_parent(5, 5, 4);
-    push_height_block_parent(4, 8, 7);
-    push_height_block_parent(5, 9, 8);
-    push_height_block_parent(6, 10, 5);
-
-    let result = burnchain
-        .sync_with_indexer(
-            &mut indexer,
-            channels.clone(),
-            target_block_height_opt,
-            None,
-            None,
-        )
-        .expect("Call to `sync_with_indexer` should succeed.");
-
-    // The longest chain is node 10 with height 6 by inspection of the fork.
-    assert_eq!(6, result.block_height);
-    assert_eq!(
-        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-        result.block_hash.to_string()
-    );
-
-    let canonical_tip = burn_db
-        .get_canonical_chain_tip()
-        .expect("Should have a chain tip.");
-    assert_eq!(6, canonical_tip.block_height);
-    assert_eq!(
-        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
-        canonical_tip.block_hash.to_string()
-    );
+    push_height_block_parent(1, 1, 0, 1);
+    push_height_block_parent(2, 2, 1, 2);
+    push_height_block_parent(3, 3, 2, 3);
+    push_height_block_parent(2, 6, 1, 3);
+    push_height_block_parent(4, 4, 3, 4);
+    push_height_block_parent(3, 7, 6, 4);
+    push_height_block_parent(5, 5, 4, 5);
+    push_height_block_parent(4, 8, 7, 5);
+    push_height_block_parent(5, 9, 8, 5);
+    push_height_block_parent(6, 10, 5, 6);
 }
 
 /// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Call `sync_with_indexer`
@@ -421,15 +408,30 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         ))
         .expect("Failed to push block");
 
-    let result = burnchain.sync_with_indexer(
-        &mut indexer,
-        channels.clone(),
-        target_block_height_opt,
-        None,
-        None,
-    );
+    let result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("Call to `sync_with_indexer` should succeed.");
 
-    assert_eq!("Try synchronizing again", result.unwrap_err().to_string());
+    // So far chain tip is block 3.
+    assert_eq!(1, result.block_height);
+    assert_eq!(
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        result.block_hash.to_string()
+    );
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(1, canonical_tip.block_height);
+    assert_eq!(
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        canonical_tip.block_hash.to_string()
+    );
 
     input_channel
         .push_block(make_test_new_block(

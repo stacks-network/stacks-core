@@ -84,15 +84,22 @@ pub fn get_last_canonical_chain_tip(
 /// Memoizes the "canonical chain tip" so that we can later retreive this to look for a fork.
 /// We use the database to remember across system shutdown.
 ///
-/// If `first_insert`, use INSERT, otherwise use REPLACE.
+/// If `previous_tip` is Some, update, otherwise insert.
 pub fn set_last_canonical_chain_tip(
     connection: &DBConn,
     hash: &BurnchainHeaderHash,
+    previous_tip: &Option<BurnchainHeaderHash>,
 ) -> Result<(), BurnchainError> {
-    connection.execute(
-        "UPDATE burnchain_cursor SET burn_header_hash  = ? WHERE id = 0;",
-        &[&hash],
-    )?;
+    match previous_tip {
+        Some(tip) => connection.execute(
+            "UPDATE burnchain_cursor SET burn_header_hash  = ? WHERE id = 0;",
+            &[&hash],
+        )?,
+        None => connection.execute(
+            "INSERT INTO burnchain_cursor (id, burn_header_hash) VALUES (0, ?);",
+            &[&hash],
+        )?,
+    };
     Ok(())
 }
 
@@ -505,7 +512,7 @@ impl From<&NewBlock> for BurnBlockIndexRow {
     fn from(b: &NewBlock) -> Self {
         let block_string = serde_json::to_string(&b)
             .map_err(|e| BurnchainError::ParseError)
-            .expect("Serialization of `NewBlock` has failed.");
+            .expect("Serialization of `NewBlock` should not fail.");
         BurnBlockIndexRow {
             header_hash: BurnchainHeaderHash(b.index_block_hash.0.clone()),
             parent_header_hash: BurnchainHeaderHash(b.parent_index_block_hash.0.clone()),
@@ -585,12 +592,16 @@ impl BurnchainIndexer for DBBurnchainIndexer {
         };
 
         // Update the "last canonical tip" if we have a canonical tip now.
-        match get_canonical_chain_tip(&self.connection)? {
+        let current_canonical = get_canonical_chain_tip(&self.connection)?;
+        info!("current_canonical {:?}", &current_canonical);
+
+        match current_canonical {
             Some(current_tip) => {
                 // Update the cursor the next call to this function.
                 set_last_canonical_chain_tip(
                     &self.connection,
                     &BurnchainHeaderHash(current_tip.header_hash()),
+                    &last_canonical_tip,
                 )?;
             }
             None => {}
