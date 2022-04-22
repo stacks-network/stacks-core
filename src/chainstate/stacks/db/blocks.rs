@@ -4871,11 +4871,11 @@ impl StacksChainState {
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
+        // Process asset deposits
         tx_receipts.extend(StacksChainState::process_deposit_ft_ops(
             &mut clarity_tx,
             deposit_ft_ops,
         ));
-
         tx_receipts.extend(StacksChainState::process_deposit_nft_ops(
             &mut clarity_tx,
             deposit_nft_ops,
