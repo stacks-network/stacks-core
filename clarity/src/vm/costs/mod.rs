@@ -36,6 +36,7 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
 pub mod constants;
@@ -241,6 +242,7 @@ pub struct TrackerData {
     ///  evaluated, so no epoch identifier is necessary.
     epoch: StacksEpochId,
     mainnet: bool,
+    chain_id: u32,
 }
 
 #[derive(Clone)]
@@ -623,6 +625,7 @@ fn load_cost_functions(
 impl LimitedCostTracker {
     pub fn new(
         mainnet: bool,
+        chain_id: u32,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
@@ -637,6 +640,7 @@ impl LimitedCostTracker {
             memory: 0,
             epoch,
             mainnet,
+            chain_id,
         };
         assert!(clarity_db.is_stack_empty());
         cost_tracker.load_costs(clarity_db, true)?;
@@ -645,6 +649,7 @@ impl LimitedCostTracker {
 
     pub fn new_mid_block(
         mainnet: bool,
+        chain_id: u32,
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
@@ -659,6 +664,7 @@ impl LimitedCostTracker {
             memory: 0,
             epoch,
             mainnet,
+            chain_id,
         };
         cost_tracker.load_costs(clarity_db, false)?;
         Ok(Self::Limited(cost_tracker))
@@ -670,8 +676,19 @@ impl LimitedCostTracker {
         epoch: StacksEpochId,
         use_mainnet: bool,
     ) -> Result<LimitedCostTracker> {
+        let chain_id = if use_mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
         assert!(clarity_db.is_stack_empty());
-        LimitedCostTracker::new(use_mainnet, ExecutionCost::max_value(), clarity_db, epoch)
+        LimitedCostTracker::new(
+            use_mainnet,
+            chain_id,
+            ExecutionCost::max_value(),
+            clarity_db,
+            epoch,
+        )
     }
 
     pub fn new_free() -> LimitedCostTracker {
@@ -840,10 +857,16 @@ fn compute_cost(
     eval_in_epoch: StacksEpochId,
 ) -> Result<ExecutionCost> {
     let mainnet = cost_tracker.mainnet;
+    let chain_id = cost_tracker.chain_id;
     let mut null_store = NullBackingStore::new();
     let conn = null_store.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(mainnet, conn, LimitedCostTracker::new_free(), eval_in_epoch);
+    let mut global_context = GlobalContext::new(
+        mainnet,
+        chain_id,
+        conn,
+        LimitedCostTracker::new_free(),
+        eval_in_epoch,
+    );
 
     let cost_contract = cost_tracker
         .cost_contracts

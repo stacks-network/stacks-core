@@ -81,6 +81,8 @@ pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::version::ClarityVersion;
 use std::convert::{TryFrom, TryInto};
 
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
@@ -428,8 +430,18 @@ pub fn execute_with_parameters(
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
+    let chain_id = if use_mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    };
+    let mut global_context = GlobalContext::new(
+        use_mainnet,
+        chain_id,
+        conn,
+        LimitedCostTracker::new_free(),
+        epoch,
+    );
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -482,6 +494,8 @@ mod test {
 
     use super::ClarityVersion;
 
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+
     #[test]
     fn test_simple_user_function() {
         //
@@ -519,6 +533,7 @@ mod test {
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(
             false,
+            CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,

@@ -360,6 +360,7 @@ fn type_reserved_variable(variable_name: &str, version: &ClarityVersion) -> Opti
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
             Mainnet => TypeSignature::BoolType,
+            ChainId => TypeSignature::UIntType,
         };
         Some(var_type)
     } else {

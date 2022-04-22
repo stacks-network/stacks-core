@@ -119,6 +119,7 @@ pub trait ClarityConnection {
     fn with_readonly_clarity_env<F, R>(
         &mut self,
         mainnet: bool,
+        chain_id: u32,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
@@ -129,8 +130,9 @@ pub trait ClarityConnection {
     {
         let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env =
-                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
+            let mut vm_env = OwnedEnvironment::new_cost_limited(
+                mainnet, chain_id, clarity_db, cost_track, epoch_id,
+            );
             let result = vm_env
                 .execute_in_env(sender, sponsor, to_do)
                 .map(|(result, _, _)| result);
