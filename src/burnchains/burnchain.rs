@@ -426,7 +426,7 @@ impl Burnchain {
                     Ok(op) => Some(BlockstackOperationType::from(op)),
                     Err(e) => {
                         warn!(
-                            "Failed to parse deposit fungible token operation";
+                            "Failed to parse deposit STX operation";
                             "txid" => %burn_tx.txid(),
                             "error" => ?e,
                         );
