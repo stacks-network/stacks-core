@@ -39,6 +39,7 @@ use stacks_common::address::c32;
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksPublicKey;
@@ -491,6 +492,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(
             false,
+            CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch20,
@@ -1406,6 +1408,49 @@ fn test_is_mainnet() {
         });
 
     let testnet_expectations = [Value::Bool(false), Value::Bool(true)];
+
+    tests
+        .iter()
+        .zip(testnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_with_parameters(
+                    program,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::Epoch20,
+                    false
+                )
+                .unwrap()
+                .unwrap()
+            )
+        });
+}
+
+#[test]
+fn test_chain_id() {
+    let tests = ["chain-id"];
+
+    let mainnet_expectations = [Value::UInt(CHAIN_ID_MAINNET.into())];
+
+    tests
+        .iter()
+        .zip(mainnet_expectations.iter())
+        .for_each(|(program, expectation)| {
+            assert_eq!(
+                expectation.clone(),
+                execute_with_parameters(
+                    program,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::Epoch20,
+                    true
+                )
+                .unwrap()
+                .unwrap()
+            )
+        });
+
+    let testnet_expectations = [Value::UInt(CHAIN_ID_TESTNET.into())];
 
     tests
         .iter()
