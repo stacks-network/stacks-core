@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use reqwest::Error as ReqwestError;
 use stacks::burnchains;
-use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::indexer::BurnchainChannel;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;

@@ -237,7 +237,9 @@ impl MockController {
 
         info!("Layer 1 block mined");
 
-        MOCK_EVENTS_STREAM.push_block(new_block);
+        MOCK_EVENTS_STREAM
+            .push_block(new_block)
+            .expect("`push_block` has failed.");
     }
 
     fn receive_blocks(

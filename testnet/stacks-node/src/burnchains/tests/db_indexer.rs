@@ -424,7 +424,11 @@ fn test_db_sync_with_indexer_long_fork_repeated_calls() {
 
     // Convenience method to push a block. Test the running chain tip against `expected_tip_height` and `expected_hash`.
     let mut push_height_block_parent =
-        |block_height: u64, block_idx: u8, parent_block_idx: u8, expected_tip_height: u64, expected_tip_hash:&str| {
+        |block_height: u64,
+         block_idx: u8,
+         parent_block_idx: u8,
+         expected_tip_height: u64,
+         expected_tip_hash: &str| {
             input_channel
                 .push_block(make_test_new_block(
                     block_height,

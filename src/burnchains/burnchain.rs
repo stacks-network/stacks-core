@@ -500,7 +500,7 @@ impl Burnchain {
         // Step 1: Check if we already have a block with this header. If so, make sure blocks
         // are the same, and short-circuit.
         match burnchain_db.get_burnchain_block(&block.header().block_hash) {
-            Ok(block_data) => {
+            Ok(_block_data) => {
                 return Ok(block.header());
             }
             Err(burnchain_error::UnknownBlock(_)) => {
@@ -802,9 +802,6 @@ impl Burnchain {
                     let mut last_processed = burn_chain_tip;
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block"; "burnchain_block" => ?burnchain_block);
-
-                        let block_height = burnchain_block.block_height();
-
                         let insert_start = get_epoch_time_ms();
 
                         last_processed =

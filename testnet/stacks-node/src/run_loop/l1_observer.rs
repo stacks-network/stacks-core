@@ -72,10 +72,13 @@ async fn serve(
 /// Spawn a thread with a `warp` server.
 pub fn spawn(channel: Arc<dyn BurnchainChannel>) -> Sender<()> {
     let (signal_sender, signal_receiver) = oneshot::channel();
-    thread::Builder::new().name("l1-observer".into()).spawn(|| {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-        rt.block_on(serve(signal_receiver, channel))
-            .expect("block_on failed");
-    });
+    thread::Builder::new()
+        .name("l1-observer".into())
+        .spawn(|| {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(serve(signal_receiver, channel))
+                .expect("block_on failed");
+        })
+        .expect("`spawn` has failed.");
     signal_sender
 }
