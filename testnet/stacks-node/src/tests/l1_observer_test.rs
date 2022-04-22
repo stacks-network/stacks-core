@@ -44,6 +44,11 @@ lazy_static! {
     .unwrap();
 }
 
+/// The StacksL1Controller will terminate after this many empty lines. Consecutive empty lines indicate
+/// the underlying process is hung.
+const MAX_CONSECUTIVE_EMPTY_LINES: u64 = 10; // consecutive empty lines indicate L1 has crashed or stopped
+
+/// Runs the Stacks L1 chain and owns the process.
 impl StacksL1Controller {
     pub fn new(config_path: String, log_process: bool) -> StacksL1Controller {
         StacksL1Controller {
@@ -78,13 +83,30 @@ impl StacksL1Controller {
         let printer_handle = if self.log_process {
             let child_out = process.stderr.take().unwrap();
             Some(thread::spawn(|| {
-                let buffered_out = BufReader::new(child_out);
-                for line in buffered_out.lines() {
-                    let line = match line {
-                        Ok(x) => x,
-                        Err(e) => return,
-                    };
-                    println!("L1: {}", line);
+                info!("spawned thread process");
+
+                let mut buffered_out = BufReader::new(child_out);
+                let mut buf = String::new();
+                let mut consecutive_empty_lines = 0;
+                loop {
+                    buffered_out
+                        .read_line(&mut buf)
+                        .expect("reading a line didn't work");
+
+                    let trimmed_line = buf.trim();
+                    if !trimmed_line.is_empty() {
+                        // Print the L1 log line in yellow.
+                        info!("\x1b[0;33mL1: {}\x1b[0m", &buf);
+                        consecutive_empty_lines = 0;
+                    } else {
+                        consecutive_empty_lines += 1;
+                        if consecutive_empty_lines >= MAX_CONSECUTIVE_EMPTY_LINES {
+                            warn!("L1 chain seems to be dead. Stopping the thread.");
+                            break;
+                        }
+                    }
+
+                    buf.clear();
                 }
             }))
         } else {
