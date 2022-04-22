@@ -293,85 +293,10 @@ fn test_db_sync_with_indexer() {
     );
 }
 
-/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
-/// a fork, and just call sync_with_indexer once at the end.
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Create a short
+/// sequence.
 #[test]
-fn test_db_sync_with_indexer_with_fork_call_at_end() {
-    let mut indexer = make_test_indexer();
-    let config = make_test_config();
-    let burnchain_dir = random_sortdb_test_dir();
-
-    let first_burn_header_hash = BurnchainHeaderHash(
-        StacksBlockId::from_hex(&config.first_burn_header_hash)
-            .expect("Could not parse `first_burn_header_hash`.")
-            .0,
-    );
-
-    let mut burnchain =
-        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
-    let (sortition_db, burn_db) = burnchain
-        .connect_db(
-            &indexer,
-            true,
-            first_burn_header_hash,
-            config.first_burn_header_timestamp,
-        )
-        .expect("Could not connect burnchain.");
-
-    let (_receivers, channels) = CoordinatorCommunication::instantiate();
-
-    let target_block_height_opt = Some(10);
-
-    let input_channel = indexer.get_channel();
-
-    // Convenience method to push a block. Test the running chain tip against `expected_tip_height`.
-    let mut push_height_block_parent =
-        |block_height: u64, block_idx: u8, parent_block_idx: u8, expected_tip_height: u64| {
-            input_channel
-                .push_block(make_test_new_block(
-                    block_height,
-                    block_idx,
-                    parent_block_idx,
-                    make_test_config().contract_identifier.clone(),
-                ))
-                .expect("Failed to push block");
-
-            let _ = burnchain.sync_with_indexer(
-                &mut indexer,
-                channels.clone(),
-                target_block_height_opt,
-                None,
-                None,
-            );
-
-            let canonical_tip = burn_db
-                .get_canonical_chain_tip()
-                .expect("Should have a chain tip.");
-            assert_eq!(expected_tip_height, canonical_tip.block_height);
-        };
-
-    // Fork is:
-    // 1 -> 2 -> 3 -> 4 -> 5 -> 10
-    //   \-> 6 -> 7 -> 8 -> 9
-    //
-    // Order is:
-    // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
-    push_height_block_parent(1, 1, 0, 1);
-    push_height_block_parent(2, 2, 1, 2);
-    push_height_block_parent(3, 3, 2, 3);
-    push_height_block_parent(2, 6, 1, 3);
-    push_height_block_parent(4, 4, 3, 4);
-    push_height_block_parent(3, 7, 6, 4);
-    push_height_block_parent(5, 5, 4, 5);
-    push_height_block_parent(4, 8, 7, 5);
-    push_height_block_parent(5, 9, 8, 5);
-    push_height_block_parent(6, 10, 5, 6);
-}
-
-/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Call `sync_with_indexer`
-/// and check result after each push.
-#[test]
-fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
+fn test_db_sync_with_indexer_short_sequence() {
     let mut indexer = make_test_indexer();
     let config = make_test_config();
     let burnchain_dir = random_sortdb_test_dir();
@@ -418,7 +343,6 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         )
         .expect("Call to `sync_with_indexer` should succeed.");
 
-    // So far chain tip is block 3.
     assert_eq!(1, result.block_height);
     assert_eq!(
         "0101010101010101010101010101010101010101010101010101010101010101",
@@ -436,7 +360,7 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
     input_channel
         .push_block(make_test_new_block(
             2,
-            3,
+            2,
             1 as u8,
             make_test_config().contract_identifier.clone(),
         ))
@@ -452,10 +376,9 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         )
         .expect("Call to `sync_with_indexer` should succeed.");
 
-    // So far chain tip is block 3.
     assert_eq!(2, result.block_height);
     assert_eq!(
-        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0202020202020202020202020202020202020202020202020202020202020202",
         result.block_hash.to_string()
     );
     let canonical_tip = burn_db
@@ -463,7 +386,169 @@ fn test_db_sync_with_indexer_with_fork_calls_interspersed() {
         .expect("Should have a chain tip.");
     assert_eq!(2, canonical_tip.block_height);
     assert_eq!(
-        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0202020202020202020202020202020202020202020202020202020202020202",
+        canonical_tip.block_hash.to_string()
+    );
+}
+
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
+/// a fork, and sync_with_indexer after every push.
+#[test]
+fn test_db_sync_with_indexer_long_fork_repeated_calls() {
+    let mut indexer = make_test_indexer();
+    let config = make_test_config();
+    let burnchain_dir = random_sortdb_test_dir();
+
+    let first_burn_header_hash = BurnchainHeaderHash(
+        StacksBlockId::from_hex(&config.first_burn_header_hash)
+            .expect("Could not parse `first_burn_header_hash`.")
+            .0,
+    );
+
+    let mut burnchain =
+        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
+    let (sortition_db, burn_db) = burnchain
+        .connect_db(
+            &indexer,
+            true,
+            first_burn_header_hash,
+            config.first_burn_header_timestamp,
+        )
+        .expect("Could not connect burnchain.");
+
+    let (_receivers, channels) = CoordinatorCommunication::instantiate();
+
+    let target_block_height_opt = Some(10);
+
+    let input_channel = indexer.get_channel();
+
+    // Convenience method to push a block. Test the running chain tip against `expected_tip_height`.
+    let mut push_height_block_parent =
+        |block_height: u64, block_idx: u8, parent_block_idx: u8, expected_tip_height: u64| {
+            input_channel
+                .push_block(make_test_new_block(
+                    block_height,
+                    block_idx,
+                    parent_block_idx,
+                    make_test_config().contract_identifier.clone(),
+                ))
+                .expect("Failed to push block");
+
+            let sync_result = burnchain
+                .sync_with_indexer(
+                    &mut indexer,
+                    channels.clone(),
+                    target_block_height_opt,
+                    None,
+                    None,
+                )
+                .expect("We expect call calls to succeed.");
+            assert_eq!(expected_tip_height, sync_result.block_height);
+
+            let canonical_tip = burn_db
+                .get_canonical_chain_tip()
+                .expect("Should have a chain tip.");
+            assert_eq!(expected_tip_height, canonical_tip.block_height);
+        };
+
+    // Fork is:
+    // 1 -> 2 -> 3 -> 4 -> 5 -> 10
+    //   \-> 6 -> 7 -> 8 -> 9
+    //
+    // Order is:
+    // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
+    push_height_block_parent(1, 1, 0, 1);
+    push_height_block_parent(2, 2, 1, 2);
+    push_height_block_parent(3, 3, 2, 3);
+    push_height_block_parent(2, 6, 1, 3);
+    push_height_block_parent(4, 4, 3, 4);
+    push_height_block_parent(3, 7, 6, 4);
+    push_height_block_parent(5, 5, 4, 5);
+    push_height_block_parent(4, 8, 7, 5);
+    push_height_block_parent(5, 9, 8, 5);
+    push_height_block_parent(6, 10, 5, 6);
+}
+
+/// Test the DBBurnchainIndexer in the context of Burnchain::sync_with_indexer. Include
+/// a fork, and just call sync_with_indexer once at the end.
+#[test]
+fn test_db_sync_with_indexer_long_fork_call_at_end() {
+    let mut indexer = make_test_indexer();
+    let config = make_test_config();
+    let burnchain_dir = random_sortdb_test_dir();
+
+    let first_burn_header_hash = BurnchainHeaderHash(
+        StacksBlockId::from_hex(&config.first_burn_header_hash)
+            .expect("Could not parse `first_burn_header_hash`.")
+            .0,
+    );
+
+    let mut burnchain =
+        burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
+    let (sortition_db, burn_db) = burnchain
+        .connect_db(
+            &indexer,
+            true,
+            first_burn_header_hash,
+            config.first_burn_header_timestamp,
+        )
+        .expect("Could not connect burnchain.");
+
+    let (_receivers, channels) = CoordinatorCommunication::instantiate();
+
+    let target_block_height_opt = Some(10);
+
+    let input_channel = indexer.get_channel();
+
+    // Convenience method to push a block. Test the running chain tip against `expected_tip_height`.
+    let push_height_block_parent = |block_height: u64, block_idx: u8, parent_block_idx: u8| {
+        input_channel
+            .push_block(make_test_new_block(
+                block_height,
+                block_idx,
+                parent_block_idx,
+                make_test_config().contract_identifier.clone(),
+            ))
+            .expect("Failed to push block");
+    };
+
+    // Fork is:
+    // 1 -> 2 -> 3 -> 4 -> 5 -> 10
+    //   \-> 6 -> 7 -> 8 -> 9
+    //
+    // Order is:
+    // 1, 2, 3, 6, 4, 7, 5, 8, 9, 10
+    push_height_block_parent(1, 1, 0);
+    push_height_block_parent(2, 2, 1);
+    push_height_block_parent(3, 3, 2);
+    push_height_block_parent(2, 6, 1);
+    push_height_block_parent(4, 4, 3);
+    push_height_block_parent(3, 7, 6);
+    push_height_block_parent(5, 5, 4);
+    push_height_block_parent(4, 8, 7);
+    push_height_block_parent(5, 9, 8);
+    push_height_block_parent(6, 10, 5);
+
+    let sync_result = burnchain
+        .sync_with_indexer(
+            &mut indexer,
+            channels.clone(),
+            target_block_height_opt,
+            None,
+            None,
+        )
+        .expect("We expect call calls to succeed.");
+    assert_eq!(6, sync_result.block_height);
+    assert_eq!(
+        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
+        sync_result.block_hash.to_string()
+    );
+    let canonical_tip = burn_db
+        .get_canonical_chain_tip()
+        .expect("Should have a chain tip.");
+    assert_eq!(6, canonical_tip.block_height);
+    assert_eq!(
+        "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a",
         canonical_tip.block_hash.to_string()
     );
 }
