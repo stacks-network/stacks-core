@@ -205,7 +205,7 @@ pub enum StacksHyperOpType {
     },
     DepositStx {
         amount: u128,
-        sender: PrincipalData
+        sender: PrincipalData,
     },
     DepositFt {
         l1_contract_id: QualifiedContractIdentifier,

@@ -4428,7 +4428,7 @@ impl StacksChainState {
     }
 
     /// Process any deposit STX operations that haven't been processed in this
-   /// hyperchains fork yet.
+    /// hyperchains fork yet.
     pub fn process_deposit_stx_ops(
         clarity_tx: &mut ClarityTx,
         mut operations: Vec<DepositStxOp>,
@@ -4449,7 +4449,12 @@ impl StacksChainState {
                         // call the corresponding deposit function in the hyperchains contract
                         let result = clarity_tx.connection().as_transaction(|tx| {
                             StacksChainState::account_credit(tx, &sender, amount as u64);
-                            StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(STXMintEventData { recipient: sender, amount }))
+                            StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                                STXMintEventData {
+                                    recipient: sender,
+                                    amount,
+                                },
+                            ))
                         });
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
@@ -4467,7 +4472,6 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                         })
-
                     })
                     .collect()
             });

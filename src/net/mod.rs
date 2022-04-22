@@ -2070,7 +2070,7 @@ pub mod test {
                             "sender": op.sender,
                         }),
                     )
-                        .unwrap();
+                    .unwrap();
                     Ok(())
                 }
                 BlockstackOperationType::DepositFt(ref op) => {

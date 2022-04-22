@@ -53,10 +53,10 @@ use vm::ClarityName;
 
 pub mod deposit_ft;
 pub mod deposit_nft;
+pub mod deposit_stx;
 pub mod leader_block_commit;
 pub mod withdraw_ft;
 pub mod withdraw_nft;
-pub mod deposit_stx;
 
 /// This module contains all burn-chain operations
 

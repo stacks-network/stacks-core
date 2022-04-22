@@ -634,7 +634,7 @@ fn l1_deposit_stx_integration_test() {
         &config.burnchain.chain,
         &config.burnchain.mode,
     )
-        .unwrap();
+    .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
@@ -679,10 +679,7 @@ fn l1_deposit_stx_integration_test() {
         &user_addr,
         config.burnchain.contract_identifier.name.as_str(),
         "deposit-stx",
-        &[
-            Value::UInt(1),
-            Value::Principal(user_addr.into()),
-        ],
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l1_nonce += 1;
 

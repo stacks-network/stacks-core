@@ -214,10 +214,7 @@ impl StacksHyperOp {
                     event_index,
                     in_block: in_block.clone(),
                     opcode: 1,
-                    event: StacksHyperOpType::DepositStx {
-                        amount,
-                        sender
-                    },
+                    event: StacksHyperOpType::DepositStx { amount, sender },
                 })
             }
             "\"deposit-ft\"" => {

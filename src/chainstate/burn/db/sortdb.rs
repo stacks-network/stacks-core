@@ -42,8 +42,8 @@ use burnchains::{
 };
 use chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
-    BlockstackOperationType, DepositStxOp, DepositFtOp, DepositNftOp, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DepositFtOp, DepositNftOp, DepositStxOp, LeaderBlockCommitOp,
+    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};

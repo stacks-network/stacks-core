@@ -45,7 +45,11 @@ use burnchains::{
     BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::operations::{leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp, DepositStxOp};
+use chainstate::burn::operations::{
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
+    DepositStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp,
+};
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
 use chainstate::stacks::StacksPublicKey;
