@@ -4427,6 +4427,54 @@ impl StacksChainState {
         all_receipts
     }
 
+    /// Process any deposit STX operations that haven't been processed in this
+   /// hyperchains fork yet.
+    pub fn process_deposit_stx_ops(
+        clarity_tx: &mut ClarityTx,
+        mut operations: Vec<DepositStxOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        let cost_so_far = clarity_tx.cost_so_far();
+        let (all_receipts, _) =
+            clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
+                operations
+                    .into_iter()
+                    .filter_map(|deposit_stx_op| {
+                        let DepositStxOp {
+                            txid,
+                            burn_header_hash,
+                            amount,
+                            sender,
+                            ..
+                        } = deposit_stx_op;
+                        // call the corresponding deposit function in the hyperchains contract
+                        let result = clarity_tx.connection().as_transaction(|tx| {
+                            StacksChainState::account_credit(tx, &sender, amount as u64);
+                            StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(STXMintEventData { recipient: sender, amount }))
+                        });
+                        let mut execution_cost = clarity_tx.cost_so_far();
+                        execution_cost
+                            .sub(&cost_so_far)
+                            .expect("BUG: cost declined between executions");
+
+                        Some(StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Burn(txid),
+                            events: vec![result],
+                            result: Value::okay_true(),
+                            post_condition_aborted: false,
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost,
+                            microblock_header: None,
+                            tx_index: 0,
+                        })
+
+                    })
+                    .collect()
+            });
+
+        all_receipts
+    }
+
     /// Process any deposit fungible token operations that haven't been processed in this
     /// hyperchains fork yet.
     pub fn process_deposit_ft_ops(
@@ -4755,6 +4803,7 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
+        let deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &burn_tip)?;
         let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
         let deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &burn_tip)?;
 
@@ -4870,6 +4919,11 @@ impl StacksChainState {
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+
+        tx_receipts.extend(StacksChainState::process_deposit_stx_ops(
+            &mut clarity_tx,
+            deposit_stx_ops,
+        ));
 
         tx_receipts.extend(StacksChainState::process_deposit_ft_ops(
             &mut clarity_tx,
