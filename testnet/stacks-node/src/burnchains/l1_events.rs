@@ -36,7 +36,6 @@ use crate::{BurnchainController, BurnchainTip, Config};
 #[derive(Clone)]
 pub struct L1Channel {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
-    minimum_recorded_height: Arc<Mutex<u64>>,
 }
 
 pub struct L1Controller {
@@ -51,10 +50,6 @@ pub struct L1Controller {
 
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
-}
-
-pub struct L1BlockDownloader {
-    channel: Arc<L1Channel>,
 }
 
 /// Represents the returned JSON
@@ -77,7 +72,6 @@ impl L1Channel {
                 parent_index_block_hash: StacksBlockId::sentinel(),
                 events: vec![],
             }])),
-            minimum_recorded_height: Arc::new(Mutex::new(0)),
         }
     }
 }
