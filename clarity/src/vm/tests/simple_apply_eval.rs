@@ -1442,7 +1442,7 @@ fn test_chain_id() {
                 execute_with_parameters(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch20,
+                    StacksEpochId::Epoch21,
                     true
                 )
                 .unwrap()
@@ -1461,7 +1461,7 @@ fn test_chain_id() {
                 execute_with_parameters(
                     program,
                     ClarityVersion::Clarity2,
-                    StacksEpochId::Epoch20,
+                    StacksEpochId::Epoch21,
                     false
                 )
                 .unwrap()
