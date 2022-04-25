@@ -5793,22 +5793,23 @@ impl StacksChainState {
         StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
 
         let conf = self.config();
-        match self.get_stacks_block_height(current_consensus_hash, current_block) {
-            Ok(Some(_height)) => (),
-            Ok(None) => {
-                if *current_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-                    ()
-                } else {
-                    return Err(MemPoolRejection::NoSuchChainTip(
-                        current_consensus_hash.clone(),
-                        current_block.clone(),
-                    ));
+        let _staging_height =
+            match self.get_stacks_block_height(current_consensus_hash, current_block) {
+                Ok(Some(height)) => height,
+                Ok(None) => {
+                    if *current_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
+                        0
+                    } else {
+                        return Err(MemPoolRejection::NoSuchChainTip(
+                            current_consensus_hash.clone(),
+                            current_block.clone(),
+                        ));
+                    }
                 }
-            }
-            Err(_e) => {
-                panic!("DB CORRUPTION: failed to query block height");
-            }
-        };
+                Err(_e) => {
+                    panic!("DB CORRUPTION: failed to query block height");
+                }
+            };
 
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
