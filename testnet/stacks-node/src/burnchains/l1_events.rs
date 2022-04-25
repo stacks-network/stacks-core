@@ -1,5 +1,3 @@
-use std::cmp;
-use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -7,12 +5,8 @@ use std::time::Instant;
 use stacks::address::AddressHashMode;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::events::NewBlock;
-use stacks::burnchains::indexer::{
-    BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
-};
-use stacks::burnchains::{
-    Burnchain, BurnchainBlock, Error as BurnchainError, StacksHyperBlock, Txid,
-};
+use stacks::burnchains::indexer::BurnchainIndexer;
+use stacks::burnchains::{Burnchain, Error as BurnchainError, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -34,9 +28,7 @@ use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 
 use super::db_indexer::DBBurnchainIndexer;
-use super::mock_events::BlockIPC;
 use super::{BurnchainChannel, Error};
-use crate::burnchains::mock_events::MockHeader;
 use crate::config::BurnchainConfig;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -44,7 +36,6 @@ use crate::{BurnchainController, BurnchainTip, Config};
 #[derive(Clone)]
 pub struct L1Channel {
     blocks: Arc<Mutex<Vec<NewBlock>>>,
-    minimum_recorded_height: Arc<Mutex<u64>>,
 }
 
 pub struct L1Controller {
@@ -59,10 +50,6 @@ pub struct L1Controller {
 
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
-}
-
-pub struct L1BlockDownloader {
-    channel: Arc<L1Channel>,
 }
 
 /// Represents the returned JSON
@@ -85,7 +72,6 @@ impl L1Channel {
                 parent_index_block_hash: StacksBlockId::sentinel(),
                 events: vec![],
             }])),
-            minimum_recorded_height: Arc::new(Mutex::new(0)),
         }
     }
 }
@@ -109,70 +95,6 @@ impl BurnchainChannel for L1Channel {
         let mut blocks = self.blocks.lock().unwrap();
         blocks.push(new_block);
         Ok(())
-    }
-}
-
-impl L1Channel {
-    fn get_block(&self, fetch_height: u64) -> Option<NewBlock> {
-        let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
-        let blocks = self.blocks.lock().unwrap();
-
-        let fetch_index = if fetch_height < *minimum_recorded_height {
-            return None;
-        } else {
-            (fetch_height - *minimum_recorded_height) as usize
-        };
-        if fetch_index >= blocks.len() {
-            return None;
-        }
-
-        let block = blocks[fetch_index].clone();
-        Some(block)
-    }
-
-    fn fill_blocks(
-        &self,
-        into: &mut Vec<NewBlock>,
-        start_block: u64,
-        end_block: Option<u64>,
-    ) -> Result<(), BurnchainError> {
-        let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
-        let blocks = self.blocks.lock().unwrap();
-
-        if start_block < *minimum_recorded_height {
-            return Err(BurnchainError::DownloadError(
-                "Start block before downloader has mocked data".into(),
-            ));
-        }
-        let start_index = (start_block - *minimum_recorded_height) as usize;
-        if let Some(end_block) = end_block {
-            let end_index = std::cmp::min(
-                (1 + end_block - *minimum_recorded_height) as usize,
-                blocks.len(),
-            );
-            into.extend_from_slice(&blocks[start_index..end_index]);
-        } else {
-            into.extend_from_slice(&blocks[start_index..]);
-        }
-        Ok(())
-    }
-
-    fn highest_block(&self) -> u64 {
-        let minimum_recorded_height = self.minimum_recorded_height.lock().unwrap();
-        let blocks = self.blocks.lock().unwrap();
-
-        *minimum_recorded_height + (blocks.len() as u64) - 1
-    }
-}
-
-impl L1BlockDownloader {
-    fn fill_blocks(
-        &self,
-        into: &mut Vec<NewBlock>,
-        start_block: u64,
-        end_block: Option<u64>,
-    ) -> Result<(), BurnchainError> {
-        self.channel.fill_blocks(into, start_block, end_block)
     }
 }
 
@@ -577,7 +499,7 @@ impl BurnchainController for L1Controller {
     }
 
     #[cfg(test)]
-    fn bootstrap_chain(&mut self, blocks_count: u64) {
+    fn bootstrap_chain(&mut self, _blocks_count: u64) {
         todo!()
     }
 }

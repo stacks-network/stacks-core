@@ -2708,7 +2708,7 @@ pub mod test {
             );
             coord.handle_new_burnchain_block().unwrap();
 
-            let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
+            let stacks_node = TestStacksNode::from_chainstate(chainstate);
 
             {
                 // pre-populate burnchain, if running on bitcoin
@@ -2722,7 +2722,7 @@ pub mod test {
                 for i in prev_snapshot.block_height..config.current_block {
                     let burn_block = {
                         let ic = sortdb.index_conn();
-                        let mut burn_block = fork.next_block(&ic);
+                        let burn_block = fork.next_block(&ic);
                         burn_block
                     };
                     fork.append_block(burn_block);
@@ -3359,7 +3359,7 @@ pub mod test {
                 parent_microblock_header_opt.as_ref(),
             );
 
-            let mut block_commit_op = stacks_node.make_tenure_commitment(
+            let block_commit_op = stacks_node.make_tenure_commitment(
                 &mut sortdb,
                 &mut burn_block,
                 &mut self.miner,

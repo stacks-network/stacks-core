@@ -926,7 +926,7 @@ impl StacksChainState {
                 );
                 Ok(receipt)
             }
-            TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
+            TransactionPayload::PoisonMicroblock(ref _mblock_header_1, ref _mblock_header_2) => {
                 panic!("`TransactionPayload::PoisonMicroblock` case received, but poison microblocks are not supported in hyper-chains.")
             }
             TransactionPayload::Coinbase(_) => {

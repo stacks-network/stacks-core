@@ -3,16 +3,11 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::thread::{self, JoinHandle};
 
-use crate::burnchains::db_indexer::DBBurnchainIndexer;
 use crate::neon;
-use crate::stacks::burnchains::indexer::BurnchainIndexer;
 use crate::tests::neon_integrations::{get_account, submit_tx};
 use crate::tests::{make_contract_publish, to_addr};
-use clarity::util::hash::to_hex;
-use rand::RngCore;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::StacksPrivateKey;
-use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 use std::env;
 use std::io::{BufRead, BufReader};
@@ -82,7 +77,7 @@ impl StacksL1Controller {
                 for line in buffered_out.lines() {
                     let line = match line {
                         Ok(x) => x,
-                        Err(e) => return,
+                        Err(_e) => return,
                     };
                     println!("L1: {}", line);
                 }
@@ -142,8 +137,7 @@ fn l1_basic_listener_test() {
     config.burnchain.peer_host = "127.0.0.1".into();
 
     let mut run_loop = neon::RunLoop::new(config.clone());
-    let channel = run_loop.get_coordinator_channel().unwrap();
-    let mut termination_switch = run_loop.get_termination_switch();
+    let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Start Stacks L1.
@@ -175,7 +169,7 @@ fn l1_basic_listener_test() {
 
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
-    run_loop_thread.join();
+    run_loop_thread.join().expect("Failed to join run loop.");
 }
 
 #[test]
@@ -218,8 +212,7 @@ fn l1_integration_test() {
     config.node.miner = true;
 
     let mut run_loop = neon::RunLoop::new(config.clone());
-    let channel = run_loop.get_coordinator_channel().unwrap();
-    let mut termination_switch = run_loop.get_termination_switch();
+    let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop time to start.
@@ -307,5 +300,5 @@ fn l1_integration_test() {
 
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
-    run_loop_thread.join();
+    run_loop_thread.join().expect("Failed to join run loop.");
 }

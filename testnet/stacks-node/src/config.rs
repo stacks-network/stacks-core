@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
-use stacks::burnchains::{self, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::StacksPrivateKey;

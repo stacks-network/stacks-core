@@ -5793,7 +5793,7 @@ impl StacksChainState {
         StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
 
         let conf = self.config();
-        let staging_height =
+        let _staging_height =
             match self.get_stacks_block_height(current_consensus_hash, current_block) {
                 Ok(Some(height)) => height,
                 Ok(None) => {

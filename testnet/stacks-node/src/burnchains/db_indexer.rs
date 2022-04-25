@@ -4,7 +4,6 @@ use std::{fs, io};
 
 use rusqlite::{OpenFlags, Row, ToSql, Transaction, NO_PARAMS};
 use stacks::burnchains::events::NewBlock;
-use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 
 use super::mock_events::{BlockIPC, MockHeader};
@@ -16,7 +15,7 @@ use stacks::burnchains::indexer::BurnBlockIPC;
 use stacks::burnchains::indexer::BurnchainBlockDownloader;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::indexer::{BurnHeaderIPC, BurnchainBlockParser};
-use stacks::burnchains::{self, BurnchainBlock, Error as BurnchainError, StacksHyperBlock};
+use stacks::burnchains::{BurnchainBlock, Error as BurnchainError, StacksHyperBlock};
 use stacks::chainstate::burn::db::DBConn;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -28,7 +27,7 @@ use std::path::PathBuf;
 
 /// Schemas for this indexer.
 const DB_BURNCHAIN_SCHEMAS: &'static [&'static str] = &[
-    /// Defines the table underlying the DBBurnchainIndexer.
+    // Defines the table underlying the DBBurnchainIndexer.
     &r#"
     CREATE TABLE block_index(
         height INTEGER NOT NULL,
@@ -39,7 +38,7 @@ const DB_BURNCHAIN_SCHEMAS: &'static [&'static str] = &[
         block TEXT NOT NULL  -- json serilization of the NewBlock
     );
     "#,
-    /// Defines a table that stores the "last canonical tip" to detect reorgs.
+    // Defines a table that stores the "last canonical tip" to detect reorgs.
     &r#"
     CREATE TABLE burnchain_cursor  ( id INTEGER PRIMARY KEY NOT NULL, burn_header_hash TEXT NOT NULL )
     "#,
@@ -91,7 +90,7 @@ pub fn set_last_canonical_chain_tip(
     previous_tip: &Option<BurnchainHeaderHash>,
 ) -> Result<(), BurnchainError> {
     match previous_tip {
-        Some(tip) => connection.execute(
+        Some(_tip) => connection.execute(
             "UPDATE burnchain_cursor SET burn_header_hash  = ? WHERE id = 0;",
             &[&hash],
         )?,
@@ -267,7 +266,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 
         // Insert this header.
         let block_string =
-            serde_json::to_string(&new_block).map_err(|e| BurnchainError::ParseError)?;
+            serde_json::to_string(&new_block).map_err(|_e| BurnchainError::ParseError)?;
 
         let params: &[&dyn ToSql] = &[
             &(header.height() as u32),
@@ -277,7 +276,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
             &(is_canonical as u32),
             &block_string,
         ];
-        let mut transaction = connection.transaction()?;
+        let transaction = connection.transaction()?;
         transaction.execute(
             "INSERT INTO block_index (height, header_hash, parent_header_hash, time_stamp, is_canonical, block) VALUES (?, ?, ?, ?, ?, ?)",
             params,
@@ -512,7 +511,7 @@ fn row_to_mock_header(input: &BurnBlockIndexRow) -> MockHeader {
 impl From<&NewBlock> for BurnBlockIndexRow {
     fn from(b: &NewBlock) -> Self {
         let block_string = serde_json::to_string(&b)
-            .map_err(|e| BurnchainError::ParseError)
+            .map_err(|_e| BurnchainError::ParseError)
             .expect("Serialization of `NewBlock` should not fail.");
         BurnBlockIndexRow {
             header_hash: BurnchainHeaderHash(b.index_block_hash.0.clone()),
@@ -531,7 +530,7 @@ impl BurnchainIndexer for DBBurnchainIndexer {
     type D = DBBlockDownloader;
 
     /// `connect` is a no-op now. TODO: remove it?
-    fn connect(&mut self, readwrite: bool) -> Result<(), BurnchainError> {
+    fn connect(&mut self, _readwrite: bool) -> Result<(), BurnchainError> {
         Ok(())
     }
 
