@@ -1319,6 +1319,8 @@ impl StacksNode {
             // bootstrap nodes *always* allowed
             let mut tx = peerdb.tx_begin().unwrap();
             for initial_neighbor in initial_neighbors.iter() {
+                // update peer in case public key changed
+                PeerDB::update_peer(&mut tx, &initial_neighbor).unwrap();
                 PeerDB::set_allow_peer(
                     &mut tx,
                     initial_neighbor.addr.network_id,
