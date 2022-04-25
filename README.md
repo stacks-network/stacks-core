@@ -13,7 +13,7 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 | Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
 | Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
 | Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App   | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
+| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
 | Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
 | Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
@@ -30,8 +30,8 @@ to the main branch which are backported to the develop branch after merging. The
 according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
-- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
-- **Low Priority**. Any fix for an issue that could deny service to individual nodes
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds.
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes.
 
 ## Versioning
 
@@ -253,12 +253,14 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
 
-Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
+Platforms with second-tier status _(builds are provided but not tested)_: `MacOS Apple Silicon (ARM64)`, `Linux ARMv7`, `Linux ARM64`.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Community
 
 Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.blockstack.org) and an
+Blockstack maintains a public [forum](https://forum.stacks.org) and an
 opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
@@ -270,8 +272,6 @@ videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
-For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
-
 ## Further Reading
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the documentation:
@@ -280,10 +280,10 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://blockstack.org/pox.pdf), May 2020
-- ["The Blockstack Decentralized Computing Network"](https://blockstack.org/whitepaper.pdf), May 2019
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
+- ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
-If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
 
 ## Contributing
 
@@ -317,6 +317,76 @@ You can automatically reformat your commit via:
 cargo fmt --all
 ```
 
+## Mining
+
+Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner,
+you should make sure to add the following config fields to your config file:
+
+```
+[node]
+# Run as a miner
+miner = True
+# Bitcoin private key to spend
+seed = "YOUR PRIVATE KEY"
+# How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
+wait_time_for_microblocks = 10000
+# Run as a mock-miner, to test mining without spending BTC.
+# Mutually exclusive with `miner`.
+#mock_miner = True
+
+[miner]
+# Smallest allowed tx fee, in microSTX
+min_tx_fee = 100
+# Time to spend on the first attempt to make a block, in milliseconds.
+# This can be small, so your node gets a block-commit into the Bitcoin mempool early.
+first_attempt_time_ms = 1000
+# Time to spend on subsequent attempts to make a block, in milliseconds.
+# This can be bigger -- new block-commits will be RBF'ed.
+subsequent_attempt_time_ms = 60000
+# Time to spend mining a microblock, in milliseconds.
+microblock_attempt_time_ms = 30000
+```
+
+You can verify that your node is operating as a miner by checking its log output
+to verify that it was able to find its Bitcoin UTXOs:
+
+```bash
+$ head -n 100 /path/to/your/node/logs | grep -i utxo
+INFO [1630127492.031042] [testnet/stacks-node/src/run_loop/neon.rs:146] [main] Miner node: checking UTXOs at address: <redacted>
+INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] UTXOs found - will run as a Miner node
+```
+
+### Configuring Cost and Fee Estimation
+
+Fee and cost estimators can be configure via the config section `[fee_estimation]`:
+
+```
+[fee_estimation]
+cost_estimator = naive_pessimistic
+fee_estimator = fuzzed_weighted_median_fee_rate
+fee_rate_fuzzer_fraction = 0.1
+fee_rate_window_size = 5
+cost_metric = proportion_dot_product
+log_error = true
+enabled = true
+```
+
+Fee and cost estimators observe transactions on the network and use the
+observed costs of those transactions to build estimates for viable fee rates
+and expected execution costs for transactions. Estimators and metrics can be
+selected using the configuration fields above, though the default values are
+the only options currently. `log_error` controls whether or not the INFO logger
+will display information about the cost estimator accuracy as new costs are
+observed. Setting `enabled = false` turns off the cost estimators. Cost estimators
+are **not** consensus-critical components, but rather can be used by miners to
+rank transactions in the mempool or client to determine appropriate fee rates
+for transactions before broadcasting them.
+
+The `fuzzed_weighted_median_fee_rate` uses a
+median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
+Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
+`fee_rate_fuzzer_fraction` of the base estimate.
+
 ## Non-Consensus Breaking Release Process
 
 For non-consensus breaking releases, this project uses the following release process:
@@ -334,9 +404,9 @@ discussed in [Versioning](#versioning).  We assume, in this section,
 that the change is not consensus-breaking.  So, the release manager must first
 determine whether there are any "non-consensus-breaking changes that require a
 fresh chainstate". This means, in other words, that the database schema has
-changed. Then, the release manager should determine whether this is a feature
-release, as opposed to a hot fix or a patch. Given the answers to these
-questions, the version number can be computed.
+changed, but an automatic migration was not implemented. Then, the release manager 
+should determine whether this is a feature release, as opposed to a hot fix or a
+patch. Given the answers to these questions, the version number can be computed.
 
 1. The release manager enumerates the PRs or issues that would _block_
    the release. A label should be applied to each such issue/PR as
@@ -368,7 +438,6 @@ is tagged.
    candidate on various staging infrastructure:
 
    1. Stacks Foundation staging environments.
-   1. Hiro PBC regtest network.
    1. Hiro PBC testnet network.
    1. Hiro PBC mainnet mock miner.
 
@@ -393,7 +462,10 @@ is tagged.
 
 1. Once the final release candidate has rolled out successfully without issue on the
    above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
-   team members to review the `develop -> master` PR.
+   team members to review the `develop -> master` PR. If there is a merge conflict in this
+   PR, this is the protocol: open a branch off of develop, merge master into that branch, 
+   and then open a PR from this side branch to develop. The merge conflicts will be 
+   resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
    via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))

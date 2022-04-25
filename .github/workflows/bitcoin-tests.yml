@@ -5,23 +5,119 @@ name: stacks-bitcoin-integration-tests
 on:
   pull_request:
 
+concurrency:
+  group: stacks-bitcoin-integration-tests-${{ github.ref }}
+  # Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # Run sampled genesis tests
+  build-integration-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build bitcoin integration testing image
+        env:
+          DOCKER_BUILDKIT: 1
+        # Remove .dockerignore file so codecov has access to git info
+        run: |
+          rm .dockerignore
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
+      - name: Export docker image as tarball
+        run: docker save -o integration-image.tar stacks-node:integrations
+      - name: Upload built docker image
+        uses: actions/upload-artifact@v2
+        with:
+          name: integration-image.tar
+          path: integration-image.tar
+  # Run integration tests using sampled genesis block
   sampled-genesis:
     runs-on: ubuntu-latest
+    needs:
+      - build-integration-image
+    strategy:
+      fail-fast: false
+      matrix:
+        test-name:
+          - tests::neon_integrations::microblock_integration_test
+          - tests::neon_integrations::size_check_integration_test
+          - tests::neon_integrations::cost_voting_integration
+          - tests::integrations::integration_test_get_info
+          - tests::neon_integrations::bitcoind_integration_test
+          - tests::neon_integrations::liquid_ustx_integration
+          - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::bitcoind_forking_test
+          - tests::neon_integrations::should_fix_2771
+          - tests::neon_integrations::pox_integration_test
+          - tests::neon_integrations::mining_events_integration_test
+          - tests::bitcoin_regtest::bitcoind_integration_test
+          - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
+          - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
+          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
+          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
+          - tests::neon_integrations::antientropy_integration_test
+          - tests::neon_integrations::filter_low_fee_tx_integration_test
+          - tests::neon_integrations::filter_long_runtime_tx_integration_test
+          - tests::neon_integrations::mining_transactions_is_fair
+          - tests::neon_integrations::microblock_large_tx_integration_test
+          - tests::neon_integrations::block_large_tx_integration_test
+          - tests::neon_integrations::microblock_limit_hit_integration_test
+          - tests::neon_integrations::block_limit_hit_integration_test
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
+          - tests::neon_integrations::use_latest_tip_integration_test
+          - tests::neon_integrations::test_flash_block_skip_tenure
+          - tests::epoch_205::test_dynamic_db_method_costs
+          - tests::epoch_205::transition_empty_blocks
+          - tests::epoch_205::test_cost_limit_switch_version205
+          - tests::epoch_205::test_exact_block_costs
+          - tests::epoch_205::bigger_microblock_streams_in_2_05
     steps:
       - uses: actions/checkout@v2
+      - name: Download docker image
+        uses: actions/download-artifact@v2
+        with:
+          name: integration-image.tar
+      - name: Load docker image
+        run: docker load -i integration-image.tar && rm integration-image.tar
       - name: All integration tests with sampled genesis
+        timeout-minutes: 30
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+          TEST_NAME: ${{ matrix.test-name }}
+        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: ${{ matrix.test-name }}
+          fail_ci_if_error: true
   atlas-test:
-    # disable this job/test for now, as the atlas endpoints are currently disabled.
     if: ${{ true }}
     runs-on: ubuntu-latest
+    needs:
+      - build-integration-image
+    strategy:
+      fail-fast: false
+      matrix:
+        test-name:
+          - tests::neon_integrations::atlas_integration_test
+          - tests::neon_integrations::atlas_stress_integration_test
     steps:
       - uses: actions/checkout@v2
-      - name: All integration tests with sampled genesis
+      - name: Download docker image
+        uses: actions/download-artifact@v2
+        with:
+          name: integration-image.tar
+      - name: Load docker image
+        run: docker load -i integration-image.tar && rm integration-image.tar
+      - name: Atlas integration tests
+        timeout-minutes: 40
         env:
           DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.atlas-test .
+          TEST_NAME: ${{ matrix.test-name }}
+        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
+      - uses: codecov/codecov-action@v2
+        with:
+          files: ./coverage-output/lcov.info
+          name: ${{ matrix.test-name }}
+          fail_ci_if_error: true

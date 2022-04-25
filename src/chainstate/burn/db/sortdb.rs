@@ -23,6 +23,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
+use clarity::vm::costs::ExecutionCost;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -30,59 +31,63 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
-use sha2::{Digest, Sha512Trunc256};
+use sha2::{Digest, Sha512_256};
 
-use address::AddressHashMode;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::{Address, PublicKey, Txid};
-use burnchains::{
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::{Address, PublicKey, Txid};
+use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
-use chainstate::burn::operations::{
+use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::{Error as MARFError, MarfTrieId};
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::*;
-use chainstate::ChainstateDB;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::{Error as NetError, Error};
-use util::db::tx_begin_immediate;
-use util::db::tx_busy_handler;
-use util::db::Error as db_error;
-use util::db::{
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::coordinator::{
+    Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+};
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::*;
+use crate::chainstate::ChainstateDB;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::{Error as NetError, Error};
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::strings::StacksString;
-use util::vrf::VRFPublicKey;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::Value;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
-use vm::representations::{ClarityName, ContractName};
-use vm::types::Value;
-
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, MARFValue, PoxId, SortitionId, VRFSeed,
+use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieHash};
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -90,20 +95,6 @@ pub const REWARD_WINDOW_START: u64 = 144 * 15;
 pub const REWARD_WINDOW_END: u64 = 144 * 90 + REWARD_WINDOW_START;
 
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
-
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BurnchainHeaderHash> for BlockHeaderHash {
-    fn from(bhh: BurnchainHeaderHash) -> BlockHeaderHash {
-        BlockHeaderHash(bhh.0)
-    }
-}
-
-// for using BurnchainHeaderHash values as block hashes in a MARF
-impl From<BlockHeaderHash> for BurnchainHeaderHash {
-    fn from(bhh: BlockHeaderHash) -> BurnchainHeaderHash {
-        BurnchainHeaderHash(bhh.0)
-    }
-}
 
 impl FromRow<SortitionId> for SortitionId {
     fn from_row<'a>(row: &'a Row) -> Result<SortitionId, db_error> {
@@ -428,15 +419,21 @@ impl FromRow<StacksEpoch> for StacksEpoch {
 
         let start_height = u64::from_column(row, "start_block_height")?;
         let end_height = u64::from_column(row, "end_block_height")?;
+
+        let network_epoch: u8 = row.get_unwrap("network_epoch");
+
+        let block_limit = row.get_unwrap("block_limit");
         Ok(StacksEpoch {
             epoch_id,
             start_height,
             end_height,
+            block_limit,
+            network_epoch,
         })
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "2";
+pub const SORTITION_DB_VERSION: &'static str = "3";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -477,12 +474,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(sortition_id)
     );"#,
-    "CREATE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
-    "CREATE INDEX snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
-    "CREATE INDEX snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
-    "CREATE INDEX block_arrivals ON snapshots(arrival_index,burn_header_hash);",
-    "CREATE INDEX arrival_indexes ON snapshots(arrival_index);",
     r#"
     CREATE TABLE snapshot_transition_ops(
       sortition_id TEXT PRIMARY KEY,
@@ -596,15 +587,52 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         block_height INTEGER NOT NULL,
         PRIMARY KEY(consensus_hash, stacks_block_hash)
     );"#,
-    "CREATE INDEX canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
-    "CREATE TABLE db_config(version TEXT NOT NULL);",
-    r#"
-    CREATE TABLE epochs (
-        start_block_height INTEGER NOT NULL,
-        end_block_height INTEGER NOT NULL,
-        epoch_id INTEGER NOT NULL,
-        PRIMARY KEY(start_block_height,epoch_id)
-    );"#
+    "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
+];
+
+const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
+     CREATE TABLE epochs (
+         start_block_height INTEGER NOT NULL,
+         end_block_height INTEGER NOT NULL,
+         epoch_id INTEGER NOT NULL,
+         block_limit TEXT NOT NULL,
+         network_epoch INTEGER NOT NULL,
+         PRIMARY KEY(start_block_height,epoch_id)
+     );"#];
+
+const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
+    CREATE TABLE block_commit_parents (
+        block_commit_txid TEXT NOT NULL,
+        block_commit_sortition_id TEXT NOT NULL,
+
+        parent_sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
+        FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
+    );"#];
+
+// update this to add new indexes
+const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_sortition_id";
+
+const SORTITION_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_heights ON snapshots(burn_header_hash,block_height);",
+    "CREATE INDEX IF NOT EXISTS snapshots_block_winning_hash ON snapshots(winning_stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS snapshots_canonical_chain_tip ON snapshots(pox_valid,block_height DESC,burn_header_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS block_arrivals ON snapshots(arrival_index,burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS arrival_indexes ON snapshots(arrival_index);",
+    "CREATE INDEX IF NOT EXISTS index_leader_keys_sortition_id_block_height_vtxindex ON leader_keys(sortition_id,block_height,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_vtxindex ON block_commits(sortition_id,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_block_commits_sortition_id_block_height_vtxindex ON block_commits(sortition_id,block_height,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_txid ON user_burn_support(txid);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_vtxindex ON user_burn_support(sortition_id,vtxindex);",
+    "CREATE INDEX IF NOT EXISTS index_user_burn_support_sortition_id_hash_160_key_vtxindex_key_block_ptr_vtxindex ON user_burn_support(sortition_id,block_header_hash_160,key_vtxindex,key_block_ptr,vtxindex ASC);",
+    "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
+    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);",
 ];
 
 pub struct SortitionDB {
@@ -1260,7 +1288,11 @@ impl<'a> SortitionHandleTx<'a> {
 
         let mut sn = self
             .get_block_snapshot_by_height(block_at_burn_height)?
-            .ok_or_else(|| db_error::NotFoundError)?;
+            .ok_or_else(|| {
+                test_debug!("No snapshot at height {}", block_at_burn_height);
+                db_error::NotFoundError
+            })?;
+
         while sn.block_height >= earliest_block_height {
             if !sn.sortition {
                 return Ok(false);
@@ -1270,11 +1302,33 @@ impl<'a> SortitionHandleTx<'a> {
             }
 
             // step back to the parent
-            let block_commit = get_block_commit_by_txid(&self.tx(), &sn.winning_block_txid)?
-                .expect("CORRUPTION: winning block commit for snapshot not found");
-            sn = self
-                .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
-                .ok_or_else(|| db_error::NotFoundError)?;
+            match SortitionDB::get_block_commit_parent_sortition_id(
+                self.tx(),
+                &sn.winning_block_txid,
+                &sn.sortition_id,
+            )? {
+                Some(parent_sortition_id) => {
+                    // we have the block_commit parent memoization data
+                    test_debug!(
+                        "Parent sortition of {} memoized as {}",
+                        &sn.winning_block_txid,
+                        &parent_sortition_id
+                    );
+                    sn = SortitionDB::get_block_snapshot(self.tx(), &parent_sortition_id)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+                None => {
+                    // we do not have the block_commit parent memoization data
+                    // step back to the parent
+                    test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
+                    let block_commit =
+                        get_block_commit_by_txid(&self.tx(), &sn.winning_block_txid)?
+                            .expect("CORRUPTION: winning block commit for snapshot not found");
+                    sn = self
+                        .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+            }
         }
         return Ok(false);
     }
@@ -1575,8 +1629,8 @@ impl<'a> SortitionHandleConn<'a> {
         let winning_block_hash160 =
             Hash160::from_sha256(snapshot.winning_stacks_block_hash.as_bytes());
 
-        let qry = "SELECT * FROM user_burn_support
-                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4
+        let qry = "SELECT * FROM user_burn_support \
+                   WHERE sortition_id = ?1 AND block_header_hash_160 = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4 \
                    ORDER BY vtxindex ASC";
         let args: [&dyn ToSql; 4] = [
             &snapshot.sortition_id,
@@ -1588,7 +1642,7 @@ impl<'a> SortitionHandleConn<'a> {
         let mut winning_user_burns: Vec<UserBurnSupportOp> = query_rows(self, qry, &args)?;
 
         // were there multiple miners with the same VRF key and block header hash? (i.e., are these user burns shared?)
-        let qry = "SELECT COUNT(*) FROM block_commits
+        let qry = "SELECT COUNT(*) FROM block_commits \
                    WHERE sortition_id = ?1 AND block_header_hash = ?2 AND key_vtxindex = ?3 AND key_block_ptr = ?4";
         let args: [&dyn ToSql; 4] = [
             &snapshot.sortition_id,
@@ -1610,7 +1664,10 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(winning_user_burns)
     }
 
-    /// Get the block snapshot of the parent stacks block of the given stacks block
+    /// Get the block snapshot of the parent stacks block of the given stacks block.
+    /// The returned block-commit is for the given (consensus_hash, block_hash).
+    /// The returned BlockSnapshot is for the parent of the block identified by (consensus_hash,
+    /// block_hash).
     pub fn get_block_snapshot_of_parent_stacks_block(
         &self,
         consensus_hash: &ConsensusHash,
@@ -1920,43 +1977,6 @@ impl<'a> SortitionHandleConn<'a> {
     }
 }
 
-impl FromStr for PoxId {
-    type Err = NetError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err(NetError::DeserializeError(
-                    "Unexpected character in PoX ID serialization".into(),
-                ));
-            }
-        }
-        Ok(PoxId::new(result))
-    }
-}
-
-impl SortitionId {
-    pub fn stubbed(from: &BurnchainHeaderHash) -> SortitionId {
-        SortitionId::new(from, &PoxId::stubbed())
-    }
-
-    pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
-        if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
-        } else {
-            let mut hasher = Sha512Trunc256::new();
-            hasher.input(bhh);
-            write!(hasher, "{}", pox).expect("Failed to deserialize PoX ID into the hasher");
-            let h = Sha512Trunc256Sum::from_hasher(hasher);
-            SortitionId(h.0)
-        }
-    }
-}
-
 // Connection methods
 impl SortitionDB {
     /// Begin a transaction.
@@ -2021,7 +2041,10 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        MARF::from_path(index_path).map_err(|_e| db_error::Corruption)
+        let open_opts = MARFOpenOpts::default();
+        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
+        sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
+        Ok(marf)
     }
 
     /// Open the database on disk.  It must already exist and be instantiated.
@@ -2032,10 +2055,9 @@ impl SortitionDB {
         readwrite: bool,
         pox_constants: PoxConstants,
     ) -> Result<SortitionDB, db_error> {
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Open sortdb '{}' as '{}', with index as '{}'",
-            db_path,
+            "Open sortdb as '{}', with index as '{}'",
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2043,13 +2065,15 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
         let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
 
-        let db = SortitionDB {
+        let mut db = SortitionDB {
             marf,
             readwrite,
             pox_constants,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
+
+        db.check_schema_version_or_error()?;
         Ok(db)
     }
 
@@ -2080,11 +2104,10 @@ impl SortitionDB {
             Ok(_md) => false,
         };
 
-        let (db_path, index_path) = db_mkdirs(path)?;
+        let index_path = db_mkdirs(path)?;
         debug!(
-            "Connect/Open {} sortdb '{}' as '{}', with index as '{}'",
+            "Connect/Open {} sortdb as '{}', with index as '{}'",
             if create_flag { "(create)" } else { "" },
-            db_path,
             if readwrite { "readwrite" } else { "readonly" },
             index_path
         );
@@ -2120,6 +2143,10 @@ impl SortitionDB {
             }
         }
 
+        db.check_schema_version_and_update(epochs)?;
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -2129,20 +2156,90 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
+        use crate::core::StacksEpochExtension;
+
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         SortitionDB::connect(
             &db_path_dir,
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test(first_block_height),
+            &StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
             PoxConstants::test_default(),
             true,
         )
+    }
+
+    #[cfg(test)]
+    pub fn connect_v1(
+        path: &str,
+        first_block_height: u64,
+        first_burn_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+        readwrite: bool,
+    ) -> Result<SortitionDB, db_error> {
+        let create_flag = match fs::metadata(path) {
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    // need to create
+                    if readwrite {
+                        true
+                    } else {
+                        return Err(db_error::NoDBError);
+                    }
+                } else {
+                    return Err(db_error::IOError(e));
+                }
+            }
+            Ok(_md) => false,
+        };
+
+        let index_path = db_mkdirs(path)?;
+        debug!(
+            "Connect/Open {} sortdb '{}' as '{}'",
+            if create_flag { "(create)" } else { "" },
+            index_path,
+            if readwrite { "readwrite" } else { "readonly" }
+        );
+
+        let marf = SortitionDB::open_index(&index_path)?;
+
+        let mut db = SortitionDB {
+            marf,
+            readwrite,
+            first_block_height,
+            first_burn_header_hash: first_burn_hash.clone(),
+            pox_constants: PoxConstants::test_default(),
+        };
+
+        if create_flag {
+            // instantiate!
+            db.instantiate_v1(
+                first_block_height,
+                first_burn_hash,
+                first_burn_header_timestamp,
+            )?;
+        } else {
+            // validate -- must contain the given first block and first block hash
+            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
+            if !snapshot.is_initial()
+                || snapshot.block_height != first_block_height
+                || snapshot.burn_header_hash != *first_burn_hash
+            {
+                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
+                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+                return Err(db_error::Corruption);
+            }
+        }
+
+        Ok(db)
     }
 
     /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
@@ -2190,9 +2287,98 @@ impl SortitionDB {
         first_burn_header_timestamp: u64,
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
+        debug!("Instantiate sortition DB");
+
+        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+        sql_pragma(self.conn(), "foreign_keys", &true)?;
+
+        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
+
+        // create first (sentinel) snapshot
+        debug!("Make first snapshot");
+        let mut first_snapshot = BlockSnapshot::initial(
+            first_block_height,
+            first_burn_header_hash,
+            first_burn_header_timestamp,
+        );
+
+        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+        assert_eq!(
+            first_snapshot.parent_burn_header_hash,
+            BurnchainHeaderHash::sentinel()
+        );
+
+        for row_text in SORTITION_DB_INITIAL_SCHEMA {
+            db_tx.execute_batch(row_text)?;
+        }
+        for row_text in SORTITION_DB_SCHEMA_2 {
+            db_tx.execute_batch(row_text)?;
+        }
+        for row_text in SORTITION_DB_SCHEMA_3 {
+            db_tx.execute_batch(row_text)?;
+        }
+
+        SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
+
+        db_tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &[&SORTITION_DB_VERSION],
+        )?;
+
+        db_tx.instantiate_index()?;
+
+        let mut first_sn = first_snapshot.clone();
+        first_sn.sortition_id = SortitionId::sentinel();
+        let index_root =
+            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
+        first_snapshot.index_root = index_root;
+
+        db_tx.insert_block_snapshot(&first_snapshot)?;
+        db_tx.store_transition_ops(
+            &first_snapshot.sortition_id,
+            &BurnchainStateTransition::noop(),
+        )?;
+
+        db_tx.commit()?;
+
+        self.add_indexes()?;
+        Ok(())
+    }
+
+    /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
+    ///  inserts them into the SortitionDB's epochs table.
+    fn validate_and_insert_epochs(
+        db_tx: &Transaction,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
+        let epochs = SortitionDB::validate_epochs(epochs);
+        for epoch in epochs.into_iter() {
+            let args: &[&dyn ToSql] = &[
+                &(epoch.epoch_id as u32),
+                &u64_to_sql(epoch.start_height)?,
+                &u64_to_sql(epoch.end_height)?,
+                &epoch.block_limit,
+                &epoch.network_epoch,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
+                args
+            )?;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn instantiate_v1(
+        &mut self,
+        first_block_height: u64,
+        first_burn_header_hash: &BurnchainHeaderHash,
+        first_burn_header_timestamp: u64,
+    ) -> Result<(), db_error> {
         debug!("Instantiate SortDB");
 
-        sql_pragma(self.conn(), "PRAGMA journal_mode = WAL;")?;
+        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
+        sql_pragma(self.conn(), "foreign_keys", &true)?;
 
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
@@ -2214,22 +2400,9 @@ impl SortitionDB {
             db_tx.execute_batch(row_text)?;
         }
 
-        let epochs = SortitionDB::validate_epochs(epochs_ref);
-        for epoch in epochs.into_iter() {
-            let args: &[&dyn ToSql] = &[
-                &(epoch.epoch_id as u32),
-                &u64_to_sql(epoch.start_height)?,
-                &u64_to_sql(epoch.end_height)?,
-            ];
-            db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height) VALUES (?1,?2,?3)",
-                args
-            )?;
-        }
-
         db_tx.execute(
-            "INSERT INTO db_config (version) VALUES (?1)",
-            &[&SORTITION_DB_VERSION],
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &[&"1"],
         )?;
 
         db_tx.instantiate_index()?;
@@ -2261,10 +2434,162 @@ impl SortitionDB {
         query_row(conn, qry, &args)
     }
 
+    /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
+    /// `txid` is the burnchain txid of a block-commit.
+    /// Because the block_commit_parents table is not populated on schema migration, the returned
+    /// value may be NULL (and this is okay).
+    pub fn get_block_commit_parent_sortition_id(
+        conn: &Connection,
+        txid: &Txid,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
+        let qry = "SELECT parent_sortition_id AS sortition_id FROM block_commit_parents WHERE block_commit_parents.block_commit_txid = ?1 AND block_commit_parents.block_commit_sortition_id = ?2";
+        let args: &[&dyn ToSql] = &[txid, sortition_id];
+        query_row(conn, qry, args)
+    }
+
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
         query_rows(self.conn(), qry, NO_PARAMS)
+    }
+
+    /// Get the schema version of a sortition DB, given the path to it.
+    /// Returns the version string, if it exists
+    pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
+        if fs::metadata(path).is_err() {
+            return Err(db_error::NoDBError);
+        }
+        let index_path = db_mkdirs(path)?;
+        let marf = SortitionDB::open_index(&index_path)?;
+        SortitionDB::get_schema_version(marf.sqlite_conn())
+    }
+
+    /// Get the height of the highest burnchain block, given the DB path.
+    /// Importantly, this will *not* apply any schema migrations.
+    /// This is used to check if the DB is compatible with the current epoch.
+    pub fn get_highest_block_height_from_path(path: &str) -> Result<u64, db_error> {
+        if fs::metadata(path).is_err() {
+            return Err(db_error::NoDBError);
+        }
+        let index_path = db_mkdirs(path)?;
+        let marf = SortitionDB::open_index(&index_path)?;
+        let sql = "SELECT MAX(block_height) FROM snapshots";
+        Ok(query_rows(&marf.sqlite_conn(), sql, NO_PARAMS)?
+            .pop()
+            .expect("BUG: no snapshots in block_snapshots"))
+    }
+
+    /// Is a particular database version supported by a given epoch?
+    pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
+        match epoch {
+            StacksEpochId::Epoch10 => false,
+            StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
+            StacksEpochId::Epoch2_05 => (version == "2" || version == "3"),
+            StacksEpochId::Epoch21 => (version == "3"),
+        }
+    }
+
+    /// Get the database schema version, given a DB connection
+    fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
+        let version = conn
+            .query_row(
+                "SELECT MAX(version) from db_config",
+                rusqlite::NO_PARAMS,
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(version)
+    }
+
+    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_2 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        SortitionDB::validate_and_insert_epochs(&tx, epochs)?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["2"],
+        )?;
+
+        Ok(())
+    }
+
+    fn apply_schema_3(tx: &SortitionDBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_3 {
+            tx.execute_batch(sql_exec)?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["3"],
+        )?;
+        Ok(())
+    }
+
+    fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
+        match SortitionDB::get_schema_version(self.conn()) {
+            Ok(Some(version)) => {
+                let expected_version = SORTITION_DB_VERSION.to_string();
+                if version == expected_version {
+                    Ok(())
+                } else {
+                    Err(db_error::Other(format!(
+                        "The version of the sortition DB {} does not match the expected {} and cannot be updated from SortitionDB::open()",
+                        version, expected_version
+                    )))
+                }
+            }
+            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+        }
+    }
+
+    fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        let expected_version = SORTITION_DB_VERSION.to_string();
+        loop {
+            match SortitionDB::get_schema_version(self.conn()) {
+                Ok(Some(version)) => {
+                    if version == "1" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_2(&tx, epochs)?;
+                        tx.commit()?;
+                    } else if version == "2" {
+                        // add the tables of schema 3, but do not populate them.
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_3(&tx)?;
+                        tx.commit()?;
+                    } else if version == expected_version {
+                        return Ok(());
+                    } else {
+                        panic!("The schema version of the sortition DB is invalid.")
+                    }
+                }
+                Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+                Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+            }
+        }
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        // do we need to instantiate indexes?
+        // only do a transaction if we need to, since this gets called each time the sortition DB
+        // is opened.
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            &[LAST_SORTITION_DB_INDEX],
+        )?
+        .unwrap_or(0);
+        if exists == 0 {
+            let tx = self.tx_begin()?;
+            for row_text in SORTITION_DB_INDEXES {
+                tx.execute_batch(row_text)?;
+            }
+            tx.commit()?;
+        }
+        Ok(())
     }
 }
 
@@ -2532,6 +2857,9 @@ impl SortitionDB {
         Ok(Some((snapshot, transition_ops)))
     }
 
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
+    /// `burn_header`. Returns the new snapshot and burnchain state
+    /// transition.
     ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
@@ -2539,22 +2867,17 @@ impl SortitionDB {
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    ///
-    pub fn evaluate_sortition(
+    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
+    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<
-        (
-            BlockSnapshot,
-            BurnchainStateTransition,
-            Option<RewardSetInfo>,
-        ),
-        BurnchainError,
-    > {
+        announce_to: F,
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2613,9 +2936,13 @@ impl SortitionDB {
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
 
+        announce_to(reward_set_info);
+
         // commit everything!
-        sortition_db_handle.commit()?;
-        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
+        sortition_db_handle.commit().expect(
+            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+        );
+        Ok((new_snapshot.0, new_snapshot.1))
     }
 
     #[cfg(test)]
@@ -3316,6 +3643,21 @@ impl SortitionDB {
         ];
         query_row(conn, sql, args)
     }
+
+    /// Get all StacksEpochs, in order by ascending start height
+    pub fn get_stacks_epochs(conn: &DBConn) -> Result<Vec<StacksEpoch>, db_error> {
+        let sql = "SELECT * FROM epochs ORDER BY start_block_height ASC";
+        query_rows(conn, sql, NO_PARAMS)
+    }
+
+    pub fn get_stacks_epoch_by_epoch_id(
+        conn: &DBConn,
+        epoch_id: &StacksEpochId,
+    ) -> Result<Option<StacksEpoch>, db_error> {
+        let sql = "SELECT * FROM epochs WHERE epoch_id = ?1 LIMIT 1";
+        let args: &[&dyn ToSql] = &[&(*epoch_id as u32)];
+        query_row(conn, sql, args)
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -3580,6 +3922,20 @@ impl<'a> SortitionHandleTx<'a> {
         let apparent_sender_str = serde_json::to_string(&block_commit.apparent_sender)
             .map_err(|e| db_error::SerializationError(e))?;
 
+        // find parent block commit's snapshot's sortition ID.
+        // If the parent_block_ptr doesn't point to a valid snapshot, then store an empty
+        // sortition.  If we're not testing, then this should never happen.
+        let parent_sortition_id = self
+            .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+            .map(|parent_commit_sn| parent_commit_sn.sortition_id)
+            .unwrap_or(SortitionId([0x00; 32]));
+
+        if !cfg!(test) {
+            if block_commit.parent_block_ptr != 0 || block_commit.parent_vtxindex != 0 {
+                assert!(parent_sortition_id != SortitionId([0x00; 32]));
+            }
+        }
+
         let args: &[&dyn ToSql] = &[
             &block_commit.txid,
             &block_commit.vtxindex,
@@ -3603,6 +3959,15 @@ impl<'a> SortitionHandleTx<'a> {
 
         self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)?;
+
+        let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
+        let res = self.execute("INSERT INTO block_commit_parents (block_commit_sortition_id, block_commit_txid, parent_sortition_id) VALUES (?1, ?2, ?3)", parent_args);
+
+        // in tests, this table doesn't always exist.  Do nothing in that case, but in prod, error
+        // out if this fails.
+        if !cfg!(test) {
+            res?;
+        }
 
         Ok(())
     }
@@ -3922,10 +4287,12 @@ impl<'a> SortitionHandleTx<'a> {
         values.append(&mut block_arrival_values);
 
         // store each indexed field
-        //  -- marf tx _must_ have already began
-        self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
-
-        let root_hash = self.put_indexed_all(&keys, &values)?;
+        let root_hash = self.put_indexed_all(
+            &parent_snapshot.sortition_id,
+            &snapshot.sortition_id,
+            &keys,
+            &values,
+        )?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }
@@ -4043,25 +4410,27 @@ impl ChainstateDB for SortitionDB {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::core::StacksEpochExtension;
     use std::sync::mpsc::sync_channel;
     use std::thread;
 
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::StacksPublicKey;
-    use core::*;
-    use util::db::Error as db_error;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, Hash160};
-    use util::vrf::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::*;
+    use crate::util_lib::db::Error as db_error;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::vrf::*;
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
@@ -4078,6 +4447,57 @@ pub mod tests {
     }
 
     #[test]
+    fn test_v1_to_v2_migration() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
+
+        let first_block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        // create a v1 sortition DB
+        let db = SortitionDB::connect_v1(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            true,
+        )
+        .unwrap();
+        let res = SortitionDB::get_stacks_epoch(db.conn(), first_block_height);
+        assert!(res.is_err());
+        assert!(format!("{:?}", res).contains("no such table: epochs"));
+
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_err());
+
+        // create a v2 sortition DB at the same path as the v1 DB.
+        // the schema migration should be successfully applied, and the epochs table should exist.
+        let db = SortitionDB::connect(
+            &db_path_dir,
+            first_block_height,
+            &first_burn_hash,
+            get_epoch_time_secs(),
+            &StacksEpoch::unit_test_2_05(first_block_height),
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+        // assert that an epoch is returned
+        SortitionDB::get_stacks_epoch(db.conn(), first_block_height)
+            .expect("Database should not error querying epochs")
+            .expect("Database should have an epoch entry");
+
+        assert!(SortitionDB::open(&db_path_dir, true, PoxConstants::test_default()).is_ok());
+    }
+
+    #[test]
     fn test_tx_begin_end() {
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -4088,12 +4508,18 @@ pub mod tests {
         tx.commit().unwrap();
     }
 
-    pub fn test_append_snapshot(
+    pub fn test_append_snapshot_with_winner(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,
+        parent_sn: Option<BlockSnapshot>,
+        winning_block_commit: Option<LeaderBlockCommitOp>,
     ) -> BlockSnapshot {
-        let mut sn = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let mut sn = match parent_sn {
+            Some(sn) => sn,
+            None => SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap(),
+        };
+
         let mut tx = SortitionHandleTx::begin(db, &sn.sortition_id).unwrap();
 
         let sn_parent = sn.clone();
@@ -4105,6 +4531,12 @@ pub mod tests {
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
+        if let Some(cmt) = winning_block_commit {
+            sn.sortition = true;
+            sn.winning_stacks_block_hash = cmt.block_header_hash;
+            sn.winning_block_txid = cmt.txid;
+        }
+
         let index_root = tx
             .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, &vec![], None, None, None)
             .unwrap();
@@ -4113,6 +4545,14 @@ pub mod tests {
         tx.commit().unwrap();
 
         sn
+    }
+
+    pub fn test_append_snapshot(
+        db: &mut SortitionDB,
+        next_hash: BurnchainHeaderHash,
+        block_ops: &Vec<BlockstackOperationType>,
+    ) -> BlockSnapshot {
+        test_append_snapshot_with_winner(db, next_hash, block_ops, None, None)
     }
 
     #[test]
@@ -4365,6 +4805,19 @@ pub mod tests {
             .unwrap();
             let commit = handle.get_block_commit_by_txid(&bad_txid).unwrap();
             assert!(commit.is_none());
+        }
+
+        // sortition ID is memoized, or absent
+        {
+            assert_eq!(
+                SortitionDB::get_block_commit_parent_sortition_id(
+                    db.conn(),
+                    &block_commit.txid,
+                    &snapshot_consumed.sortition_id
+                )
+                .unwrap(),
+                Some(SortitionId([0x00; 32]))
+            );
         }
 
         // test get_consumed_leader_keys() (should be doable at any subsequent index root)
@@ -6781,7 +7234,71 @@ pub mod tests {
     }
 
     #[test]
-    fn test_epoch_switch() {
+    fn test_epoch_switch_205() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
+
+        let mut db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch2_05,
+                    start_height: 12,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+
+        let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        // In this loop, we will advance the height, and check if the stacks epoch id is advancing as expected.
+        for i in 0..20 {
+            debug!("Get epoch for block height {}", cur_snapshot.block_height);
+            let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), cur_snapshot.block_height)
+                .unwrap()
+                .unwrap();
+
+            if cur_snapshot.block_height < 8 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch10);
+            } else if cur_snapshot.block_height < 12 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
+            } else {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
+            }
+
+            cur_snapshot =
+                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
+        }
+    }
+
+    #[test]
+    fn test_epoch_switch_21() {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
@@ -6797,16 +7314,29 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch2_05,
+                    start_height: 12,
+                    end_height: 14,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch21,
-                    start_height: 12,
+                    start_height: 14,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             PoxConstants::test_default(),
@@ -6825,6 +7355,8 @@ pub mod tests {
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch10);
             } else if cur_snapshot.block_height < 12 {
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
+            } else if cur_snapshot.block_height < 14 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
             } else {
                 assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
             }
@@ -6840,7 +7372,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -6852,16 +7387,22 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 9,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 }, // discontinuity
                 StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch21,
+                    epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             PoxConstants::test_default(),
@@ -6876,7 +7417,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -6888,16 +7432,22 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 7,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 }, // overlap
                 StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch21,
+                    epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             PoxConstants::test_default(),
@@ -6912,7 +7462,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -6924,16 +7477,22 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 1,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 }, // should start at 0
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 },
                 StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch21,
+                    epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             PoxConstants::test_default(),
@@ -6948,7 +7507,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -6960,16 +7522,22 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 },
                 StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch21,
+                    epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 12,
                     end_height: 20,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 }, // missing future
             ],
             PoxConstants::test_default(),
@@ -6984,7 +7552,10 @@ pub mod tests {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
-        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+        let db_path_dir = format!(
+            "/tmp/stacks-node-tests/unit-tests-sortdb/db-{}",
+            to_hex(&buf)
+        );
 
         let db = SortitionDB::connect(
             &db_path_dir,
@@ -6996,21 +7567,421 @@ pub mod tests {
                     epoch_id: StacksEpochId::Epoch10,
                     start_height: 0,
                     end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
                 },
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch20,
                     start_height: 8,
                     end_height: 7,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
                 }, // invalid range
                 StacksEpoch {
-                    epoch_id: StacksEpochId::Epoch21,
+                    epoch_id: StacksEpochId::Epoch2_05,
                     start_height: 8,
                     end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
                 },
             ],
             PoxConstants::test_default(),
             true,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_descended_from() {
+        let block_height = 123;
+        let vtxindex = 456;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
+            )
+            .unwrap(),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(
+                &BitcoinAddress::from_scriptpubkey(
+                    BitcoinNetworkType::Testnet,
+                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
+                )
+                .unwrap(),
+            ),
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: vtxindex,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+        };
+
+        let genesis_block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222222222222222222222222221")
+                    .unwrap(),
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_bytes(
+                &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333")
+                    .unwrap(),
+            )
+            .unwrap(),
+            // genesis
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: (block_height + 1) as u32,
+            key_vtxindex: vtxindex as u16,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("dec0489b200c05e3611c174a203da75bea86eb16d254afdec9d93a7d50623426")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 1,
+            block_height: block_height + 2,
+            burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+        };
+
+        // descends from genesis
+        let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
+                    .unwrap(),
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_bytes(
+                &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333")
+                    .unwrap(),
+            )
+            .unwrap(),
+            parent_block_ptr: genesis_block_commit.block_height as u32,
+            parent_vtxindex: genesis_block_commit.vtxindex as u16,
+            key_block_ptr: (block_height + 1) as u32,
+            key_vtxindex: vtxindex as u16,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("c25b21f8c8d55f52cf67e1e7604ca243438df7753a06bea085e10a9957ce0f8e")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 1,
+            block_height: block_height + 3,
+            burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x04; 32]),
+        };
+
+        // descends from block_commit_1
+        let block_commit_1_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
+                    .unwrap(),
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_bytes(
+                &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333")
+                    .unwrap(),
+            )
+            .unwrap(),
+            parent_block_ptr: block_commit_1.block_height as u32,
+            parent_vtxindex: block_commit_1.vtxindex as u16,
+            key_block_ptr: (block_height + 1) as u32,
+            key_vtxindex: vtxindex as u16,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("a55f4f6afff0ba597a22a5d90bea2cd61b078518dbdf67f77588e3c0effb5c0f")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 1,
+            block_height: block_height + 4,
+            burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x05; 32]),
+        };
+
+        // descends from genesis_block_commit
+        let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
+                    .unwrap(),
+            )
+            .unwrap(),
+            new_seed: VRFSeed::from_bytes(
+                &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333")
+                    .unwrap(),
+            )
+            .unwrap(),
+            parent_block_ptr: genesis_block_commit.block_height as u32,
+            parent_vtxindex: genesis_block_commit.vtxindex as u16,
+            key_block_ptr: (block_height + 1) as u32,
+            key_vtxindex: vtxindex as u16,
+            memo: vec![0x80],
+            commit_outs: vec![],
+
+            burn_fee: 1,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid::from_bytes_be(
+                &hex_bytes("53bfa82f97ef65f0239ded2b4ed93cab1f9d72f9454ac5eb4d7d0f79ad9e0127")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: block_height + 5,
+            burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x06; 32]),
+        };
+
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+
+        let key_snapshot = test_append_snapshot(
+            &mut db,
+            BurnchainHeaderHash([0x01; 32]),
+            &vec![BlockstackOperationType::LeaderKeyRegister(
+                leader_key.clone(),
+            )],
+        );
+
+        let genesis_commit_snapshot = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x03; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                genesis_block_commit.clone(),
+            )],
+            None,
+            Some(genesis_block_commit.clone()),
+        );
+
+        let first_block_commit_snapshot = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x04; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit_1.clone(),
+            )],
+            None,
+            Some(block_commit_1.clone()),
+        );
+
+        let second_block_commit_snapshot = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x05; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit_1_1.clone(),
+            )],
+            None,
+            Some(block_commit_1_1.clone()),
+        );
+
+        let third_block_commit_snapshot = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x06; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit_2.clone(),
+            )],
+            None,
+            Some(block_commit_2.clone()),
+        );
+
+        assert_eq!(
+            genesis_commit_snapshot.winning_stacks_block_hash,
+            genesis_block_commit.block_header_hash
+        );
+        assert_eq!(
+            first_block_commit_snapshot.winning_stacks_block_hash,
+            block_commit_1.block_header_hash
+        );
+        assert_eq!(
+            second_block_commit_snapshot.winning_stacks_block_hash,
+            block_commit_1_1.block_header_hash
+        );
+        assert_eq!(
+            third_block_commit_snapshot.winning_stacks_block_hash,
+            block_commit_2.block_header_hash
+        );
+
+        assert_eq!(
+            SortitionDB::get_block_commit_parent_sortition_id(
+                db.conn(),
+                &block_commit_1.txid,
+                &first_block_commit_snapshot.sortition_id
+            )
+            .unwrap(),
+            Some(genesis_commit_snapshot.sortition_id.clone())
+        );
+        assert_eq!(
+            SortitionDB::get_block_commit_parent_sortition_id(
+                db.conn(),
+                &block_commit_1_1.txid,
+                &second_block_commit_snapshot.sortition_id
+            )
+            .unwrap(),
+            Some(first_block_commit_snapshot.sortition_id.clone())
+        );
+        assert_eq!(
+            SortitionDB::get_block_commit_parent_sortition_id(
+                db.conn(),
+                &block_commit_2.txid,
+                &third_block_commit_snapshot.sortition_id
+            )
+            .unwrap(),
+            Some(genesis_commit_snapshot.sortition_id.clone())
+        );
+
+        assert_eq!(
+            SortitionDB::get_block_commit_parent_sortition_id(
+                db.conn(),
+                &block_commit_2.txid,
+                &first_block_commit_snapshot.sortition_id
+            )
+            .unwrap(),
+            None
+        );
+
+        for i in 0..2 {
+            // do this battery of tests twice -- once with the block commit parent descendancy
+            // information, and once without.
+            if i == 0 {
+                debug!("Test descended_from with block_commit_parents");
+            } else {
+                debug!("Test descended_from without block_commit_parents");
+            }
+            {
+                let mut db_tx =
+                    SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
+                        .unwrap();
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_2.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+
+                assert!(!db_tx
+                    .descended_from(
+                        block_commit_2.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+
+                // not possible, since block_commit_1 predates block_commit_2
+                assert!(!db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &block_commit_2.block_header_hash
+                    )
+                    .unwrap());
+            }
+            {
+                let mut db_tx =
+                    SortitionHandleTx::begin(&mut db, &third_block_commit_snapshot.sortition_id)
+                        .unwrap();
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1_1.block_height,
+                        &block_commit_1.block_header_hash
+                    )
+                    .unwrap());
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+
+                // transitively...
+                assert!(db_tx
+                    .descended_from(
+                        block_commit_1_1.block_height,
+                        &genesis_block_commit.block_header_hash
+                    )
+                    .unwrap());
+            }
+
+            // drop descendancy information
+            {
+                let db_tx = db.tx_begin().unwrap();
+                db_tx
+                    .execute("DELETE FROM block_commit_parents", NO_PARAMS)
+                    .unwrap();
+                db_tx.commit().unwrap();
+            }
+        }
     }
 }

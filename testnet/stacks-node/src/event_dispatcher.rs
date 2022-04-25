@@ -3,10 +3,7 @@ use std::thread::sleep;
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 use async_h1::client;
@@ -16,31 +13,35 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
-    FTEventType, NFTEventType, STXEventType, StacksTransactionEvent, StacksTransactionReceipt,
-    TransactionOrigin,
+    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
-use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
     db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
 };
+use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
+use stacks::vm::costs::ExecutionCost;
+use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
 use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 
 use super::config::{EventKeyType, EventObserverConfig};
-use super::node::ChainTip;
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use stacks::chainstate::stacks::miner::TransactionEvent;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
     endpoint: String,
-    should_keep_running: Arc<AtomicBool>,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -59,9 +60,31 @@ const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
 pub const PATH_MICROBLOCK_SUBMIT: &str = "new_microblocks";
 pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
+pub const PATH_MINED_BLOCK: &str = "mined_block";
+pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MinedBlockEvent {
+    pub target_burn_height: u64,
+    pub block_hash: String,
+    pub stacks_height: u64,
+    pub block_size: u64,
+    pub anchored_cost: ExecutionCost,
+    pub confirmed_microblocks_cost: ExecutionCost,
+    pub tx_events: Vec<TransactionEvent>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MinedMicroblockEvent {
+    pub block_hash: String,
+    pub sequence: u16,
+    pub tx_events: Vec<TransactionEvent>,
+    pub anchor_block_consensus_hash: ConsensusHash,
+    pub anchor_block: BlockHeaderHash,
+}
 
 impl EventObserver {
     fn send_payload(&self, payload: &serde_json::Value, path: &str) {
@@ -88,22 +111,16 @@ impl EventObserver {
         let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
         loop {
-            if !self.should_keep_running.load(Ordering::SeqCst) {
-                info!("Terminating event observer");
-                return;
-            }
-
             let body = body.clone();
             let mut req = Request::new(Method::Post, url.clone());
-            req.append_header("Content-Type", "application/json")
-                .expect("Unable to set header");
+            req.append_header("Content-Type", "application/json");
             req.set_body(body);
 
             let response = async_std::task::block_on(async {
                 let stream = match TcpStream::connect(self.endpoint.clone()).await {
                     Ok(stream) => stream,
                     Err(err) => {
-                        println!("Event dispatcher: connection failed  - {:?}", err);
+                        warn!("Event dispatcher: connection failed  - {:?}", err);
                         return None;
                     }
                 };
@@ -111,7 +128,7 @@ impl EventObserver {
                 match client::connect(stream, req).await {
                     Ok(response) => Some(response),
                     Err(err) => {
-                        println!("Event dispatcher: rpc invokation failed  - {:?}", err);
+                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
                         return None;
                     }
                 }
@@ -119,11 +136,13 @@ impl EventObserver {
 
             if let Some(response) = response {
                 if response.status().is_success() {
+                    debug!(
+                        "Event dispatcher: Successful POST"; "url" => %url
+                    );
                     break;
                 } else {
                     error!(
-                        "Event dispatcher: POST {}/{} failed with error {:?}",
-                        self.endpoint, &url, response
+                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
                     );
                 }
             }
@@ -244,7 +263,7 @@ impl EventObserver {
         json!({
             "attachment_index": attachment.0.attachment_index,
             "index_block_hash": format!("0x{}", attachment.0.index_block_hash),
-            "block_height": attachment.0.block_height,
+            "block_height": attachment.0.stacks_block_height,
             "content_hash": format!("0x{}", attachment.0.content_hash),
             "contract_id": format!("{}", attachment.0.contract_id),
             "metadata": format!("0x{}", attachment.0.metadata),
@@ -295,6 +314,14 @@ impl EventObserver {
         self.send_payload(payload, PATH_MEMPOOL_TX_DROP);
     }
 
+    fn send_mined_block(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MINED_BLOCK);
+    }
+
+    fn send_mined_microblock(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MINED_MICROBLOCK);
+    }
+
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
@@ -302,7 +329,9 @@ impl EventObserver {
     fn send(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        chain_tip: &ChainTip,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent_index_hash: &StacksBlockId,
         boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
@@ -310,6 +339,8 @@ impl EventObserver {
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -322,7 +353,7 @@ impl EventObserver {
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
 
-        for receipt in chain_tip.receipts.iter().chain(boot_receipts.iter()) {
+        for receipt in receipts.iter().chain(boot_receipts.iter()) {
             let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
             serialized_txs.push(payload);
             tx_index += 1;
@@ -330,23 +361,25 @@ impl EventObserver {
 
         // Wrap events
         let payload = json!({
-            "block_hash": format!("0x{}", chain_tip.block.block_hash()),
-            "block_height": chain_tip.metadata.block_height,
-            "burn_block_hash": format!("0x{}", chain_tip.metadata.burn_header_hash),
-            "burn_block_height": chain_tip.metadata.burn_header_height,
+            "block_hash": format!("0x{}", block.block_hash()),
+            "block_height": metadata.stacks_block_height,
+            "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
+            "burn_block_height": metadata.burn_header_height,
             "miner_txid": format!("0x{}", winner_txid),
-            "burn_block_time": chain_tip.metadata.burn_header_timestamp,
-            "index_block_hash": format!("0x{}", chain_tip.metadata.index_block_hash()),
-            "parent_block_hash": format!("0x{}", chain_tip.block.header.parent_block),
+            "burn_block_time": metadata.burn_header_timestamp,
+            "index_block_hash": format!("0x{}", metadata.index_block_hash()),
+            "parent_block_hash": format!("0x{}", block.header.parent_block),
             "parent_index_block_hash": format!("0x{}", parent_index_hash),
-            "parent_microblock": format!("0x{}", chain_tip.block.header.parent_microblock),
-            "parent_microblock_sequence": chain_tip.block.header.parent_microblock_sequence,
+            "parent_microblock": format!("0x{}", block.header.parent_microblock),
+            "parent_microblock_sequence": block.header.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
             "parent_burn_block_hash":  format!("0x{}", parent_burn_block_hash),
             "parent_burn_block_height": parent_burn_block_height,
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
+            "anchored_cost": anchored_consumed,
+            "confirmed_microblocks_cost": mblock_confirmed_consumed,
         });
 
         // Send payload
@@ -364,6 +397,8 @@ pub struct EventDispatcher {
     microblock_observers_lookup: HashSet<u16>,
     stx_observers_lookup: HashSet<u16>,
     any_event_observers_lookup: HashSet<u16>,
+    miner_observers_lookup: HashSet<u16>,
+    mined_microblocks_observers_lookup: HashSet<u16>,
     boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
@@ -373,29 +408,62 @@ impl MemPoolEventDispatcher for EventDispatcher {
             self.process_dropped_mempool_txs(txids, reason)
         }
     }
+
+    fn mined_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &StacksBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        self.process_mined_block_event(
+            target_burn_height,
+            block,
+            block_size_bytes,
+            consumed,
+            confirmed_microblock_cost,
+            tx_events,
+        )
+    }
+
+    fn mined_microblock_event(
+        &self,
+        microblock: &StacksMicroblock,
+        tx_events: Vec<TransactionEvent>,
+        anchor_block_consensus_hash: ConsensusHash,
+        anchor_block: BlockHeaderHash,
+    ) {
+        self.process_mined_microblock_event(
+            microblock,
+            tx_events,
+            anchor_block_consensus_hash,
+            anchor_block,
+        );
+    }
 }
 
 impl BlockEventDispatcher for EventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlock,
-        metadata: StacksHeaderInfo,
-        receipts: Vec<StacksTransactionReceipt>,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: Vec<MinerReward>,
-        mature_rewards_info: Option<MinerRewardInfo>,
+        mature_rewards: &Vec<MinerReward>,
+        mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
     ) {
-        let chain_tip = ChainTip {
-            metadata,
-            block,
-            receipts,
-        };
         self.process_chain_tip(
-            &chain_tip,
+            block,
+            metadata,
+            receipts,
             parent,
             winner_txid,
             mature_rewards,
@@ -403,6 +471,8 @@ impl BlockEventDispatcher for EventDispatcher {
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
+            anchored_consumed,
+            mblock_confirmed_consumed,
         )
     }
 
@@ -440,6 +510,8 @@ impl EventDispatcher {
             mempool_observers_lookup: HashSet::new(),
             microblock_observers_lookup: HashSet::new(),
             boot_receipts: Arc::new(Mutex::new(None)),
+            miner_observers_lookup: HashSet::new(),
+            mined_microblocks_observers_lookup: HashSet::new(),
         }
     }
 
@@ -579,16 +651,20 @@ impl EventDispatcher {
 
     pub fn process_chain_tip(
         &self,
-        chain_tip: &ChainTip,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent_index_hash: &StacksBlockId,
         winner_txid: Txid,
-        mature_rewards: Vec<MinerReward>,
-        mature_rewards_info: Option<MinerRewardInfo>,
+        mature_rewards: &Vec<MinerReward>,
+        mature_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
+        anchored_consumed: &ExecutionCost,
+        mblock_confirmed_consumed: &ExecutionCost,
     ) {
-        let boot_receipts = if chain_tip.metadata.block_height == 1 {
+        let boot_receipts = if metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
                 .boot_receipts
                 .lock()
@@ -601,14 +677,13 @@ impl EventDispatcher {
         } else {
             vec![]
         };
-        let receipts = chain_tip
-            .receipts
+        let all_receipts = receipts
             .iter()
             .cloned()
             .chain(boot_receipts.iter().cloned())
             .collect();
 
-        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&receipts);
+        let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
         if dispatch_matrix.len() > 0 {
             let mature_rewards_vec = if let Some(rewards_info) = mature_rewards_info {
@@ -621,7 +696,7 @@ impl EventDispatcher {
                             "tx_fees_anchored": reward.tx_fees_anchored.to_string(),
                             "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),
                             "tx_fees_streamed_produced": reward.tx_fees_streamed_produced.to_string(),
-                            "from_stacks_block_hash": format!("0x{}", &rewards_info.from_stacks_block_hash),
+                            "from_stacks_block_hash": format!("0x{}", rewards_info.from_stacks_block_hash),
                             "from_index_consensus_hash": format!("0x{}", StacksBlockId::new(&rewards_info.from_block_consensus_hash,
                                                                                             &rewards_info.from_stacks_block_hash)),
                         })
@@ -641,7 +716,9 @@ impl EventDispatcher {
 
                 self.registered_observers[observer_id].send(
                     filtered_events,
-                    chain_tip,
+                    block,
+                    metadata,
+                    receipts,
                     parent_index_hash,
                     &boot_receipts,
                     &winner_txid,
@@ -649,6 +726,8 @@ impl EventDispatcher {
                     parent_burn_block_hash,
                     parent_burn_block_height,
                     parent_burn_block_timestamp,
+                    anchored_consumed,
+                    mblock_confirmed_consumed,
                 );
             }
         }
@@ -736,6 +815,75 @@ impl EventDispatcher {
         }
     }
 
+    pub fn process_mined_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &StacksBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        confirmed_microblock_cost: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| self.miner_observers_lookup.contains(&(*obs_id as u16)))
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(MinedBlockEvent {
+            target_burn_height,
+            block_hash: block.block_hash().to_string(),
+            stacks_height: block.header.total_work.work,
+            block_size: block_size_bytes,
+            anchored_cost: consumed.clone(),
+            confirmed_microblocks_cost: confirmed_microblock_cost.clone(),
+            tx_events,
+        })
+        .unwrap();
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_mined_block(&payload);
+        }
+    }
+
+    pub fn process_mined_microblock_event(
+        &self,
+        microblock: &StacksMicroblock,
+        tx_events: Vec<TransactionEvent>,
+        anchor_block_consensus_hash: ConsensusHash,
+        anchor_block: BlockHeaderHash,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.mined_microblocks_observers_lookup
+                    .contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(MinedMicroblockEvent {
+            block_hash: microblock.block_hash().to_string(),
+            sequence: microblock.header.sequence,
+            tx_events,
+            anchor_block_consensus_hash,
+            anchor_block,
+        })
+        .unwrap();
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_mined_microblock(&payload);
+        }
+    }
+
     pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -800,15 +948,10 @@ impl EventDispatcher {
         }
     }
 
-    pub fn register_observer(
-        &mut self,
-        conf: &EventObserverConfig,
-        should_keep_running: Arc<AtomicBool>,
-    ) {
+    pub fn register_observer(&mut self, conf: &EventObserverConfig) {
         info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
-            should_keep_running,
         };
 
         let observer_index = self.registered_observers.len() as u16;
@@ -856,6 +999,13 @@ impl EventDispatcher {
                 }
                 EventKeyType::AnyEvent => {
                     self.any_event_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::MinedBlocks => {
+                    self.miner_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::MinedMicroblocks => {
+                    self.mined_microblocks_observers_lookup
+                        .insert(observer_index);
                 }
             }
         }

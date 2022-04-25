@@ -14,26 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use net::p2p::*;
+use crate::net::p2p::*;
 /// This module contains the logic for pruning client and neighbor connections
-use net::*;
+use crate::net::*;
 
-use net::Error as net_error;
+use crate::net::Error as net_error;
 
-use net::connection::ConnectionOptions;
+use crate::net::connection::ConnectionOptions;
 
-use net::chat::NeighborStats;
+use crate::net::chat::NeighborStats;
 
-use net::poll::NetworkPollState;
-use net::poll::NetworkState;
+use crate::net::poll::NetworkPollState;
+use crate::net::poll::NetworkState;
 
-use net::db::LocalPeer;
-use net::db::PeerDB;
+use crate::net::db::LocalPeer;
+use crate::net::db::PeerDB;
 
-use net::neighbors::*;
+use crate::net::neighbors::*;
 
-use util::db::DBConn;
-use util::db::Error as db_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
 
 use std::net::Shutdown;
 use std::net::SocketAddr;
@@ -43,8 +43,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use util::get_epoch_time_secs;
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::log;
 
 use rand::prelude::*;
 use rand::thread_rng;
