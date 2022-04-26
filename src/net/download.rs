@@ -1860,7 +1860,7 @@ impl PeerNetwork {
             test_debug!("{:?}: does NOT need blocks", &self.local_peer);
         }
 
-        PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
+        PeerNetwork::with_downloader_state(self, |ref mut _network, ref mut downloader| {
             let mut urlset = HashSet::new();
             for (_, requests) in downloader.blocks_to_try.iter() {
                 for request in requests.iter() {

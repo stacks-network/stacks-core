@@ -1394,7 +1394,6 @@ impl StacksChainState {
             }
 
             // Setup burnchain parameters for pox contract
-            let pox_constants = &boot_data.pox_constants;
             let contract = boot_code_id("pox", mainnet);
             let sender = PrincipalData::from(contract.clone());
             let params = vec![

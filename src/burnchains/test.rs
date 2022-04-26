@@ -49,7 +49,7 @@ impl Txid {
 }
 
 pub fn bhh_from_test_data(
-    mut block_height: u64,
+    block_height: u64,
     index_root: &TrieHash,
     noise: u64,
 ) -> BurnchainHeaderHash {

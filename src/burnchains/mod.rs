@@ -119,7 +119,7 @@ impl BurnchainParameters {
             chain_name: "mockstack".to_string(),
             network_name: "mainnet".into(),
             network_id: 0,
-            stable_confirmations: 0,
+            stable_confirmations: 1,
             consensus_hash_lifetime: 24,
             first_block_height: 0,
             first_block_hash: BurnchainHeaderHash::from_hex(BITCOIN_MAINNET_FIRST_BLOCK_HASH)

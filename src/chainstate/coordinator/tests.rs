@@ -201,7 +201,7 @@ pub fn setup_states(
 
             // build a bunch of VRF key registers
 
-            let mut registers = vec![];
+            let registers = vec![];
 
             burn_block.replace((
                 burnchain_blocks_db,
