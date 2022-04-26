@@ -691,12 +691,11 @@ impl LeaderBlockCommitOp {
             let intended_sortition = match epoch.epoch_id {
                 StacksEpochId::Epoch21 => {
                     // correct behavior
-                    if self.block_height < burnchain.first_block_height {
-                        return Err(op_error::BlockCommitPredatesGenesis);
-                    }
                     let sortition_height = self
                         .block_height
-                        .saturating_sub(burnchain.first_block_height);
+                        .checked_sub(burnchain.first_block_height)
+                        .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
+
                     if miss_distance > sortition_height {
                         return Err(op_error::BlockCommitBadModulus);
                     }
