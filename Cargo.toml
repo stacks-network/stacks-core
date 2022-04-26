@@ -21,7 +21,7 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "blockstack-core"
+name = "stacks-inspect"
 path = "src/main.rs"
 
 [[bin]]
