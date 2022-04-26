@@ -36,7 +36,7 @@ impl BurnchainOpSigner {
 
     pub fn sign_message(&mut self, hash: &[u8]) -> Option<MessageSignature> {
         if self.is_disposed {
-            debug!("Signer is dsposed");
+            debug!("Signer is disposed");
             return None;
         }
 

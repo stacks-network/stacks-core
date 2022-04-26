@@ -174,7 +174,7 @@ fn fault_injection_delay_transactions(
     _op_signer: &mut BurnchainOpSigner,
     _attempt: u64,
 ) -> bool {
-    false
+    true
 }
 
 struct AssembledAnchorBlock {
