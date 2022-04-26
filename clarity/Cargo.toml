@@ -10,65 +10,34 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Reference implementation of the Stacks 2.0 Blockchain"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
-
-[profile.release]
-debug = true
+edition = "2021"
+resolver = "2"
 
 [lib]
 name = "clarity"
-path = "../src/libclarity.rs"
+path = "./src/libclarity.rs"
 
 [dependencies]
-tini = "0.2"
-rand = "=0.7.2"
+rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
-sha3 = "0.8.2"
-ripemd160 = "0.8.0"
 regex = "1"
-mio = "0.6"
 lazy_static = "1.4.0"
-url = "2.1.0"
-percent-encoding = "2.1.0"
-sha2 = "0.8.0"
-prometheus = { version = "0.9", optional = true }
 integer-sqrt = "0.1.3"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-slog-term = "2.6.0"
-slog-json = { version = "2.3.0", optional = true }
-chrono = "0.4.19"
-libc = "0.2.82"
-
-[target.'cfg(unix)'.dependencies]
-nix = "0.23"
-
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
-
-[target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+stacks_common = { package = "stacks-common", path = "../stacks-common/." }
+rstest = "0.11.0"
+rstest_reuse = "0.1.3"
 
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
-[dependencies.secp256k1]
-version = "0.19.0"
-features = ["serde", "recovery"]
-
 [dependencies.rusqlite]
 version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
-
-[dependencies.ed25519-dalek]
-version = "=1.0.0-pre.3"
-features = ["serde"]
-
-[dependencies.curve25519-dalek]
-version = "=2.0.0"
-features = ["serde"]
 
 [dependencies.time]
 version = "0.2.23"
@@ -81,14 +50,12 @@ assert-json-diff = "1.0.0"
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
-stx_genesis = { package = "stx-genesis", path = "../stx-genesis/."}
 
 [features]
 default = ["developer-mode"]
 developer-mode = []
-monitoring_prom = ["prometheus"]
-slog_json = ["slog-json"]
-
+slog_json = ["stacks_common/slog_json"]
+testing = []
 
 [profile.dev.package.regex]
 opt-level = 2

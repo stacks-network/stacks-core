@@ -43,49 +43,51 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use url;
 
-use crate::util::boot::boot_code_tx_auth;
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::Error as coordinator_error;
-use chainstate::stacks::db::blocks::MemPoolRejection;
-use chainstate::stacks::index::Error as marf_error;
-use chainstate::stacks::Error as chainstate_error;
-use chainstate::stacks::{
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::coordinator::Error as coordinator_error;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::index::Error as marf_error;
+use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::{
     Error as chain_error, StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
     TransactionPayload,
 };
-use clarity_vm::clarity::Error as clarity_error;
-use codec::Error as codec_error;
-use codec::StacksMessageCodec;
-use codec::{read_next, write_next};
-use core::mempool::*;
-use core::POX_REWARD_CYCLE_LENGTH;
-use net::atlas::{Attachment, AttachmentInstance};
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_secs;
-use util::hash::Hash160;
-use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
-use util::hash::HASH160_ENCODED_SIZE;
-use util::hash::{hex_bytes, to_hex};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::secp256k1::Secp256k1PublicKey;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::strings::UrlString;
-use vm::types::TraitIdentifier;
-use vm::{
+use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::core::mempool::*;
+use crate::core::POX_REWARD_CYCLE_LENGTH;
+use crate::net::atlas::{Attachment, AttachmentInstance};
+use crate::net::http::HttpReservedHeader;
+use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
+use crate::util_lib::boot::boot_code_tx_auth;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::strings::UrlString;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::{
     analysis::contract_interface_builder::ContractInterface, types::PrincipalData, ClarityName,
     ContractName, Value,
 };
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, write_next};
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::DOUBLE_SHA256_ENCODED_SIZE;
+use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+
+use crate::chainstate::stacks::StacksBlockHeader;
 
 use crate::codec::BURNCHAIN_HEADER_HASH_ENCODED_SIZE;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-};
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::hash::Sha256Sum;
 use crate::vm::costs::ExecutionCost;
@@ -93,20 +95,38 @@ use crate::vm::costs::ExecutionCost;
 use self::dns::*;
 pub use self::http::StacksHttp;
 
-use core::StacksEpoch;
+use crate::core::StacksEpoch;
 
+/// Implements `ASEntry4` object, which is used in db.rs to store the AS number of an IP address.
 pub mod asn;
+/// Implements the Atlas network. This network uses the infrastructure created in `src/net` to
+/// discover peers, query attachment inventories, and download attachments.
 pub mod atlas;
+/// Implements the `ConversationP2P` object, a host-to-host session abstraction which allows
+/// the node to recieve `StacksMessage` instances. The downstream consumer of this API is `PeerNetwork`.
+/// To use OSI terminology, this module implements the session & presentation layers of the P2P network.
+/// Other functionality includes (but is not limited to):
+///     * set up & tear down of sessions
+///     * dealing with and responding to invalid messages
+///     * rate limiting messages  
 pub mod chat;
+/// Implements serialization and deserialization for `StacksMessage` types.
+/// Also has functionality to sign, verify, and ensure well-formedness of messages.
 pub mod codec;
 pub mod connection;
 pub mod db;
+/// Implements `DNSResolver`, a simple DNS resolver state machine. Also implements `DNSClient`,
+/// which serves as an API for `DNSResolver`.  
 pub mod dns;
 pub mod download;
 pub mod http;
 pub mod inv;
 pub mod neighbors;
 pub mod p2p;
+/// Implements wrapper around `mio` crate, which itself is a wrapper around Linux's `epoll(2)` syscall.
+/// Creates a pollable interface for sockets, and provides an API for registering and deregistering
+/// sockets. This is used to control how many sockets are allocated for the two network servers: the
+/// p2p server and the http server.
 pub mod poll;
 pub mod prune;
 pub mod relay;
@@ -219,6 +239,8 @@ pub enum Error {
     NotFoundError,
     /// Transient error (akin to EAGAIN)
     Transient(String),
+    /// Expected end-of-stream, but had more data
+    ExpectedEndOfStream,
 }
 
 impl From<codec_error> for Error {
@@ -316,6 +338,7 @@ impl fmt::Display for Error {
             Error::ConnectionCycle => write!(f, "Tried to connect to myself"),
             Error::NotFoundError => write!(f, "Requested data not found"),
             Error::Transient(ref s) => write!(f, "Transient network error: {}", s),
+            Error::ExpectedEndOfStream => write!(f, "Expected end-of-stream"),
         }
     }
 }
@@ -375,6 +398,7 @@ impl error::Error for Error {
             Error::ConnectionCycle => None,
             Error::NotFoundError => None,
             Error::Transient(ref _s) => None,
+            Error::ExpectedEndOfStream => None,
         }
     }
 }
@@ -723,10 +747,13 @@ pub struct PoxInvData {
     pub pox_bitvec: Vec<u8>, // a bit will be '1' if the node knows for sure the status of its reward cycle's anchor block; 0 if not.
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
+
 /// Blocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksData {
-    pub blocks: Vec<(ConsensusHash, StacksBlock)>,
+    pub blocks: Vec<BlocksDatum>,
 }
 
 /// Microblocks pushed
@@ -849,6 +876,17 @@ pub struct NatPunchData {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub nonce: u32,
+}
+
+define_u8_enum!(MemPoolSyncDataID {
+    BloomFilter = 0x01,
+    TxTags = 0x02
+});
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MemPoolSyncData {
+    BloomFilter(BloomFilter<BloomNodeHasher>),
+    TxTags([u8; 32], Vec<TxTag>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1002,9 +1040,15 @@ pub struct RPCPeerInfoData {
     pub stacks_tip: BlockHeaderHash,
     pub stacks_tip_consensus_hash: ConsensusHash,
     pub genesis_chainstate_hash: Sha256Sum,
-    pub unanchored_tip: StacksBlockId,
-    pub unanchored_seq: u16,
+    pub unanchored_tip: Option<StacksBlockId>,
+    pub unanchored_seq: Option<u16>,
     pub exit_at_block_height: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_public_key: Option<StacksPublicKeyBuffer>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_public_key_hash: Option<Hash160>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1148,6 +1192,7 @@ pub struct HttpRequestMetadata {
     pub version: HttpVersion,
     pub peer: PeerHost,
     pub keep_alive: bool,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1270,27 +1315,46 @@ pub struct AttachmentPage {
 pub const HTTP_REQUEST_ID_RESERVED: u32 = 0;
 
 impl HttpRequestMetadata {
-    pub fn new(host: String, port: u16) -> HttpRequestMetadata {
+    pub fn new(
+        host: String,
+        port: u16,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::from_host_port(host, port),
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
-    pub fn from_host(peer_host: PeerHost) -> HttpRequestMetadata {
+    pub fn from_host(
+        peer_host: PeerHost,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpRequestMetadata {
         HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: peer_host,
             keep_alive: true,
+            canonical_stacks_tip_height,
         }
     }
 
     pub fn from_preamble(preamble: &HttpRequestPreamble) -> HttpRequestMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in &preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+                break;
+            }
+        }
         HttpRequestMetadata {
             version: preamble.version,
             peer: preamble.host.clone(),
             keep_alive: preamble.keep_alive,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -1298,6 +1362,8 @@ impl HttpRequestMetadata {
 #[derive(Serialize, Deserialize)]
 pub struct CallReadOnlyRequestBody {
     pub sender: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sponsor: Option<String>,
     pub arguments: Vec<String>,
 }
 
@@ -1341,13 +1407,20 @@ pub struct RPCNeighborsInfo {
     pub outbound: Vec<RPCNeighbor>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TipRequest {
+    UseLatestAnchoredTip,
+    UseLatestUnconfirmedTip,
+    SpecificTip(StacksBlockId),
+}
+
 /// All HTTP request paths we support, and the arguments they carry in their paths
 #[derive(Debug, Clone, PartialEq)]
 pub enum HttpRequestType {
     GetInfo(HttpRequestMetadata),
-    GetPoxInfo(HttpRequestMetadata, Option<StacksBlockId>),
+    GetPoxInfo(HttpRequestMetadata, TipRequest),
     GetNeighbors(HttpRequestMetadata),
-    GetHeaders(HttpRequestMetadata, u64, Option<StacksBlockId>),
+    GetHeaders(HttpRequestMetadata, u64, TipRequest),
     GetBlock(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksIndexed(HttpRequestMetadata, StacksBlockId),
     GetMicroblocksConfirmed(HttpRequestMetadata, StacksBlockId),
@@ -1355,19 +1428,14 @@ pub enum HttpRequestType {
     GetTransactionUnconfirmed(HttpRequestMetadata, Txid),
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
-    PostMicroblock(HttpRequestMetadata, StacksMicroblock, Option<StacksBlockId>),
-    GetAccount(
-        HttpRequestMetadata,
-        PrincipalData,
-        Option<StacksBlockId>,
-        bool,
-    ),
+    PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
+    GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
     GetDataVar(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
         ClarityName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     GetMapEntry(
@@ -1376,7 +1444,7 @@ pub enum HttpRequestType {
         ContractName,
         ClarityName,
         Value,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
     FeeRateEstimate(HttpRequestMetadata, TransactionPayload, u64),
@@ -1385,24 +1453,20 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         PrincipalData,
+        Option<PrincipalData>,
         ClarityName,
         Vec<Value>,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
     GetTransferCost(HttpRequestMetadata),
     GetContractSrc(
         HttpRequestMetadata,
         StacksAddress,
         ContractName,
-        Option<StacksBlockId>,
+        TipRequest,
         bool,
     ),
-    GetContractABI(
-        HttpRequestMetadata,
-        StacksAddress,
-        ContractName,
-        Option<StacksBlockId>,
-    ),
+    GetContractABI(HttpRequestMetadata, StacksAddress, ContractName, TipRequest),
     OptionsPreflight(HttpRequestMetadata, String),
     GetAttachment(HttpRequestMetadata, Hash160),
     GetAttachmentsInv(HttpRequestMetadata, StacksBlockId, HashSet<u32>),
@@ -1411,8 +1475,9 @@ pub enum HttpRequestType {
         StacksAddress,
         ContractName,
         TraitIdentifier,
-        Option<StacksBlockId>,
+        TipRequest,
     ),
+    MemPoolQuery(HttpRequestMetadata, MemPoolSyncData, Option<Txid>),
     /// catch-all for any errors we should surface from parsing
     ClientError(HttpRequestMetadata, ClientError),
 }
@@ -1424,6 +1489,7 @@ pub struct HttpResponseMetadata {
     pub client_keep_alive: bool,
     pub request_id: u32,
     pub content_length: Option<u32>,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl HttpResponseMetadata {
@@ -1441,12 +1507,14 @@ impl HttpResponseMetadata {
         request_id: u32,
         content_length: Option<u32>,
         client_keep_alive: bool,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> HttpResponseMetadata {
         HttpResponseMetadata {
             client_version: client_version,
             client_keep_alive: client_keep_alive,
             request_id: request_id,
             content_length: content_length,
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
@@ -1454,11 +1522,21 @@ impl HttpResponseMetadata {
         request_version: HttpVersion,
         preamble: &HttpResponsePreamble,
     ) -> HttpResponseMetadata {
+        let mut canonical_stacks_tip_height = None;
+        for header in &preamble.headers {
+            if let Some(HttpReservedHeader::CanonicalStacksTipHeight(h)) =
+                HttpReservedHeader::try_from_str(&header.0, &header.1)
+            {
+                canonical_stacks_tip_height = Some(h);
+                break;
+            }
+        }
         HttpResponseMetadata {
             client_version: request_version,
             client_keep_alive: preamble.keep_alive,
             request_id: preamble.request_id,
             content_length: preamble.content_length.clone(),
+            canonical_stacks_tip_height: canonical_stacks_tip_height,
         }
     }
 
@@ -1468,18 +1546,21 @@ impl HttpResponseMetadata {
             client_keep_alive: false,
             request_id: HttpResponseMetadata::make_request_id(),
             content_length: Some(0),
+            canonical_stacks_tip_height: None,
         }
     }
-}
 
-impl From<&HttpRequestType> for HttpResponseMetadata {
-    fn from(req: &HttpRequestType) -> HttpResponseMetadata {
+    fn from_http_request_type(
+        req: &HttpRequestType,
+        canonical_stacks_tip_height: Option<u64>,
+    ) -> HttpResponseMetadata {
         let metadata = req.metadata();
         HttpResponseMetadata::new(
             metadata.version,
             HttpResponseMetadata::make_request_id(),
             None,
             metadata.keep_alive,
+            canonical_stacks_tip_height,
         )
     }
 }
@@ -1510,6 +1591,8 @@ pub enum HttpResponseType {
     UnconfirmedTransaction(HttpResponseMetadata, UnconfirmedTransactionResponse),
     GetAttachment(HttpResponseMetadata, GetAttachmentResponse),
     GetAttachmentsInv(HttpResponseMetadata, GetAttachmentsInvResponse),
+    MemPoolTxStream(HttpResponseMetadata),
+    MemPoolTxs(HttpResponseMetadata, Option<Txid>, Vec<StacksTransaction>),
     OptionsPreflight(HttpResponseMetadata),
     TransactionFeeEstimation(HttpResponseMetadata, RPCFeeEstimateResponse),
     // peer-given error responses
@@ -1552,6 +1635,7 @@ pub enum StacksMessageID {
     Pong = 16,
     NatPunchRequest = 17,
     NatPunchReply = 18,
+    // reserved
     Reserved = 255,
 }
 
@@ -1661,16 +1745,8 @@ pub const GETPOXINV_MAX_BITLEN: u64 = 8;
 // message.
 pub const BLOCKS_PUSHED_MAX: u32 = 32;
 
-impl_byte_array_message_codec!(ConsensusHash, 20);
-impl_byte_array_message_codec!(Hash160, 20);
-impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
-impl_byte_array_message_codec!(BlockHeaderHash, 32);
-impl_byte_array_message_codec!(StacksBlockId, 32);
-impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
-impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
-
-impl_byte_array_serde!(ConsensusHash);
+impl_byte_array_message_codec!(Txid, 32);
 
 /// neighbor identifier
 #[derive(Clone, Eq, PartialOrd, Ord)]
@@ -1823,6 +1899,7 @@ pub struct NetworkResult {
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
+    pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
@@ -1846,6 +1923,7 @@ impl NetworkResult {
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
             attachments: vec![],
+            synced_transactions: vec![],
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
@@ -1863,7 +1941,9 @@ impl NetworkResult {
     }
 
     pub fn has_transactions(&self) -> bool {
-        self.pushed_transactions.len() > 0 || self.uploaded_transactions.len() > 0
+        self.pushed_transactions.len() > 0
+            || self.uploaded_transactions.len() > 0
+            || self.synced_transactions.len() > 0
     }
 
     pub fn has_attachments(&self) -> bool {
@@ -1875,6 +1955,7 @@ impl NetworkResult {
             .values()
             .flat_map(|pushed_txs| pushed_txs.iter().map(|(_, tx)| tx.clone()))
             .chain(self.uploaded_transactions.iter().map(|x| x.clone()))
+            .chain(self.synced_transactions.iter().map(|x| x.clone()))
             .collect()
     }
 
@@ -1978,60 +2059,58 @@ pub mod test {
     use rand;
     use rand::RngCore;
 
-    use address::*;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::*;
-    use burnchains::bitcoin::*;
-    use burnchains::burnchain::*;
-    use burnchains::db::BurnchainDB;
-    use burnchains::test::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::coordinator::tests::*;
-    use chainstate::coordinator::*;
-    use chainstate::stacks::boot::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::*;
-    use chainstate::*;
-    use core::NETWORK_P2P_PORT;
-    use net::asn::*;
-    use net::atlas::*;
-    use net::chat::*;
-    use net::codec::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::neighbors::*;
-    use net::p2p::*;
-    use net::poll::*;
-    use net::relay::*;
-    use net::rpc::RPCHandlerArgs;
-    use net::Error as net_error;
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::secp256k1::*;
-    use util::strings::*;
-    use util::uint::*;
-    use util::vrf::*;
-    use vm::costs::ExecutionCost;
-    use vm::database::STXBalance;
-    use vm::types::*;
-
-    use crate::chainstate::stacks::boot::test::get_parent_tip;
-    use crate::types::chainstate::StacksMicroblockHeader;
-    use crate::types::proof::TrieHash;
-    use crate::util::boot::boot_code_test_addr;
-    use crate::{
-        chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt},
-        codec::StacksMessageCodec,
-    };
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::keys::*;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::burnchain::*;
+    use crate::burnchains::db::BurnchainDB;
+    use crate::burnchains::test::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::tests::*;
+    use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::boot::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::*;
+    use crate::core::NETWORK_P2P_PORT;
+    use crate::net::asn::*;
+    use crate::net::atlas::*;
+    use crate::net::chat::*;
+    use crate::net::codec::*;
+    use crate::net::connection::*;
+    use crate::net::db::*;
+    use crate::net::neighbors::*;
+    use crate::net::p2p::*;
+    use crate::net::poll::*;
+    use crate::net::relay::*;
+    use crate::net::rpc::RPCHandlerArgs;
+    use crate::net::Error as net_error;
+    use crate::util_lib::strings::*;
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::database::STXBalance;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::uint::*;
+    use stacks_common::util::vrf::*;
 
     use super::*;
+    use crate::chainstate::stacks::boot::test::get_parent_tip;
+    use crate::chainstate::stacks::StacksMicroblockHeader;
+    use crate::chainstate::stacks::{db::accounts::MinerReward, events::StacksTransactionReceipt};
+    use crate::core::StacksEpochExtension;
+    use crate::util_lib::boot::boot_code_test_addr;
+    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::types::chainstate::TrieHash;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -2255,13 +2334,13 @@ pub mod test {
     impl BlockEventDispatcher for TestEventObserver {
         fn announce_block(
             &self,
-            block: StacksBlock,
-            metadata: StacksHeaderInfo,
-            receipts: Vec<events::StacksTransactionReceipt>,
+            block: &StacksBlock,
+            metadata: &StacksHeaderInfo,
+            receipts: &Vec<events::StacksTransactionReceipt>,
             parent: &StacksBlockId,
             winner_txid: Txid,
-            matured_rewards: Vec<accounts::MinerReward>,
-            matured_rewards_info: Option<MinerRewardInfo>,
+            matured_rewards: &Vec<accounts::MinerReward>,
+            matured_rewards_info: Option<&MinerRewardInfo>,
             parent_burn_block_hash: BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
@@ -2269,13 +2348,13 @@ pub mod test {
             _confirmed_mblock_cost: &ExecutionCost,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
-                block,
-                metadata,
-                receipts,
+                block: block.clone(),
+                metadata: metadata.clone(),
+                receipts: receipts.clone(),
                 parent: parent.clone(),
                 winner_txid,
-                matured_rewards,
-                matured_rewards_info,
+                matured_rewards: matured_rewards.clone(),
+                matured_rewards_info: matured_rewards_info.map(|info| info.clone()),
             })
         }
 
@@ -2386,7 +2465,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2399,7 +2478,7 @@ pub mod test {
                 ..TestPeerConfig::default()
             };
             config.data_url =
-                UrlString::try_from(format!("http://localhost:{}", config.http_port).as_str())
+                UrlString::try_from(format!("http://127.0.0.1:{}", config.http_port).as_str())
                     .unwrap();
             config
         }
@@ -2627,6 +2706,7 @@ pub mod test {
                 config.network_id,
                 &chainstate_path,
                 Some(&mut boot_data),
+                None,
             )
             .unwrap();
 
@@ -2682,7 +2762,6 @@ pub mod test {
                     config.server_port,
                 )
                 .unwrap();
-                PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
                 PeerDB::set_local_private_key(
                     &mut tx,
                     &config.private_key,
@@ -3162,6 +3241,10 @@ pub mod test {
             self.next_burnchain_block(vec![])
         }
 
+        pub fn mempool(&mut self) -> &mut MemPoolDB {
+            self.mempool.as_mut().unwrap()
+        }
+
         pub fn chainstate(&mut self) -> &mut StacksChainState {
             &mut self.stacks_node.as_mut().unwrap().chainstate
         }
@@ -3472,7 +3555,7 @@ pub mod test {
                 1000,
                 |mut builder, ref mut miner, ref sortdb| {
                     let (mut miner_chainstate, _) =
-                        StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+                        StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
                     let sort_iconn = sortdb.index_conn();
 
                     let mut miner_epoch_info = builder
@@ -3545,5 +3628,15 @@ pub mod test {
             debug!("{:#?}", &peers);
             debug!("--- END ALL PEERS ({}) -----", peers.len());
         }
+    }
+
+    pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
+        StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(sk)],
+        )
+        .unwrap()
     }
 }

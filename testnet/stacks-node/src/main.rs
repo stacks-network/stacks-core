@@ -9,6 +9,8 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]
+extern crate stacks_common;
+
 extern crate stacks;
 
 #[allow(unused_imports)]
@@ -38,7 +40,6 @@ pub use self::burnchains::{
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
@@ -54,9 +55,9 @@ use backtrace::Backtrace;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
-        eprintln!("Process abort due to thread panic: {}", panic_info);
+        error!("Process abort due to thread panic: {}", panic_info);
         let bt = Backtrace::new();
-        eprintln!("{:?}", &bt);
+        error!("Panic backtrace: {:?}", &bt);
 
         // force a core dump
         #[cfg(unix)]

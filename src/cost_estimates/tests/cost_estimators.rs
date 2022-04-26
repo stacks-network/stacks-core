@@ -4,31 +4,34 @@ use time::Instant;
 use rand::seq::SliceRandom;
 use rand::Rng;
 
-use cost_estimates::metrics::CostMetric;
-use cost_estimates::{EstimatorError, FeeEstimator};
-use vm::costs::ExecutionCost;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{EstimatorError, FeeEstimator};
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
 
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
+
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
+use crate::core::BLOCK_LIMIT_MAINNET_20;
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::tests::common::*;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::cost_estimates::PessimisticEstimator;
-use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
-use core::BLOCK_LIMIT_MAINNET_20;
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();
@@ -71,41 +74,6 @@ fn test_empty_pessimistic_estimator() {
             .expect_err("Empty pessimistic estimator should error."),
         EstimatorError::NoEstimateAvailable
     );
-}
-
-fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksEpochReceipt {
-    StacksEpochReceipt {
-        header: StacksHeaderInfo {
-            anchored_header: StacksBlockHeader {
-                version: 1,
-                total_work: StacksWorkScore { burn: 1, work: 1 },
-                proof: VRFProof::empty(),
-                parent_block: BlockHeaderHash([0; 32]),
-                parent_microblock: BlockHeaderHash([0; 32]),
-                parent_microblock_sequence: 0,
-                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-                state_index_root: TrieHash([0; 32]),
-                microblock_pubkey_hash: Hash160([0; 20]),
-            },
-            microblock_tail: None,
-            block_height: 1,
-            index_root: TrieHash([0; 32]),
-            consensus_hash: ConsensusHash([2; 20]),
-            burn_header_hash: BurnchainHeaderHash([1; 32]),
-            burn_header_height: 2,
-            burn_header_timestamp: 2,
-            anchored_block_size: 1,
-        },
-        tx_receipts,
-        matured_rewards: vec![],
-        matured_rewards_info: None,
-        parent_microblocks_cost: ExecutionCost::zero(),
-        anchored_block_cost: ExecutionCost::zero(),
-        parent_burn_block_hash: BurnchainHeaderHash([0; 32]),
-        parent_burn_block_height: 1,
-        parent_burn_block_timestamp: 1,
-        evaluated_epoch: StacksEpochId::Epoch20,
-    }
 }
 
 fn make_dummy_coinbase_tx() -> StacksTransactionReceipt {
@@ -271,6 +239,104 @@ fn test_pessimistic_cost_estimator_declining_average() {
                 &make_dummy_cc_payload("contract-1", "func1"),
                 &StacksEpochId::Epoch20,
             )
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 5,
+            write_count: 5,
+            read_length: 5,
+            read_count: 5,
+            runtime: 5,
+        }
+    );
+}
+
+#[test]
+/// This tests the PessimisticEstimator as a unit (i.e., separate
+/// from the trait auto-impl method) by providing payload inputs
+/// to produce the expected pessimistic result (i.e., mean over a 10-sample
+/// window, where the window only updates if the new entry would make a dimension
+/// worse).
+fn pessimistic_estimator_contract_owner_separation() {
+    let mut estimator = instantiate_test_db();
+    let cc_payload_0 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([0; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+    let cc_payload_1 = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::new(0, Hash160([1; 20])),
+        contract_name: "contract-1".into(),
+        function_name: "func1".into(),
+        function_args: vec![],
+    });
+
+    estimator
+        .notify_event(
+            &cc_payload_0,
+            &ExecutionCost {
+                write_length: 1,
+                write_count: 1,
+                read_length: 1,
+                read_count: 1,
+                runtime: 1,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    assert_eq!(
+        estimator.estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,),
+        Err(EstimatorError::NoEstimateAvailable)
+    );
+
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    estimator
+        .notify_event(
+            &cc_payload_1,
+            &ExecutionCost {
+                write_length: 5,
+                write_count: 5,
+                read_length: 5,
+                read_count: 5,
+                runtime: 5,
+            },
+            &BLOCK_LIMIT_MAINNET_20,
+            &StacksEpochId::Epoch20,
+        )
+        .expect("Should be able to process event");
+
+    // cc_payload_0 should not be affected
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_0, &StacksEpochId::Epoch20,)
+            .expect("Should be able to provide cost estimate now"),
+        ExecutionCost {
+            write_length: 1,
+            write_count: 1,
+            read_length: 1,
+            read_count: 1,
+            runtime: 1,
+        }
+    );
+
+    // cc_payload_1 should be updated
+    assert_eq!(
+        estimator
+            .estimate_cost(&cc_payload_1, &StacksEpochId::Epoch20,)
             .expect("Should be able to provide cost estimate now"),
         ExecutionCost {
             write_length: 5,

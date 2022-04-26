@@ -24,25 +24,25 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use address::AddressHashMode;
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksPublicKey;
-use core::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::db::Error as db_error;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::TrieHash;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -53,6 +53,8 @@ use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
 };
+
+pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
@@ -154,24 +156,6 @@ impl BurnchainParameters {
             _ => false,
         }
     }
-}
-
-pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
-}
-
-pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-}
-
-pub trait Address: Clone + fmt::Debug + fmt::Display {
-    fn to_bytes(&self) -> Vec<u8>;
-    fn from_string(from: &str) -> Option<Self>
-    where
-        Self: Sized;
-    fn is_burn(&self) -> bool;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -569,8 +553,8 @@ impl BurnchainView {
                     use sha2::Digest;
                     use sha2::Sha256;
                     let mut hasher = Sha256::new();
-                    hasher.input(&i.to_le_bytes());
-                    hasher.result()
+                    hasher.update(&i.to_le_bytes());
+                    hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];
                 data_32.copy_from_slice(&data[0..32]);
@@ -585,22 +569,22 @@ impl BurnchainView {
 pub mod test {
     use std::collections::HashMap;
 
-    use address::*;
-    use burnchains::db::*;
-    use burnchains::Burnchain;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::*;
-    use chainstate::coordinator::comm::*;
-    use chainstate::coordinator::*;
-    use chainstate::stacks::*;
-    use util::db::*;
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::secp256k1::*;
-    use util::vrf::*;
+    use crate::burnchains::db::*;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::BlockstackOperationType;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::coordinator::comm::*;
+    use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::*;
+    use crate::util_lib::db::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::vrf::*;
 
     use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 
@@ -626,22 +610,20 @@ pub mod test {
         }
     }
 
-    impl BurnchainHeaderHash {
-        pub fn from_test_data(
-            block_height: u64,
-            index_root: &TrieHash,
-            noise: u64,
-        ) -> BurnchainHeaderHash {
-            let mut bytes = vec![];
-            bytes.extend_from_slice(&block_height.to_be_bytes());
-            bytes.extend_from_slice(index_root.as_bytes());
-            bytes.extend_from_slice(&noise.to_be_bytes());
-            let h = DoubleSha256::from_data(&bytes[..]);
-            let mut hb = [0u8; 32];
-            hb.copy_from_slice(h.as_bytes());
+    pub fn BurnchainHeaderHash_from_test_data(
+        block_height: u64,
+        index_root: &TrieHash,
+        noise: u64,
+    ) -> BurnchainHeaderHash {
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(index_root.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
 
-            BurnchainHeaderHash(hb)
-        }
+        BurnchainHeaderHash(hb)
     }
 
     impl BurnchainBlockHeader {
@@ -950,7 +932,7 @@ pub mod test {
 
             txop.vtxindex = self.txs.len() as u32;
             txop.block_height = self.block_height;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
+            txop.burn_header_hash = BurnchainHeaderHash_from_test_data(
                 txop.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1045,7 +1027,7 @@ pub mod test {
 
             txop.set_burn_height(self.block_height);
             txop.vtxindex = self.txs.len() as u32;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(
+            txop.burn_header_hash = BurnchainHeaderHash_from_test_data(
                 txop.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1089,7 +1071,7 @@ pub mod test {
         }
 
         pub fn mine(&self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
-            let block_hash = BurnchainHeaderHash::from_test_data(
+            let block_hash = BurnchainHeaderHash_from_test_data(
                 self.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,
@@ -1150,7 +1132,7 @@ pub mod test {
             burnchain: &Burnchain,
             coord: &mut ChainsCoordinator<'a, T, N, R, (), ()>,
         ) -> BlockSnapshot {
-            let block_hash = BurnchainHeaderHash::from_test_data(
+            let block_hash = BurnchainHeaderHash_from_test_data(
                 self.block_height,
                 &self.parent_snapshot.index_root,
                 self.fork_id,

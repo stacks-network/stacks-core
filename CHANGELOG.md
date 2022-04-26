@@ -13,6 +13,109 @@ This release will contain consensus-breaking changes.
 
 - Clarity function `stx-transfer?` now takes a 4th optional argument, which is a memo.
 
+## [2.05.0.2.0]
+
+WARNING: Please be aware that using this node on chainstate prior to this release will cause
+the node to spend up to 30 minutes migrating the data to a new schema.
+
+### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+calculations, and yields a performance improvement of anywhere between 10x and
+200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+Clarity database). This improves read performance by a factor of 10x to 14x
+(#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
+- Sortition processing performance has been improved by about an order of
+  magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
+applying this change to an existing chainstate directory will take a few
+minutes when the node starts up.
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
+- Reduced the default subsequent block attempt timeout from 180 seconds to 30
+  seconds, based on benchmarking the new MARF performance data during a period
+of network congestion (#3098)
+
+## [2.05.0.1.0]
+
+### Added 
+- A new fee estimator intended to produce fewer over-estimates, by having less
+  sensitivity to outliers. Its characteristic features are: 1) use a window to
+  forget past estimates instead of exponential averaging, 2) use weighted
+  percentiles, so that bigger transactions influence the estimates more, 3)
+  assess empty space in blocks as having paid the "minimum fee", so that empty
+  space is accounted for, 4) use random "fuzz" so that in busy times the fees can
+  change dynamically. (#2972)
+- Implements anti-entropy protocol for querying transactions from other 
+  nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
+  (#2884)
+- Structured logging in the mining code paths. This will shine light 
+  on what happens to transactions (successfully added, skipped or errored) that the
+  miner considers while buildings blocks. (#2975)
+- Added the mined microblock event, which includes information on transaction
+  events that occurred in the course of mining (will provide insight
+  on whether a transaction was successfully added to the block,
+  skipped, or had a processing error). (#2975)
+- For v2 endpoints, can now specify the `tip` parameter to `latest`. If 
+  `tip=latest`, the node will try to run the query off of the latest tip. (#2778)
+- Adds the /v2/headers endpoint, which returns a sequence of SIP-003-encoded 
+  block headers and consensus hashes (see the ExtendedStacksHeader struct that 
+  this PR adds to represent this data). (#2862)
+- Adds the /v2/data_var endpoint, which returns a contract's data variable 
+  value and a MARF proof of its existence. (#2862)
+- Fixed a bug in the unconfirmed state processing logic that could lead to a
+  denial of service (node crash) for nodes that mine microblocks (#2970)
+- Added prometheus metric that tracks block fullness by logging the percentage of each
+  cost dimension that is consumed in a given block (#3025).  
+  
+
+### Changed
+- Updated the mined block event. It now includes information on transaction 
+  events that occurred in the course of mining (will provide insight
+  on whether a transaction was successfully added to the block, 
+  skipped, or had a processing error). (#2975)
+- Updated some of the logic in the block assembly for the miner and the follower
+  to consolidate similar logic. Added functions `setup_block` and `finish_block`.
+  (#2946)
+- Makes the p2p state machine more reactive to newly-arrived 
+  `BlocksAvailable` and `MicroblocksAvailable` messages for block and microblock 
+  streams that this node does not have. If such messages arrive during an inventory 
+  sync, the p2p state machine will immediately transition from the inventory sync 
+  work state to the block downloader work state, and immediately proceed to fetch 
+  the available block or microblock stream. (#2862)
+- Nodes will push recently-obtained blocks and microblock streams to outbound
+  neighbors if their cached inventories indicate that they do not yet have them
+(#2986).
+- Nodes will no longer perform full inventory scans on their peers, except
+  during boot-up, in a bid to minimize block-download stalls (#2986).
+- Nodes will process sortitions in parallel to downloading the Stacks blocks for
+  a reward cycle, instead of doing these tasks sequentially (#2986).
+- The node's runloop will coalesce and expire stale requests to mine blocks on
+  top of parent blocks that are no longer the chain tip (#2969).
+- Several database indexes have been updated to avoid table scans, which
+  significantly improves most RPC endpoint speed and cuts node spin-up time in
+half (#2989, #3005).
+- Fixed a rare denial-of-service bug whereby a node that processes a very deep
+  burnchain reorg can get stuck, and be rendered unable to process further
+sortitions.  This has never happened in production, but it can be replicated in
+tests (#2989).
+- Updated what indices are created, and ensures that indices are created even 
+  after the database is initialized (#3029).
+
+### Fixed 
+- Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
+  published by different principals with the same name would have had the same 
+  key in the cost estimator. (#2984)
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+  when polling data (#2987)
+- Fixed an error message from the type-checker that shows up when the type of a
+  parameter refers to a trait defined in the same contract (#3064).
+
 ## [2.05.0.0.0]
 
 This software update is a consensus changing release and the
@@ -24,12 +127,12 @@ directories before the 2.05 consensus changes activate (Bitcoin height
 run a 2.05 node afterwards, you must start from a new chainstate
 directory.
 
-## Added
+### Added
 
 - At height 713,000 a new `costs-2` contract will be launched by the
   Stacks boot address.
 
-## Changed
+### Changed
 
 - Stacks blocks whose parents are mined >= 713,000 will use default costs
   from the new `costs-2` contract.
@@ -39,7 +142,7 @@ directory.
 - Stacks blocks whose parents are mined >= 713,000 will use the new block
   limit defined in SIP-012.
 
-## Fixed
+### Fixed
 
 - Miners are now more aggressive in calculating their block limits
   when confirming microblocks (#2916)
@@ -51,7 +154,7 @@ selection logic in the default miner to prioritize by an estimated fee
 rate instead of raw fee. This release's chainstate directory is
 compatible with chainstate directories from 2.0.11.3.0.
 
-## Added
+### Added
 
 - FeeEstimator and CostEstimator interfaces. These can be controlled
   via node configuration options. See the `README.md` for more
@@ -59,7 +162,7 @@ compatible with chainstate directories from 2.0.11.3.0.
 - New fee rate estimation endpoint `/v2/fees/transaction` (#2872). See
   `docs/rpc/openapi.yaml` for more information.
 
-## Changed
+### Changed
 
 - Prioritize transaction inclusion in blocks by estimated fee rates (#2859).
 - MARF sqlite connections will now use `mmap`'ed connections with up to 256MB

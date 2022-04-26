@@ -14,30 +14,30 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::PEER_VERSION_TESTNET;
+use crate::core::PEER_VERSION_TESTNET;
 
-use net::asn::ASEntry4;
-use net::db::PeerDB;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use crate::net::asn::ASEntry4;
+use crate::net::db::PeerDB;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
 
-use net::codec::*;
-use net::*;
+use crate::net::codec::*;
+use crate::net::*;
 
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleP2P;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleP2P;
 
-use net::db::LocalPeer;
+use crate::net::db::LocalPeer;
 
-use net::p2p::*;
+use crate::net::p2p::*;
 
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
 
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use std::cmp;
 use std::mem;
@@ -46,16 +46,16 @@ use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
 
 use rand::prelude::*;
 use rand::thread_rng;
-use util::get_epoch_time_secs;
-use util::hash::*;
-use util::log;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::log;
 
 #[cfg(test)]
 pub const NEIGHBOR_MINIMUM_CONTACT_INTERVAL: u64 = 0;
@@ -1890,10 +1890,16 @@ impl PeerNetwork {
         Ok((count, num_allowed_peers as u64))
     }
 
-    /// Instantiate the neighbor walk to an always-allowed node
-    fn instantiate_walk_to_always_allowed(&mut self) -> Result<(), net_error> {
-        let allowed_peers =
-            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?;
+    /// Instantiate the neighbor walk to an always-allowed node.
+    /// If we're in the initial block download, then this must also be a *bootstrap* peer.
+    fn instantiate_walk_to_always_allowed(&mut self, ibd: bool) -> Result<(), net_error> {
+        let allowed_peers = if ibd {
+            // only get bootstrap peers
+            PeerDB::get_bootstrap_peers(&self.peerdb.conn(), self.local_peer.network_id)?
+        } else {
+            // can be any peer marked 'always-allowed'
+            PeerDB::get_always_allowed_peers(self.peerdb.conn(), self.local_peer.network_id)?
+        };
 
         let mut count = 0;
         for allowed in allowed_peers.iter() {
@@ -2764,7 +2770,7 @@ impl PeerNetwork {
     /// Mask errors by restarting the graph walk.
     /// Returns the walk result, and a true/false flag to indicate whether or not the work for the
     /// walk was finished (i.e. we either completed the walk, or we reset the walk)
-    pub fn walk_peer_graph(&mut self) -> (bool, Option<NeighborWalkResult>) {
+    pub fn walk_peer_graph(&mut self, ibd: bool) -> (bool, Option<NeighborWalkResult>) {
         if self.walk.is_none() {
             // time to do a walk yet?
             if (self.walk_count > self.connection_opts.num_initial_walks
@@ -2799,9 +2805,26 @@ impl PeerNetwork {
             );
 
             // always ensure we're connected to always-allowed outbound peers
-            let walk_res = match self.instantiate_walk_to_always_allowed() {
+            let walk_res = if ibd {
+                // always connect to bootstrap peers if in IBD
+                self.instantiate_walk_to_always_allowed(ibd)
+            } else {
+                // if not in IBD, then we're not required to use the always-allowed neighbors
+                // all the time (since they may be offline, and we have all the blocks anyway).
+                // Alternate between picking random neighbors, and picking always-allowed
+                // neighbors.
+                if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
+                    self.instantiate_walk()
+                } else {
+                    self.instantiate_walk_to_always_allowed(ibd)
+                }
+            };
+
+            let walk_res = match walk_res {
                 Ok(x) => Ok(x),
                 Err(net_error::NotFoundError) => {
+                    // failed to create a walk, so either connect to any known neighbor or connect
+                    // to an inbound peer.
                     if self.walk_attempts % (self.connection_opts.walk_inbound_ratio + 1) == 0 {
                         self.instantiate_walk()
                     } else {
@@ -3079,17 +3102,17 @@ impl PeerNetwork {
 #[cfg(test)]
 mod test {
     use super::*;
-    use core::{
+    use crate::core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
         STACKS_EPOCH_MAX,
     };
-    use net::asn::*;
-    use net::chat::*;
-    use net::db::*;
-    use net::test::*;
-    use util::hash::*;
-    use util::sleep_ms;
-    use util::test::*;
+    use crate::net::asn::*;
+    use crate::net::chat::*;
+    use crate::net::db::*;
+    use crate::net::test::*;
+    use crate::util_lib::test::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
 
     const TEST_IN_OUT_DEGREES: u64 = 0x1;
 
@@ -5716,7 +5739,7 @@ mod test {
                 random_order[i] = i;
             }
             let mut rng = thread_rng();
-            &mut &random_order.shuffle(&mut rng);
+            let _ = &mut &random_order.shuffle(&mut rng);
 
             for i in random_order.into_iter() {
                 let _ = peers[i].step();

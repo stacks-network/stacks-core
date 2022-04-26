@@ -38,46 +38,46 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::RngCore;
 
-use crate::types::chainstate::StacksBlockHeader;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::net::asn::ASEntry4;
+use crate::net::atlas::AttachmentsDownloader;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleHttp;
+use crate::net::db::PeerDB;
+use crate::net::db::*;
+use crate::net::dns::*;
+use crate::net::inv::InvState;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::p2p::PeerNetwork;
+use crate::net::rpc::*;
+use crate::net::server::HttpPeer;
+use crate::net::Error as net_error;
+use crate::net::GetBlocksInv;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::StacksMessage;
+use crate::net::StacksP2P;
+use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::Error as chainstate_error;
-use core::EMPTY_MICROBLOCK_PARENT_HASH;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use net::asn::ASEntry4;
-use net::atlas::AttachmentsDownloader;
-use net::codec::*;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::db::PeerDB;
-use net::db::*;
-use net::dns::*;
-use net::inv::InvState;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::p2p::PeerNetwork;
-use net::rpc::*;
-use net::server::HttpPeer;
-use net::Error as net_error;
-use net::GetBlocksInv;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
@@ -120,6 +120,7 @@ pub struct BlockRequestKey {
     pub sortition_height: u64,
     pub download_start: u64,
     pub kind: BlockRequestKeyKind,
+    pub canonical_stacks_tip_height: u64,
 }
 
 impl BlockRequestKey {
@@ -133,6 +134,7 @@ impl BlockRequestKey {
         parent_consensus_hash: Option<ConsensusHash>,
         sortition_height: u64,
         kind: BlockRequestKeyKind,
+        canonical_stacks_tip_height: u64,
     ) -> BlockRequestKey {
         BlockRequestKey {
             neighbor: neighbor,
@@ -145,6 +147,7 @@ impl BlockRequestKey {
             sortition_height: sortition_height,
             download_start: get_epoch_time_secs(),
             kind,
+            canonical_stacks_tip_height,
         }
     }
 }
@@ -157,12 +160,15 @@ impl Requestable for BlockRequestKey {
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
         match self.kind {
             BlockRequestKeyKind::Block => HttpRequestType::GetBlock(
-                HttpRequestMetadata::from_host(peer_host),
+                HttpRequestMetadata::from_host(peer_host, Some(self.canonical_stacks_tip_height)),
                 self.index_block_hash,
             ),
             BlockRequestKeyKind::ConfirmedMicroblockStream => {
                 HttpRequestType::GetMicroblocksConfirmed(
-                    HttpRequestMetadata::from_host(peer_host),
+                    HttpRequestMetadata::from_host(
+                        peer_host,
+                        Some(self.canonical_stacks_tip_height),
+                    ),
                     self.index_block_hash,
                 )
             }
@@ -457,6 +463,9 @@ impl BlockDownloader {
                         } else {
                             self.dead_peers.push(event_id);
 
+                            // try again
+                            self.requested_blocks.remove(&block_key.index_block_hash);
+
                             let is_always_allowed = match PeerDB::get_peer(
                                 &network.peerdb.conn(),
                                 block_key.neighbor.network_id,
@@ -580,6 +589,10 @@ impl BlockDownloader {
                             pending_microblock_requests.insert(block_key, event_id);
                         } else {
                             self.dead_peers.push(event_id);
+
+                            // try again
+                            self.requested_microblocks
+                                .remove(&block_key.index_block_hash);
 
                             let is_always_allowed = match PeerDB::get_peer(
                                 &network.peerdb.conn(),
@@ -1510,6 +1523,7 @@ impl PeerNetwork {
                     } else {
                         BlockRequestKeyKind::Block
                     },
+                    self.burnchain_tip.canonical_stacks_tip_height,
                 );
                 requests.push_back(request);
             }
@@ -1898,11 +1912,14 @@ impl PeerNetwork {
         })
     }
 
-    fn connect_or_send_http_request(
+    /// Send a (non-blocking) HTTP request to a remote peer.
+    /// Returns the event ID on success.
+    pub fn connect_or_send_http_request(
         &mut self,
         data_url: UrlString,
         addr: SocketAddr,
         request: HttpRequestType,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<usize, net_error> {
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
@@ -1919,7 +1936,7 @@ impl PeerNetwork {
                         match http.get_conversation_and_socket(event_id) {
                             (Some(ref mut convo), Some(ref mut socket)) => {
                                 convo.send_request(request)?;
-                                HttpPeer::saturate_http_socket(socket, convo, chainstate)?;
+                                HttpPeer::saturate_http_socket(socket, convo, mempool, chainstate)?;
                                 Ok(event_id)
                             }
                             (_, _) => {
@@ -1944,6 +1961,7 @@ impl PeerNetwork {
         network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Option<(T, usize)> {
         loop {
@@ -1966,6 +1984,7 @@ impl PeerNetwork {
                                 requestable.get_url().clone(),
                                 addr.clone(),
                                 request,
+                                mempool,
                                 chainstate,
                             ) {
                                 Ok(handle) => {
@@ -2007,6 +2026,7 @@ impl PeerNetwork {
     /// Start fetching blocks
     pub fn block_getblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
@@ -2020,6 +2040,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2053,6 +2074,7 @@ impl PeerNetwork {
     /// Proceed to get microblocks
     pub fn block_getmicroblocks_begin(
         &mut self,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
@@ -2066,6 +2088,7 @@ impl PeerNetwork {
                             network,
                             &downloader.dns_lookups,
                             keys,
+                            mempool,
                             chainstate,
                         ) {
                             Some((key, handle)) => {
@@ -2376,6 +2399,7 @@ impl PeerNetwork {
     pub fn download_blocks(
         &mut self,
         sortdb: &SortitionDB,
+        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2477,13 +2501,13 @@ impl PeerNetwork {
                     self.block_dns_lookups_try_finish(dns_client)?;
                 }
                 BlockDownloaderState::GetBlocksBegin => {
-                    self.block_getblocks_begin(chainstate)?;
+                    self.block_getblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetBlocksFinish => {
                     self.block_getblocks_try_finish()?;
                 }
                 BlockDownloaderState::GetMicroblocksBegin => {
-                    self.block_getmicroblocks_begin(chainstate)?;
+                    self.block_getmicroblocks_begin(mempool, chainstate)?;
                 }
                 BlockDownloaderState::GetMicroblocksFinish => {
                     self.block_getmicroblocks_try_finish()?;
@@ -2548,22 +2572,22 @@ pub mod test {
 
     use rand::Rng;
 
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::*;
-    use net::codec::*;
-    use net::inv::*;
-    use net::relay::*;
-    use net::test::*;
-    use net::*;
-    use util::hash::*;
-    use util::sleep_ms;
-    use util::strings::*;
-    use util::test::*;
-    use vm::costs::ExecutionCost;
-    use vm::representations::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::*;
+    use crate::net::inv::*;
+    use crate::net::relay::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::strings::*;
+    use crate::util_lib::test::*;
+    use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::representations::*;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::sleep_ms;
 
     use super::*;
 
@@ -2869,6 +2893,7 @@ pub mod test {
                         sortdb,
                         chainstate,
                         mempool,
+                        false,
                         None,
                         None,
                     )
