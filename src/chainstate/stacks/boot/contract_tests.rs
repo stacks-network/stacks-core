@@ -116,6 +116,7 @@ pub struct TestSimBurnStateDB {
     /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
     pox_constants: PoxConstants,
+    height: u32
 }
 
 impl ClarityTestSim {
@@ -127,12 +128,11 @@ impl ClarityTestSim {
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
             );
 
-            store
-                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
-                .initialize();
+            let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            db.initialize();
 
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+                OwnedEnvironment::new_toplevel(db);
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -167,6 +167,7 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap()
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -199,12 +200,14 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap()
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
             debug!("Execute block in epoch {}", &cur_epoch);
 
-            let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
+            let db = store.as_clarity_db(&headers_db, &burn_db);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };
 
@@ -252,8 +255,9 @@ impl ClarityTestSim {
 
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
+            let db = store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB);
             let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+                OwnedEnvironment::new_toplevel(db);
 
             f(&mut owned_env)
         };
@@ -323,9 +327,14 @@ impl BurnStateDB for TestSimBurnStateDB {
     ) -> Option<BurnchainHeaderHash> {
         // generate burnchain header hash for height if the sortition ID is a valid test-sim
         // sortition ID
-        match (test_sim_hash_to_height(&sortition_id.0), test_sim_hash_to_fork(&sortition_id.0)) {
-            (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(height.into(), fork))),
-            _ => None
+        if height >= self.height {
+            None
+        }
+        else {
+            match (test_sim_hash_to_height(&sortition_id.0), test_sim_hash_to_fork(&sortition_id.0)) {
+                (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(height.into(), fork))),
+                _ => None
+            }
         }
     }
 
