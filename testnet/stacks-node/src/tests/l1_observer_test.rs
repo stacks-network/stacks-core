@@ -298,7 +298,7 @@ fn l1_integration_test() {
         &config.burnchain.chain,
         &config.burnchain.mode,
     )
-        .unwrap();
+    .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
