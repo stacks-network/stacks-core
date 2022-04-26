@@ -29,8 +29,8 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
-    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
-    BUFF_32,
+    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
+    TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::types::chainstate::StacksBlockId;

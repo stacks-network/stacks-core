@@ -9,8 +9,8 @@ use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
-use crate::util::vrf::VRFProof;
 use crate::util::uint::Uint256;
+use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -24,9 +24,9 @@ use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rand::Rng;
 use rand::SeedableRng;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -76,7 +76,6 @@ impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
-
 
 /// Identifier used to identify Proof-of-Transfer forks
 ///  (or Rewards Cycle forks). These identifiers are opaque

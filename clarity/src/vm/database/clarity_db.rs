@@ -762,12 +762,22 @@ impl<'a> ClarityDatabase<'a> {
 
         // infallible, since we always store the consensus hash with the StacksBlockId in the
         // headers DB
-        let consensus_hash = self.headers_db.get_consensus_hash_for_block(&parent_id_bhh)
-            .expect(&format!("FATAL: no consensus hash found for StacksBlockId {}", &parent_id_bhh));
+        let consensus_hash = self
+            .headers_db
+            .get_consensus_hash_for_block(&parent_id_bhh)
+            .expect(&format!(
+                "FATAL: no consensus hash found for StacksBlockId {}",
+                &parent_id_bhh
+            ));
 
         // infallible, since every sortition has a consensus hash
-        let sortition_id = self.burn_state_db.get_sortition_id_from_consensus_hash(&consensus_hash)
-            .expect(&format!("FATAL: no SortitionID found for consensus hash {}", &consensus_hash));
+        let sortition_id = self
+            .burn_state_db
+            .get_sortition_id_from_consensus_hash(&consensus_hash)
+            .expect(&format!(
+                "FATAL: no SortitionID found for consensus hash {}",
+                &consensus_hash
+            ));
 
         self.burn_state_db
             .get_burn_header_hash(burnchain_block_height, &sortition_id)

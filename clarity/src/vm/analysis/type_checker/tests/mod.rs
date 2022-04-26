@@ -131,7 +131,12 @@ fn test_get_burn_block_info() {
         CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
         CheckErrors::RequiresAtLeastArguments(2, 0),
         CheckErrors::RequiresAtLeastArguments(2, 1),
-        CheckErrors::TypeError(UIntType, SequenceType(StringType(ASCII(BufferLength::try_from(1u32).expect("BufferLength::try_from failed"))))),
+        CheckErrors::TypeError(
+            UIntType,
+            SequenceType(StringType(ASCII(
+                BufferLength::try_from(1u32).expect("BufferLength::try_from failed"),
+            ))),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

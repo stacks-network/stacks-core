@@ -33,19 +33,19 @@ use crate::vm::execute as vm_execute;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{
     execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    with_memory_environment, TEST_BURN_STATE_DB, TEST_HEADER_DB, BurnStateDB,
+    with_memory_environment, BurnStateDB, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use crate::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::util::hash::hex_bytes;
 use stacks_common::types::chainstate::{ConsensusHash, SortitionId};
+use stacks_common::util::hash::hex_bytes;
 
-use crate::vm::Value::Sequence;
 use crate::vm::types::serialization::TypePrefix::Buffer;
 use crate::vm::types::BuffData;
+use crate::vm::Value::Sequence;
 
 use crate::vm::database::MemoryBackingStore;
 

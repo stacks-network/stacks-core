@@ -11,12 +11,12 @@ use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
-use stacks_common::types::chainstate::ConsensusHash;
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
@@ -143,10 +143,10 @@ impl HeadersDB for UnitTestHeaderDB {
         None
     }
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
-        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH) {
+        if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+        {
             Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
-        }
-        else {
+        } else {
             None
         }
     }

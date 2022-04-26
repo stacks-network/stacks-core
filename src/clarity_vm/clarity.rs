@@ -1893,7 +1893,10 @@ mod tests {
                 None
             }
 
-            fn get_sortition_id_from_consensus_hash(&self, consensus_hash: &ConsensusHash) -> Option<SortitionId> {
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
                 None
             }
 

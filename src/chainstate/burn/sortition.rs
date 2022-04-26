@@ -48,7 +48,6 @@ use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId, VRFSeed};
 use stacks_common::types::chainstate::TrieHash;
 
-
 impl BlockSnapshot {
     /// Creates an "empty" (i.e. zeroed out) BlockSnapshot, to make a basis for creating
     /// `BlockSnapshot` with a few key fields filled.

@@ -43,8 +43,8 @@ use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::TrieHash;
 
-use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,

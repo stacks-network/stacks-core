@@ -14,7 +14,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 
 use crate::chainstate::stacks::db::ChainstateTx;
-use crate::chainstate::stacks::index::marf::{MARF, MarfConnection};
+use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
@@ -83,7 +83,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     ) -> Option<BurnchainHeaderHash> {
         get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_hash)
     }
-    
+
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
     }

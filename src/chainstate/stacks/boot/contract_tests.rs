@@ -116,7 +116,7 @@ pub struct TestSimBurnStateDB {
     /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
     pox_constants: PoxConstants,
-    height: u32
+    height: u32,
 }
 
 impl ClarityTestSim {
@@ -131,8 +131,7 @@ impl ClarityTestSim {
             let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
             db.initialize();
 
-            let mut owned_env =
-                OwnedEnvironment::new_toplevel(db);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -167,7 +166,7 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap()
+                height: (self.height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -200,7 +199,7 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
-                height: (self.height + 100).try_into().unwrap()
+                height: (self.height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -256,8 +255,7 @@ impl ClarityTestSim {
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
             let db = store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB);
-            let mut owned_env =
-                OwnedEnvironment::new_toplevel(db);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
 
             f(&mut owned_env)
         };
@@ -329,16 +327,24 @@ impl BurnStateDB for TestSimBurnStateDB {
         // sortition ID
         if height >= self.height {
             None
-        }
-        else {
-            match (test_sim_hash_to_height(&sortition_id.0), test_sim_hash_to_fork(&sortition_id.0)) {
-                (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(height.into(), fork))),
-                _ => None
+        } else {
+            match (
+                test_sim_hash_to_height(&sortition_id.0),
+                test_sim_hash_to_fork(&sortition_id.0),
+            ) {
+                (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(
+                    height.into(),
+                    fork,
+                ))),
+                _ => None,
             }
         }
     }
 
-    fn get_sortition_id_from_consensus_hash(&self, consensus_hash: &ConsensusHash) -> Option<SortitionId> {
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
         // consensus hashes are constructed as the leading 20 bytes of the stacks block ID from
         // whence it came.
         let mut bytes = [0u8; 32];

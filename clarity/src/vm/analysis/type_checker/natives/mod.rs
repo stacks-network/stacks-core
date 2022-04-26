@@ -26,9 +26,9 @@ use crate::vm::types::signatures::SequenceSubtype;
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
+    FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
+    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 

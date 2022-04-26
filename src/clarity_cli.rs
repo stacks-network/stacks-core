@@ -33,7 +33,7 @@ use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
-use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum, Hash160};
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{
     vm::analysis,
@@ -589,7 +589,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
-    
+
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         // mock it
         let conn = self.conn();

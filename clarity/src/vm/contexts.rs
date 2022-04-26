@@ -542,7 +542,12 @@ impl<'a> OwnedEnvironment<'a> {
     #[cfg(any(test, feature = "testing"))]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(false, database, LimitedCostTracker::new_free(), StacksEpochId::Epoch2_05),
+            context: GlobalContext::new(
+                false,
+                database,
+                LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch2_05,
+            ),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity1,
@@ -550,7 +555,7 @@ impl<'a> OwnedEnvironment<'a> {
             call_stack: CallStack::new(),
         }
     }
-    
+
     #[cfg(any(test, feature = "testing"))]
     pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
         database.begin();
@@ -558,7 +563,10 @@ impl<'a> OwnedEnvironment<'a> {
         let version = ClarityVersion::default_for_epoch(epoch);
         database.roll_back();
 
-        debug!("Begin OwnedEnvironment(epoch = {}, version = {})", &epoch, &version);
+        debug!(
+            "Begin OwnedEnvironment(epoch = {}, version = {})",
+            &epoch, &version
+        );
         OwnedEnvironment {
             context: GlobalContext::new(false, database, LimitedCostTracker::new_free(), epoch),
             default_contract: ContractContext::new(
@@ -582,7 +590,7 @@ impl<'a> OwnedEnvironment<'a> {
             context: GlobalContext::new(use_mainnet, database, cost_track, epoch),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                version
+                version,
             ),
             call_stack: CallStack::new(),
         }
