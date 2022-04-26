@@ -1393,12 +1393,13 @@ const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     output_type: "(optional buff)",
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
-not correspond to an block that is both 1) prior to the current block, and 2) since the start of
-the Stacks chain, the function returns `None`. The only available property name so far is
-`header-hash`.
+value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
+include heights between the burnchain height at the time the Stacks chain was launched, and the last-processed burnchain
+block.  If the `block-height` argument falls outside of this range, then `none` shall be returned.
 
-The `header-hash` property returns a 32-byte integer representing the header hash of the burnchain block at
+The following `BlockInfoPropertyName` values are defined:
+
+* The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
 burnchain height `block-height`.
 ",
     example: "
