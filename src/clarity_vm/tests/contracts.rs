@@ -31,6 +31,7 @@ use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::execute as vm_execute;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{
@@ -53,38 +54,90 @@ use clarity::vm::types::BuffData;
 use clarity::vm::database::MemoryBackingStore;
 
 use crate::chainstate::stacks::boot::contract_tests::{ClarityTestSim, test_sim_height_to_hash};
+use crate::clarity::vm::clarity::TransactionConnection;
 
 #[test]
 // Here, we set up a basic test to see if we can recover a path from the ClarityTestSim.
 fn test_get_burn_block_info_eval() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 1, 2];
+    sim.epoch_bounds = vec![0, 2, 4];
 
     // Advance at least one block because 'get-burn-block-info' only works after the first block.
     sim.execute_next_block(|_env| {});
-    // Advance another block so we get to Stacks 2.05. 
-    sim.execute_next_block(|_env| {});
-    // Advance another block so we get to Stacks 2.1. 
-    sim.execute_next_block(|_env| {});
-    sim.execute_next_block(|owned_env| {
-        let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+    // Advance another block so we get to Stacks 2.05.
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-1").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
-        owned_env
-            .initialize_contract(contract_identifier.clone(), contract, None)
-            .unwrap();
-
+        conn.as_transaction(|clarity_db| {
+            let res = clarity_db
+                .analyze_smart_contract(&contract_identifier, contract);
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::UnknownFunction(func_name) = check_error.err {
+                    assert_eq!(func_name, "get-burn-block-info?");
+                }
+                else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            }
+            else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+        });
+    });
+    // Advance another block so we get to Stacks 2.1. This is the last block in 2.05 
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-2").unwrap();
+        let contract =
+            "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
+        conn.as_transaction(|clarity_db| {
+            let res = clarity_db
+                .analyze_smart_contract(&contract_identifier, contract);
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::UnknownFunction(func_name) = check_error.err {
+                    assert_eq!(func_name, "get-burn-block-info?");
+                }
+                else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            }
+            else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+        });
+    });
+    // now in Stacks 2.1, so this should work!
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-3").unwrap();
+        let contract =
+            "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&contract_identifier, contract)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &contract_identifier,
+                    &ast,
+                    contract,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
         // This relies on `TestSimBurnStateDB::get_burn_header_hash'
+        // * burnchain is 100 blocks ahead of stacks
+        // * sortition IDs, consensus hashes, and block hashes encode height and fork ID
+        let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Optional(OptionalData {
                 data: Some(Box::new(Sequence(Buffer(BuffData {
                     data: test_sim_height_to_hash(0, 0).to_vec()
                 }))))
             }),
-            owned_env
+            tx
                 .eval_read_only(&contract_identifier, "(test-func u0)")
                 .unwrap()
-                .0
         );
         assert_eq!(
             Value::Optional(OptionalData {
@@ -92,10 +145,9 @@ fn test_get_burn_block_info_eval() {
                     data: test_sim_height_to_hash(1, 0).to_vec()
                 }))))
             }),
-            owned_env
+            tx
                 .eval_read_only(&contract_identifier, "(test-func u1)")
                 .unwrap()
-                .0
         );
         assert_eq!(
             Value::Optional(OptionalData {
@@ -103,10 +155,18 @@ fn test_get_burn_block_info_eval() {
                     data: test_sim_height_to_hash(2, 0).to_vec()
                 }))))
             }),
-            owned_env
+            tx
                 .eval_read_only(&contract_identifier, "(test-func u2)")
                 .unwrap()
-                .0
+        );
+        // burnchain is 100 blocks ahead of stacks chain in this sim
+        assert_eq!(
+            Value::Optional(OptionalData {
+                data: None
+            }),
+            tx
+                .eval_read_only(&contract_identifier, "(test-func u103)")
+                .unwrap()
         );
     });
 }
