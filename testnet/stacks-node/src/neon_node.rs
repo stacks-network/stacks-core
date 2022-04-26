@@ -71,6 +71,8 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
+use crate::operations::BurnchainOpSigner;
+
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
 lazy_static! {
@@ -109,6 +111,70 @@ fn get_delayed_txs(height: u64) -> Vec<SerializedTx> {
 #[cfg(not(test))]
 fn get_delayed_txs(_height: u64) -> Vec<SerializedTx> {
     vec![]
+}
+
+/// Inject a fault into the system: delay sending a transaction by one block, and send all
+/// transactions that were previosuly delayed to the given burnchain block.  Return `true` if the
+/// burnchain transaction should be sent; `false` if not.
+#[cfg(test)]
+fn fault_injection_delay_transactions(
+    bitcoin_controller: &mut BitcoinRegtestController,
+    cur_burn_chain_height: u64,
+    stacks_block_burn_height: u64,
+    op: &BlockstackOperationType,
+    op_signer: &mut BurnchainOpSigner,
+    attempt: u64,
+) -> bool {
+    // fault injection for testing: force the use of a bad burn modulus
+    let mut do_fault = false;
+    let mut send_tx = true;
+    if let Ok(bad_height_str) = std::env::var("STX_TEST_LATE_BLOCK_COMMIT") {
+        if let Ok(bad_height) = bad_height_str.parse::<u64>() {
+            if bad_height == cur_burn_chain_height {
+                do_fault = true;
+            }
+        }
+    }
+    if do_fault {
+        test_debug!(
+            "Fault injection: don't send the block-commit right away; hold onto it for one block"
+        );
+        bitcoin_controller.set_allow_rbf(false);
+        let tx = bitcoin_controller
+            .make_operation_tx(op.clone(), op_signer, attempt)
+            .unwrap();
+        store_delayed_tx(tx, stacks_block_burn_height + 1);
+
+        // don't actually send it yet
+        send_tx = false;
+    }
+
+    // send all delayed txs for this block height
+    let delayed_txs = get_delayed_txs(stacks_block_burn_height);
+    for tx in delayed_txs.into_iter() {
+        test_debug!("Fault injection: submit delayed tx {}", &to_hex(&tx.bytes));
+        let res = bitcoin_controller.send_transaction(tx.clone());
+        if !res {
+            test_debug!(
+                "Fault injection: failed to send delayed tx {}",
+                &to_hex(&tx.bytes)
+            );
+        }
+    }
+
+    send_tx
+}
+
+#[cfg(not(test))]
+fn fault_injection_delay_transactions(
+    _bitcoin_controller: &mut BitcoinRegtestController,
+    _cur_burn_chain_height: u64,
+    _stacks_block_burn_height: u64,
+    _op: &BlockstackOperationType,
+    _op_signer: &mut BurnchainOpSigner,
+    _attempt: u64,
+) -> bool {
+    false
 }
 
 struct AssembledAnchorBlock {
@@ -2160,43 +2226,14 @@ impl StacksNode {
             "attempt" => attempt
         );
 
-        let mut send_tx = true;
-        if cfg!(test) {
-            // fault injection for testing: force the use of a bad burn modulus
-            let mut do_fault = false;
-            if let Ok(bad_height_str) = std::env::var("STX_TEST_LATE_BLOCK_COMMIT") {
-                if let Ok(bad_height) = bad_height_str.parse::<u64>() {
-                    if bad_height == cur_burn_chain_tip.block_height {
-                        do_fault = true;
-                    }
-                }
-            }
-            if do_fault {
-                test_debug!("Fault injection: don't send the block-commit right away; hold onto it for one block");
-                bitcoin_controller.set_allow_rbf(false);
-                let tx = bitcoin_controller
-                    .make_operation_tx(op.clone(), &mut op_signer, attempt)
-                    .unwrap();
-                store_delayed_tx(tx, burn_block.block_height + 1);
-
-                // don't actually send it yet
-                send_tx = false;
-            }
-
-            // send all delayed txs for this block height
-            let delayed_txs = get_delayed_txs(burn_block.block_height);
-            for tx in delayed_txs.into_iter() {
-                test_debug!("Fault injection: submit delayed tx {}", &to_hex(&tx.bytes));
-                let res = bitcoin_controller.send_transaction(tx.clone());
-                if !res {
-                    test_debug!(
-                        "Fault injection: failed to send delayed tx {}",
-                        &to_hex(&tx.bytes)
-                    );
-                }
-            }
-        }
-
+        let send_tx = fault_injection_delay_transactions(
+            bitcoin_controller,
+            cur_burn_chain_tip.block_height,
+            burn_block.block_height,
+            &op,
+            &mut op_signer,
+            attempt,
+        );
         if send_tx {
             let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
             if !res {
