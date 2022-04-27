@@ -63,6 +63,7 @@ pub trait Address: Clone + fmt::Debug + fmt::Display {
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_05: u8 = 0x05;
+pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Deserialize)]
