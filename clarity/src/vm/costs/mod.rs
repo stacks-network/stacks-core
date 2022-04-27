@@ -39,6 +39,8 @@ use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::tests::test_only_mainnet_to_chain_id;
+
 pub mod constants;
 pub mod cost_functions;
 
@@ -676,11 +678,7 @@ impl LimitedCostTracker {
         epoch: StacksEpochId,
         use_mainnet: bool,
     ) -> Result<LimitedCostTracker> {
-        let chain_id = if use_mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
         assert!(clarity_db.is_stack_empty());
         LimitedCostTracker::new(
             use_mainnet,

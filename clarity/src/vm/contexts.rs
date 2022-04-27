@@ -51,7 +51,7 @@ use crate::vm::version::ClarityVersion;
 
 use crate::vm::coverage::CoverageReporter;
 
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use crate::vm::tests::test_only_mainnet_to_chain_id;
 
 use serde::Serialize;
 
@@ -570,11 +570,7 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> OwnedEnvironment<'a> {
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
-        let chain_id = if use_mainnet {
-            CHAIN_ID_MAINNET
-        } else {
-            CHAIN_ID_TESTNET
-        };
+        let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
 
         OwnedEnvironment {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),

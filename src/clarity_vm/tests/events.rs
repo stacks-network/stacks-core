@@ -33,6 +33,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::MemoryBackingStore;
 
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
+
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)
 }
@@ -49,11 +51,7 @@ fn helper_execute_epoch(
     let sender = execute(address).expect_principal();
 
     let marf_kv = MarfedKV::temporary();
-    let chain_id = if use_mainnet {
-        CHAIN_ID_MAINNET
-    } else {
-        CHAIN_ID_TESTNET
-    };
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     let mut genesis = clarity_instance.begin_test_genesis_block(
         &StacksBlockId::sentinel(),

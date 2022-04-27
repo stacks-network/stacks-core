@@ -47,7 +47,7 @@ use std::collections::HashMap;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use clarity::vm::database::MemoryBackingStore;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
@@ -171,11 +171,7 @@ where
     F: Fn(OwnedEnvironment) -> R,
 {
     let marf_kv = MarfedKV::temporary();
-    let chain_id = if use_mainnet {
-        CHAIN_ID_MAINNET
-    } else {
-        CHAIN_ID_TESTNET
-    };
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
 
     let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
@@ -957,11 +953,7 @@ fn epoch_21_test_all_testnet() {
 
 fn test_cost_contract_short_circuits(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let chain_id = if use_mainnet {
-        CHAIN_ID_MAINNET
-    } else {
-        CHAIN_ID_TESTNET
-    };
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
@@ -1187,11 +1179,7 @@ fn test_cost_contract_short_circuits_testnet() {
 
 fn test_cost_voting_integration(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let chain_id = if use_mainnet {
-        CHAIN_ID_MAINNET
-    } else {
-        CHAIN_ID_TESTNET
-    };
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     clarity_instance
         .begin_test_genesis_block(

@@ -41,6 +41,8 @@ use crate::vm::{
     database::{BurnStateDB, HeadersDB},
 };
 
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+
 use super::events::StacksTransactionEvent;
 pub use super::test_util::*;
 
@@ -65,4 +67,24 @@ where
     }
 
     f(&mut owned_env)
+}
+
+/// Determine whether or not to use the testnet or mainnet chain ID, given whether or not the
+/// caller expects to use mainnet or testnet.
+///
+/// WARNING TO THE READER:  This is *test-only* code.  The existence of this method does *not*
+/// imply that there is a canonical, supported way to convert a `bool` into a chain ID.  The fact
+/// that Stacks has a separate chain ID for its testnet (0x80000000) is an accident.  In general, a
+/// Stacks blockchain instance only needs _one_ chain ID, and can use the mainnet/testnet field in
+/// its transactions to determine whether or not a transaction should be mined in a given chain.
+/// Going forward, you should *never* use a different chain ID for your testnet.
+///
+/// So, do *not* refactor this code to use this conversion in production.
+pub fn test_only_mainnet_to_chain_id(mainnet: bool) {
+    // seriously -- don't even think about it.
+    if mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    }
 }
