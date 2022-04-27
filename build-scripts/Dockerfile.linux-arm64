@@ -20,4 +20,4 @@ RUN CC=aarch64-linux-gnu-gcc \
 RUN mkdir /out && cp -R /src/target/aarch64-unknown-linux-gnu/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /

@@ -266,6 +266,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
+        let chain_id = chainstate.chain_id;
         let contract_identifier = boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
@@ -273,9 +274,14 @@ impl RPCPoxInfoData {
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, None, cost_track, |env| {
-                    env.execute_contract(&contract_identifier, function, &vec![], true)
-                })
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    chain_id,
+                    sender,
+                    None,
+                    cost_track,
+                    |env| env.execute_contract(&contract_identifier, function, &vec![], true),
+                )
             })
             .map_err(|_| net_error::NotFoundError)?;
 
@@ -1361,6 +1367,7 @@ impl ConversationHttp {
             .map(|x| SymbolicExpression::atom_value(x.clone()))
             .collect();
         let mainnet = chainstate.mainnet;
+        let chain_id = chainstate.chain_id;
         let mut cost_limit = options.read_only_call_limit.clone();
         cost_limit.write_length = 0;
         cost_limit.write_count = 0;
@@ -1370,7 +1377,9 @@ impl ConversationHttp {
                 let epoch = clarity_tx.get_epoch();
                 let cost_track = clarity_tx
                     .with_clarity_db_readonly(|clarity_db| {
-                        LimitedCostTracker::new_mid_block(mainnet, cost_limit, clarity_db, epoch)
+                        LimitedCostTracker::new_mid_block(
+                            mainnet, chain_id, cost_limit, clarity_db, epoch,
+                        )
                     })
                     .map_err(|_| {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
@@ -1378,6 +1387,7 @@ impl ConversationHttp {
 
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
+                    chain_id,
                     sender.clone(),
                     sponsor.cloned(),
                     cost_track,
