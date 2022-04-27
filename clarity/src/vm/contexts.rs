@@ -53,6 +53,8 @@ use crate::vm::coverage::CoverageReporter;
 
 use crate::vm::tests::test_only_mainnet_to_chain_id;
 
+use stacks_common::consts::CHAIN_ID_TESTNET;
+
 use serde::Serialize;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;

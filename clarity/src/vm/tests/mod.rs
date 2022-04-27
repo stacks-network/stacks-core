@@ -80,7 +80,7 @@ where
 /// Going forward, you should *never* use a different chain ID for your testnet.
 ///
 /// So, do *not* refactor this code to use this conversion in production.
-pub fn test_only_mainnet_to_chain_id(mainnet: bool) {
+pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {
     // seriously -- don't even think about it.
     if mainnet {
         CHAIN_ID_MAINNET
