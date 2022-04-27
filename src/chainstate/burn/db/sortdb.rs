@@ -2571,7 +2571,11 @@ impl SortitionDB {
 
     /// Open and migrate the sortition DB if it exists.
     pub fn migrate_if_exists(path: &str, epochs: &[StacksEpoch]) -> Result<(), db_error> {
-        if let Err(db_error::OldSchema(_)) = SortitionDB::open(path, false) {
+        // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
+        // the mainnet_default PoX constants
+        if let Err(db_error::OldSchema(_)) =
+            SortitionDB::open(path, false, PoxConstants::mainnet_default())
+        {
             let index_path = db_mkdirs(path)?;
             let marf = SortitionDB::open_index(&index_path)?;
             let mut db = SortitionDB {
@@ -2580,6 +2584,7 @@ impl SortitionDB {
                 // not used by migration logic
                 first_block_height: 0,
                 first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+                pox_constants: PoxConstants::mainnet_default(),
             };
             db.check_schema_version_and_update(epochs)
         } else {

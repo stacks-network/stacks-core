@@ -81,8 +81,6 @@ pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::version::ClarityVersion;
 use std::convert::{TryFrom, TryInto};
 
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
@@ -425,16 +423,13 @@ pub fn execute_with_parameters(
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
+    use crate::vm::tests::test_only_mainnet_to_chain_id;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let chain_id = if use_mainnet {
-        CHAIN_ID_MAINNET
-    } else {
-        CHAIN_ID_TESTNET
-    };
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut global_context = GlobalContext::new(
         use_mainnet,
         chain_id,

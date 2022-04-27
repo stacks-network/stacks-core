@@ -44,7 +44,6 @@ use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();

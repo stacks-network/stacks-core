@@ -36,7 +36,6 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
 pub mod constants;

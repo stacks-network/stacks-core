@@ -27,7 +27,6 @@ use crate::vm::tests::execute;
 use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
