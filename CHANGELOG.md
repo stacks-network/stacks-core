@@ -21,25 +21,27 @@ the node to spend up to 30 minutes migrating the data to a new schema.
 ### Changed
 - The MARF implementation will now defer calculating the root hash of a new trie
   until the moment the trie is committed to disk.  This avoids gratuitous hash
-calculations, and yields a performance improvement of anywhere between 10x and
-200x (#3041).
+  calculations, and yields a performance improvement of anywhere between 10x and
+  200x (#3041).
 - The MARF implementation will now store tries to an external file for instances
   where the tries are expected to exceed the SQLite page size (namely, the
-Clarity database). This improves read performance by a factor of 10x to 14x
-(#3059).
+  Clarity database). This improves read performance by a factor of 10x to 14x
+  (#3059).
 - The MARF implementation may now cache trie nodes in RAM if directed to do so
   by an environment variable (#3042).
 - Sortition processing performance has been improved by about an order of
   magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
-applying this change to an existing chainstate directory will take a few
-minutes when the node starts up.
+  applying this change to an existing chainstate directory will take a few
+  minutes when the node starts up.
 - Updated chains coordinator so that before a Stacks block or a burn block is processed, 
   an event is sent through the event dispatcher. This fixes #3015. 
 - Expose a node's public key and public key hash160 (i.e. what appears in
   /v2/neighbors) via the /v2/info API endpoint (#3046)
 - Reduced the default subsequent block attempt timeout from 180 seconds to 30
   seconds, based on benchmarking the new MARF performance data during a period
-of network congestion (#3098)
+  of network congestion (#3098)
+- The `blockstack-core` binary has been renamed to `stacks-inspect`.
+  This binary provides CLI tools for chain and mempool inspection.
 
 ## [2.05.0.1.0]
 

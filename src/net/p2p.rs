@@ -1927,7 +1927,7 @@ impl PeerNetwork {
         }
 
         for (event_id, convo) in self.peers.iter() {
-            if convo.is_authenticated() {
+            if convo.is_authenticated() && convo.stats.last_contact_time > 0 {
                 // have handshaked with this remote peer
                 if convo.stats.last_contact_time
                     + (convo.peer_heartbeat as u64)

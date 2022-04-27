@@ -106,6 +106,10 @@ pub enum Error {
     IOError(IOError),
     /// MARF index error
     IndexError(MARFError),
+    /// Old schema error
+    OldSchema(u64),
+    /// Database is too old for epoch
+    TooOldForEpoch,
     /// Other error
     Other(String),
 }
@@ -127,6 +131,10 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f),
             Error::IndexError(ref e) => fmt::Display::fmt(e, f),
+            Error::OldSchema(ref s) => write!(f, "Old database schema: {}", s),
+            Error::TooOldForEpoch => {
+                write!(f, "Database is not compatible with current system epoch")
+            }
             Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
@@ -149,6 +157,8 @@ impl error::Error for Error {
             Error::SqliteError(ref e) => Some(e),
             Error::IOError(ref e) => Some(e),
             Error::IndexError(ref e) => Some(e),
+            Error::OldSchema(ref _s) => None,
+            Error::TooOldForEpoch => None,
             Error::Other(ref _s) => None,
         }
     }

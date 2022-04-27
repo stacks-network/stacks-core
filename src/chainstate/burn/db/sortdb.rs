@@ -66,6 +66,7 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
@@ -2496,7 +2497,7 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
@@ -2511,7 +2512,7 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_3(tx: &SortitionDBTx) -> Result<(), db_error> {
+    fn apply_schema_3(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_3 {
             tx.execute_batch(sql_exec)?;
         }
@@ -2529,10 +2530,8 @@ impl SortitionDB {
                 if version == expected_version {
                     Ok(())
                 } else {
-                    Err(db_error::Other(format!(
-                        "The version of the sortition DB {} does not match the expected {} and cannot be updated from SortitionDB::open()",
-                        version, expected_version
-                    )))
+                    let version_u64 = version.parse::<u64>().unwrap();
+                    Err(db_error::OldSchema(version_u64))
                 }
             }
             Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
@@ -2540,19 +2539,23 @@ impl SortitionDB {
         }
     }
 
-    fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    /// Migrate the sortition DB to its latest version, given the set of system epochs
+    pub fn check_schema_version_and_update(
+        &mut self,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
         let expected_version = SORTITION_DB_VERSION.to_string();
         loop {
             match SortitionDB::get_schema_version(self.conn()) {
                 Ok(Some(version)) => {
                     if version == "1" {
                         let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_2(&tx, epochs)?;
+                        SortitionDB::apply_schema_2(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == "2" {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_3(&tx)?;
+                        SortitionDB::apply_schema_3(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -2563,6 +2566,24 @@ impl SortitionDB {
                 Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
                 Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
             }
+        }
+    }
+
+    /// Open and migrate the sortition DB if it exists.
+    pub fn migrate_if_exists(path: &str, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        if let Err(db_error::OldSchema(_)) = SortitionDB::open(path, false) {
+            let index_path = db_mkdirs(path)?;
+            let marf = SortitionDB::open_index(&index_path)?;
+            let mut db = SortitionDB {
+                marf,
+                readwrite: true,
+                // not used by migration logic
+                first_block_height: 0,
+                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+            };
+            db.check_schema_version_and_update(epochs)
+        } else {
+            Ok(())
         }
     }
 
