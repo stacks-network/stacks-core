@@ -2086,7 +2086,7 @@ mod test {
         ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
-    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
@@ -2177,11 +2177,11 @@ mod test {
 
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
+                epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
                 end_height: u64::max_value(),
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
+                network_epoch: PEER_VERSION_EPOCH_2_1,
             })
         }
         fn get_burn_start_height(&self) -> u32 {
