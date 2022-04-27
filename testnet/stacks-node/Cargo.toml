@@ -30,6 +30,9 @@ ring = "0.16.19"
 warp = "0.3"
 tokio = "1.15"
 reqwest = { version = "0.11", features = ["blocking", "json", "rustls"] }
+stacks = { package = "blockstack-core", path = "../../.", features = ["testing"] }
+clarity = { package = "clarity", path = "../../clarity/.", features = ["testing"] }
+stacks_common = { package = "stacks-common", path = "../../stacks-common/.", features = ["testing"] }
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
