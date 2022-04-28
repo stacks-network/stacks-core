@@ -1,19 +1,20 @@
-use std::convert::TryFrom;
-use stacks_common::util::hash::hex_bytes;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors, Error,
+    InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    BuffData, BufferLength, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
+    signatures::BUFF_1, signatures::BUFF_20, BuffData, BufferLength, CharType, OptionalData,
+    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
-use crate::vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, ContractName, Environment, LocalContext};
+use stacks_common::util::hash::hex_bytes;
+use std::convert::TryFrom;
 
 use crate::vm::database::ClarityDatabase;
 use crate::vm::database::STXBalance;
@@ -22,6 +23,8 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+
+use crate::vm::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 
 /// Returns true if `version` indicates a mainnet address.
 fn version_matches_mainnet(version: u8) -> bool {
@@ -74,7 +77,11 @@ pub fn special_is_standard(
 
 /// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
 /// and `hash-bytes`.
-fn create_principal_parse_tuple(version: u8, hash_bytes: &[u8; 20]) -> Value {
+fn create_principal_parse_tuple(
+    version: u8,
+    hash_bytes: &[u8; 20],
+    name_opt: Option<ContractName>,
+) -> Value {
     Value::Tuple(
         TupleData::from_data(vec![
             (
@@ -88,6 +95,12 @@ fn create_principal_parse_tuple(version: u8, hash_bytes: &[u8; 20]) -> Value {
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hash_bytes.to_vec(),
                 })),
+            ),
+            (
+                "name".into(),
+                Value::Optional(OptionalData {
+                    data: name_opt.map(|name| Box::new(Value::from(name))),
+                }),
             ),
         ])
         .expect("FAIL: Failed to initialize tuple."),
@@ -140,14 +153,15 @@ pub fn special_principal_parse(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
     let principal = eval(&args[0], env, context)?;
 
-    let (version_byte, hash_bytes) = match principal {
+    let (version_byte, hash_bytes, name_opt) = match principal {
         Value::Principal(PrincipalData::Standard(StandardPrincipalData(version, bytes))) => {
-            (version, bytes)
+            (version, bytes, None)
         }
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier { issuer, name })) => {
-            (issuer.0, issuer.1)
+            (issuer.0, issuer.1, Some(name))
         }
         _ => {
             return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
@@ -158,7 +172,7 @@ pub fn special_principal_parse(
     // channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
-    let tuple = create_principal_parse_tuple(version_byte, &hash_bytes);
+    let tuple = create_principal_parse_tuple(version_byte, &hash_bytes, name_opt);
     Ok(Value::Response(ResponseData {
         committed: version_byte_is_valid,
         data: Box::new(tuple),
@@ -170,10 +184,17 @@ pub fn special_principal_construct(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    check_argument_count(2, args)?;
+    check_arguments_at_least(2, args)?;
+    check_arguments_at_most(3, args)?;
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
     let version = eval(&args[0], env, context)?;
     let hash_bytes = eval(&args[1], env, context)?;
+    let name_opt = if args.len() > 2 {
+        Some(eval(&args[2], env, context)?)
+    } else {
+        None
+    };
 
     // Check the version byte.
     let verified_version = match version {
@@ -181,22 +202,14 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(
-                    TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-                    version,
-                )
-                .into())
+                Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into())
             };
         }
     };
 
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_version.len() > 1 {
-        return Err(CheckErrors::TypeValueError(
-            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-            version,
-        )
-        .into());
+        return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
     }
 
     // If the version byte buffer has 0 bytes, this is a recoverable error, because it wasn't the
@@ -209,8 +222,8 @@ pub fn special_principal_construct(
     // Assume: verified_version.len() == 1
     let version_byte = (*verified_version)[0];
 
-    // If the version byte is >= 32, this is a recoverable error, because it wasn't the job of the
-    // type system.
+    // If the version byte is >= 32, this is a runtime error, because it wasn't the job of the
+    // type system.  This is a requirement for c32check encoding.
     if version_byte >= 32 {
         return Ok(create_principal_true_error_response(1));
     }
@@ -219,30 +232,21 @@ pub fn special_principal_construct(
     // channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
-    // Check the hash bytes.
+    // Check the hash bytes -- they must be a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
-        _ => {
-            return Err(CheckErrors::TypeValueError(
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-                hash_bytes,
-            )
-            .into())
-        }
+        _ => return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into()),
     };
 
+    // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(CheckErrors::TypeValueError(
-            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-            hash_bytes,
-        )
-        .into());
+        return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into());
     }
 
-    // If the hash-bytes buffer has less than 20 bytes, this is a recoverable error, because it
-    // wasn't the job of the type system.
+    // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
+    // wasn't the job of the type system (i.e. (buff X) for all X < 20 are all also (buff 20))
     if verified_hash_bytes.len() < 20 {
         return Ok(create_principal_true_error_response(1));
     }
@@ -252,7 +256,66 @@ pub fn special_principal_construct(
     transfer_buffer.copy_from_slice(&verified_hash_bytes);
     let principal_data = StandardPrincipalData(version_byte, transfer_buffer);
 
-    let principal = Value::Principal(PrincipalData::Standard(principal_data));
+    let principal = if let Some(name) = name_opt {
+        // requested a contract principal.  Verify that the `name` is a valid ContractName.
+        // The type-checker will have verified that it's (string-ascii 40), but not long enough.
+        let name_bytes = match name {
+            Value::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => {
+                &ascii_data.data
+            }
+            _ => {
+                return Err(CheckErrors::TypeValueError(
+                    TypeSignature::contract_name_string_ascii(),
+                    name,
+                )
+                .into())
+            }
+        };
+
+        // If it's not long enough, then it's a runtime error that warrants an (err ..) response.
+        if name_bytes.len() < CONTRACT_MIN_NAME_LENGTH {
+            return Ok(create_principal_true_error_response(2));
+        }
+
+        // if it's too long, then this should have been caught by the type-checker
+        if name_bytes.len() > CONTRACT_MAX_NAME_LENGTH {
+            return Err(CheckErrors::TypeValueError(
+                TypeSignature::contract_name_string_ascii(),
+                name,
+            )
+            .into());
+        }
+
+        // The type-checker can't verify that the name is a valid ContractName, so we'll need to do
+        // it here at runtime.  If it's not valid, then it warrants this function evaluating to
+        // (err ..).
+        let name_string = match name {
+            // destruct again to avoid a .clone() on the inner ascii_data.data
+            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => {
+                String::from_utf8(ascii_data.data).expect("FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string")
+            },
+            _ => {
+                unreachable!()
+            }
+        };
+
+        let contract_name = match ContractName::try_from(name_string) {
+            Ok(cn) => cn,
+            Err(_) => {
+                // not a valid contract name
+                return Ok(create_principal_true_error_response(2));
+            }
+        };
+
+        Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+            principal_data,
+            contract_name,
+        )))
+    } else {
+        // requested a standard principal
+        Value::Principal(PrincipalData::Standard(principal_data))
+    };
+
     if version_byte_is_valid {
         Ok(Value::Response(ResponseData {
             committed: version_byte_is_valid,
