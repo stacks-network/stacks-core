@@ -356,17 +356,14 @@ fn l1_deposit_asset_integration_test() {
     let nft_trait_name = "nft-trait-standard";
     let ft_trait_name = "ft-trait-standard";
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
-    let _stacks_res = stacks_l1_controller
-        .start_process()
-        .expect("stacks l1 controller didn't start");
-    let mut l1_nonce = 0;
-
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
+    config.burnchain.first_burn_header_hash =
+        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
+    config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
@@ -389,8 +386,17 @@ fn l1_deposit_asset_integration_test() {
     config.node.miner = true;
 
     let mut run_loop = neon::RunLoop::new(config.clone());
-    let channel = run_loop.get_coordinator_channel().unwrap();
-    thread::spawn(move || run_loop.start(None, 0));
+    let termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    // Give the run loop time to start.
+    thread::sleep(Duration::from_millis(2_000));
+
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let _stacks_res = stacks_l1_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
+    let mut l1_nonce = 0;
 
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
@@ -675,6 +681,7 @@ fn l1_deposit_asset_integration_test() {
             .serialize()
     );
 
-    channel.stop_chains_coordinator();
+    termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
+    run_loop_thread.join().expect("Failed to join run loop.");
 }
