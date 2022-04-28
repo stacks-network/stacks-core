@@ -436,26 +436,12 @@ pub fn execute_with_parameters(
     })
 }
 
-<<<<<<< HEAD:src/vm/mod.rs
-/// See `execute_against_version_and_network`.
-=======
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
->>>>>>> next:clarity/src/vm/mod.rs
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
-<<<<<<< HEAD:src/vm/mod.rs
-/// See `execute_against_version_and_network`.
-pub fn execute(program: &str) -> Result<Option<Value>> {
-    execute_against_version_and_network(program, ClarityVersion::Clarity1, false)
-}
-
-/// See `execute_against_version_and_network`.
-pub fn execute_v2(program: &str) -> Result<Option<Value>> {
-    execute_against_version_and_network(program, ClarityVersion::Clarity2, false)
-=======
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute(program: &str) -> Result<Option<Value>> {
@@ -476,7 +462,6 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
         StacksEpochId::Epoch21,
         false,
     )
->>>>>>> next:clarity/src/vm/mod.rs
 }
 
 #[cfg(test)]
