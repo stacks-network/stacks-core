@@ -45,6 +45,7 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 pub const BURNCHAIN_NAME_STACKS_L1: &str = "stacks_layer_1";
 pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
+pub const DEFAULT_L1_OBSERVER_PORT: u16 = 50303;
 
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
@@ -347,6 +348,10 @@ impl Config {
                         }
                         None => default_node_config.seed,
                     },
+                    mining_key: node.mining_key.map(|key_str| {
+                        Secp256k1PrivateKey::from_hex(&key_str)
+                            .expect("Bad private key configured in node mining key")
+                    }),
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: rpc_bind.clone(),
                     p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
@@ -432,6 +437,9 @@ impl Config {
                     } else {
                         CHAIN_ID_TESTNET
                     },
+                    observer_port: burnchain
+                        .observer_port
+                        .unwrap_or(default_burnchain_config.observer_port),
                     peer_version: if &burnchain_mode == "mainnet" {
                         PEER_VERSION_MAINNET
                     } else {
@@ -502,6 +510,18 @@ impl Config {
                         Some(epochs) => Some(epochs),
                         None => default_burnchain_config.epochs,
                     },
+                    contract_identifier: QualifiedContractIdentifier::parse(
+                        &burnchain
+                            .contract_identifier
+                            .expect("Hyperchain nodes must configure L1 contract identifier"),
+                    )
+                    .expect("Invalid contract identifier configured with hyperchain node"),
+                    first_burn_header_hash: burnchain
+                        .first_burn_header_hash
+                        .unwrap_or(default_burnchain_config.first_burn_header_hash),
+                    first_burn_header_height: burnchain
+                        .first_burn_header_height
+                        .unwrap_or(default_burnchain_config.first_burn_header_height),
                     ..BurnchainConfig::default()
                 }
             }
@@ -528,9 +548,7 @@ impl Config {
             None => miner_default_config,
         };
 
-        let supported_modes = vec![
-            "mocknet", "helium", "neon", "argon", "krypton", "xenon", "mainnet",
-        ];
+        let supported_modes = vec!["hyperchain"];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
             panic!(
@@ -934,6 +952,7 @@ impl std::default::Default for Config {
 pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
+    pub observer_port: u16,
     pub chain_id: u32,
     pub peer_version: u32,
     pub commit_anchor_block_within: u64,
@@ -978,6 +997,7 @@ impl Default for BurnchainConfig {
             chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
+            observer_port: DEFAULT_L1_OBSERVER_PORT,
             commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
@@ -1037,6 +1057,7 @@ impl BurnchainConfig {
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
+    pub observer_port: Option<u16>,
     pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
@@ -1056,6 +1077,9 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpoch>>,
+    pub contract_identifier: Option<String>,
+    pub first_burn_header_hash: Option<String>,
+    pub first_burn_header_height: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1539,6 +1563,7 @@ pub struct NodeConfigFile {
     pub prometheus_bind: Option<String>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
+    pub mining_key: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

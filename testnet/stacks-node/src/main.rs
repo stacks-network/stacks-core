@@ -149,7 +149,7 @@ fn main() {
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
-    if conf.burnchain.mode == "mocknet" {
+    if conf.burnchain.mode == "mocknet" || conf.burnchain.mode == "hyperchain" {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {

@@ -1,0 +1,36 @@
+[node]
+working_dir = "/tmp/stacks-testnet"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "0.0.0.0:20444"
+bootstrap_node = "047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@testnet.stacks.co:20444"
+
+[burnchain]
+chain = "bitcoin"
+mode = "xenon"
+peer_host = "bitcoind.testnet.stacks.co"
+username = "blockstack"
+password = "blockstacksystem"
+rpc_port = 18332
+peer_port = 18333
+
+# Used for sending events to a local stacks-blockchain-api service
+[[events_observer]]
+endpoint = "localhost:50303"
+retry_count = 255
+events_keys = ["*"]
+
+[[ustx_balance]]
+address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+amount = 10000000000000000
+
+[[ustx_balance]]
+address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+amount = 10000000000000000

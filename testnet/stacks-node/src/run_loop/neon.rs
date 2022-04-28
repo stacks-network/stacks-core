@@ -292,7 +292,10 @@ impl RunLoop {
             self.config.burnchain.spawn_l1_observer()
         );
         let l1_observer_signal = if self.config.burnchain.spawn_l1_observer() {
-            Some(l1_observer::spawn(burnchain_controller.get_channel()))
+            Some(l1_observer::spawn(
+                burnchain_controller.get_channel(),
+                self.config.burnchain.observer_port,
+            ))
         } else {
             None
         };

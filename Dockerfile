@@ -13,13 +13,11 @@ RUN apk add --no-cache musl-dev
 RUN mkdir /out
 
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
-RUN cd testnet/puppet-chain && cargo build --release
 
-RUN cp target/release/stacks-node /out
-RUN cp target/release/puppet-chain /out
+RUN cp target/release/hyperchain-node /out
 
 FROM alpine:latest
 
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "mainnet"]
+CMD ["hyperchain-node", "start"]
