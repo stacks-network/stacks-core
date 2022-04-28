@@ -129,8 +129,8 @@ fn test_get_burn_block_info() {
     ];
     let bad_expected = [
         CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-        CheckErrors::RequiresAtLeastArguments(2, 0),
-        CheckErrors::RequiresAtLeastArguments(2, 1),
+        CheckErrors::IncorrectArgumentCount(2, 0),
+        CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::TypeError(
             UIntType,
             SequenceType(StringType(ASCII(
