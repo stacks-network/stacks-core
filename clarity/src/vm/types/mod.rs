@@ -39,8 +39,8 @@ use crate::vm::representations::{
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_32, BUFF_33,
-    BUFF_64, BUFF_65,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32,
+    BUFF_33, BUFF_64, BUFF_65,
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -1271,6 +1271,16 @@ impl From<QualifiedContractIdentifier> for PrincipalData {
 impl From<TupleData> for Value {
     fn from(t: TupleData) -> Self {
         Value::Tuple(t)
+    }
+}
+
+impl From<ContractName> for Value {
+    fn from(name: ContractName) -> Self {
+        // ContractName is guaranteed to be between 5 and 40 bytes and contains only printable
+        // ASCII already, so this conversion should not fail.
+        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+            data: name.as_str().as_bytes().to_vec(),
+        })))
     }
 }
 
