@@ -275,13 +275,18 @@ Note: This function is only available starting with Stacks 2.1.",
 const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(principal-parse principal-address)",
-    description:
-        "A principal value is a concatenation of two components: a `(buff 1)` *version byte*,
-indicating the type of account and the type of network that this principal can spend tokens on,
-and a `(buff 20)` *public key hash*, indicating the principal's unique identity.
-`principal-parse` will decompose a principal into its component parts, `{version-byte,hash-bytes}`.
+    description:  "A principal value represents either a set of keys, or a smart contract.
+The former, called a _standard principal_,
+is encoded as a `(buff 1)` *version byte*, indicating the type of account
+and the type of network that this principal can spend tokens on,
+and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
+The latter, a _contract principal_, is encoded as a standard principal concatenated with
+a `(string-ascii 40)` *contract name* that identifies the code body.
 
-This method returns a `Response` that wraps this pair as a tuple.
+`principal-parse` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
+for standard principals, or `{version-byte, hash-bytes, name}` for contract principals.
+
+This method returns a `Response` that wraps this data as a tuple.
 
 If the version byte of `principal-address` matches the network (see `is-standard`), then this method
 returns the pair as its `ok` value.
@@ -289,39 +294,68 @@ returns the pair as its `ok` value.
 If the version byte of `principal-address` does not match the network, then this method
 returns the pair as its `err` value.
 
+In both cases, the value itself is a tuple containing three fields: a `version` value as a `(buff 1)`,
+a `hash-bytes` value as a `(buff 20)`, and a `name` value as an `(optional (string-ascii 40))`.  The `name`
+field will only be `(some ..)` if the principal is a contract principal.
+
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (version 0x1a)))
-(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (version 0x16)))
+(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
+(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
+(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
+(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
 "#,
 };
 
 const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(principal-construct version-byte hash-bytes)",
-    description: "A principal value is a concatenation of two things: a `(buff 1)` *version byte*,
-indicating the type of account and the type of network that this principal can spend tokens on,
+    signature: "(principal-construct (buff 1) (buff 20) [(string-ascii 40)])",
+    description: "A principal value represents either a set of keys, or a smart contract.
+The former, called a _standard principal_,
+is encoded as a `(buff 1)` *version byte*, indicating the type of account
+and the type of network that this principal can spend tokens on,
 and a `(buff 20)` *public key hash*, characterizing the principal's unique identity.
+The latter, a _contract principal_, is encoded as a standard principal concatenated with
+a `(string-ascii 40)` *contract name* that identifies the code body.
 
-`principal-construct` takes as input such a `(buff 1)` `version-byte` and a `(buff 20)`
-`hash-bytes`, and returns a principal.
+The `principal-construct` function allows users to create either standard or contract principals,
+depending on which form is used.  To create a standard principal, 
+`principal-construct` would be called with two arguments: it
+takes as input a `(buff 1)` which encodes the principal address's
+`version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
+To create a contract principal, `principal-construct` would be called with
+three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
+that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
+On success, this function returns either a standard principal or contract principal, 
+depending on whether or not the third `(string-ascii 40)` argument is given.
 
 This function returns a `Response`. On success, the `ok` value is a `Principal`.
-The `err` value is a value tuple with the form `{err_int:UInt,value:Option<Principal>}`.
+The `err` value is a value tuple with the form `{ error_int: uint, value: (optional principal) }`.
+If the `value` field in the `err` variant is `(some ..)`, then the wrapped `Principal` will be 
+the well-formed principal that could have been formed, had the version byte been supported.
 
 If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
 version byte for the current network, then the error will be `u0`, and `value` will contain
-`Some<Principal>`, where the wrapped value is the principal.
+`(some principal)`, where the wrapped value is the principal.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
-value greater than `0x1f`, or the `hash-bytes` is a `buff` of length less than 20, then `err_int`
+value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_int`
 will be `u1` and `value` will be `None`.
+
+If a name is given, and the name is either an empty string or contains ASCII characters
+that are not allowed in contract names, then `error_int` will be `u2`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
 (principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
 (principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
+(principal-construct 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u1) (value none)))
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_int u1) (value none)))
 (principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u1) (value none)))
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_int u2) (value none)))
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_int u2) (value none)))
 "#,
 };
 
