@@ -777,6 +777,7 @@ pub fn special_get_block_info(
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
 /// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
 /// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,

@@ -147,7 +147,6 @@ fn test_get_burn_block_info() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        warn!("bad_test {:?}", bad_test);
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }

@@ -1389,7 +1389,7 @@ The `id-header-hash` is the block identifier value that must be used as input to
 };
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
-    input_type: "BlockInfoPropertyName, uint",
+    input_type: "BurnBlockInfoPropertyName, uint",
     output_type: "(optional buff)",
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The

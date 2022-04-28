@@ -104,7 +104,7 @@ pub trait HeadersDB {
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
 
-    /// Returns the *burnchain block height* at that `sortition_id` is associated with.
+    /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
 
     /// Returns the height of the burnchain when the Stacks chain started running.
