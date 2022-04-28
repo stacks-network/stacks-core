@@ -1559,6 +1559,51 @@ Otherwise, on successfuly burn, it returns `(ok true)`.
 "
 };
 
+const WITHDRAW_TOKEN: SpecialAPI = SpecialAPI {
+    input_type: "TokenName, uint, principal",
+    output_type: "(response bool uint)",
+    signature: "(ft-withdraw? token-name amount sender)",
+    description: "`ft-withdraw?` is used to withdraw the token balance for the `sender` principal for a token
+type defined using `define-fungible-token` from the hyperchain. The Stacks L1 chain will then be
+able to verify this withdraw when it processes the withdrawal of this asset.
+
+On a successful withdraw, it returns `(ok true)`. In the event of an unsuccessful withdraw it
+returns one of the following error codes:
+
+`(err u1)` -- `sender` does not have enough balance to withdraw this amount
+`(err u3)` -- the amount specified is not positive
+",
+    example: "
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(ft-withdraw? stackaroo u50 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+"
+};
+
+const WITHDRAW_ASSET: SpecialAPI = SpecialAPI {
+    input_type: "AssetName, A, principal",
+    output_type: "(response bool uint)",
+    signature: "(nft-withdraw? asset-class asset-identifier recipient)",
+    description: "`nft-withdraw?` is used to withdraw an asset for the `sender` principal for an
+asset defined using `define-non-fungible-token` on the hyperchain. The Stacks L1 chain will then be
+able to verify this withdraw when it processes the withdrawal of this asset.
+
+The supplied `asset-identifier` must be of the same type specified in
+that definition.
+
+On a successful withdraw, it returns `(ok true)`. In the event of an unsuccessful withdraw it
+returns one of the following error codes:
+
+`(err u1)` -- `sender` does not own the specified asset
+`(err u3)` -- the asset specified by `asset-identifier` does not exist
+",
+    example: "
+(define-non-fungible-token stackaroo (string-ascii 40))
+(nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(nft-withdraw? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+"
+};
+
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-get-balance owner)",
@@ -1613,6 +1658,30 @@ one of the following error codes:
   (stx-burn? u60 tx-sender)) ;; Returns (ok true)
 (as-contract
   (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (err u4)
+"
+};
+
+const STX_WITHDRAW: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(stx-withdraw? amount sender)",
+    description: "`stx-withdraw?` debits the `sender` principal's STX holdings by `amount`, destroying
+the STX on the hyperchain. The Stacks L1 chain will then be able to verify this withdraw when
+it processes the withdrawal of this asset.
+
+The `sender` principal _must_ be equal to the current context's `tx-sender`.
+
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful withdraw it returns
+one of the following error codes:
+
+`(err u1)` -- `sender` does not have enough balance to withdraw this amount
+`(err u3)` -- amount to withdraw is non-positive
+`(err u4)` -- the `sender` principal is not the current `tx-sender`
+",
+    example: "
+(as-contract
+  (stx-withdraw? u60 tx-sender)) ;; Returns (ok true)
+(as-contract
+  (stx-withdraw? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (err u4)
 "
 };
 
@@ -1702,6 +1771,9 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxTransfer => make_for_simple_native(&STX_TRANSFER, &StxTransfer, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        WithdrawToken => make_for_special(&WITHDRAW_TOKEN, name),
+        WithdrawAsset => make_for_special(&WITHDRAW_ASSET, name),
+        StxWithdraw => make_for_simple_native(&STX_WITHDRAW, &StxWithdraw, name),
     }
 }
 

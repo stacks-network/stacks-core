@@ -1226,6 +1226,17 @@ impl<'a, 'b> Environment<'a, 'b> {
         Ok(())
     }
 
+    pub fn register_stx_withdraw_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
+        let event_data = STXWithdrawEventData { sender, amount };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::STXEvent(
+                STXEventType::STXWithdrawEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn register_nft_transfer_event(
         &mut self,
         sender: PrincipalData,
@@ -1283,6 +1294,26 @@ impl<'a, 'b> Environment<'a, 'b> {
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::NFTEvent(
                 NFTEventType::NFTBurnEvent(event_data),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn register_nft_withdraw_event(
+        &mut self,
+        sender: PrincipalData,
+        value: Value,
+        asset_identifier: AssetIdentifier,
+    ) -> Result<()> {
+        let event_data = NFTWithdrawEventData {
+            sender,
+            asset_identifier,
+            value,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(StacksTransactionEvent::NFTEvent(
+                NFTEventType::NFTWithdrawEvent(event_data),
             ));
         }
         Ok(())
@@ -1348,6 +1379,28 @@ impl<'a, 'b> Environment<'a, 'b> {
             batch
                 .events
                 .push(StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(
+                    event_data,
+                )));
+        }
+        Ok(())
+    }
+
+    pub fn register_ft_withdraw_event(
+        &mut self,
+        sender: PrincipalData,
+        amount: u128,
+        asset_identifier: AssetIdentifier,
+    ) -> Result<()> {
+        let event_data = FTWithdrawEventData {
+            sender,
+            asset_identifier,
+            amount,
+        };
+
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch
+                .events
+                .push(StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(
                     event_data,
                 )));
         }

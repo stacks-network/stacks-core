@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// TODO(#60): think about cost functions for withdraw methods
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
     AnalysisTypeCheck("cost_analysis_type_check"),
@@ -120,14 +121,17 @@ define_named_enum!(ClarityCostFunction {
     BlockInfo("cost_block_info"),
     StxBalance("cost_stx_balance"),
     StxTransfer("cost_stx_transfer"),
+    StxWithdraw("cost_stx_transfer"),
     FtMint("cost_ft_mint"),
     FtTransfer("cost_ft_transfer"),
     FtBalance("cost_ft_balance"),
     FtSupply("cost_ft_get_supply"),
     FtBurn("cost_ft_burn"),
+    FtWithdraw("cost_ft_burn"),
     NftMint("cost_nft_mint"),
     NftTransfer("cost_nft_transfer"),
     NftOwner("cost_nft_owner"),
     NftBurn("cost_nft_burn"),
+    NftWithdraw("cost_nft_burn"),
     PoisonMicroblock("poison_microblock"),
 });

@@ -669,14 +669,35 @@ impl TypedNativeFunction {
                 )
                 .unwrap(),
             }))),
+            StxWithdraw => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![
+                    FunctionArg::new(
+                        TypeSignature::UIntType,
+                        ClarityName::try_from("amount".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ),
+                    FunctionArg::new(
+                        TypeSignature::PrincipalType,
+                        ClarityName::try_from("sender".to_owned())
+                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ),
+                ],
+                returns: TypeSignature::new_response(
+                    TypeSignature::BoolType,
+                    TypeSignature::UIntType,
+                )
+                    .unwrap(),
+            }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),
             TransferAsset => Special(SpecialNativeFunction(&assets::check_special_transfer_asset)),
             MintAsset => Special(SpecialNativeFunction(&assets::check_special_mint_asset)),
             MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
-            BurnAsset => Special(SpecialNativeFunction(&assets::check_special_burn_asset)),
-            BurnToken => Special(SpecialNativeFunction(&assets::check_special_burn_token)),
+            BurnAsset => Special(SpecialNativeFunction(&assets::check_special_burn_or_withdraw_asset)),
+            BurnToken => Special(SpecialNativeFunction(&assets::check_special_burn_withdraw_token)),
+            WithdrawAsset => Special(SpecialNativeFunction(&assets::check_special_burn_or_withdraw_asset)),
+            WithdrawToken => Special(SpecialNativeFunction(&assets::check_special_burn_withdraw_token)),
             GetTokenSupply => Special(SpecialNativeFunction(
                 &assets::check_special_get_token_supply,
             )),
