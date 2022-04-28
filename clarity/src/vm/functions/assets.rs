@@ -840,7 +840,7 @@ pub fn special_burn_token(
 
     if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
         if amount == 0 {
-            return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
+            return clarity_ecode!(BurnTokenErrorCodes::NON_POSITIVE_AMOUNT);
         }
 
         let burner_bal = env.global_context.database.get_ft_balance(

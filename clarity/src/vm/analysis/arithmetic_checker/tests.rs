@@ -138,9 +138,13 @@ fn test_functions() {
         ("(define-private (foo (a principal)) 
           (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
          FunctionNotPermitted(NativeFunctions::MintToken)),
+        ("(ft-burn? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+         FunctionNotPermitted(NativeFunctions::BurnToken)),
         ("(define-private (foo (a principal)) 
            (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
          FunctionNotPermitted(NativeFunctions::MintAsset)),
+        ("(nft-burn? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+         FunctionNotPermitted(NativeFunctions::BurnAsset)),
         ("(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
          FunctionNotPermitted(NativeFunctions::TransferAsset)),
         ("(nft-get-owner? stackaroo \"Roo\")",

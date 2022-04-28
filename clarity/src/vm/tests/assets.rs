@@ -42,8 +42,8 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (define-public (burn (amount uint))
-           (ft-burn? stackaroos amount tx-sender))
+         (define-public (burn (amount uint) (p principal))
+           (ft-burn? stackaroos amount p))
          (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                 (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
                 (ft-mint? stackaroos u4 .tokens))";
@@ -75,8 +75,8 @@ const ASSET_NAMES: &str =
 
          (define-public (force-mint (name int))
            (nft-mint? names name tx-sender))
-         (define-public (force-burn (name int))
-           (nft-burn? names name tx-sender))
+         (define-public (force-burn (name int) (p principal))
+           (nft-burn? names name p))
          (define-public (try-bad-transfers)
            (begin
              (contract-call? .tokens my-token-transfer burn-address u50000)
@@ -339,12 +339,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
     let table = asset_map.to_table();
     assert_eq!(
-        table
-            .get(&p2_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX_burned())
-            .unwrap(),
-        &AssetMapEntry::Burn(10)
+        table[&p2_principal][&AssetIdentifier::STX_burned()],
+        AssetMapEntry::Burn(10)
     );
 
     let (result, asset_map, _events) = execute_transaction(
@@ -359,12 +355,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
     let table = asset_map.to_table();
     assert_eq!(
-        table
-            .get(&p2_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(500)
+        table[&p2_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(500)
     );
 
     let (result, asset_map, _events) = execute_transaction(
@@ -379,12 +371,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
     let table = asset_map.to_table();
     assert_eq!(
-        table
-            .get(&p3_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(1)
+        table[&p3_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(1)
     );
 
     // let's try a user -> contract transfer
@@ -401,12 +389,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
     let table = asset_map.to_table();
     assert_eq!(
-        table
-            .get(&p2_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(10)
+        table[&p2_principal.clone()][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(10)
     );
 
     // now check contract balance with stx-get-balance
@@ -446,12 +430,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
     let contract_principal = token_contract_id.clone().into();
 
     assert_eq!(
-        table
-            .get(&contract_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(10)
+        table[&contract_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(10)
     );
 
     // now let's do a contract -> contract transfer
@@ -476,12 +456,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(table.len(), 1);
     assert_eq!(
-        table
-            .get(&second_contract_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(500)
+        table[&second_contract_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(500)
     );
 
     // now, let's send some back
@@ -500,12 +476,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(table.len(), 1);
     assert_eq!(
-        table
-            .get(&contract_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(100)
+        table[&contract_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(100)
     );
 
     // and, one more time for good measure
@@ -524,12 +496,8 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
 
     assert_eq!(table.len(), 1);
     assert_eq!(
-        table
-            .get(&second_contract_principal)
-            .unwrap()
-            .get(&AssetIdentifier::STX())
-            .unwrap(),
-        &AssetMapEntry::STX(100)
+        table[&second_contract_principal][&AssetIdentifier::STX()],
+        AssetMapEntry::STX(100)
     );
 }
 
@@ -735,13 +703,12 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         p2_principal.clone(),
         &token_contract_id.clone(),
         "burn",
-        &symbols_from_values(vec![Value::UInt(100)]),
+        &symbols_from_values(vec![Value::UInt(100), p2.clone()]),
     )
     .unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
-    println!("{:?}", asset_map);
     assert_eq!(
         asset_map[&p2_principal][&token_identifier],
         AssetMapEntry::Token(100)
@@ -776,12 +743,43 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         p2_principal.clone(),
         &token_contract_id.clone(),
         "burn",
-        &symbols_from_values(vec![Value::UInt(9101)]),
+        &symbols_from_values(vec![Value::UInt(9101), p2.clone()]),
     )
     .unwrap();
 
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 1));
+
+    // Try to burn 0 tokens from p2's balance - Should fail with error code 3
+    let (result, _asset_map, _events) = execute_transaction(
+        owned_env,
+        p2_principal.clone(),
+        &token_contract_id.clone(),
+        "burn",
+        &symbols_from_values(vec![Value::UInt(0), p2.clone()]),
+    )
+    .unwrap();
+
+    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 3));
+
+    // Try to burn 1 tokens from p2's balance (out of 9100) - Should pass even though
+    // sender != tx sender
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p1_principal.clone(),
+        &token_contract_id.clone(),
+        "burn",
+        &symbols_from_values(vec![Value::UInt(1), p2.clone()]),
+    )
+    .unwrap();
+
+    let asset_map = asset_map.to_table();
+    assert!(is_committed(&result));
+    assert_eq!(
+        asset_map[&p2_principal][&token_identifier],
+        AssetMapEntry::Token(1)
+    );
 
     let (result, asset_map, _events) = execute_transaction(
         owned_env,
@@ -1214,18 +1212,49 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     // preorder must exist!
     assert!(is_err_code(&result, 5));
 
-    // p1 burning 5 should fail (not owner anymore).
+    // p1 burning 5 should fail since p1 is not the owner of that asset
     let (result, asset_map, _events) = execute_transaction(
         owned_env,
         p1_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5)]),
+        &symbols_from_values(vec![Value::Int(5), p1.clone()]),
     )
     .unwrap();
 
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 1));
+
+    // p1 minting 8 should succeed
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p1_principal.clone(),
+        &names_contract_id,
+        "force-mint",
+        &symbols_from_values(vec![Value::Int(8)]),
+    )
+    .unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // p2 burning 8 (which belongs to p1) should succeed even though sender != tx_sender.
+    let (result, asset_map, _events) = execute_transaction(
+        owned_env,
+        p2_principal.clone(),
+        &names_contract_id,
+        "force-burn",
+        &symbols_from_values(vec![Value::Int(8), p1.clone()]),
+    )
+    .unwrap();
+
+    let asset_map = asset_map.to_table();
+
+    assert!(is_committed(&result));
+    assert_eq!(
+        asset_map[&p1_principal][&names_identifier],
+        AssetMapEntry::Asset(vec![Value::Int(8)])
+    );
 
     // p2 burning 5 should succeed.
     let (result, asset_map, _events) = execute_transaction(
@@ -1233,7 +1262,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5)]),
+        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
     )
     .unwrap();
 
@@ -1245,13 +1274,13 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         AssetMapEntry::Asset(vec![Value::Int(5)])
     );
 
-    // p2 re-burning 5 should succeed.
+    // p2 re-burning 5 should not succeed since the asset does not exist
     let (result, asset_map, _events) = execute_transaction(
         owned_env,
         p2_principal.clone(),
         &names_contract_id,
         "force-burn",
-        &symbols_from_values(vec![Value::Int(5)]),
+        &symbols_from_values(vec![Value::Int(5), p2.clone()]),
     )
     .unwrap();
     assert!(!is_committed(&result));
