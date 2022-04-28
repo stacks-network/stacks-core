@@ -113,6 +113,7 @@ fn test_variables_fail_arithmetic_check_clarity1() {
         ),
         ("(define-private (foo) tx-sponsor?)", Ok(())),
         ("(define-private (foo) is-in-mainnet)", Ok(())),
+        ("(define-private (foo) chain-id)", Ok(())),
     ];
 
     for (contract, result) in tests.iter() {
@@ -169,6 +170,10 @@ fn test_variables_fail_arithmetic_check_clarity2() {
         (
             "(define-private (foo) is-in-mainnet)",
             Err(VariableForbidden(NativeVariables::Mainnet)),
+        ),
+        (
+            "(define-private (foo) chain-id)",
+            Err(VariableForbidden(NativeVariables::ChainId)),
         ),
     ];
 

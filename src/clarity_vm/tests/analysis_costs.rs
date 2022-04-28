@@ -42,11 +42,13 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use crate::types::StacksEpochId;
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
 
 pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
     let marf = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf);
 
     let p1 = vm_execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
         .unwrap()

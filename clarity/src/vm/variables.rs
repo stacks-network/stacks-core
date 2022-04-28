@@ -36,6 +36,7 @@ define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     Regtest("is-in-regtest", ClarityVersion::Clarity1),
     TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
     Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
+    ChainId("chain-id", ClarityVersion::Clarity2),
 });
 
 impl NativeVariables {
@@ -114,6 +115,10 @@ pub fn lookup_reserved_variable(
             NativeVariables::Mainnet => {
                 let mainnet = env.global_context.mainnet;
                 Ok(Some(Value::Bool(mainnet)))
+            }
+            NativeVariables::ChainId => {
+                let chain_id = env.global_context.chain_id;
+                Ok(Some(Value::UInt(chain_id.into())))
             }
         }
     } else {

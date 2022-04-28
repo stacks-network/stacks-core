@@ -1629,7 +1629,7 @@ impl StacksChainState {
         )
         .map_err(|e| Error::ClarityError(e.into()))?;
 
-        let clarity_state = ClarityInstance::new(mainnet, vm_state);
+        let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
 
         let mut chainstate = StacksChainState {
             mainnet: mainnet,
