@@ -1226,7 +1226,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         Ok(())
     }
 
-    pub fn register_stx_withdraw_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
+    pub fn register_stx_withdraw_event(
+        &mut self,
+        sender: PrincipalData,
+        amount: u128,
+    ) -> Result<()> {
         let event_data = STXWithdrawEventData { sender, amount };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {
@@ -1398,11 +1402,9 @@ impl<'a, 'b> Environment<'a, 'b> {
         };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch
-                .events
-                .push(StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(
-                    event_data,
-                )));
+            batch.events.push(StacksTransactionEvent::FTEvent(
+                FTEventType::FTWithdrawEvent(event_data),
+            ));
         }
         Ok(())
     }

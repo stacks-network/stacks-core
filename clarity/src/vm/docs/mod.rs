@@ -1563,7 +1563,8 @@ const WITHDRAW_TOKEN: SpecialAPI = SpecialAPI {
     input_type: "TokenName, uint, principal",
     output_type: "(response bool uint)",
     signature: "(ft-withdraw? token-name amount sender)",
-    description: "`ft-withdraw?` is used to withdraw the token balance for the `sender` principal for a token
+    description:
+        "`ft-withdraw?` is used to withdraw the token balance for the `sender` principal for a token
 type defined using `define-fungible-token` from the hyperchain. The Stacks L1 chain will then be
 able to verify this withdraw when it processes the withdrawal of this asset.
 
@@ -1577,7 +1578,7 @@ returns one of the following error codes:
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (ft-withdraw? stackaroo u50 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
 };
 
 const WITHDRAW_ASSET: SpecialAPI = SpecialAPI {
@@ -1601,7 +1602,7 @@ returns one of the following error codes:
 (define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (nft-withdraw? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
 };
 
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {

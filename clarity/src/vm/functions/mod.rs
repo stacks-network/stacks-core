@@ -426,8 +426,12 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
             StxWithdraw => SpecialFunction("special_stx_withdraw", &assets::special_stx_withdraw),
-            WithdrawAsset => SpecialFunction("special_withdraw_asset", &assets::special_withdraw_asset),
-            WithdrawToken => SpecialFunction("special_withdraw_token", &assets::special_withdraw_token),
+            WithdrawAsset => {
+                SpecialFunction("special_withdraw_asset", &assets::special_withdraw_asset)
+            }
+            WithdrawToken => {
+                SpecialFunction("special_withdraw_token", &assets::special_withdraw_token)
+            }
         };
         Some(callable)
     } else {

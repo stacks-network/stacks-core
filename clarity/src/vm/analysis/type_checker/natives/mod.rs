@@ -686,7 +686,7 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                    .unwrap(),
+                .unwrap(),
             }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
@@ -694,10 +694,18 @@ impl TypedNativeFunction {
             TransferAsset => Special(SpecialNativeFunction(&assets::check_special_transfer_asset)),
             MintAsset => Special(SpecialNativeFunction(&assets::check_special_mint_asset)),
             MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
-            BurnAsset => Special(SpecialNativeFunction(&assets::check_special_burn_or_withdraw_asset)),
-            BurnToken => Special(SpecialNativeFunction(&assets::check_special_burn_withdraw_token)),
-            WithdrawAsset => Special(SpecialNativeFunction(&assets::check_special_burn_or_withdraw_asset)),
-            WithdrawToken => Special(SpecialNativeFunction(&assets::check_special_burn_withdraw_token)),
+            BurnAsset => Special(SpecialNativeFunction(
+                &assets::check_special_burn_or_withdraw_asset,
+            )),
+            BurnToken => Special(SpecialNativeFunction(
+                &assets::check_special_burn_withdraw_token,
+            )),
+            WithdrawAsset => Special(SpecialNativeFunction(
+                &assets::check_special_burn_or_withdraw_asset,
+            )),
+            WithdrawToken => Special(SpecialNativeFunction(
+                &assets::check_special_burn_withdraw_token,
+            )),
             GetTokenSupply => Special(SpecialNativeFunction(
                 &assets::check_special_get_token_supply,
             )),

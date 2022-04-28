@@ -221,7 +221,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         "withdraw-stx",
         &symbols_from_values(vec![Value::UInt(0), p1.clone()]),
     )
-        .unwrap();
+    .unwrap();
     assert!(is_err_code(&result, 3));
     assert_eq!(asset_map.to_table().len(), 0);
 
@@ -272,7 +272,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         "withdraw-stx",
         &symbols_from_values(vec![Value::UInt(50), p1.clone()]),
     )
-        .unwrap();
+    .unwrap();
 
     assert!(is_err_code(&result, 4));
     assert_eq!(asset_map.to_table().len(), 0);
@@ -310,7 +310,7 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         "withdraw-stx",
         &symbols_from_values(vec![Value::UInt(1001), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
 
     assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
@@ -812,7 +812,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         "withdraw",
         &symbols_from_values(vec![Value::UInt(100), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
@@ -865,7 +865,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         "withdraw",
         &symbols_from_values(vec![Value::UInt(9001), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
 
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 1));
@@ -878,7 +878,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         "withdraw",
         &symbols_from_values(vec![Value::UInt(0), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
 
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 3));
@@ -1383,7 +1383,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         "force-withdraw",
         &symbols_from_values(vec![Value::Int(5), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 3));
 
@@ -1447,7 +1447,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         "force-withdraw",
         &symbols_from_values(vec![Value::Int(7), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(
@@ -1463,7 +1463,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         "force-withdraw",
         &symbols_from_values(vec![Value::Int(8), p2.clone()]),
     )
-        .unwrap();
+    .unwrap();
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(
