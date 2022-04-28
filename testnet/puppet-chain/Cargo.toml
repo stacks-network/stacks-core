@@ -2,15 +2,15 @@
 name = "puppet-chain"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-async-h1 = "=1.0"
-async-std = { version = "<1.6", features = ["attributes"] }
+async-h1 = "2.3.2"
+async-std = { version = "1.6", features = ["attributes"] }
 base64 = "0.12.0"
-http-types = "1.0"
+http-types = "2.12"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 toml = "0.5"
-rand = "=0.7.2"
+rand = "0.7.2"

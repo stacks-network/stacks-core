@@ -41,16 +41,20 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address::StacksAddressExtensions;
 use stacks::codec::StacksMessageCodec;
-use stacks::deps::bitcoin::blockdata::opcodes;
-use stacks::deps::bitcoin::blockdata::script::{Builder, Script};
-use stacks::deps::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use stacks::deps::bitcoin::network::encodable::ConsensusEncodable;
-use stacks::deps::bitcoin::network::serialize::RawEncoder;
-use stacks::deps::bitcoin::util::hash::Sha256dHash;
+use stacks::core::StacksEpoch;
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
+use stacks_common::deps_common::bitcoin::blockdata::opcodes;
+use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
+use stacks_common::deps_common::bitcoin::blockdata::transaction::{
+    OutPoint, Transaction, TxIn, TxOut,
+};
+use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
@@ -66,7 +70,7 @@ const DUST_UTXO_LIMIT: u64 = 5500;
 
 pub struct BitcoinRegtestController {
     config: Config,
-    indexer_config: BitcoinIndexerConfig,
+    indexer: BitcoinIndexer,
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
@@ -74,6 +78,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    allow_rbf: bool,
 }
 
 struct OngoingBlockCommit {
@@ -219,6 +224,11 @@ impl BitcoinRegtestController {
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
 
+        if network_id == BitcoinNetworkType::Mainnet && config.burnchain.epochs.is_some() {
+            panic!("It is an error to set custom epochs while running on Mainnet: network_id {:?} config.burnchain {:#?}",
+                   &network_id, &config.burnchain);
+        }
+
         let indexer_config = {
             let burnchain_config = config.burnchain.clone();
             BitcoinIndexerConfig {
@@ -232,19 +242,28 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
+        };
+
+        let (_, network_type) = config.burnchain.get_bitcoin_network();
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let burnchain_indexer = BitcoinIndexer {
+            config: indexer_config.clone(),
+            runtime: indexer_runtime,
         };
 
         Self {
             use_coordinator: coordinator_channel,
             config,
-            indexer_config,
+            indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
             chain_tip: None,
             burnchain_config,
             ongoing_block_commit: None,
             should_keep_running,
+            allow_rbf: true,
         }
     }
 
@@ -268,19 +287,28 @@ impl BitcoinRegtestController {
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
+                epochs: burnchain_config.epochs,
             }
+        };
+
+        let (_, network_type) = config.burnchain.get_bitcoin_network();
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let burnchain_indexer = BitcoinIndexer {
+            config: indexer_config.clone(),
+            runtime: indexer_runtime,
         };
 
         Self {
             use_coordinator: None,
             config,
-            indexer_config,
+            indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
             chain_tip: None,
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
+            allow_rbf: true,
         }
     }
 
@@ -313,21 +341,10 @@ impl BitcoinRegtestController {
         }
     }
 
-    fn setup_indexer_runtime(&mut self) -> (Burnchain, BitcoinIndexer) {
-        let (_, network_type) = self.config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
-        let burnchain_indexer = BitcoinIndexer {
-            config: self.indexer_config.clone(),
-            runtime: indexer_runtime,
-        };
-        (self.get_burnchain(), burnchain_indexer)
-    }
-
     fn receive_blocks_helium(&mut self) -> BurnchainTip {
-        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
-
+        let mut burnchain = self.get_burnchain();
         let (block_snapshot, state_transition) = loop {
-            match burnchain.sync_with_indexer_deprecated(&mut burnchain_indexer) {
+            match burnchain.sync_with_indexer_deprecated(&mut self.indexer) {
                 Ok(x) => {
                     break x;
                 }
@@ -397,13 +414,13 @@ impl BitcoinRegtestController {
             }
         };
 
-        let (mut burnchain, mut burnchain_indexer) = self.setup_indexer_runtime();
+        let mut burnchain = self.get_burnchain();
         let (block_snapshot, burnchain_height, state_transition) = loop {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
             match burnchain.sync_with_indexer(
-                &mut burnchain_indexer,
+                &mut self.indexer,
                 coordinator_comms.clone(),
                 target_block_height_opt,
                 Some(burnchain.pox_constants.reward_cycle_length as u64),
@@ -431,7 +448,8 @@ impl BitcoinRegtestController {
                         .expect("Sortition DB error.")
                         .expect("BUG: no data for the canonical chain tip");
 
-                    let burnchain_height = burnchain_indexer
+                    let burnchain_height = self
+                        .indexer
                         .get_highest_header_height()
                         .map_err(BurnchainControllerError::IndexerError)?;
                     break (snapshot, burnchain_height, state_transition);
@@ -604,7 +622,7 @@ impl BitcoinRegtestController {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
-                false,
+                !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
                 total_required,
                 &utxos_to_exclude,
                 block_height,
@@ -638,7 +656,7 @@ impl BitcoinRegtestController {
                 let result = BitcoinRPCRequest::list_unspent(
                     &self.config,
                     filter_addresses.clone(),
-                    false,
+                    !self.allow_rbf, // if RBF is disabled, then we can use 0-conf txs
                     total_required,
                     &utxos_to_exclude,
                     block_height,
@@ -1019,7 +1037,7 @@ impl BitcoinRegtestController {
         _attempt: u64,
     ) -> Option<Transaction> {
         // Are we currently tracking an operation?
-        if self.ongoing_block_commit.is_none() {
+        if self.ongoing_block_commit.is_none() || !self.allow_rbf {
             // Good to go, let's build the transaction and send it.
             let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
             return res;
@@ -1310,7 +1328,9 @@ impl BitcoinRegtestController {
         unimplemented!()
     }
 
-    fn send_transaction(&self, transaction: SerializedTx) -> bool {
+    /// Send a serialized tx to the Bitcoin node.  Return true on successful send; false on
+    /// failure.
+    pub fn send_transaction(&self, transaction: SerializedTx) -> bool {
         let result = BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex());
         match result {
             Ok(_) => true,
@@ -1431,6 +1451,54 @@ impl BitcoinRegtestController {
             }
         }
     }
+
+    #[cfg(test)]
+    pub fn get_mining_pubkey(&self) -> Option<String> {
+        self.config.burnchain.local_mining_public_key.clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_mining_pubkey(&mut self, pubkey: String) -> Option<String> {
+        let old_key = self.config.burnchain.local_mining_public_key.take();
+        self.config.burnchain.local_mining_public_key = Some(pubkey);
+        old_key
+    }
+
+    #[cfg(test)]
+    pub fn set_allow_rbf(&mut self, val: bool) {
+        self.allow_rbf = val;
+    }
+
+    #[cfg(not(test))]
+    pub fn set_allow_rbf(&mut self, _val: bool) {}
+
+    pub fn make_operation_tx(
+        &mut self,
+        operation: BlockstackOperationType,
+        op_signer: &mut BurnchainOpSigner,
+        attempt: u64,
+    ) -> Option<SerializedTx> {
+        let transaction = match operation {
+            BlockstackOperationType::LeaderBlockCommit(payload) => {
+                self.build_leader_block_commit_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::LeaderKeyRegister(payload) => {
+                self.build_leader_key_register_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::UserBurnSupport(payload) => {
+                self.build_user_burn_support_tx(payload, op_signer, attempt)
+            }
+            BlockstackOperationType::PreStx(payload) => {
+                self.build_pre_stacks_tx(payload, op_signer)
+            }
+            BlockstackOperationType::TransferStx(payload) => {
+                self.build_transfer_stacks_tx(payload, op_signer, None)
+            }
+            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
+        };
+
+        transaction.map(|tx| SerializedTx::new(tx))
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -1460,6 +1528,37 @@ impl BurnchainController for BitcoinRegtestController {
                 unreachable!();
             }
         }
+    }
+
+    fn get_headers_height(&self) -> u64 {
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        let spv_client = SpvClient::new(
+            &self.config.get_spv_headers_file_path(),
+            0,
+            None,
+            network_id,
+            false,
+            false,
+        )
+        .expect("Unable to open burnchain headers DB");
+        spv_client
+            .get_headers_height()
+            .expect("Unable to query number of burnchain headers")
+    }
+
+    fn connect_dbs(&mut self) -> Result<(), BurnchainControllerError> {
+        let burnchain = self.get_burnchain();
+        burnchain.connect_db(
+            true,
+            self.indexer.get_first_block_header_hash()?,
+            self.indexer.get_first_block_header_timestamp()?,
+            self.indexer.get_stacks_epochs(),
+        )?;
+        Ok(())
+    }
+
+    fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
+        self.indexer.get_stacks_epochs()
     }
 
     fn start(
@@ -1508,28 +1607,11 @@ impl BurnchainController for BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
     ) -> bool {
-        let transaction = match operation {
-            BlockstackOperationType::LeaderBlockCommit(payload) => {
-                self.build_leader_block_commit_tx(payload, op_signer, attempt)
+        let transaction = match self.make_operation_tx(operation, op_signer, attempt) {
+            Some(tx) => tx,
+            None => {
+                return false;
             }
-            BlockstackOperationType::LeaderKeyRegister(payload) => {
-                self.build_leader_key_register_tx(payload, op_signer, attempt)
-            }
-            BlockstackOperationType::UserBurnSupport(payload) => {
-                self.build_user_burn_support_tx(payload, op_signer, attempt)
-            }
-            BlockstackOperationType::PreStx(payload) => {
-                self.build_pre_stacks_tx(payload, op_signer)
-            }
-            BlockstackOperationType::TransferStx(payload) => {
-                self.build_transfer_stacks_tx(payload, op_signer, None)
-            }
-            BlockstackOperationType::StackStx(_payload) => unimplemented!(),
-        };
-
-        let transaction = match transaction {
-            Some(tx) => SerializedTx::new(tx),
-            _ => return false,
         };
 
         self.send_transaction(transaction)
@@ -1586,8 +1668,8 @@ impl UTXOSet {
 }
 
 #[derive(Debug, Clone)]
-struct SerializedTx {
-    bytes: Vec<u8>,
+pub struct SerializedTx {
+    pub bytes: Vec<u8>,
 }
 
 impl SerializedTx {
@@ -1695,7 +1777,7 @@ impl ParsedUTXO {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct BitcoinRPCRequest {
+pub struct BitcoinRPCRequest {
     /// The name of the RPC call
     pub method: String,
     /// Parameters to the RPC call
@@ -1731,8 +1813,7 @@ impl BitcoinRPCRequest {
         match (&config.burnchain.username, &config.burnchain.password) {
             (Some(username), Some(password)) => {
                 let auth_token = format!("Basic {}", encode(format!("{}:{}", username, password)));
-                req.append_header("Authorization", auth_token)
-                    .expect("Unable to set header");
+                req.append_header("Authorization", auth_token);
             }
             (_, _) => {}
         };
@@ -1972,9 +2053,7 @@ impl BitcoinRPCRequest {
                 return Err(RPCError::Network(format!("RPC Error: {}", err)));
             }
         };
-        request
-            .append_header("Content-Type", "application/json")
-            .expect("Unable to set header");
+        request.append_header("Content-Type", "application/json");
         request.set_body(body);
 
         let mut response = async_std::task::block_on(async move {

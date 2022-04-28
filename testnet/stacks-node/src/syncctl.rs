@@ -6,6 +6,7 @@ use stacks::util::get_epoch_time_secs;
 use stacks::util::sleep_ms;
 
 use crate::burnchains::BurnchainTip;
+use crate::Config;
 
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -73,7 +74,7 @@ impl PoxSyncWatchdogComms {
                 return Ok(false);
             }
             self.interruptable_sleep(1)?;
-            std::sync::atomic::spin_loop_hint();
+            std::hint::spin_loop();
         }
         return Ok(true);
     }
@@ -99,7 +100,7 @@ impl PoxSyncWatchdogComms {
                 return Ok(false);
             }
             self.interruptable_sleep(1)?;
-            std::sync::atomic::spin_loop_hint();
+            std::hint::spin_loop();
         }
         return Ok(true);
     }
@@ -169,24 +170,28 @@ const PER_SAMPLE_WAIT_MS: u64 = 1000;
 
 impl PoxSyncWatchdog {
     pub fn new(
-        mainnet: bool,
-        chain_id: u32,
-        chainstate_path: String,
-        burnchain_poll_time: u64,
-        download_timeout: u64,
-        max_samples: u64,
-        unconditionally_download: bool,
+        config: &Config,
         should_keep_running: Arc<AtomicBool>,
     ) -> Result<PoxSyncWatchdog, String> {
-        let (chainstate, _) = match StacksChainState::open(mainnet, chain_id, &chainstate_path) {
-            Ok(cs) => cs,
-            Err(e) => {
-                return Err(format!(
-                    "Failed to open chainstate at '{}': {:?}",
-                    &chainstate_path, &e
-                ));
-            }
-        };
+        let mainnet = config.is_mainnet();
+        let chain_id = config.burnchain.chain_id;
+        let chainstate_path = config.get_chainstate_path_str();
+        let burnchain_poll_time = config.burnchain.poll_time_secs;
+        let download_timeout = config.connection_options.timeout;
+        let max_samples = config.node.pox_sync_sample_secs;
+        let unconditionally_download = config.node.pox_sync_sample_secs == 0;
+        let marf_opts = config.node.get_marf_opts();
+
+        let (chainstate, _) =
+            match StacksChainState::open(mainnet, chain_id, &chainstate_path, Some(marf_opts)) {
+                Ok(cs) => cs,
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to open chainstate at '{}': {:?}",
+                        &chainstate_path, &e
+                    ));
+                }
+            };
 
         Ok(PoxSyncWatchdog {
             unconditionally_download,
@@ -298,8 +303,8 @@ impl PoxSyncWatchdog {
     /// low and high pass filter average -- take average without the smallest and largest values
     fn hilo_filter_avg(samples: &Vec<i64>) -> f64 {
         // take average with low and high pass
-        let mut min = i64::max_value();
-        let mut max = i64::min_value();
+        let mut min = i64::MAX;
+        let mut max = i64::MIN;
         for s in samples.iter() {
             if *s < 0 {
                 // nonsensical result (e.g. due to clock drift?)

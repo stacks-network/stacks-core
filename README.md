@@ -8,14 +8,14 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 
 ## Repository
 
-| Blockstack Topic/Tech    | Where to learn more more                                                          |
-| ------------------------ | --------------------------------------------------------------------------------- |
-| Stacks 2.0               | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
-| Stacks 1.0               | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
-| Use the package          | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html)   |
-| Use a Blockstack App     | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack PBC the company   | [our website](https://blockstack.org)                                             |
+| Blockstack Topic/Tech      | Where to learn more more                                                          |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
+| Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
+| Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
+| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
+| Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack PBC the company | [our website](https://blockstack.org)                                             |
 
 ## Release Schedule and Hotfixes
 
@@ -30,8 +30,8 @@ to the main branch which are backported to the develop branch after merging. The
 according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
-- **Medium Priority**. Any fix for an issue that could cause miners to waste funds
-- **Low Priority**. Any fix for an issue that could deny service to individual nodes
+- **Medium Priority**. Any fix for an issue that could cause miners to waste funds.
+- **Low Priority**. Any fix for an issue that could deny service to individual nodes.
 
 ## Versioning
 
@@ -54,12 +54,12 @@ to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` w
 
 - [x] [SIP 001: Burn Election](https://github.com/stacksgov/sips/blob/main/sips/sip-001/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/stacksgov/sips/blob/main/sips/sip-002/sip-002-smart-contract-language.md)
-- [X] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
+- [x] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
 - [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/stacksgov/sips/blob/main/sips/sip-004/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
-- [X] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
+- [x] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
 - [x] [SIP 007: Stacking Consensus](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md)
-- [X] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
+- [x] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -69,19 +69,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Helium** is a developer local setup, mono-node, assembling SIP 001, SIP 002, SIP 004 and SIP 005. With this version, developers can not only run Stacks 2.0 on their development machines, but also write, execute, and test smart contracts. See the instructions below for more details.
+- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
 
-- [X] **Neon** is the first version of our public testnet, which shipped in Q2 2020. This testnet added SIP 003, and will be an open-membership public network, where participants will be able to validate and participate in mining testnet blocks.
+- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
 
-- [X] **Argon** is the second version of our public testnet, which shipped in Q2 2020. This testnet improved on the stability of the Neon testnet.
-
-- [X] **Krypton** is the third version of our public testnet, which incorporates a partial implementation of SIP 007.  It allows developers to test a simple version of Stacking and PoX consensus.
-
-- [X] **Xenon** is the upcoming version of our public testnet, which will run on the Bitcoin testnet.  It will include SIP 006 and SIP 008, and will contain bugfixes and improvements to the implementation of SIP 007.
-
-- [X] **Mainnet** is the fully functional version, that is estimated for Q4 2020.
-
-See the [testnet website](https://testnet.blockstack.org) and ["when mainnet?" FAQ](https://github.com/blockstack/stacks/blob/master/whenmainnet.md) for details.
+- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
@@ -129,7 +121,8 @@ cargo run --bin blockstack-cli generate-sk --testnet
 #  stacksAddress: "ST2ZRX0K27GW0SP3GJCEMHD95TQGJMKB7G9Y0X1MH"
 # }
 ```
-This keypair is already registered in the `testnet-follower-conf.toml` file, so it can be used as presented here. 
+
+This keypair is already registered in the `testnet-follower-conf.toml` file, so it can be used as presented here.
 
 We will interact with the following simple contract `kv-store`. In our examples, we will assume this contract is saved to `./kv-store.clar`:
 
@@ -162,7 +155,7 @@ With the following arguments:
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet
 ```
 
-The `515` is the transaction fee, denominated in microSTX.  Right now, the
+The `515` is the transaction fee, denominated in microSTX. Right now, the
 testnet requires one microSTX per byte minimum, and this transaction should be
 less than 515 bytes.
 The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
@@ -178,10 +171,10 @@ cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d
 You can observe the state machine in action locally by running:
 
 ```bash
-cargo testnet start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
+cargo stacks-node start --config=./testnet/stacks-node/conf/testnet-follower-conf.toml
 ```
 
-`testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers.  You can grant an address an initial account balance by adding the following entries:
+`testnet-follower-conf.toml` is a configuration file that you can use for setting genesis balances or configuring Event observers. You can grant an address an initial account balance by adding the following entries:
 
 ```
 [[ustx_balance]]
@@ -190,7 +183,7 @@ amount = 100000000
 ```
 
 The `address` field is the Stacks testnet address, and the `amount` field is the
-number of microSTX to grant to it in the genesis block.  The addresses of the
+number of microSTX to grant to it in the genesis block. The addresses of the
 private keys used in the tutorial below are already added.
 
 ### Publish your contract
@@ -260,12 +253,14 @@ Congratulations, you can now [write your own smart contracts with Clarity](https
 
 Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
 
-Platforms with second-tier status _(builds are provided but not tested)_: `Linux ARMv7`, `Linux ARM64`.
+Platforms with second-tier status _(builds are provided but not tested)_: `MacOS Apple Silicon (ARM64)`, `Linux ARMv7`, `Linux ARM64`.
+
+For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
 
 ## Community
 
 Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.blockstack.org) and an
+Blockstack maintains a public [forum](https://forum.stacks.org) and an
 opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
 maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
@@ -277,8 +272,6 @@ videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
-For help cross-compiling on memory-constrained devices, please see the community supported documentation here: [Cross Compiling](https://github.com/dantrevino/cross-compiling-stacks-blockchain/blob/master/README.md).
-
 ## Further Reading
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the documentation:
@@ -287,10 +280,10 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 
 You can also read the technical papers:
 
-- ["PoX: Proof of Transfer Mining with Bitcoin"](https://blockstack.org/pox.pdf), May 2020
-- ["The Blockstack Decentralized Computing Network"](https://blockstack.org/whitepaper.pdf), May 2019
+- ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
+- ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
 
-If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
+If you have high-level questions about Blockstack, try [searching our forum](https://forum.stacks.org) and start a new question if your question is not answered there.
 
 ## Contributing
 
@@ -315,14 +308,171 @@ properly formatted.
 You can check the formatting locally via:
 
 ```bash
-$ cargo fmt --all -- --check
+cargo fmt --all -- --check
 ```
 
 You can automatically reformat your commit via:
 
 ```bash
-$ cargo fmt --all
+cargo fmt --all
 ```
+
+## Mining
+
+Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner,
+you should make sure to add the following config fields to your config file:
+
+```
+[node]
+# Run as a miner
+miner = True
+# Bitcoin private key to spend
+seed = "YOUR PRIVATE KEY"
+# How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
+wait_time_for_microblocks = 10000
+# Run as a mock-miner, to test mining without spending BTC.
+# Mutually exclusive with `miner`.
+#mock_miner = True
+
+[miner]
+# Smallest allowed tx fee, in microSTX
+min_tx_fee = 100
+# Time to spend on the first attempt to make a block, in milliseconds.
+# This can be small, so your node gets a block-commit into the Bitcoin mempool early.
+first_attempt_time_ms = 1000
+# Time to spend on subsequent attempts to make a block, in milliseconds.
+# This can be bigger -- new block-commits will be RBF'ed.
+subsequent_attempt_time_ms = 60000
+# Time to spend mining a microblock, in milliseconds.
+microblock_attempt_time_ms = 30000
+```
+
+You can verify that your node is operating as a miner by checking its log output
+to verify that it was able to find its Bitcoin UTXOs:
+
+```bash
+$ head -n 100 /path/to/your/node/logs | grep -i utxo
+INFO [1630127492.031042] [testnet/stacks-node/src/run_loop/neon.rs:146] [main] Miner node: checking UTXOs at address: <redacted>
+INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] UTXOs found - will run as a Miner node
+```
+
+### Configuring Cost and Fee Estimation
+
+Fee and cost estimators can be configure via the config section `[fee_estimation]`:
+
+```
+[fee_estimation]
+cost_estimator = naive_pessimistic
+fee_estimator = fuzzed_weighted_median_fee_rate
+fee_rate_fuzzer_fraction = 0.1
+fee_rate_window_size = 5
+cost_metric = proportion_dot_product
+log_error = true
+enabled = true
+```
+
+Fee and cost estimators observe transactions on the network and use the
+observed costs of those transactions to build estimates for viable fee rates
+and expected execution costs for transactions. Estimators and metrics can be
+selected using the configuration fields above, though the default values are
+the only options currently. `log_error` controls whether or not the INFO logger
+will display information about the cost estimator accuracy as new costs are
+observed. Setting `enabled = false` turns off the cost estimators. Cost estimators
+are **not** consensus-critical components, but rather can be used by miners to
+rank transactions in the mempool or client to determine appropriate fee rates
+for transactions before broadcasting them.
+
+The `fuzzed_weighted_median_fee_rate` uses a
+median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
+Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
+`fee_rate_fuzzer_fraction` of the base estimate.
+
+## Non-Consensus Breaking Release Process
+
+For non-consensus breaking releases, this project uses the following release process:
+
+1. The release must be timed so that it does not interfere with a *prepare
+phase*.  The timing of the next Stacking cycle can be found
+[here](https://stacking.club/cycles/next). A release to `mainnet` should happen
+at least 24 hours before the start of a new cycle, to avoid interfering
+with the prepare phase. So, start by being aware of when the release can
+happen.
+
+1. Before creating the release, the release manager must determine the *version
+number* for this release.  The factors that determine the version number are
+discussed in [Versioning](#versioning).  We assume, in this section,
+that the change is not consensus-breaking.  So, the release manager must first
+determine whether there are any "non-consensus-breaking changes that require a
+fresh chainstate". This means, in other words, that the database schema has
+changed, but an automatic migration was not implemented. Then, the release manager 
+should determine whether this is a feature release, as opposed to a hot fix or a
+patch. Given the answers to these questions, the version number can be computed.
+
+1. The release manager enumerates the PRs or issues that would _block_
+   the release. A label should be applied to each such issue/PR as
+   `2.0.x.y.z-blocker`. The release manager should ping these
+   issue/PR owners for updates on whether or not those issues/PRs have
+   any blockers or are waiting on feedback.
+
+1. The release manager should open a `develop -> master` PR. This can be done before
+   all the blocker PRs have merged, as it is helpful for the manager and others
+   to see the staged changes.
+
+1. The release manager must update the `CHANGELOG.md` file with summaries what
+was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
+can be found
+[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
+*merge time*, so, when sorting by some proxy criterion, some care should
+be used to understand which PR's were *merged* after the last `develop ->
+master` release PR.  This `CHANGELOG.md` should also be used as the description
+of the `develop -> master` so that it acts as *release notes* when the branch
+is tagged.
+
+1. Once the blocker PRs have merged, the release manager will create a new tag
+   by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
+   against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
+   in the Action's input textbox.
+
+1. Once the release candidate has been built, and docker images, etc. are available,
+   the release manager will notify various ecosystem participants to test the release
+   candidate on various staging infrastructure:
+
+   1. Stacks Foundation staging environments.
+   1. Hiro PBC testnet network.
+   1. Hiro PBC mainnet mock miner.
+
+   The release candidate should be announced in the `#stacks-core-devs` channel in the
+   Stacks Discord. For coordinating rollouts on specific infrastructure, the release
+   manager should contact the above participants directly either through e-mail or
+   Discord DM. The release manager should also confirm that the built release on the
+   [Github releases](https://github.com/blockstack/stacks-blockchain/releases/)
+   page is marked as `Pre-Release`.
+
+1. The release manager will test that the release candidate successfully syncs with
+   the current chain from genesis both in testnet and mainnet. This requires starting
+   the release candidate with an empty chainstate and confirming that it synchronizes
+   with the current chain tip.
+
+1. If bugs or issues emerge from the rollout on staging infrastructure, the release
+   will be delayed until those regressions are resolved. As regressions are resolved,
+   additional release candidates should be tagged. The release manager is responsible
+   for updating the `develop -> master` PR with information about the discovered issues,
+   even if other community members and developers may be addressing the discovered
+   issues.
+
+1. Once the final release candidate has rolled out successfully without issue on the
+   above staging infrastructure, the release manager tags 2 additional `stacks-blockchain`
+   team members to review the `develop -> master` PR. If there is a merge conflict in this
+   PR, this is the protocol: open a branch off of develop, merge master into that branch, 
+   and then open a PR from this side branch to develop. The merge conflicts will be 
+   resolved. 
+
+1. Once reviewed and approved, the release manager merges the PR, and tags the release
+   via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
+   by clicking "Run workflow" and providing the release version as the tag (e.g.,
+   `2.0.11.1.0`) This creates a release and release images. Once the release has been
+   created, the release manager should update the Github release text with the
+   `CHANGELOG.md` "top-matter" for the release.
 
 ## Copyright and License
 

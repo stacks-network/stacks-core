@@ -32,6 +32,7 @@ use blockstack_lib::burnchains::bitcoin::address::{
     ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use blockstack_lib::burnchains::Address;
+use blockstack_lib::chainstate::stacks::StacksBlockHeader;
 use blockstack_lib::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
     StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -39,14 +40,16 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::codec::{Error as CodecError, StacksMessageCodec};
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::types::chainstate::StacksAddress;
-use blockstack_lib::util::{
-    hash::hex_bytes, hash::to_hex, log, retry::LogReader, strings::StacksString,
-};
-use blockstack_lib::vm;
+use blockstack_lib::util::hash::hex_bytes;
+use blockstack_lib::util::hash::to_hex;
+use blockstack_lib::util::retry::LogReader;
+use blockstack_lib::util_lib::strings::StacksString;
+use blockstack_lib::vm::ClarityVersion;
 use blockstack_lib::vm::{
     errors::{Error as ClarityError, RuntimeErrorType},
     types::PrincipalData,
@@ -66,6 +69,7 @@ This CLI has these methods:
   token-transfer     used to generate and sign a transfer transaction
   addresses          used to get both Bitcoin and Stacks addresses from a private key
   decode-tx          used to decode a hex-encoded transaction into a human-readable representation
+  decode-header      used to decode a hex-encoded Stacks header into a human-readable representation
   decode-block       used to decode a hex-encoded Stacks block into a human-readable representation
   decode-microblock  used to decode a hex-encoded Stacks microblock into a human-readable representation
 
@@ -146,19 +150,25 @@ const DECODE_TRANSACTION_USAGE: &str =
     "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
 
 The decode-tx command decodes a serialized Stacks transaction and prints it to stdout as JSON.
-The transaction, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The transaction, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary transaction will be read from stdin.";
+
+const DECODE_HEADER_USAGE: &str = "blockstack-cli (options) decode-header [block-path-or-stdin]
+
+The decode-header command decodes a serialized Stacks header and prints it to stdout as JSON.
+The header, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
+raw binary header will be read from stdin.";
 
 const DECODE_BLOCK_USAGE: &str = "blockstack-cli (options) decode-block [block-path-or-stdin]
 
 The decode-block command decodes a serialized Stacks block and prints it to stdout as JSON.
-The block, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The block, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary block will be read from stdin.";
 
 const DECODE_MICROBLOCK_USAGE: &str = "blockstack-cli (options) decode-microblock [microblock-path-or-stdin]
 
 The decode-microblock command decodes a serialized Stacks microblock and prints it to stdout as JSON.
-The microblock, if given, must be a hex string.  Alternatively, you may pass - instead, and the
+The microblock, if given, must be a hex string.  Alternatively, you may pass `-` instead, and the
 raw binary microblock will be read from stdin.
 
 N.B. Stacks microblocks are not stored as files in the Stacks chainstate -- they are stored in 
@@ -410,6 +420,7 @@ fn handle_contract_call(
     args_slice: &[String],
     version: TransactionVersion,
     chain_id: u32,
+    clarity_version: ClarityVersion,
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
     if args.len() >= 1 && args[0] == "-h" {
@@ -448,7 +459,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                vm::execute(input)?
+                vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             _ => {
@@ -661,6 +672,45 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     }
 }
 
+fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
+    if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
+        return Err(CliError::Message(format!(
+            "Usage: {}\n",
+            DECODE_HEADER_USAGE
+        )));
+    }
+    let header_data = if args[0] == "-" {
+        // read from stdin
+        let mut header_str = Vec::new();
+        io::stdin()
+            .read_to_end(&mut header_str)
+            .expect("Failed to read header from stdin");
+        header_str
+    } else {
+        // given as a command-line arg
+        hex_bytes(&args[0].clone()).expect("Failed to decode header: must be a hex string")
+    };
+
+    let mut cursor = io::Cursor::new(&header_data);
+    let mut debug_cursor = LogReader::from_reader(&mut cursor);
+
+    match StacksBlockHeader::consensus_deserialize(&mut debug_cursor) {
+        Ok(header) => {
+            Ok(serde_json::to_string(&header).expect("Failed to serialize header to JSON"))
+        }
+        Err(e) => {
+            let mut ret = String::new();
+            ret.push_str(&format!("Failed to decode header: {:?}\n", &e));
+            ret.push_str("Bytes consumed:\n");
+            for buf in debug_cursor.log().iter() {
+                ret.push_str(&format!("   {}", to_hex(buf)));
+            }
+            ret.push_str("\n");
+            Ok(ret)
+        }
+    }
+}
+
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (args.len() >= 1 && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
@@ -769,12 +819,15 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 
     if let Some((method, args)) = argv.split_first() {
         match method.as_str() {
-            "contract-call" => handle_contract_call(args, tx_version, chain_id),
+            "contract-call" => {
+                handle_contract_call(args, tx_version, chain_id, ClarityVersion::Clarity2)
+            }
             "publish" => handle_contract_publish(args, tx_version, chain_id),
             "token-transfer" => handle_token_transfer(args, tx_version, chain_id),
             "generate-sk" => generate_secret_key(args, tx_version),
             "addresses" => get_addresses(args, tx_version),
             "decode-tx" => decode_transaction(args, tx_version),
+            "decode-header" => decode_header(args, tx_version),
             "decode-block" => decode_block(args, tx_version),
             "decode-microblock" => decode_microblock(args, tx_version),
             _ => Err(CliError::Usage),
@@ -1109,6 +1162,17 @@ mod test {
         ];
 
         let result = main_handler(to_string_vec(&block_args)).unwrap();
+        eprintln!("result:\n{}", result);
+    }
+
+    #[test]
+    fn simple_decode_header() {
+        let header_args = [
+            "decode-header",
+            "24000000000000000100000000000000019275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a2154900325010cc49a050c23e6ffb0581afebbb27f41e65a5ecfd68548982f824f7a33ed32849b7524eceec0a9f29d9d624314059d56fefd55bca56944f3fe2d003488d4a00c92575d68c6f6dd659046585f5d5209e65829a3a673c04692f5e3dc2802020202020202020202020202020202020202020202020202020202020202023ad2cf6dfced0536fc850eb86827df634877c035",
+        ];
+
+        let result = main_handler(to_string_vec(&header_args)).unwrap();
         eprintln!("result:\n{}", result);
     }
 }

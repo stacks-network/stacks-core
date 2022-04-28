@@ -1,0 +1,24 @@
+FROM rust:bullseye as build
+
+ARG STACKS_NODE_VERSION="No Version Info"
+ARG GIT_BRANCH='No Branch Info'
+ARG GIT_COMMIT='No Commit Info'
+
+WORKDIR /src
+
+COPY . .
+
+RUN rustup target add aarch64-apple-darwin
+
+RUN apt-get update && apt-get install -y clang zstd
+
+RUN wget -nc -O /tmp/osxcross.tar.zst "https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
+RUN mkdir /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
+
+RUN . /opt/osxcross/env-macos-aarch64 && \
+    cargo build --target aarch64-apple-darwin --release --workspace
+
+RUN mkdir /out && cp -R /src/target/aarch64-apple-darwin/release/. /out
+
+FROM scratch AS export-stage
+COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /

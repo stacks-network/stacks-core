@@ -25,61 +25,65 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::bitcoin::address::address_type_to_version_byte;
-use burnchains::bitcoin::address::to_c32_version_byte;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::address::BitcoinAddressType;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
-use burnchains::db::BurnchainDB;
-use burnchains::indexer::{
+use crate::burnchains::bitcoin::address::address_type_to_version_byte;
+use crate::burnchains::bitcoin::address::to_c32_version_byte;
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::BitcoinAddressType;
+use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use burnchains::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
     Error as burnchain_error, PoxConstants,
 };
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::distribution::BurnSamplePoint;
-use chainstate::burn::operations::{
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
+use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::burn::{BlockSnapshot, Opcodes};
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::StacksPublicKey;
-use core::StacksEpoch;
-use core::MINING_COMMITMENT_WINDOW;
-use core::NETWORK_ID_MAINNET;
-use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION_MAINNET;
-use core::PEER_VERSION_TESTNET;
-use core::STACKS_EPOCHS_MAINNET;
-use deps;
-use deps::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use monitoring::update_burnchain_height;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::vrf::VRFPublicKey;
+use crate::chainstate::burn::{BlockSnapshot, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::StacksEpoch;
+use crate::core::MINING_COMMITMENT_WINDOW;
+use crate::core::NETWORK_ID_MAINNET;
+use crate::core::NETWORK_ID_TESTNET;
+use crate::core::PEER_VERSION_MAINNET;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::deps;
+use crate::monitoring::update_burnchain_height;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
+use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::VRFPublicKey;
 
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
+use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -504,13 +508,25 @@ impl Burnchain {
         self.first_block_height + reward_cycle * (self.pox_constants.reward_cycle_length as u64) + 1
     }
 
-    pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
-        if block_height < self.first_block_height {
+    /// Returns the active reward cycle at the given burn block height
+    /// * `first_block_ht` - the first burn block height that the Stacks network monitored
+    /// * `reward_cycle_len` - the length of each reward cycle in the network.
+    pub fn static_block_height_to_reward_cycle(
+        block_ht: u64,
+        first_block_ht: u64,
+        reward_cycle_len: u64,
+    ) -> Option<u64> {
+        if block_ht < first_block_ht {
             return None;
         }
-        Some(
-            (block_height - self.first_block_height)
-                / (self.pox_constants.reward_cycle_length as u64),
+        Some((block_ht - first_block_ht) / (reward_cycle_len))
+    }
+
+    pub fn block_height_to_reward_cycle(&self, block_height: u64) -> Option<u64> {
+        Self::static_block_height_to_reward_cycle(
+            block_height,
+            self.first_block_height,
+            self.pox_constants.reward_cycle_length as u64,
         )
     }
 
@@ -620,6 +636,7 @@ impl Burnchain {
         db_path
     }
 
+    /// Connect to the burnchain databases.  They may or may not already exist.
     pub fn connect_db(
         &self,
         readwrite: bool,
@@ -652,7 +669,7 @@ impl Burnchain {
         Ok((sortitiondb, burnchaindb))
     }
 
-    /// Open the burn database.  It must already exist.
+    /// Open the burn databases.  They must already exist.
     pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
@@ -891,13 +908,22 @@ impl Burnchain {
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
-        db.evaluate_sortition(&header, blockstack_txs, burnchain, &sortition_tip, None)
-            .map(|(snapshot, transition, _)| (snapshot, transition))
+        // Do not emit sortition/burn block events to event observer in this method, because this
+        // method is deprecated and only used in defunct helium nodes
+
+        db.evaluate_sortition(
+            &header,
+            blockstack_txs,
+            burnchain,
+            &sortition_tip,
+            None,
+            |_| {},
+        )
     }
 
     /// Determine if there has been a chain reorg, given our current canonical burnchain tip.
-    /// Return the new chain tip
-    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<u64, burnchain_error> {
+    /// Return the new chain tip and a boolean signaling the presence of a reorg
+    fn sync_reorg<I: BurnchainIndexer>(indexer: &mut I) -> Result<(u64, bool), burnchain_error> {
         let headers_path = indexer.get_headers_path();
 
         // sanity check -- what is the height of our highest header
@@ -910,7 +936,7 @@ impl Burnchain {
         })?;
 
         if headers_height == 0 {
-            return Ok(0);
+            return Ok((0, false));
         }
 
         // did we encounter a reorg since last sync?  Find the highest common ancestor of the
@@ -926,10 +952,10 @@ impl Burnchain {
                 "Burnchain reorg detected: highest common ancestor at height {}",
                 reorg_height
             );
-            return Ok(reorg_height);
+            return Ok((reorg_height, true));
         } else {
             // no reorg
-            return Ok(headers_height);
+            return Ok((headers_height, false));
         }
     }
 
@@ -965,7 +991,7 @@ impl Burnchain {
 
         // handle reorgs
         let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
+        let (sync_height, _) = Burnchain::sync_reorg(indexer)?;
         if sync_height + 1 < orig_header_height {
             // a reorg happened
             warn!(
@@ -1146,6 +1172,37 @@ impl Burnchain {
         Ok((block_snapshot, state_transition_opt))
     }
 
+    /// Get the highest burnchain block processed, if we have processed any.
+    /// Return Some(..) if we have processed at least one processed burnchain block; return None
+    /// otherwise.
+    pub fn get_highest_burnchain_block(
+        &self,
+    ) -> Result<Option<BurnchainBlockHeader>, burnchain_error> {
+        let burndb = match self.open_db(true) {
+            Ok((_sortdb, burndb)) => burndb,
+            Err(burnchain_error::DBError(db_error::NoDBError)) => {
+                // databases not yet initialized, so no blocks processed
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        let burn_chain_tip = match burndb.get_canonical_chain_tip() {
+            Ok(tip) => tip,
+            Err(burnchain_error::MissingParentBlock) => {
+                // database is empty
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        };
+
+        Ok(Some(burn_chain_tip))
+    }
+
     /// Top-level burnchain sync.
     /// Returns the burnchain block header for the new burnchain tip, which will be _at least_ as
     /// high as target_block_height_opt (if given), or whatever is currently at the tip of the
@@ -1177,9 +1234,8 @@ impl Burnchain {
         let db_height = burn_chain_tip.block_height;
 
         // handle reorgs
-        let orig_header_height = indexer.get_headers_height()?; // 1-indexed
-        let sync_height = Burnchain::sync_reorg(indexer)?;
-        if sync_height + 1 < orig_header_height {
+        let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
+        if did_reorg {
             // a reorg happened
             warn!(
                 "Dropping headers higher than {} due to burnchain reorg",
@@ -1193,6 +1249,23 @@ impl Burnchain {
 
         // fetch all headers, no matter what
         let mut end_block = indexer.sync_headers(sync_height, None)?;
+        if did_reorg && sync_height > 0 {
+            // a reorg happened, and the last header fetched
+            // is on a smaller fork than the one we just
+            // invalidated. Wait for more blocks.
+            while end_block < db_height {
+                if let Some(ref should_keep_running) = should_keep_running {
+                    if !should_keep_running.load(Ordering::SeqCst) {
+                        return Err(burnchain_error::CoordinatorClosed);
+                    }
+                }
+                let end_height = target_block_height_opt.unwrap_or(0).max(db_height);
+                info!("Burnchain reorg happened at height {} invalidating chain tip {} but only {} headers presents on canonical chain. Retry in 2s", sync_height, db_height, end_block);
+                thread::sleep(Duration::from_millis(2000));
+                end_block = indexer.sync_headers(sync_height, Some(end_height))?;
+            }
+        }
+
         let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
@@ -1200,16 +1273,25 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            sync_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {
-            if target_block_height < end_block {
+            // `target_block_height` is used as a hint, but could also be completely off
+            // in certain situations. This function is directly reading the
+            // headers and syncing with the bitcoin-node, and the interval of blocks
+            // to download computed here should be considered as our source of truth.
+            if target_block_height > start_block && target_block_height < end_block {
                 debug!(
                     "Will download up to max burn block height {}",
                     target_block_height
                 );
                 end_block = target_block_height;
+            } else {
+                debug!(
+                    "Ignoring target block height {} considered as irrelevant",
+                    target_block_height
+                );
             }
         }
 
@@ -1221,6 +1303,9 @@ impl Burnchain {
                     start_block + max_blocks
                 );
                 end_block = start_block + max_blocks;
+
+                // make sure we resume at this height next time
+                indexer.drop_headers(end_block.saturating_sub(1))?;
             }
         }
 
@@ -1334,7 +1419,8 @@ impl Burnchain {
                     while let Ok(Some(burnchain_block)) = db_recv.recv() {
                         debug!("Try recv next parsed block");
 
-                        if burnchain_block.block_height() == 0 {
+                        let block_height = burnchain_block.block_height();
+                        if block_height == 0 {
                             continue;
                         }
 
@@ -1429,40 +1515,43 @@ impl Burnchain {
 
 #[cfg(test)]
 pub mod tests {
+    use crate::chainstate::burn::ConsensusHashExtensions;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
     use ed25519_dalek::Keypair as VRFKeypair;
     use rand::rngs::ThreadRng;
     use rand::thread_rng;
     use serde::Serialize;
     use sha2::Sha512;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::proof::TrieHash;
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::*;
-    use burnchains::Txid;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-    use chainstate::burn::distribution::BurnSamplePoint;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::Txid;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+    use crate::chainstate::burn::distribution::BurnSamplePoint;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType,
         LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use chainstate::stacks::StacksPublicKey;
-    use util::db::Error as db_error;
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::hash::to_hex;
-    use util::hash::Hash160;
-    use util::log;
-    use util::secp256k1::Secp256k1PrivateKey;
-    use util::uint::BitArray;
-    use util::uint::Uint256;
-    use util::uint::Uint512;
-    use util::vrf::VRFPrivateKey;
-    use util::vrf::VRFPublicKey;
+    use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::types::chainstate::StacksAddress;
+    use crate::types::chainstate::TrieHash;
+    use crate::util_lib::db::Error as db_error;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::log;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::uint::BitArray;
+    use stacks_common::util::uint::Uint256;
+    use stacks_common::util::uint::Uint512;
+    use stacks_common::util::vrf::VRFPrivateKey;
+    use stacks_common::util::vrf::VRFPublicKey;
 
     use crate::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,

@@ -1,0 +1,363 @@
+################################
+####### Global Settings ########
+################################
+## String to partially override stacks-blockchain.fullname template (will maintain the release name)
+##
+nameOverride: ""
+
+## String to fully override stacks-blockchain.fullname template
+##
+fullnameOverride: ""
+
+###########################################
+##### Stacks Blockchain Node Settings #####
+###########################################
+node:
+  image:
+    repository: blockstack/stacks-blockchain
+    pullPolicy: IfNotPresent
+    ## stacks-blockchain image version
+    ## Set to 'latest' for now due to rapid changes until post-2.0 mainnet
+    ## ref: https://hub.docker.com/r/blockstack/stacks-blockchain/tags/
+    ##
+    tag: latest
+
+  ## Optional array of imagePullSecrets containing private registry credentials
+  ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  ##
+  imagePullSecrets: []
+  # - name: secretName
+
+  ## Number of stacks-blockchain nodes to run
+  ##
+  replicaCount: 1
+
+  ## Port used for RPC connections
+  ##
+  rpcPort: 20443
+
+  ## Port used for P2P connections
+  ##
+  p2pPort: 20444
+
+  ## Labels to be added to the node Deployment
+  ##
+  labels: {}
+
+  ## Annotations to be added to the node Deployment
+  ##
+  annotations: {}
+
+  ## Annotations to be added to the node pod(s)
+  ##
+  podAnnotations: {}
+
+  ## Add Config Checksum to pod Annotations
+  ## This will trigger Rolling Updates on configuration changes
+  ##
+  podAnnotationConfigChecksum: false
+
+  ## Security Context policies for the node pod(s)
+  ##
+  podSecurityContext: {}
+    # fsGroup: 2000
+
+  ## Security Context policies for the node container
+  ##
+  securityContext: {}
+    # capabilities:
+    #   drop:
+    #   - ALL
+    # readOnlyRootFilesystem: true
+    # runAsNonRoot: true
+    # runAsUser: 1000
+  
+  ## Set to true for verbose logging. Set to false for normal verbosity
+  ##
+  debug: false
+
+  ## Set to true to enable json logging. Set to false for normal logging
+  ##
+  jsonLogging: false
+
+  ## Overriding these is typically not necessary, unless you wish to run the node in a different way
+  ##
+  command:
+    - /bin/stacks-node
+  args:
+    - start
+    - --config
+    - /src/stacks-node/config.toml
+
+  ## Extra environment variables to add to the node's container
+  ##
+  extraEnv: []
+    # - name: FOO
+    #   value: "bar"
+
+  ## Specify resource limits and requests for the node's container
+  ##
+  resources: {}
+    # limits:
+    #   cpu: 500m
+    #   memory: 512Mi
+    # requests:
+    #   cpu: 250m
+    #   memory: 128Mi
+
+  ## Rollback limit
+  ##
+  revisionHistoryLimit: 10
+
+  # The update strategy to apply
+  ##
+  updateStrategy: {}
+  #  rollingUpdate:
+  #    maxUnavailable: 1
+  #  type: RollingUpdate
+
+  # minReadySeconds to avoid killing pods before it's ready
+  ##
+  minReadySeconds: 0
+
+  ## Node labels for node pod assignment
+  ## Ref: https://kubernetes.io/docs/user-guide/node-selection/
+  ##
+  nodeSelector: {}
+
+  ## Node tolerations for server scheduling to nodes with taints
+  ## Ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/
+  ##
+  tolerations: []
+  #  - key: "key"
+  #    operator: "Equal|Exists"
+  #    value: "value"
+  #    effect: "NoSchedule|PreferNoSchedule|NoExecute(1.6 only)"
+
+  ## Affinity and anti-affinity
+  ## Ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
+  ##
+  affinity: {}
+  # # An example of preferred pod anti-affinity, weight is in the range 1-100
+  # podAntiAffinity:
+  #   preferredDuringSchedulingIgnoredDuringExecution:
+  #   - weight: 100
+  #     podAffinityTerm:
+  #       labelSelector:
+  #         matchExpressions:
+  #         - key: app.kubernetes.io/name
+  #           operator: In
+  #           values:
+  #           - stacks-blockchain
+  #       topologyKey: kubernetes.io/hostname
+
+  # # An example of required pod anti-affinity
+  # podAntiAffinity:
+  #   requiredDuringSchedulingIgnoredDuringExecution:
+  #   - labelSelector:
+  #       matchExpressions:
+  #       - key: app.kubernetes.io/name
+  #         operator: In
+  #         values:
+  #         - stacks-blockchain
+  #     topologyKey: "kubernetes.io/hostname"
+
+  ## Total time it takes for the Container to stop normally
+  ##
+  terminationGracePeriodSeconds: 60
+  
+  ## Additional volumes for the node
+  ##
+  volumes: []
+  # - name: stacks-node-chain
+  #   persistentVolumeClaim:
+  #     claimName: stacks-node-chain
+
+  ## Additional volumeMounts for the node
+  ##
+  volumeMounts: []
+  # - name: stacks-node-chain
+  #   mountPath: /root/stacks-node
+
+  ## Additional containers to run alongside the node. Useful if adding a sidecar
+  ##
+  extraContainers: []
+  # - name: stacks-node-sidecar
+  #   image: my-sidecar-image:latest
+  #   imagePullPolicy: IfNotPresent
+  #   resources:
+  #     requests:
+  #       memory: "16Mi"
+  #       cpu: "50m"
+  #     limits:
+  #       memory: "32Mi"
+  #       cpu: "100m"
+
+  ## Containers which are run before the node container is started
+  ##
+  initContainers: []
+  # - name: init-myservice
+  #   image: busybox
+  #   command: ['sh', '-c', 'until nslookup myservice; do echo waiting for myservice; sleep 2; done;']
+
+################################
+###### Configmap Settings ######
+################################
+## You can choose to either configure the node via the following YAML fields:
+##   * config.node
+##   * config.burnchain
+##   * config.ustx_balance
+##
+## OR you can uncomment the config.raw field, which will take precedence over the aforementationed config fields
+##
+## For more info, please reference our docs and example config files:
+## https://docs.blockstack.org/stacks-blockchain/running-testnet-node
+## https://github.com/blockstack/stacks-blockchain/tree/master/testnet/stacks-node/conf
+##
+config:
+  # More configs can be added than what's shown below.
+  # All children fields under the node, burnchain, and ustx_balance fields will be converted from YAML to valid TOML format in the configmap
+  node:
+    rpc_bind: 0.0.0.0:20443 # Port should match node.rpcPort
+    p2p_bind: 0.0.0.0:20444 # Port should match node.p2pPort
+    seed: "" # REPLACE WITH YOUR PRIVATE KEY IF MINING
+    miner: false
+  burnchain:
+    chain: bitcoin
+    mode: krypton
+    peer_host: bitcoind.blockstack.org
+    # process_exit_at_block_height: 5340
+    # commit_anchor_block_within: 10000
+    rpc_port: 18443
+    peer_port: 18444
+  ustx_balance:
+    - address: ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2
+      amount: "10000000000000000"
+    - address: ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF
+      amount: "10000000000000000"
+    - address: ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H
+      amount: "10000000000000000"
+    - address: ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B
+      amount: "10000000000000000"
+
+  ## Uncommenting this block will give you greater control over the settings in the configmap
+  ## Don't forget to add your private key to the "seed" config under the "node" section if mining
+  ##
+  # raw: |
+  #   [node]
+  #   # Port should match node.rpcPort
+  #   rpc_bind = "0.0.0.0:20443"
+  #   # Port should match node.p2pPort
+  #   p2p_bind = "0.0.0.0:20444"
+  #   seed = "replace-with-your-private-key-if-mining"
+  #   miner = false
+
+  #   [burnchain]
+  #   chain = "bitcoin"
+  #   mode = "krypton"
+  #   peer_host = "bitcoind.blockstack.org"
+  #   #process_exit_at_block_height = 5340
+  #   #commit_anchor_block_within = 10000
+  #   rpc_port = 18443
+  #   peer_port = 18444
+
+  #   [[ustx_balance]]
+  #   address = "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2"
+  #   amount = 10000000000000000
+  #   [[ustx_balance]]
+  #   address = "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF"
+  #   amount = 10000000000000000
+  #   [[ustx_balance]]
+  #   address = "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H"
+  #   amount = 10000000000000000
+  #   [[ustx_balance]]
+  #   address = "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B"
+  #   amount = 10000000000000000
+
+  ## Annotations to be added to the Configmap
+  ##
+  annotations: {}
+
+################################
+####### Service Settings #######
+################################
+service:
+  ## The service type to create
+  ## If creating a public node for others to connect to, use Loadbalancer to ensure the advertised IP is reachable
+  ##
+  type: ClusterIP
+
+  ## Set external traffic policy to "Local" to preserve source IP on providers supporting it.
+  ## This field is only used when service.type is set to "NodePort" or "LoadBalancer".
+  ## Setting to "Local" can help the Stacks network if using service type NodePort or LoadBalancer.
+  ## Ref: https://kubernetes.io/docs/tutorials/services/source-ip/#source-ip-for-services-with-typeloadbalancer
+  ##
+  externalTrafficPolicy: Local
+
+  ## Will use node.rpcPort if omitted
+  ##
+  rpcPort:
+
+  ## Will use node.p2pPort if omitted
+  ##
+  p2pPort:
+
+  ## Annotations to be added to the Service
+  ##
+  annotations: {}
+
+################################
+### Service Account Settings ###
+################################
+serviceAccount:
+  
+  ## Specifies whether a ServiceAccount should be created
+  ## If true, the stacks-blockchain node will be ran using this ServiceAccount
+  ##
+  create: true
+  
+  ## Annotations to add to the service account
+  ##
+  annotations: {}
+  
+  ## The name of the service account to use.
+  ## If not set and create is true, a name is generated using the fullname template.
+  ##
+  name: ""
+
+################################
+######## RBAC Settings #########
+################################
+rbac:
+  ## Specifies whether a Role should be created
+  ##
+  create: false
+
+  ## Rules to add to the Role resource bound to the ServiceAccount
+  ##
+  rules: []
+    # - apiGroups:
+    #     - ""
+    #   verbs:
+    #     - get
+    #     - list
+    #     - watch
+    #   resources:
+    #     - pods
+
+################################
+####### Metrics Settings #######
+################################
+metrics:
+  ## Specifies whether a Prometheus ServiceMonitor should be created
+  ## ref: https://coreos.com/operators/prometheus/docs/latest/user-guides/getting-started.html#include-servicemonitors
+  ##
+  enabled: false
+
+  ## Port used by the ServiceMonitor to collect metrics from the node
+  ##
+  port: 9153
+
+  ## Interval at which metrics should be collected
+  ##
+  interval: 30s

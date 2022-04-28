@@ -18,21 +18,22 @@ use std::{fmt, fs, path::PathBuf};
 
 use rusqlite::{OpenFlags, OptionalExtension};
 
+use crate::burnchains::BurnchainSigner;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::Error as DatabaseError;
 use crate::{
     burnchains::Txid,
     core::MemPoolDB,
     net::{Error as net_error, HttpRequestType},
-    util::{
-        db::{tx_busy_handler, DBConn},
-        get_epoch_time_secs,
-    },
+    util::get_epoch_time_secs,
+    util_lib::db::{tx_busy_handler, DBConn},
 };
-use burnchains::BurnchainSigner;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::uint::{Uint256, Uint512};
+use std::convert::TryInto;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use util::db::Error as DatabaseError;
-use util::uint::{Uint256, Uint512};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
@@ -103,6 +104,27 @@ pub fn increment_btc_blocks_received_counter() {
     prometheus::BTC_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
+/// Log `execution_cost` as a ratio of `block_limit`.
+#[allow(unused_variables)]
+pub fn set_last_execution_cost_observed(
+    execution_cost: &ExecutionCost,
+    block_limit: &ExecutionCost,
+) {
+    #[cfg(feature = "monitoring_prom")]
+    {
+        prometheus::LAST_BLOCK_READ_COUNT
+            .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_WRITE_COUNT
+            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+        prometheus::LAST_BLOCK_READ_LENGTH
+            .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
+        prometheus::LAST_BLOCK_WRITE_LENGTH
+            .set(execution_cost.write_length as f64 / block_limit.write_length as f64);
+        prometheus::LAST_BLOCK_RUNTIME
+            .set(execution_cost.runtime as f64 / block_limit.runtime as f64);
+    }
+}
+
 pub fn increment_btc_ops_sent_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_OPS_SENT_COUNTER.inc();
@@ -144,9 +166,7 @@ fn txid_tracking_db(chainstate_root_path: &str) -> Result<DBConn, DatabaseError>
         OpenFlags::SQLITE_OPEN_READ_WRITE
     };
 
-    let conn = DBConn::open_with_flags(&db_path, open_flags)?;
-
-    conn.busy_handler(Some(tx_busy_handler))?;
+    let conn = sqlite_open(&db_path, open_flags, false)?;
 
     if create_flag {
         conn.execute(
@@ -195,8 +215,7 @@ pub fn log_transaction_processed(
     #[cfg(feature = "monitoring_prom")]
     {
         let mempool_db_path = MemPoolDB::db_path(chainstate_root_path)?;
-        let mempool_conn =
-            DBConn::open_with_flags(&mempool_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let mempool_conn = sqlite_open(&mempool_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let tracking_db = txid_tracking_db(chainstate_root_path)?;
 
         let tx = match MemPoolDB::get_tx(&mempool_conn, txid)? {
@@ -399,6 +418,7 @@ pub fn set_burnchain_signer(signer: BurnchainSigner) -> Result<(), SetGlobalBurn
     Ok(())
 }
 
+#[allow(unreachable_code)]
 pub fn get_burnchain_signer() -> Option<BurnchainSigner> {
     #[cfg(feature = "monitoring_prom")]
     {

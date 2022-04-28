@@ -19,19 +19,19 @@ use std::collections::HashMap;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 
-use burnchains::Address;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use util::db::Error as db_error;
-use util::db::*;
-use vm::database::clarity_store::*;
-use vm::database::*;
-use vm::types::*;
+use crate::burnchains::Address;
+use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::*;
+use clarity::vm::database::clarity_store::*;
+use clarity::vm::database::*;
+use clarity::vm::types::*;
 
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
@@ -153,8 +153,8 @@ impl StacksChainState {
         })
     }
 
-    pub fn get_account_ft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_ft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
@@ -168,8 +168,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn get_account_nft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_nft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         token_value: &Value,
@@ -268,6 +268,42 @@ impl StacksChainState {
             .expect("FATAL: failed to set account nonce")
     }
 
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v2(unlock_burn_height);
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(amount_locked)
+    }
+
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
     pub fn pox_lock_v2(
         db: &mut ClarityDatabase,
@@ -340,18 +376,16 @@ impl StacksChainState {
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
     pub fn insert_miner_payment_schedule<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
     ) -> Result<(), Error> {
-        assert!(block_reward.burnchain_commit_burn < i64::max_value() as u64);
-        assert!(block_reward.burnchain_sortition_burn < i64::max_value() as u64);
-        assert!(block_reward.stacks_block_height < i64::max_value() as u64);
+        assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
+        assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
+        assert!(block_reward.stacks_block_height < i64::MAX as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &block_reward.consensus_hash,
-            &block_reward.block_hash,
-        );
+        let index_block_hash =
+            StacksBlockId::new(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(),
@@ -394,7 +428,7 @@ impl StacksChainState {
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         for user_support in user_burns.iter() {
-            assert!(user_support.burn_amount < i64::max_value() as u64);
+            assert!(user_support.burn_amount < i64::MAX as u64);
 
             let args: &[&dyn ToSql] = &[
                 &user_support.address.to_string(),
@@ -457,7 +491,7 @@ impl StacksChainState {
 
     /// Get the scheduled miner rewards at a particular index hash
     pub fn get_scheduled_block_rewards_at_block<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =
@@ -502,11 +536,11 @@ impl StacksChainState {
         tx: &mut StacksDBTx<'a>,
         tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY {
+        if tip.stacks_block_height < MINER_REWARD_MATURITY {
             return Ok(vec![]);
         }
 
-        let block_height = tip.block_height - MINER_REWARD_MATURITY;
+        let block_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
         StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
@@ -692,19 +726,19 @@ impl StacksChainState {
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners.
-    pub fn find_mature_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn find_mature_miner_rewards(
+        clarity_tx: &mut ClarityTx,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
-        if tip.block_height <= MINER_REWARD_MATURITY {
+        if tip.stacks_block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let reward_height = tip.block_height - MINER_REWARD_MATURITY;
+        let reward_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
@@ -772,14 +806,14 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use burnchains::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::*;
-    use util::hash::*;
-    use vm::costs::ExecutionCost;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::index::*;
+    use crate::chainstate::stacks::Error;
+    use crate::chainstate::stacks::*;
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::util::hash::*;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -859,7 +893,7 @@ mod test {
         new_tip.anchored_header.total_work.work =
             parent_header_info.anchored_header.total_work.work + 1;
         new_tip.microblock_tail = None;
-        new_tip.block_height = parent_header_info.block_height + 1;
+        new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;
         new_tip.consensus_hash = ConsensusHash(
             Hash160::from_data(
                 &Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0,
@@ -896,6 +930,7 @@ mod test {
             &user_burns,
             &ExecutionCost::zero(),
             123,
+            false,
         )
         .unwrap();
         tx.commit().unwrap();
@@ -955,8 +990,8 @@ mod test {
 
             assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
         }
 
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
@@ -968,11 +1003,11 @@ mod test {
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
 
             assert!(ancestor_2.is_some());
-            assert_eq!(ancestor_2.unwrap().block_height, 2);
+            assert_eq!(ancestor_2.unwrap().stacks_block_height, 2);
             assert!(ancestor_1.is_some());
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
         }
     }
 

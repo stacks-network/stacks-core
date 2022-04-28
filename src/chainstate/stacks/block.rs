@@ -20,77 +20,32 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
 use crate::codec::MAX_MESSAGE_LEN;
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::operations::*;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use core::*;
-use net::Error as net_error;
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::TrieHash;
-
-impl StacksMessageCodec for VRFProof {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        fd.write_all(&self.to_bytes())
-            .map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, codec_error> {
-        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
-        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
-        let res = VRFProof::from_slice(&bytes).ok_or(codec_error::DeserializeError(
-            "Failed to parse VRF proof".to_string(),
-        ))?;
-
-        Ok(res)
-    }
-}
-
-impl StacksMessageCodec for StacksWorkScore {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.burn)?;
-        write_next(fd, &self.work)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, codec_error> {
-        let burn = read_next(fd)?;
-        let work = read_next(fd)?;
-
-        Ok(StacksWorkScore { burn, work })
-    }
-}
-
-impl StacksWorkScore {
-    /// Stacks work score for the first-mined block
-    pub fn initial() -> StacksWorkScore {
-        StacksWorkScore {
-            burn: 0,
-            work: 1, // block 0 is the boot code
-        }
-    }
-
-    /// Stacks work score for the boot code block
-    pub fn genesis() -> StacksWorkScore {
-        StacksWorkScore { burn: 0, work: 0 }
-    }
-}
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -175,12 +130,7 @@ impl StacksBlockHeader {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(consensus_hash);
-
-        let h = Sha512Trunc256Sum::from_hasher(hasher);
-        StacksBlockId(h.0)
+        StacksBlockId::new(consensus_hash, block_hash)
     }
 
     pub fn index_block_hash(&self, consensus_hash: &ConsensusHash) -> StacksBlockId {
@@ -338,6 +288,12 @@ impl StacksBlockHeader {
         // * tx_merkle_root     (already verified; validated on deserialization)
         // * state_index_root   (validated on process_block())
         Ok(())
+    }
+
+    /// Does this header have a microblock parent?
+    pub fn has_microblock_parent(&self) -> bool {
+        self.parent_microblock != EMPTY_MICROBLOCK_PARENT_HASH
+            || self.parent_microblock_sequence != 0
     }
 }
 
@@ -628,6 +584,11 @@ impl StacksBlock {
         }
         return true;
     }
+
+    /// Does this block have a microblock parent?
+    pub fn has_microblock_parent(&self) -> bool {
+        self.header.has_microblock_parent()
+    }
 }
 
 impl StacksMessageCodec for StacksMicroblockHeader {
@@ -667,10 +628,10 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
 
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
-        sha2.input(&bytes[..]);
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&bytes[..]);
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privk
             .sign(&digest_bits)
@@ -695,11 +656,11 @@ impl StacksMicroblockHeader {
 
     pub fn check_recover_pubkey(&self) -> Result<Hash160, net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         self.serialize(&mut sha2, true)
             .expect("BUG: failed to serialize to a vec");
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
@@ -921,24 +882,24 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::burnchains::BurnchainSigner;
+    use crate::burnchains::Txid;
+    use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::test::*;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use stacks_common::address::*;
+    use stacks_common::util::hash::*;
     use std::error::Error;
-
-    use address::*;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::BurnchainBlockHeader;
-    use burnchains::BurnchainSigner;
-    use burnchains::Txid;
-    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use net::codec::test::*;
-    use net::codec::*;
-    use net::*;
-    use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
 

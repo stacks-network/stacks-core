@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
-    StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction,
+    miner::BlockBuilderSettings, StacksBlock, StacksBlockBuilder, StacksMicroblock,
+    StacksPrivateKey, StacksPublicKey, StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks::types::chainstate::VRFSeed;
@@ -76,11 +76,11 @@ impl<'a> Tenure {
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         }
 
-        let (mut chain_state, _) = StacksChainState::open_with_block_limit(
+        let (mut chain_state, _) = StacksChainState::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
-            self.config.block_limit.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
 
@@ -93,7 +93,7 @@ impl<'a> Tenure {
             self.vrf_proof.clone(),
             self.microblock_pubkeyhash.clone(),
             &self.coinbase_tx,
-            self.config.block_limit.clone(),
+            BlockBuilderSettings::limited(),
             None,
         )
         .unwrap();
@@ -113,11 +113,11 @@ impl<'a> Tenure {
     pub fn open_chainstate(&self) -> StacksChainState {
         use stacks::core::CHAIN_ID_TESTNET;
 
-        let (chain_state, _) = StacksChainState::open_with_block_limit(
+        let (chain_state, _) = StacksChainState::open(
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),
-            self.config.block_limit.clone(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
         chain_state

@@ -18,25 +18,25 @@ use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
-use chainstate::burn::operations::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
+use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::stacks::StacksPublicKey;
-use core::MINING_COMMITMENT_WINDOW;
-use monitoring;
-use util::hash::Hash160;
-use util::log;
-use util::uint::BitArray;
-use util::uint::Uint256;
-use util::uint::Uint512;
-use util::vrf::VRFPublicKey;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::MINING_COMMITMENT_WINDOW;
+use crate::monitoring;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::uint::BitArray;
+use stacks_common::util::uint::Uint256;
+use stacks_common::util::uint::Uint512;
+use stacks_common::util::vrf::VRFPublicKey;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BurnSamplePoint {
@@ -400,32 +400,33 @@ impl BurnSamplePoint {
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
-
-    use crate::types::chainstate::StacksAddress;
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::Address;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainSigner;
-    use burnchains::PublicKey;
-    use burnchains::Txid;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::Address;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::BurnchainSigner;
+    use crate::burnchains::PublicKey;
+    use crate::burnchains::Txid;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::{MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS},
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::StacksPublicKey;
-    use core::MINING_COMMITMENT_WINDOW;
-    use util::hash::hex_bytes;
-    use util::hash::Hash160;
-    use util::log;
-    use util::uint::BitArray;
-    use util::uint::Uint256;
-    use util::uint::Uint512;
-    use util::vrf::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::MINING_COMMITMENT_WINDOW;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::log;
+    use stacks_common::util::uint::BitArray;
+    use stacks_common::util::uint::Uint256;
+    use stacks_common::util::uint::Uint512;
+    use stacks_common::util::vrf::*;
+    use std::marker::PhantomData;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
     use crate::types::chainstate::{SortitionId, VRFSeed};

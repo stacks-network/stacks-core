@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
@@ -14,11 +13,13 @@ use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
-    TransactionAnchorMode, TransactionPayload, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
+use stacks::cost_estimates::metrics::UnitMetric;
+use stacks::cost_estimates::UnitEstimator;
 use stacks::net::atlas::AttachmentInstance;
 use stacks::net::{
     atlas::{AtlasConfig, AtlasDB},
@@ -27,15 +28,13 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
-};
-use stacks::types::proof::TrieHash;
+use stacks::types::chainstate::TrieHash;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util_lib::strings::UrlString;
 use stacks::{
     burnchains::PoxConstants,
     chainstate::burn::operations::{
@@ -55,6 +54,7 @@ use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::vm::database::BurnStateDB;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {
@@ -169,12 +169,25 @@ fn spawn_peer(
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
     attachments_rx: Receiver<HashSet<AttachmentInstance>>,
+    config: Config,
 ) -> Result<JoinHandle<()>, NetError> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
+        // create estimators, metric instances for RPC handler
+        let cost_estimator = config
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = config
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+        let fee_estimator = config.make_fee_estimator();
+
         let handler_args = RPCHandlerArgs {
             exit_at_block_height: exit_at_block_height.as_ref(),
-            genesis_chainstate_hash: genesis_chainstate_hash,
+            cost_estimator: Some(cost_estimator.as_ref()),
+            cost_metric: Some(metric.as_ref()),
+            fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
+            genesis_chainstate_hash,
             ..RPCHandlerArgs::default()
         };
 
@@ -187,18 +200,30 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let (mut chainstate, _) =
-                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting chainstate db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let (mut chainstate, _) = match StacksChainState::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                Some(config.node.get_marf_opts()),
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
-            let mut mem_pool = match MemPoolDB::open(is_mainnet, chain_id, &stacks_chainstate_path)
-            {
+            let estimator = Box::new(UnitEstimator);
+            let metric = Box::new(UnitMetric);
+
+            let mut mem_pool = match MemPoolDB::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                estimator,
+                metric,
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     warn!("Error while connecting to mempool db in peer loop: {}", e);
@@ -302,7 +327,7 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
-            config.block_limit.clone(),
+            Some(config.node.get_marf_opts()),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -314,18 +339,23 @@ impl Node {
             ),
         };
 
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
         // avoid race to create condition on mempool db
         let _mem_pool = MemPoolDB::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to initiate mempool");
 
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -356,7 +386,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         let chainstate_path = config.get_chainstate_path_str();
@@ -366,6 +396,7 @@ impl Node {
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chainstate_path,
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(x) => x,
             Err(_e) => panic!(),
@@ -421,6 +452,9 @@ impl Node {
             burnchain.pox_constants.clone(),
         )
         .expect("Error while instantiating burnchain db");
+
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("Error while loading stacks epochs");
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -512,6 +546,7 @@ impl Node {
             burnchain.clone(),
             view,
             self.config.connection_options.clone(),
+            epochs,
         );
         let _join_handle = spawn_peer(
             self.config.is_mainnet(),
@@ -527,6 +562,7 @@ impl Node {
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             attachments_rx,
+            self.config.clone(),
         )
         .unwrap();
 
@@ -660,10 +696,21 @@ impl Node {
             },
         };
 
+        let estimator = self
+            .config
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = self
+            .config
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
         let mem_pool = MemPoolDB::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.chain_state.root_path,
+            estimator,
+            metric,
         )
         .expect("FATAL: failed to open mempool");
 
@@ -808,7 +855,8 @@ impl Node {
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state.process_blocks(tx, 1)
+                self.chain_state
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
@@ -845,6 +893,30 @@ impl Node {
         // we only expect 1 block.
         let processed_block = processed_blocks[0].clone().0.unwrap();
 
+        let mut cost_estimator = self.config.make_cost_estimator();
+        let mut fee_estimator = self.config.make_fee_estimator();
+
+        let stacks_epoch = db
+            .index_conn()
+            .get_stacks_epoch_by_epoch_id(&processed_block.evaluated_epoch)
+            .expect("Could not find a stacks epoch.");
+        if let Some(estimator) = cost_estimator.as_mut() {
+            estimator.notify_block(
+                &processed_block.tx_receipts,
+                &stacks_epoch.block_limit,
+                &stacks_epoch.epoch_id,
+            );
+        }
+
+        if let Some(estimator) = fee_estimator.as_mut() {
+            if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
+                warn!("FeeEstimator failed to process block receipt";
+                      "stacks_block" => %processed_block.header.anchored_header.block_hash(),
+                      "stacks_height" => %processed_block.header.stacks_block_height,
+                      "error" => %e);
+            }
+        }
+
         // Handle events
         let receipts = processed_block.tx_receipts;
         let metadata = processed_block.header;
@@ -863,23 +935,26 @@ impl Node {
             &block.header.parent_block,
         );
 
+        self.event_dispatcher.process_chain_tip(
+            &block,
+            &metadata,
+            &receipts,
+            &parent_index_hash,
+            Txid([0; 32]),
+            &vec![],
+            None,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
+            &processed_block.anchored_block_cost,
+            &processed_block.parent_microblocks_cost,
+        );
+
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts,
         };
-
-        self.event_dispatcher.process_chain_tip(
-            &chain_tip,
-            &parent_index_hash,
-            Txid([0; 32]),
-            vec![],
-            None,
-            parent_burn_block_hash,
-            parent_burn_block_height,
-            parent_burn_block_timestamp,
-        );
-
         self.chain_tip = Some(chain_tip.clone());
 
         // Unset the `bootstraping_chain` flag.
@@ -909,8 +984,11 @@ impl Node {
                                     &event_data.value,
                                     &contract_id,
                                     epoch_receipt.header.index_block_hash(),
-                                    epoch_receipt.header.block_height,
+                                    epoch_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
+                                    self.chain_tip
+                                        .as_ref()
+                                        .map(|t| t.metadata.stacks_block_height),
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);

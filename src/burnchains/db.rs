@@ -22,17 +22,17 @@ use rusqlite::{
 };
 use serde_json;
 
-use burnchains::Txid;
-use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::stacks::index::MarfTrieId;
-use util::db::{
-    query_row, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
-    Error as DBError, FromColumn, FromRow,
+use crate::burnchains::Txid;
+use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::{
+    query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
+    u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::proof::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -132,6 +132,12 @@ CREATE TABLE burnchain_db_block_ops (
 
 CREATE TABLE db_config(version TEXT NOT NULL);";
 
+const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_burnchain_db_txid ON burnchain_db_block_ops(txid);",
+];
+
 impl<'a> BurnchainDBTransaction<'a> {
     fn store_burnchain_db_entry(
         &self,
@@ -177,6 +183,15 @@ impl<'a> BurnchainDBTransaction<'a> {
 }
 
 impl BurnchainDB {
+    fn add_indexes(&mut self) -> Result<(), BurnchainError> {
+        let db_tx = self.tx_begin()?;
+        for index in BURNCHAIN_DB_INDEXES.iter() {
+            db_tx.sql_tx.execute_batch(index)?;
+        }
+        db_tx.commit()?;
+        Ok(())
+    }
+
     pub fn connect(
         path: &str,
         first_block_height: u64,
@@ -209,16 +224,11 @@ impl BurnchainDB {
             }
         };
 
-        let conn = Connection::open_with_flags(path, open_flags)
-            .expect(&format!("FAILED to open: {}", path));
-
-        conn.busy_handler(Some(tx_busy_handler))?;
-
+        let conn = sqlite_open(path, open_flags, true)?;
         let mut db = BurnchainDB { conn };
 
         if create_flag {
             let db_tx = db.tx_begin()?;
-            sql_pragma(&db_tx.sql_tx, "PRAGMA journal_mode = WAL;")?;
             db_tx.sql_tx.execute_batch(BURNCHAIN_DB_INITIAL_SCHEMA)?;
 
             db_tx.sql_tx.execute(
@@ -238,6 +248,9 @@ impl BurnchainDB {
             db_tx.commit()?;
         }
 
+        if readwrite {
+            db.add_indexes()?;
+        }
         Ok(db)
     }
 
@@ -247,10 +260,13 @@ impl BurnchainDB {
         } else {
             OpenFlags::SQLITE_OPEN_READ_ONLY
         };
-        let conn = Connection::open_with_flags(path, open_flags)?;
-        conn.busy_handler(Some(tx_busy_handler))?;
+        let conn = sqlite_open(path, open_flags, true)?;
+        let mut db = BurnchainDB { conn };
 
-        Ok(BurnchainDB { conn })
+        if readwrite {
+            db.add_indexes()?;
+        }
+        Ok(db)
     }
 
     fn tx_begin<'a>(&'a mut self) -> Result<BurnchainDBTransaction<'a>, BurnchainError> {
@@ -261,7 +277,7 @@ impl BurnchainDB {
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(&self.conn, qry, NO_PARAMS)?;
-        Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
+        opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
     pub fn get_burnchain_block(
@@ -379,18 +395,19 @@ impl BurnchainDB {
 
 #[cfg(test)]
 mod tests {
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use std::convert::TryInto;
 
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::blocks::*;
-    use burnchains::bitcoin::*;
-    use burnchains::PoxConstants;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use chainstate::burn::*;
-    use chainstate::stacks::*;
-    use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
-    use deps::bitcoin::network::serialize::deserialize;
-    use util::hash::*;
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::blocks::*;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::PoxConstants;
+    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::*;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
 

@@ -9,6 +9,8 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]
+extern crate stacks_common;
+
 extern crate stacks;
 
 #[allow(unused_imports)]
@@ -38,7 +40,6 @@ pub use self::burnchains::{
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
-pub use self::neon_node::{InitializedNeonNode, NeonGenesisNode};
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
@@ -54,9 +55,9 @@ use backtrace::Backtrace;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
-        eprintln!("Process abort due to thread panic: {}", panic_info);
+        error!("Process abort due to thread panic: {}", panic_info);
         let bt = Backtrace::new();
-        eprintln!("{:?}", &bt);
+        error!("Panic backtrace: {:?}", &bt);
 
         // force a core dump
         #[cfg(unix)]
@@ -100,19 +101,7 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::helium()
         }
-        "neon" => {
-            args.finish().unwrap();
-            ConfigFile::neon()
-        }
-        "argon" => {
-            args.finish().unwrap();
-            ConfigFile::argon()
-        }
-        "krypton" => {
-            args.finish().unwrap();
-            ConfigFile::krypton()
-        }
-        "xenon" => {
+        "testnet" => {
             args.finish().unwrap();
             ConfigFile::xenon()
         }
@@ -166,7 +155,6 @@ fn main() {
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
-    debug!("block_limit {:?}", &conf.block_limit);
 
     let num_round: u64 = 0; // Infinite number of rounds
 
@@ -223,7 +211,7 @@ helium\t\tStart a node based on a local setup relying on a local instance of bit
 \t\t  rpcuser=helium
 \t\t  rpcpassword=helium
 
-xenon\t\tStart a node that will join and stream blocks from the public xenon testnet, decentralized.
+testnet\t\tStart a node that will join and stream blocks from the public testnet, relying on Bitcoin Testnet.
 
 start\t\tStart a node with a config of your own. Can be used for joining a network, starting new chain, etc.
 \t\tArguments:

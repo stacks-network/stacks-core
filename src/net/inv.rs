@@ -31,40 +31,41 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::burn::db::sortdb::{
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use net::asn::ASEntry4;
-use net::chat::ConversationP2P;
-use net::codec::*;
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::db::PeerDB;
-use net::db::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::p2p::PeerNetwork;
-use net::Error as net_error;
-use net::GetBlocksInv;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::asn::ASEntry4;
+use crate::net::chat::ConversationP2P;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ConnectionP2P;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
+use crate::net::db::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::p2p::PeerNetwork;
+use crate::net::Error as net_error;
+use crate::net::GetBlocksInv;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::StacksMessage;
+use crate::net::StacksP2P;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
@@ -74,12 +75,7 @@ pub const INV_SYNC_INTERVAL: u64 = 150;
 pub const INV_SYNC_INTERVAL: u64 = 0;
 
 #[cfg(not(test))]
-pub const FULL_INV_SYNC_INTERVAL: u64 = 12 * 3600;
-#[cfg(test)]
-pub const FULL_INV_SYNC_INTERVAL: u64 = 60;
-
-#[cfg(not(test))]
-pub const INV_REWARD_CYCLES: u64 = 3;
+pub const INV_REWARD_CYCLES: u64 = 2;
 #[cfg(test)]
 pub const INV_REWARD_CYCLES: u64 = 1;
 
@@ -430,7 +426,7 @@ impl PeerBlocksInv {
     pub fn num_blocks(&self) -> u64 {
         let mut total = 0;
         for i in 0..self.num_sortitions {
-            if self.has_ith_block(i) {
+            if self.has_ith_block(i + self.first_block_height) {
                 total += 1;
             }
         }
@@ -441,7 +437,7 @@ impl PeerBlocksInv {
     pub fn num_microblock_streams(&self) -> u64 {
         let mut total = 0;
         for i in 0..self.num_sortitions {
-            if self.has_ith_microblock_stream(i) {
+            if self.has_ith_microblock_stream(i + self.first_block_height) {
                 total += 1;
             }
         }
@@ -546,20 +542,26 @@ pub struct NeighborBlockStats {
     pub pox_inv: Option<PoxInvData>,
     /// Received BlocksInv
     pub blocks_inv: Option<BlocksInvData>,
-    /// Last time we did a full scan
+    /// Last time we did a scan
     pub last_rescan_timestamp: u64,
     /// Finished synchronizing?
     pub done: bool,
     /// Did we learn anything new?
     pub learned_data: bool,
+    /// What height do we learn at?
+    pub learned_data_height: u64,
     /// How many times have we hit up this neighbor?
     pub scans: u64,
-    /// Do we need a full rescan?
-    pub need_full_rescan: bool,
+    /// Is this an always-allowed peer?
+    pub is_bootstrap_peer: bool,
 }
 
 impl NeighborBlockStats {
-    pub fn new(nk: NeighborKey, first_block_height: u64) -> NeighborBlockStats {
+    pub fn new(
+        nk: NeighborKey,
+        first_block_height: u64,
+        is_bootstrap_peer: bool,
+    ) -> NeighborBlockStats {
         NeighborBlockStats {
             nk: nk,
             inv: PeerBlocksInv::empty(first_block_height),
@@ -576,8 +578,9 @@ impl NeighborBlockStats {
             last_rescan_timestamp: 0,
             done: false,
             learned_data: false,
+            learned_data_height: u64::MAX,
             scans: 0,
-            need_full_rescan: false,
+            is_bootstrap_peer: is_bootstrap_peer,
         }
     }
 
@@ -590,7 +593,6 @@ impl NeighborBlockStats {
         self.request = None;
         self.pox_inv = None;
         self.blocks_inv = None;
-        self.need_full_rescan = false;
         self.state = InvWorkState::GetPoxInvBegin;
 
         debug!(
@@ -604,11 +606,10 @@ impl NeighborBlockStats {
         self.request = None;
         self.pox_inv = None;
         self.blocks_inv = None;
-        self.need_full_rescan = false;
         self.state = InvWorkState::GetBlocksInvBegin;
 
         debug!(
-            "Reset {:?} block scan height to {}",
+            "Reset {:?} block scan height to reward cycle {}",
             &self.nk, self.block_reward_cycle
         );
     }
@@ -622,7 +623,7 @@ impl NeighborBlockStats {
         preamble_burn_stable_block_height: u64,
         preamble_burn_block_hash: &BurnchainHeaderHash,
         preamble_burn_stable_block_hash: &BurnchainHeaderHash,
-        always_allowed: bool,
+        is_bootstrap_peer: bool,
     ) -> NodeStatus {
         let mut diverged = false;
         let mut unstable = false;
@@ -663,7 +664,7 @@ impl NeighborBlockStats {
                 } else {
                     // if this peer is always allowed, then this isn't a "broken" condition -- it's
                     // a diverged condition.  we trust that it has the correct PoX view.
-                    if always_allowed {
+                    if is_bootstrap_peer {
                         debug!("Remote always-allowed neighbor {:?} NACKed us because it does not recognize our consensus hash.  Treating as Diverged.", _nk);
                         diverged = true;
                     } else {
@@ -701,7 +702,7 @@ impl NeighborBlockStats {
         chain_view: &BurnchainView,
         preamble: &Preamble,
         nack_data: NackData,
-        always_allowed: bool,
+        is_bootstrap_peer: bool,
     ) {
         let preamble_burn_block_height = preamble.burn_block_height;
         let preamble_burn_stable_block_height = preamble.burn_stable_block_height;
@@ -716,7 +717,7 @@ impl NeighborBlockStats {
             preamble_burn_stable_block_height,
             preamble_burn_block_hash,
             preamble_burn_stable_block_hash,
-            always_allowed,
+            is_bootstrap_peer,
         );
     }
 
@@ -727,6 +728,7 @@ impl NeighborBlockStats {
         self.request = Some(request);
         self.pox_inv = None;
         self.target_pox_reward_cycle = target_pox_reward_cycle;
+        self.learned_data = false;
 
         self.state = InvWorkState::GetPoxInvFinish;
     }
@@ -741,7 +743,7 @@ impl NeighborBlockStats {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
-            && (bit - target_pox_reward_cycle) < u16::max_value() as u64
+            && (bit - target_pox_reward_cycle) < u16::MAX as u64
         {
             if network.pox_id.has_ith_anchor_block(bit as usize)
                 && !poxinv_data.has_ith_reward_cycle((bit - target_pox_reward_cycle) as u16)
@@ -765,7 +767,7 @@ impl NeighborBlockStats {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
-            && (bit - target_pox_reward_cycle) < u16::max_value() as u64
+            && (bit - target_pox_reward_cycle) < u16::MAX as u64
         {
             if !network.pox_id.has_ith_anchor_block(bit as usize)
                 && poxinv_data.has_ith_reward_cycle((bit - target_pox_reward_cycle) as u16)
@@ -808,7 +810,7 @@ impl NeighborBlockStats {
                     }
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetPoxInv at reward cycle {}: NACK code {}", &self.nk, self.target_pox_reward_cycle, nack_data.error_code);
-                        let always_allowed = PeerDB::is_peer_always_allowed(
+                        let is_bootstrap_peer = PeerDB::is_initial_peer(
                             &network.peerdb.conn(),
                             self.nk.network_id,
                             &self.nk.addrbytes,
@@ -819,7 +821,7 @@ impl NeighborBlockStats {
                             &network.chain_view,
                             &message.preamble,
                             nack_data,
-                            always_allowed,
+                            is_bootstrap_peer,
                         );
                     }
                     _ => {
@@ -908,7 +910,7 @@ impl NeighborBlockStats {
                     }
                     StacksMessageType::Nack(nack_data) => {
                         debug!("Remote neighbor {:?} nack'ed our GetBlocksInv at reward cycle {}: NACK code {}", &self.nk, self.target_block_reward_cycle, nack_data.error_code);
-                        let always_allowed = PeerDB::is_peer_always_allowed(
+                        let is_bootstrap_peer = PeerDB::is_initial_peer(
                             &network.peerdb.conn(),
                             self.nk.network_id,
                             &self.nk.addrbytes,
@@ -919,7 +921,7 @@ impl NeighborBlockStats {
                             &network.chain_view,
                             &message.preamble,
                             nack_data,
-                            always_allowed,
+                            is_bootstrap_peer,
                         );
                     }
                     _ => {
@@ -952,6 +954,7 @@ impl NeighborBlockStats {
             self.request = Some(next_request);
             Ok(false)
         } else {
+            debug!("Finished inventory scan for {:?}", &self.nk);
             self.state = InvWorkState::Done;
             self.scans += 1;
             Ok(true)
@@ -983,14 +986,9 @@ pub struct InvState {
     hint_do_rescan: bool,
     /// last time a rescan was completed
     last_rescanned_at: u64,
-    /// Should we do a full rescan?
-    hint_do_full_rescan: bool,
-    /// last time a full rescan was completed
-    last_full_rescanned_at: u64,
 
     /// How many passes -- short and full -- have we done?
     num_inv_syncs: u64,
-    num_full_inv_syncs: u64,
 
     /// What's the last reward cycle we _started_ the inv scan at?
     pub block_sortition_start: u64,
@@ -1008,36 +1006,48 @@ impl InvState {
             sync_interval: sync_interval,
 
             hint_learned_data: false,
-            hint_learned_data_height: 0,
+            hint_learned_data_height: u64::MAX,
             hint_do_rescan: true,
-            hint_do_full_rescan: true,
             last_rescanned_at: 0,
-            last_full_rescanned_at: 0,
 
             num_inv_syncs: 0,
-            num_full_inv_syncs: 0,
 
             block_sortition_start: 0,
         }
     }
 
-    pub fn reset_sync_peers(&mut self, peers: HashSet<NeighborKey>, max_neighbors: usize) -> () {
-        for (_, stats) in self.block_stats.iter_mut() {
+    fn reset_sync_peers(
+        &mut self,
+        peers: HashSet<NeighborKey>,
+        bootstrap_peers: &HashSet<NeighborKey>,
+        max_neighbors: usize,
+    ) -> () {
+        for (nk, stats) in self.block_stats.iter_mut() {
             if stats.status != NodeStatus::Online {
                 stats.status = NodeStatus::Online;
             }
             stats.done = false;
             stats.learned_data = false;
+            stats.learned_data_height = u64::MAX;
+
+            stats.is_bootstrap_peer = bootstrap_peers.contains(nk);
         }
 
         let mut added = 0;
         for peer in peers.iter() {
             if let Some(stats) = self.block_stats.get_mut(peer) {
+                debug!("Already tracking inventories of peer {:?}", &peer);
                 stats.reset_pox_scan(0);
+                stats.is_bootstrap_peer = bootstrap_peers.contains(&peer);
             } else if self.block_stats.len() < max_neighbors {
+                debug!("Will track inventories of new peer {:?}", &peer);
                 self.block_stats.insert(
                     peer.clone(),
-                    NeighborBlockStats::new(peer.clone(), self.first_block_height),
+                    NeighborBlockStats::new(
+                        peer.clone(),
+                        self.first_block_height,
+                        bootstrap_peers.contains(&peer),
+                    ),
                 );
                 added += 1;
             }
@@ -1153,15 +1163,33 @@ impl InvState {
     }
 
     #[cfg(test)]
-    pub fn add_peer(&mut self, nk: NeighborKey) -> () {
+    pub fn add_peer(&mut self, nk: NeighborKey, is_bootstrap_peer: bool) -> () {
         self.block_stats.insert(
             nk.clone(),
-            NeighborBlockStats::new(nk, self.first_block_height),
+            NeighborBlockStats::new(nk, self.first_block_height, is_bootstrap_peer),
         );
     }
 
     pub fn del_peer(&mut self, nk: &NeighborKey) -> () {
         self.block_stats.remove(&nk);
+    }
+
+    /// Is there any downloader-actionable data available?
+    pub fn has_inv_data_for_downloader(&self, ibd: bool) -> bool {
+        let mut ret = false;
+        for (nk, stats) in self.block_stats.iter() {
+            if stats.scans > 0 && (!ibd || stats.is_bootstrap_peer) {
+                debug!("Have inv data for downloader from {:?} (ibd={}, is_bootstrap_peer={}, scans={}))", nk, ibd, stats.is_bootstrap_peer, stats.scans);
+                ret = true;
+            }
+        }
+        if !ret {
+            debug!(
+                "Have {} block_stats, but none represent useful data for the downloader",
+                self.block_stats.len()
+            );
+        }
+        ret
     }
 
     /// Set a block or confirmed microblock stream as available, given the burn header hash and consensus hash.
@@ -1232,14 +1260,17 @@ impl InvState {
                 // genesis snapshot and doesn't correspond to anything (the 1st snapshot is block 0)
                 let set = if microblocks {
                     debug!(
-                        "Neighbor {:?} now has confirmed microblock stream at {} ({})",
-                        neighbor_key, sn.block_height, consensus_hash
+                        "Neighbor {:?} now has confirmed microblock stream at {} ({}) (sortition {})",
+                        neighbor_key, sn.block_height, consensus_hash, sn.block_height - sortdb.first_block_height
                     );
                     stats.inv.set_microblocks_bit(sn.block_height)
                 } else {
                     debug!(
-                        "Neighbor {:?} now has block at {} ({})",
-                        neighbor_key, sn.block_height, consensus_hash
+                        "Neighbor {:?} now has block at {} ({}) (sortition {})",
+                        neighbor_key,
+                        sn.block_height,
+                        consensus_hash,
+                        sn.block_height - sortdb.first_block_height
                     );
                     stats.inv.set_block_bit(sn.block_height)
                 };
@@ -1489,7 +1520,7 @@ impl PeerNetwork {
         convo: &ConversationP2P,
     ) -> Result<u64, net_error> {
         if target_block_reward_cycle >= (self.pox_id.num_inventory_reward_cycles() as u64) {
-            test_debug!(
+            debug!(
                 "{:?}: target reward cycle {} >= our max reward cycle {}",
                 &self.local_peer,
                 target_block_reward_cycle,
@@ -1501,7 +1532,7 @@ impl PeerNetwork {
         // does the peer agree with our PoX view up to this reward cycle?
         match stats.inv.pox_inv_cmp(&self.pox_id) {
             Some((disagreed, _, _)) => {
-                if disagreed <= target_block_reward_cycle {
+                if disagreed < target_block_reward_cycle {
                     // can't proceed
                     debug!("{:?}: remote neighbor {:?} disagrees with our PoX inventory at reward cycle {} (asked for {})", &self.local_peer, nk, disagreed, target_block_reward_cycle);
                     return Ok(0);
@@ -1542,7 +1573,8 @@ impl PeerNetwork {
                     .get_peer_sortition_snapshot(sortdb, &stable_tip_burn_block_hash)?
                     .is_none()
                 {
-                    // we don't know about this remote peer's stable burnchain tip either
+                    // we don't know about this remote peer's stable burnchain tip either, so ask
+                    // for no blocks.
                     debug!("{:?}: remote neighbor {:?}'s burnchain stable view tip is {}-{:?}, which we do not know", &self.local_peer, nk, stable_tip_height, &stable_tip_burn_block_hash);
                     return Ok(0);
                 }
@@ -1565,7 +1597,12 @@ impl PeerNetwork {
         {
             self.burnchain.pox_constants.reward_cycle_length as u64
         } else {
-            max_burn_block_height - target_block_height + 1
+            if target_block_height > max_burn_block_height {
+                debug!("{:?}: will not send GetBlocksInv to {:?}, since we are sync'ed up to its highest sortition block (target block is {}, max burn block is {})", &self.local_peer, nk, target_block_height, max_burn_block_height);
+                0
+            } else {
+                max_burn_block_height - target_block_height + 1
+            }
         };
 
         if num_blocks == 0 {
@@ -1613,19 +1650,22 @@ impl PeerNetwork {
         );
 
         let num_blocks = match self.get_convo(nk) {
-            Some(convo) => match self.get_getblocksinv_num_blocks(
-                sortdb,
-                target_block_reward_cycle,
-                nk,
-                stats,
-                convo,
-            )? {
-                0 => {
-                    // cannot ask this peer for any blocks in this reward cycle
-                    return Ok(None);
+            Some(convo) => {
+                match self.get_getblocksinv_num_blocks(
+                    sortdb,
+                    target_block_reward_cycle,
+                    nk,
+                    stats,
+                    convo,
+                )? {
+                    0 => {
+                        // cannot ask this peer for any blocks in this reward cycle
+                        debug!("{:?}: no blocks available from {} at cycle {} (which starts at height {})", &self.local_peer, nk, target_block_reward_cycle, self.burnchain.reward_cycle_to_block_height(target_block_reward_cycle));
+                        return Ok(None);
+                    }
+                    x => x,
                 }
-                x => x,
-            },
+            }
             None => {
                 debug!("{:?}: no conversation open for {}", &self.local_peer, nk);
                 return Ok(None);
@@ -1734,12 +1774,35 @@ impl PeerNetwork {
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(&self, highest_remote_reward_cycle: u64, full_rescan: bool) -> u64 {
-        if full_rescan {
-            0
-        } else {
+    fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+        let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+            .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
+
+        let stacks_tip_burn_block_height =
+            match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash) {
+                Err(_) => self.burnchain.first_block_height,
+                Ok(x) => x
+                    .map(|sn| sn.block_height)
+                    .unwrap_or(self.burnchain.first_block_height),
+            };
+
+        let stacks_tip_rc = self
+            .burnchain
+            .block_height_to_reward_cycle(stacks_tip_burn_block_height)
+            .unwrap_or(0);
+
+        let start_reward_cycle = cmp::min(
+            stacks_tip_rc,
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+        );
+
+        test_debug!(
+            "begin blocks inv scan at {} = min({},{})",
+            start_reward_cycle,
+            stacks_tip_rc,
             highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
-        }
+        );
+        start_reward_cycle
     }
 
     /// Start requesting the next batch of PoX inventories
@@ -1749,7 +1812,6 @@ impl PeerNetwork {
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
-        full_rescan: bool,
     ) -> Result<(), net_error> {
         let (target_pox_reward_cycle, getpoxinv) = match self
             .make_next_getpoxinv(sortdb, nk, stats)?
@@ -1757,9 +1819,15 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
-                debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start);
-                stats.reset_block_scan(scan_start);
+                let scan_start_rc = self.get_block_scan_start(
+                    sortdb,
+                    self.burnchain
+                        .block_height_to_reward_cycle(stats.inv.get_block_height())
+                        .unwrap_or(0),
+                );
+
+                debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
+                stats.reset_block_scan(scan_start_rc);
                 return Ok(());
             }
         };
@@ -1781,9 +1849,9 @@ impl PeerNetwork {
     /// Return true if done.
     fn inv_getpoxinv_try_finish(
         &mut self,
+        sortdb: &SortitionDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
-        full_rescan: bool,
         ibd: bool,
     ) -> Result<bool, net_error> {
         if stats.done {
@@ -1813,15 +1881,23 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start =
-                    self.get_block_scan_start(stats.inv.get_pox_height(), ibd || full_rescan);
-                debug!(
-                    "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={}, full={})",
-                    &self.local_peer, nk, scan_start, ibd, full_rescan
+                let scan_start_rc = self.get_block_scan_start(
+                    sortdb,
+                    self.burnchain
+                        .block_height_to_reward_cycle(stats.inv.get_block_height())
+                        .unwrap_or(0),
                 );
-                stats.reset_block_scan(scan_start);
+                debug!(
+                    "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
+                    &self.local_peer, nk, scan_start_rc, ibd
+                );
+
+                stats.learned_data = true;
+                stats.learned_data_height =
+                    self.burnchain.reward_cycle_to_block_height(scan_start_rc);
+                stats.reset_block_scan(scan_start_rc);
             }
-            // done
+            // done with pox inv sync
             return Ok(true);
         }
 
@@ -1853,6 +1929,11 @@ impl PeerNetwork {
             );
 
             stats.learned_data = true;
+            stats.learned_data_height = cmp::min(
+                stats.learned_data_height,
+                self.burnchain
+                    .reward_cycle_to_block_height(*lowest_learned_reward_cycle),
+            );
         } else {
             debug!(
                 "{:?}: have {} total reward cycles for {:?}",
@@ -1906,7 +1987,12 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(stats.inv.get_pox_height(), full_rescan);
+            let scan_start = self.get_block_scan_start(
+                sortdb,
+                self.burnchain
+                    .block_height_to_reward_cycle(stats.inv.get_block_height())
+                    .unwrap_or(0),
+            );
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -1933,6 +2019,10 @@ impl PeerNetwork {
             match self.make_next_getblocksinv(sortdb, nk, stats)? {
                 Some(x) => x,
                 None => {
+                    debug!(
+                        "{:?}: finished inv sync with {}: could not make new GetBlocksInv",
+                        &self.local_peer, &nk
+                    );
                     stats.done = true;
                     return Ok(());
                 }
@@ -1953,7 +2043,7 @@ impl PeerNetwork {
     }
 
     /// Finish receiving the next batch of block inventories.
-    /// Indicate whether or not we're done
+    /// Indicate whether or not we're done (true=continue, false=stop)
     fn inv_getblocksinv_try_finish(
         &mut self,
         nk: &NeighborKey,
@@ -1971,10 +2061,25 @@ impl PeerNetwork {
             if ibd && stats.status == NodeStatus::Diverged {
                 // we were in the initial block download, and we diverged.
                 // we should try and deepen the scan.
-                debug!("{:?}: In initial block download and diverged from always-allowed peer -- schedule a full inventory sync for next time.", &self.local_peer);
-                stats.need_full_rescan = true;
+                stats.block_reward_cycle = stats
+                    .block_reward_cycle
+                    .saturating_sub(self.connection_opts.inv_reward_cycles);
+                let learned_data_height = self
+                    .burnchain
+                    .reward_cycle_to_block_height(stats.block_reward_cycle);
+
+                debug!("{:?}: In initial block download and diverged from always-allowed peer -- schedule an ibd inventory sync for next time, starting at reward cycle {} ({}).", &self.local_peer, stats.block_reward_cycle, learned_data_height);
+                stats.reset_block_scan(stats.block_reward_cycle);
+
+                stats.learned_data = true;
+                stats.learned_data_height = learned_data_height;
             }
-            return Ok(true);
+            debug!(
+                "{:?}: Node {} is diverged; done with inv sync",
+                &self.local_peer, nk
+            );
+            stats.done = true;
+            return Ok(false);
         }
 
         // if we get a blocksinv, then it means the remote peer still agrees with us on PoX state
@@ -2004,6 +2109,7 @@ impl PeerNetwork {
 
         if new_blocks > 0 || new_microblocks > 0 {
             stats.learned_data = true;
+            stats.learned_data_height = cmp::min(target_block_height, stats.learned_data_height);
         }
 
         assert_eq!(stats.state, InvWorkState::Done);
@@ -2017,6 +2123,10 @@ impl PeerNetwork {
         } else {
             // we're done scanning!  proceed to rescan
             stats.last_rescan_timestamp = get_epoch_time_secs();
+            debug!(
+                "{:?}: finished inv sync with {}: reached remote chain tip",
+                &self.local_peer, &nk
+            );
             stats.done = true;
         }
 
@@ -2030,7 +2140,6 @@ impl PeerNetwork {
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
-        full_rescan: bool,
         ibd: bool,
     ) -> Result<bool, net_error> {
         while !stats.done {
@@ -2042,10 +2151,10 @@ impl PeerNetwork {
 
             let again = match stats.state {
                 InvWorkState::GetPoxInvBegin => self
-                    .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout, full_rescan)
+                    .inv_getpoxinv_begin(sortdb, nk, stats, request_timeout)
                     .and_then(|_| Ok(true))?,
                 InvWorkState::GetPoxInvFinish => {
-                    self.inv_getpoxinv_try_finish(nk, stats, full_rescan, ibd)?
+                    self.inv_getpoxinv_try_finish(sortdb, nk, stats, ibd)?
                 }
                 InvWorkState::GetBlocksInvBegin => self
                     .inv_getblocksinv_begin(sortdb, nk, stats, request_timeout)
@@ -2066,7 +2175,8 @@ impl PeerNetwork {
     }
 
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
-    /// about a new reward cycle
+    /// about a new reward cycle.
+    /// Call right after PeerNetwork::refresh_burnchain_view()
     pub fn refresh_sortition_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
@@ -2077,45 +2187,57 @@ impl PeerNetwork {
             .as_mut()
             .expect("Unreachable: inv state not initialized");
 
-        let (new_tip_sort_id, new_pox_id) = {
-            let ic = sortdb.index_conn();
-            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
-            (tip_sort_id, sortdb_reader.get_pox_id()?)
+        let (new_tip_sort_id, new_pox_id, reloaded) = {
+            if self.burnchain_tip.sortition_id != self.tip_sort_id {
+                // reloaded burnchain tip disagrees with our last-considered sortition tip
+                let ic = sortdb.index_conn();
+                let sortdb_reader =
+                    SortitionHandleConn::open_reader(&ic, &self.burnchain_tip.sortition_id)?;
+                (
+                    self.burnchain_tip.sortition_id.clone(),
+                    sortdb_reader.get_pox_id()?,
+                    true,
+                )
+            } else {
+                (self.tip_sort_id.clone(), self.pox_id.clone(), false)
+            }
         };
 
-        // find the lowest reward cycle whose bit has since changed from a 0 to a 1.
-        let num_reward_cycles = cmp::min(
-            new_pox_id.num_inventory_reward_cycles(),
-            self.pox_id.num_inventory_reward_cycles(),
-        );
-        for i in 0..num_reward_cycles {
-            if !self.pox_id.has_ith_anchor_block(i) && new_pox_id.has_ith_anchor_block(i) {
-                // we learned of a new anchor block intermittently.  Invalidate all cached state at and after this reward cycle.
-                inv_state.invalidate_block_inventories(&self.burnchain, i as u64);
+        if reloaded {
+            // find the lowest reward cycle whose bit has since changed from a 0 to a 1.
+            let num_reward_cycles = cmp::min(
+                new_pox_id.num_inventory_reward_cycles(),
+                self.pox_id.num_inventory_reward_cycles(),
+            );
+            for i in 0..num_reward_cycles {
+                if !self.pox_id.has_ith_anchor_block(i) && new_pox_id.has_ith_anchor_block(i) {
+                    // we learned of a new anchor block intermittently.  Invalidate all cached state at and after this reward cycle.
+                    inv_state.invalidate_block_inventories(&self.burnchain, i as u64);
 
-                // also clear block header cache (TODO: this is pessimistic -- only invalidated
-                // entries need to be cleared)
-                debug!(
-                    "{:?}: invalidating block header cache in response to PoX bit flip",
-                    &self.local_peer
-                );
-                self.header_cache.clear();
-                break;
+                    // also clear block header cache (TODO: this is pessimistic -- only invalidated
+                    // entries need to be cleared)
+                    debug!(
+                        "{:?}: invalidating block header cache in response to PoX bit flip",
+                        &self.local_peer
+                    );
+                    self.header_cache.clear();
+                    break;
+                }
             }
-        }
 
-        // if the PoX bitvector shrinks, then invalidate block inventories that are no longer represented
-        if new_pox_id.num_inventory_reward_cycles() < self.pox_id.num_inventory_reward_cycles() {
-            inv_state.invalidate_block_inventories(&self.burnchain, self.pox_id.len() as u64);
-        }
+            // if the PoX bitvector shrinks, then invalidate block inventories that are no longer represented
+            if new_pox_id.num_inventory_reward_cycles() < self.pox_id.num_inventory_reward_cycles()
+            {
+                inv_state.invalidate_block_inventories(&self.burnchain, new_pox_id.len() as u64);
+            }
 
-        self.tip_sort_id = new_tip_sort_id;
-        self.pox_id = new_pox_id;
+            self.tip_sort_id = new_tip_sort_id;
+            self.pox_id = new_pox_id;
+        }
 
         debug!(
-            "{:?}: PoX bit vector is {:?}",
-            &self.local_peer, &self.pox_id
+            "{:?}: PoX bit vector is {:?} (reloaded={})",
+            &self.local_peer, &self.pox_id, reloaded
         );
 
         Ok(())
@@ -2136,10 +2258,18 @@ impl PeerNetwork {
             );
 
             let mut all_done = true;
-            let mut do_full_rescan = false;
             let mut fully_synced_peers = HashSet::new();
+            let mut ibd_diverged_height: Option<u64> = None;
 
-            if !inv_state.hint_do_rescan
+            let bootstrap_peers: HashSet<_> =
+                PeerDB::get_bootstrap_peers(&network.peerdb.conn(), network.local_peer.network_id)
+                    .unwrap_or(vec![])
+                    .into_iter()
+                    .map(|neighbor| neighbor.addr)
+                    .collect();
+
+            if !ibd
+                && !inv_state.hint_do_rescan
                 && !inv_state.hint_learned_data
                 && inv_state.last_rescanned_at + inv_state.sync_interval >= get_epoch_time_secs()
             {
@@ -2167,14 +2297,7 @@ impl PeerNetwork {
                     stats.done
                 );
                 if !stats.done {
-                    match network.inv_sync_run(
-                        sortdb,
-                        nk,
-                        stats,
-                        inv_state.request_timeout,
-                        inv_state.hint_do_full_rescan,
-                        ibd,
-                    ) {
+                    match network.inv_sync_run(sortdb, nk, stats, inv_state.request_timeout, ibd) {
                         Ok(d) => d,
                         Err(net_error::StaleView) => {
                             // stop work on this state machine -- it needs to be restarted.
@@ -2199,32 +2322,31 @@ impl PeerNetwork {
                         }
                     };
 
-                    if stats.need_full_rescan {
-                        debug!(
-                            "{:?}: remote neighbor {:?} requests full rescan",
-                            &network.local_peer, &nk
-                        );
-                    }
-
                     all_done = all_done && stats.done;
-                    do_full_rescan = do_full_rescan || stats.need_full_rescan;
-
                     if stats.learned_data {
-                        // update hints
-                        debug!(
-                            "{:?}: learned something new from {:?}",
-                            &network.local_peer, &nk
-                        );
-                        inv_state.hint_learned_data =
-                            inv_state.hint_learned_data || stats.learned_data;
+                        // if this node diverged from us, and we're in ibd, and this is an
+                        // always-allowed peer, then start scanning here (or lower)
+                        if ibd
+                            && bootstrap_peers.contains(&nk)
+                            && stats.status == NodeStatus::Diverged
+                        {
+                            inv_state.last_change_at = get_epoch_time_secs();
+                            inv_state.hint_learned_data = true;
+                            inv_state.hint_learned_data_height = cmp::min(
+                                inv_state.hint_learned_data_height,
+                                stats.learned_data_height,
+                            );
 
-                        inv_state.hint_learned_data_height = cmp::min(
-                            inv_state.hint_learned_data_height,
-                            network.burnchain.reward_cycle_to_block_height(
-                                stats.target_block_reward_cycle.saturating_sub(1),
-                            ),
-                        );
-                        inv_state.last_change_at = get_epoch_time_secs();
+                            // this will be where sortitions must begin
+                            ibd_diverged_height = Some(inv_state.hint_learned_data_height);
+
+                            debug!("{:?}: remote neighbor {:?} diverged (at {}), so try re-scanning at height {}", &network.local_peer, &nk, stats.learned_data_height, inv_state.hint_learned_data_height);
+                        } else {
+                            debug!(
+                                "{:?}: learned to scan from {:?} at height {}",
+                                &network.local_peer, &nk, stats.learned_data_height
+                            );
+                        }
                     }
 
                     if stats.done
@@ -2249,54 +2371,20 @@ impl PeerNetwork {
                 let broken_peers = inv_state.get_broken_peers();
                 let dead_peers = inv_state.get_dead_peers();
 
-                // hint to downloader as to where to begin scanning
-                inv_state.block_sortition_start = network
-                    .burnchain
-                    .reward_cycle_to_block_height(network.get_block_scan_start(
-                        network.pox_id.num_inventory_reward_cycles() as u64,
-                        inv_state.hint_do_full_rescan,
+                // hint to downloader as to where to begin scanning next time
+                inv_state.block_sortition_start = ibd_diverged_height
+                    .unwrap_or(network.burnchain.reward_cycle_to_block_height(
+                        network.get_block_scan_start(
+                            sortdb,
+                            network.pox_id.num_inventory_reward_cycles() as u64,
+                        ),
                     ))
                     .saturating_sub(sortdb.first_block_height);
 
-                let was_full = inv_state.hint_do_full_rescan;
-                if was_full {
-                    let synced_with_always_allowed = if ibd {
-                        // make sure we've sync'ed with at least one always-allowed peer before
-                        // clearing the hint_do_full_rescan flag
-                        let always_allowed: HashSet<_> = PeerDB::get_always_allowed_peers(
-                            &network.peerdb.conn(),
-                            network.local_peer.network_id,
-                        )
-                        .unwrap_or(vec![])
-                        .into_iter()
-                        .map(|neighbor| neighbor.addr)
-                        .collect();
-
-                        let synced = !always_allowed.is_disjoint(&fully_synced_peers);
-                        if synced {
-                            debug!(
-                                "{:?}: finished full inventory rescan in initial block download",
-                                &network.local_peer
-                            );
-                        } else {
-                            debug!("{:?}: did NOT finish full inventory rescan in initial block download", &network.local_peer);
-                        }
-                        synced
-                    } else {
-                        // this is best-effort if not in initial block-download
-                        debug!(
-                            "{:?}: finished best-effort full inventory rescan",
-                            &network.local_peer
-                        );
-                        true
-                    };
-
-                    if synced_with_always_allowed {
-                        inv_state.last_full_rescanned_at = get_epoch_time_secs();
-                        inv_state.hint_do_full_rescan = false;
-                        inv_state.num_full_inv_syncs += 1;
-                    }
-                }
+                debug!(
+                    "{:?}: inventory sync finished; sortition start is {}",
+                    &network.local_peer, inv_state.block_sortition_start,
+                );
 
                 if !inv_state.hint_learned_data && inv_state.block_stats.len() > 0 {
                     // did a full scan without learning anything new
@@ -2309,9 +2397,7 @@ impl PeerNetwork {
                         &network.local_peer,
                         &inv_state.block_stats.len();
                         "ibd" => %ibd,
-                        "was_full" => %was_full,
                         "num_inv_syncs" => %inv_state.num_inv_syncs,
-                        "num_full_inv_syncs" => %inv_state.num_full_inv_syncs,
                         "num_sync_neighbors" => &inv_state.block_stats.len()
                     );
                 } else {
@@ -2325,29 +2411,24 @@ impl PeerNetwork {
                         &network.local_peer,
                         inv_state.block_stats.len();
                         "ibd" => %ibd,
-                        "was_full" => %was_full,
                         "num_inv_syncs" => %inv_state.num_inv_syncs,
-                        "num_full_inv_syncs" => %inv_state.num_full_inv_syncs,
                         "num_sync_neighbors" => &inv_state.block_stats.len()
                     );
                 }
 
-                if do_full_rescan
-                    || inv_state.last_full_rescanned_at
-                        + network.connection_opts.full_inv_sync_interval
-                        < get_epoch_time_secs()
-                {
-                    if !inv_state.hint_do_full_rescan {
-                        debug!("{:?}: schedule full inventory sync", &network.local_peer);
-                        inv_state.hint_do_full_rescan = true;
-                    }
-                }
-
                 let bad_peers = inv_state.cull_bad_peers();
                 for bad_peer in bad_peers {
+                    info!(
+                        "{:?}: will no longer track inventory of bad peer {:?}",
+                        &network.local_peer, &bad_peer
+                    );
                     new_sync_peers.remove(&bad_peer);
                 }
                 for dead_peer in dead_peers.iter() {
+                    info!(
+                        "{:?}: will no longer track inventory of dead peer {:?}",
+                        &network.local_peer, &dead_peer
+                    );
                     new_sync_peers.remove(dead_peer);
                 }
 
@@ -2359,18 +2440,14 @@ impl PeerNetwork {
                 let mut good_sync_peers_set = HashSet::new();
                 let mut random_sync_peers_list = vec![];
                 for nk in random_neighbor_list.into_iter() {
-                    if PeerDB::is_peer_always_allowed(
-                        &network.peerdb.conn(),
-                        nk.network_id,
-                        &nk.addrbytes,
-                        nk.port,
-                    )
-                    .unwrap_or(false)
+                    if bootstrap_peers.contains(&nk)
                         && good_sync_peers_set.len()
                             < (network.connection_opts.num_neighbors as usize)
                     {
+                        debug!("{:?}: good sync peer {:?}", &network.local_peer, &nk);
                         good_sync_peers_set.insert(nk);
                     } else {
+                        debug!("{:?}: random sync peer {:?}", &network.local_peer, &nk);
                         random_sync_peers_list.push(nk);
                     }
                 }
@@ -2387,13 +2464,15 @@ impl PeerNetwork {
                     }
                 } else {
                     debug!(
-                        "{:?}: in initial block download; only inv-sync with always-allowed peers",
-                        &network.local_peer
+                        "{:?}: in initial block download; only inv-sync with {} always-allowed peers",
+                        &network.local_peer,
+                        good_sync_peers_set.len()
                     );
                 }
 
                 inv_state.reset_sync_peers(
                     good_sync_peers_set,
+                    &bootstrap_peers,
                     network.connection_opts.num_neighbors as usize,
                 );
 
@@ -2447,7 +2526,10 @@ impl PeerNetwork {
     pub fn hint_sync_invs(&mut self, target_height: u64) {
         match self.inv_state {
             Some(ref mut inv_state) => {
-                debug!("Awaken inv sync to re-scan peer block inventories");
+                debug!(
+                    "Awaken inv sync to re-scan peer block inventories at height {}",
+                    target_height
+                );
                 inv_state.hint_learned_data = true;
                 inv_state.hint_do_rescan = true;
                 inv_state.hint_learned_data_height = target_height;
@@ -2559,11 +2641,11 @@ impl PeerNetwork {
 mod test {
     use std::collections::HashMap;
 
-    use burnchains::PoxConstants;
-    use chainstate::stacks::*;
-    use net::test::*;
-    use net::*;
-    use util::test::*;
+    use crate::burnchains::PoxConstants;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
 
     use super::*;
 
@@ -3136,7 +3218,7 @@ mod test {
         peer_1.network.init_inv_sync(&sortdb);
         match peer_1.network.inv_state {
             Some(ref mut inv) => {
-                inv.add_peer(nk.clone());
+                inv.add_peer(nk.clone(), true);
             }
             None => {
                 panic!("No inv state");
@@ -3307,7 +3389,9 @@ mod test {
         peer_1
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 network.refresh_local_peer().unwrap();
-                network.refresh_burnchain_view(sortdb, chainstate).unwrap();
+                network
+                    .refresh_burnchain_view(sortdb, chainstate, false)
+                    .unwrap();
                 network.refresh_sortition_view(sortdb).unwrap();
                 Ok(())
             })
@@ -3935,7 +4019,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_2_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -3943,7 +4029,9 @@ mod test {
             for i in 1..(num_blocks - 1) {
                 assert!(
                     peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height),
-                    format!("Missing microblock {} (+ {})", i, first_stacks_block_height)
+                    "Missing microblock {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
 
@@ -3965,216 +4053,9 @@ mod test {
             for i in 0..num_blocks {
                 assert!(
                     peer_1_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
-                );
-            }
-        })
-    }
-
-    #[test]
-    #[ignore]
-    fn test_sync_inv_2_peers_plain_full_sync() {
-        with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_full_sync", 32000, 42000);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_full_sync", 32001, 42001);
-
-            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
-            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
-
-            let mut peer_1 = TestPeer::new(peer_1_config);
-            let mut peer_2 = TestPeer::new(peer_2_config);
-
-            let num_blocks = ((GETPOXINV_MAX_BITLEN as u64) + INV_REWARD_CYCLES) * 4;
-            let first_stacks_block_height = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip(
-                    &peer_1.sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
-                sn.block_height + 1
-            };
-
-            for i in 0..num_blocks {
-                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-                peer_1.next_burnchain_block(burn_ops.clone());
-                peer_2.next_burnchain_block(burn_ops.clone());
-
-                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            }
-
-            let num_burn_blocks = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip(
-                    peer_1.sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
-                sn.block_height + 1
-            };
-
-            let mut round = 0;
-            let mut inv_1_count = 0;
-            let mut inv_2_count = 0;
-            let mut inv_1_full_count = 0;
-            let mut inv_2_full_count = 0;
-
-            // there must be a wall-clock delay.
-            // the first full-sync happens immediately, so don't count it.
-            let start_time = get_epoch_time_secs();
-            let num_full_syncs = 5;
-            let expected_time = (num_full_syncs - 1) * FULL_INV_SYNC_INTERVAL;
-
-            while inv_1_count < num_blocks
-                || inv_2_count < num_blocks
-                || inv_1_full_count < num_full_syncs
-                || inv_2_full_count < num_full_syncs
-            {
-                let _ = peer_1.step();
-                let _ = peer_2.step();
-
-                let x = match peer_1.network.inv_state {
-                    Some(ref inv) => {
-                        info!("Peer 1 stats: {:?}", &inv.block_stats);
-                        (
-                            inv.get_inv_num_blocks(&peer_2.to_neighbor().addr),
-                            inv.num_full_inv_syncs,
-                        )
-                    }
-                    None => (0, 0),
-                };
-                inv_1_count = x.0;
-                inv_1_full_count = x.1;
-
-                let x = match peer_2.network.inv_state {
-                    Some(ref inv) => {
-                        info!("Peer 2 stats: {:?}", &inv.block_stats);
-                        (
-                            inv.get_inv_num_blocks(&peer_1.to_neighbor().addr),
-                            inv.num_full_inv_syncs,
-                        )
-                    }
-                    None => (0, 0),
-                };
-                inv_2_count = x.0;
-                inv_2_full_count = x.1;
-
-                // nothing should break
-                match peer_1.network.inv_state {
-                    Some(ref inv) => {
-                        assert_eq!(inv.get_broken_peers().len(), 0);
-                        assert_eq!(inv.get_dead_peers().len(), 0);
-                        assert_eq!(inv.get_diverged_peers().len(), 0);
-                    }
-                    None => {}
-                }
-
-                match peer_2.network.inv_state {
-                    Some(ref inv) => {
-                        assert_eq!(inv.get_broken_peers().len(), 0);
-                        assert_eq!(inv.get_dead_peers().len(), 0);
-                        assert_eq!(inv.get_diverged_peers().len(), 0);
-                    }
-                    None => {}
-                }
-
-                round += 1;
-
-                info!(
-                    "Peer 1: {},{} Peer 2: {},{}",
-                    inv_1_count, inv_1_full_count, inv_2_count, inv_2_full_count
-                );
-            }
-
-            let finish_time = get_epoch_time_secs();
-            info!(
-                "Completed walk round {} step(s) and {} seconds",
-                round,
-                finish_time.saturating_sub(start_time)
-            );
-
-            assert!(
-                finish_time.saturating_sub(start_time) > expected_time,
-                "BUG: expected {}s, got {}s",
-                expected_time,
-                finish_time.saturating_sub(start_time)
-            );
-
-            peer_1.dump_frontier();
-            peer_2.dump_frontier();
-
-            info!(
-                "Peer 1 stats: {:?}",
-                &peer_1.network.inv_state.as_ref().unwrap().block_stats
-            );
-            info!(
-                "Peer 2 stats: {:?}",
-                &peer_2.network.inv_state.as_ref().unwrap().block_stats
-            );
-
-            let peer_1_inv = peer_2
-                .network
-                .inv_state
-                .as_ref()
-                .unwrap()
-                .block_stats
-                .get(&peer_1.to_neighbor().addr)
-                .unwrap()
-                .inv
-                .clone();
-            let peer_2_inv = peer_1
-                .network
-                .inv_state
-                .as_ref()
-                .unwrap()
-                .block_stats
-                .get(&peer_2.to_neighbor().addr)
-                .unwrap()
-                .inv
-                .clone();
-
-            info!("Peer 1 inv: {:?}", &peer_1_inv);
-            info!("Peer 2 inv: {:?}", &peer_2_inv);
-
-            info!("peer 1's view of peer 2: {:?}", &peer_2_inv);
-
-            assert_eq!(peer_2_inv.num_sortitions, num_burn_blocks);
-
-            // peer 1 should have learned that peer 2 has all the blocks
-            for i in 0..num_blocks {
-                assert!(
-                    peer_2_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
-                );
-            }
-
-            // peer 1 should have learned that peer 2 has all the microblock streams
-            for i in 1..(num_blocks - 1) {
-                assert!(
-                    peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height),
-                    format!("Missing microblock {} (+ {})", i, first_stacks_block_height)
-                );
-            }
-
-            let peer_1_inv = peer_2
-                .network
-                .inv_state
-                .as_ref()
-                .unwrap()
-                .block_stats
-                .get(&peer_1.to_neighbor().addr)
-                .unwrap()
-                .inv
-                .clone();
-            test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
-
-            assert_eq!(peer_1_inv.num_sortitions, num_burn_blocks);
-
-            // peer 2 should have learned that peer 1 has all the blocks as well
-            for i in 0..num_blocks {
-                assert!(
-                    peer_1_inv.has_ith_block(i + first_stacks_block_height),
-                    format!("Missing block {} (+ {})", i, first_stacks_block_height)
+                    "Missing block {} (+ {})",
+                    i,
+                    first_stacks_block_height
                 );
             }
         })
@@ -4299,6 +4180,8 @@ mod test {
             let mut peer_2_config =
                 TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31997, 41998);
 
+            let stable_confs = peer_1_config.burnchain.stable_confirmations as u64;
+
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
@@ -4331,7 +4214,7 @@ mod test {
                     peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
                 } else {
                     // peer 1 diverges
-                    test_debug!("Peer 1 diverges");
+                    test_debug!("Peer 1 diverges at {}", i + first_stacks_block_height);
                     peer_1.next_burnchain_block(vec![]);
                 }
             }
@@ -4349,7 +4232,7 @@ mod test {
                 assert_ne!(sn1.burn_header_hash, sn2.burn_header_hash);
             }
 
-            let num_stable_blocks = num_blocks - 1;
+            let num_stable_blocks = num_blocks - stable_confs;
 
             let num_burn_blocks = {
                 let sn = SortitionDB::get_canonical_burn_chain_tip(
@@ -4476,8 +4359,8 @@ mod test {
                 .clone();
             test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
 
-            assert_eq!(peer_2_inv.num_sortitions, num_burn_blocks - 1);
-            assert_eq!(peer_1_inv.num_sortitions, num_burn_blocks - 1);
+            assert_eq!(peer_2_inv.num_sortitions, num_burn_blocks - stable_confs);
+            assert_eq!(peer_1_inv.num_sortitions, num_burn_blocks - stable_confs);
 
             // only 8 reward cycles -- we couldn't agree on the 9th
             assert_eq!(peer_1_inv.pox_inv, vec![255]);
@@ -4485,7 +4368,7 @@ mod test {
 
             // peer 1 should have learned that peer 2 has all the blocks, up to the point of
             // instability
-            for i in 0..(num_blocks - 1) {
+            for i in 0..(num_blocks - stable_confs) {
                 assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
                 if i > 0 {
                     assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
@@ -4494,16 +4377,12 @@ mod test {
                 }
             }
 
-            for i in 0..(num_blocks - 1) {
+            for i in 0..(num_blocks - stable_confs) {
                 assert!(peer_1_inv.has_ith_block(i + first_stacks_block_height));
-                if i > 0 && i != num_blocks - 2 {
-                    // peer 1 doesn't have the final microblock stream, since no anchor block confirmed it
-                    assert!(peer_1_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-                }
             }
 
-            assert!(!peer_2_inv.has_ith_block(num_blocks - 1));
-            assert!(!peer_2_inv.has_ith_microblock_stream(num_blocks - 1));
+            assert!(!peer_2_inv.has_ith_block(num_blocks - stable_confs));
+            assert!(!peer_2_inv.has_ith_microblock_stream(num_blocks - stable_confs));
         })
     }
 
@@ -4650,11 +4529,15 @@ mod test {
                 round += 1;
 
                 test_debug!(
-                    "\n\ninv_1_count = {}, inv_2_count = {}, peer_1_sorts = {}, peer_2_sorts = {}",
+                    "\n\ninv_1_count = {} <? {}, inv_2_count = {} <? {}, peer_1_sorts = {} <? {}, peer_2_sorts = {} <? {}",
                     inv_1_count,
+                    reward_cycle_length * 4,
                     inv_2_count,
+                    num_blocks - reward_cycle_length * 2,
                     peer_1_sorts,
-                    peer_2_sorts
+                    reward_cycle_length * 9 + 1,
+                    peer_2_sorts,
+                    reward_cycle_length * 9 + 1
                 );
             }
 
