@@ -504,7 +504,7 @@ fn check_principal_construct(
         )?;
     }
     Ok(TypeSignature::new_response(
-            TypeSignature::PrincipalType, 
+            TypeSignature::PrincipalType,
             TupleTypeSignature::try_from(vec![
                 ("error_code".into(), TypeSignature::UIntType),
                 (
