@@ -30,7 +30,7 @@ use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_32, BUFF_64,
+    TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 
 use crate::vm::database::MemoryBackingStore;
@@ -45,6 +45,8 @@ use std::convert::TryInto;
 
 use super::CheckResult;
 use crate::vm::ClarityVersion;
+
+use crate::vm::analysis::type_checker::SequenceSubtype;
 
 mod assets;
 pub mod contracts;
@@ -2701,10 +2703,14 @@ fn test_comparison_types() {
 #[test]
 fn test_principal_parse() {
     let good = [
-        // Standard good example.
+        // Standard good examples.
         r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo)"#,
     ];
-    let expected = ["(response (tuple (hash-bytes (buff 20)) (version (buff 1))) (tuple (hash-bytes (buff 20)) (version (buff 1))))"];
+    let expected = [
+        "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))",
+        "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))"
+    ];
 
     let bad = [
         // Too many arguments.
@@ -2717,10 +2723,7 @@ fn test_principal_parse() {
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::TypeError(
-            TypeSignature::PrincipalType,
-            TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-        ),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, BUFF_1.clone()),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -2741,13 +2744,23 @@ fn test_principal_construct() {
     let expected_type =
         "(response principal (tuple (error_code uint) (principal (optional principal))))";
     let good_pairs = [
-        // Standard good example.
+        // Standard good example of a standard principal
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             expected_type,
         ),
-        // Note: This following buffer is too short. It's not legal but is to be caught at compute stage.
+        // Standard good example of a contract principal.
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo")"#,
+            expected_type,
+        ),
+        // Note: This following buffer is too short. It type-checks but triggers a runtime error.
         (r#"(principal-construct 0x22 0x00)"#, expected_type),
+        // Note: This following name is too short. It type-checks but triggers a runtime error.
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "")"#,
+            expected_type,
+        ),
     ];
 
     for (good_test, expected) in good_pairs.iter() {
@@ -2761,36 +2774,45 @@ fn test_principal_construct() {
         // Too few arguments, just has the `(buff 1)`.
         (
             r#"(principal-construct 0x22)"#,
-            CheckErrors::IncorrectArgumentCount(2, 1),
+            CheckErrors::RequiresAtLeastArguments(2, 1),
         ),
         // Too few arguments, just hs the `(buff 20)`.
         (
             r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::IncorrectArgumentCount(2, 1),
+            CheckErrors::RequiresAtLeastArguments(2, 1),
         ),
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-            ),
+            CheckErrors::TypeError(BUFF_1.clone(), BUFF_20.clone()),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
-            CheckErrors::TypeError(
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(20))),
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(21))),
-            ),
+            CheckErrors::TypeError(BUFF_20.clone(), BUFF_21.clone()),
         ),
         // `int` argument instead of `(buff 1)` for version.
         (
             r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            CheckErrors::TypeError(BUFF_1.clone(), IntType),
+        ),
+        // `name` argument is too long
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1))),
-                IntType,
+                TypeSignature::contract_name_string_ascii(),
+                TypeSignature::bound_string_ascii(41),
             ),
+        ),
+        // bad argument type for `name`
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
+            CheckErrors::TypeError(TypeSignature::contract_name_string_ascii(), UIntType),
+        ),
+        // too many arguments
+        (
+            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
+            CheckErrors::RequiresAtMostArguments(3, 4),
         ),
     ];
 
