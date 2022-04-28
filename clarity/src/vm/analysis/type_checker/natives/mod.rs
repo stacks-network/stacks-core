@@ -15,7 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
+    TypeResult, TypingContext,
 };
 use std::convert::TryFrom;
 
@@ -27,7 +28,7 @@ use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
     MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -480,6 +481,44 @@ fn check_principal_of(
     Ok(TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType).unwrap())
 }
 
+/// Forms:
+/// (define-public (principal-construct (buff 1) (buff 20))
+///     (response principal { error_code: uint, principal: (option principal) }))
+///
+/// (define-public (principal-construct (buff 1) (buff 20) (string-ascii CONTRACT_MAX_NAME_LENGTH))
+///     (response principal { error_code: uint, principal: (option principal) }))
+fn check_principal_construct(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> TypeResult {
+    check_arguments_at_least(2, args)?;
+    check_arguments_at_most(3, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_1)?;
+    checker.type_check_expects(&args[1], context, &BUFF_20)?;
+    if args.len() > 2 {
+        checker.type_check_expects(
+            &args[2],
+            context,
+            &TypeSignature::contract_name_string_ascii(),
+        )?;
+    }
+    Ok(TypeSignature::new_response(
+            TypeSignature::PrincipalType, 
+            TupleTypeSignature::try_from(vec![
+                ("error_code".into(), TypeSignature::UIntType),
+                (
+                    "principal".into(),
+                    TypeSignature::new_option(TypeSignature::PrincipalType).expect("FATAL: failed to create (optional principal) type signature"),
+                ),
+            ])
+            .expect("FAIL: PrincipalConstruct failed to initialize type signature")
+            .into()
+        )
+        .expect("FATAL: failed to create `(response principal { error_code: uint, principal: (optional principal) })` type signature")
+    )
+}
+
 fn check_secp256k1_recover(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -691,37 +730,7 @@ impl TypedNativeFunction {
                 )],
                 returns: TypeSignature::UIntType,
             }))),
-            PrincipalConstruct => {
-                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
-                    args: vec![
-                        FunctionArg::new(
-                            BUFF_1,
-                            ClarityName::try_from("version".to_owned())
-                                .expect("FAIL: ClarityName failed to accept default arg name"),
-                        ),
-                        FunctionArg::new(
-                            BUFF_20,
-                            ClarityName::try_from("hash-bytes".to_owned())
-                                .expect("FAIL: ClarityName failed to accept default arg name"),
-                        ),
-                    ],
-                    // On success, return a Principal.
-                    // On failure, return a pair of 1) uint-valued error code, 2) optionally a
-                    // principal.
-                    returns: TypeSignature::ResponseType(Box::new((
-                        TypeSignature::PrincipalType,
-                        TupleTypeSignature::try_from(vec![
-                            ("error_code".into(), TypeSignature::UIntType),
-                            (
-                                "principal".into(),
-                                TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
-                            ),
-                        ])
-                        .expect("FAIL: PrincipalConstruct failed to initialize type signature")
-                        .into(),
-                    ))),
-                })))
-            }
+            PrincipalConstruct => Special(SpecialNativeFunction(&check_principal_construct)),
             PrincipalParse => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
@@ -733,8 +742,15 @@ impl TypedNativeFunction {
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> TypeSignature {
                         TupleTypeSignature::try_from(vec![
-                            ("version".into(), BUFF_1),
-                            ("hash-bytes".into(), BUFF_20),
+                            ("version".into(), BUFF_1.clone()),
+                            ("hash-bytes".into(), BUFF_20.clone()),
+                            (
+                                "name".into(),
+                                TypeSignature::new_option(
+                                    TypeSignature::contract_name_string_ascii(),
+                                )
+                                .unwrap(),
+                            ),
                         ])
                         .expect("FAIL: PrincipalParse failed to initialize type signature")
                         .into()
