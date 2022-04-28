@@ -3067,8 +3067,7 @@ pub mod test {
             0,
         );
 
-        let mut first_burn_block =
-            TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
+        let first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
 
         test_debug!("Mine {} initial transactions", first_burn_block.txs.len());
 

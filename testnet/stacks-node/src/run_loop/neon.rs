@@ -23,6 +23,7 @@ use stacks::chainstate::coordinator::{
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
+use tokio::sync::oneshot::Sender;
 
 use crate::run_loop::l1_observer;
 
@@ -279,12 +280,22 @@ impl RunLoop {
         &mut self,
         _burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
-    ) -> Box<dyn BurnchainController> {
+    ) -> (Box<dyn BurnchainController>, Option<Sender<()>>) {
         // Initialize and start the burnchain.
         let mut burnchain_controller = self
             .config
             .make_burnchain_controller(coordinator_senders)
             .expect("couldn't create burnchain controller");
+
+        info!(
+            "Should we span an L1 observer? self.config.burnchain.spawn_l1_observer(): {}",
+            self.config.burnchain.spawn_l1_observer()
+        );
+        let l1_observer_signal = if self.config.burnchain.spawn_l1_observer() {
+            Some(l1_observer::spawn(burnchain_controller.get_channel()))
+        } else {
+            None
+        };
 
         let burnchain_config = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
@@ -337,7 +348,7 @@ impl RunLoop {
 
         // TODO (hack) instantiate the sortdb in the burnchain
         let _ = burnchain_controller.sortdb_mut();
-        burnchain_controller
+        (burnchain_controller, l1_observer_signal)
     }
 
     /// Instantiate the Stacks chain state and start the chains coordinator thread.
@@ -479,7 +490,7 @@ impl RunLoop {
             .expect("Run loop already started, can only start once after initialization.");
 
         self.setup_termination_handler();
-        let mut burnchain =
+        let (mut burnchain, l1_observer_signal) =
             self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
 
         let burnchain_config = burnchain.get_burnchain();
@@ -513,12 +524,6 @@ impl RunLoop {
         );
         let sortdb = burnchain.sortdb_mut();
         let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
-
-        let l1_observer_signal = if self.config.burnchain.spawn_l1_observer() {
-            Some(l1_observer::spawn(burnchain.get_channel()))
-        } else {
-            None
-        };
 
         // Start the runloop
         debug!("Begin run loop");

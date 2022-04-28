@@ -2350,19 +2350,12 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
-            // should never happen, but don't panic since this is network-callable code
-            error!(
-                "Invalid block height from DB: {}: expected at least {}",
-                chain_tip.block_height, burnchain.stable_confirmations
-            );
-            return Err(db_error::Corruption);
-        }
-
-        let stable_block_height = cmp::max(
-            burnchain.first_block_height,
-            chain_tip.block_height - (burnchain.stable_confirmations as u64),
-        );
+        let stable_block_height = if chain_tip.block_height < burnchain.stable_confirmations as u64
+        {
+            burnchain.first_block_height
+        } else {
+            chain_tip.block_height - (burnchain.stable_confirmations as u64)
+        };
 
         // get all burn block hashes between the chain tip, and the stable height back
         // MAX_NEIGHBOR_BLOCK_DELAY

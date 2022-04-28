@@ -764,11 +764,6 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     // set up PoX
     let pox_contract = boot_code_id("pox", mainnet);
     let sender = PrincipalData::from(pox_contract.clone());
-    let pox_params = if mainnet {
-        PoxConstants::mainnet_default()
-    } else {
-        PoxConstants::testnet_default()
-    };
 
     let params = vec![
         SymbolicExpression::atom_value(Value::UInt(0)), // first burnchain block height

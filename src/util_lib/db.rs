@@ -552,6 +552,24 @@ pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     Ok(marf_path)
 }
 
+/// Ensures that the base path of `full_path_str` exists.
+/// E.g. `ensure_directory_exists("/a/b/c.txt")` will make sure the directory `/a/b` will exist.
+/// Panics if the user passes "/".
+pub fn ensure_base_directory_exists(full_path_str: &str) -> Result<(), Error> {
+    let mut path = PathBuf::from(full_path_str);
+    let could_pop = path.pop();
+    // let error = format!("Invalid path passed to `ensure_directory_exists`: {}", &full_path_str);
+    assert!(
+        could_pop,
+        "Invalid path passed to `ensure_directory_exists`: {}",
+        &full_path_str
+    );
+
+    // This will not failif `path` already exists.
+    fs::create_dir_all(path).map_err(Error::IOError)?;
+    Ok(())
+}
+
 /// Read-only connection to a MARF-indexed DB
 pub struct IndexDBConn<'a, C, T: MarfTrieId> {
     pub index: &'a MARF<T>,
