@@ -20,4 +20,4 @@ RUN CC=arm-linux-gnueabihf-gcc \
 RUN mkdir /out && cp -R /src/target/armv7-unknown-linux-gnueabihf/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /

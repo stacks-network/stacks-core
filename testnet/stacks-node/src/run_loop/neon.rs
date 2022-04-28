@@ -21,10 +21,12 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
+use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -323,29 +325,29 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
-        // Invoke connect() to perform any db instantiation and migration early
-        if let Err(e) = burnchain_controller.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
-            panic!();
-        };
-
-        let burnchain_config = burnchain_controller.get_burnchain();
+        // Upgrade chainstate databases if they exist already
         let epochs = burnchain_controller.get_stacks_epochs();
-        if !check_chainstate_db_versions(
+        match migrate_chainstate_dbs(
             &epochs,
             &self.config.get_burn_db_file_path(),
             &self.config.get_chainstate_path_str(),
-        )
-        .expect("FATAL: unable to query filesystem or databases for version information")
-        {
-            error!(
-                "FATAL: chainstate database(s) are not compatible with the current system epoch"
-            );
-            panic!();
+            Some(self.config.node.get_marf_opts()),
+        ) {
+            Ok(_) => {}
+            Err(coord_error::DBError(db_error::TooOldForEpoch)) => {
+                error!(
+                    "FATAL: chainstate database(s) are not compatible with the current system epoch"
+                );
+                panic!();
+            }
+            Err(e) => {
+                panic!("FATAL: unable to query filesystem or databases: {:?}", &e);
+            }
         }
 
         info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
 
+        let burnchain_config = burnchain_controller.get_burnchain();
         let target_burnchain_block_height = match burnchain_config
             .get_highest_burnchain_block()
             .expect("FATAL: failed to access burnchain database")
@@ -370,6 +372,12 @@ impl RunLoop {
                 error!("Burnchain controller stopped: {}", e);
                 panic!();
             }
+        };
+
+        // if the chainstate DBs don't exist, this will instantiate them
+        if let Err(e) = burnchain_controller.connect_dbs() {
+            error!("Failed to connect to burnchain databases: {}", e);
+            panic!();
         };
 
         // TODO (hack) instantiate the sortdb in the burnchain
