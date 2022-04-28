@@ -20,6 +20,7 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
+use crate::vm::ast::parser::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
 use crate::vm::representations::{
@@ -140,6 +141,9 @@ lazy_static! {
     ));
     pub static ref BUFF_20: TypeSignature = SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid")
+    ));
+    pub static ref BUFF_21: TypeSignature = SequenceType(SequenceSubtype::BufferType(
+        BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid")
     ));
     pub static ref BUFF_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(
         BufferLength::try_from(1u32).expect("BUG: Legal Clarity buffer length marked invalid")
@@ -671,6 +675,21 @@ impl TypeSignature {
             BufferLength::try_from(MAX_VALUE_SIZE)
                 .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type"),
         ))
+    }
+
+    pub fn contract_name_string_ascii() -> TypeSignature {
+        TypeSignature::bound_string_ascii(
+            CONTRACT_MAX_NAME_LENGTH
+                .try_into()
+                .expect("FAIL: contract name max length exceeds u32 space"),
+        )
+    }
+
+    pub fn bound_string_ascii(max_len: u32) -> TypeSignature {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            BufferLength::try_from(max_len)
+                .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),
+        )))
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
