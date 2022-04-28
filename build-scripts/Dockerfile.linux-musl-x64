@@ -20,4 +20,4 @@ RUN CC=musl-gcc \
 RUN mkdir /out && cp -R /src/target/x86_64-unknown-linux-musl/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /

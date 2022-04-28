@@ -80,7 +80,9 @@ pub use clarity::vm::clarity::ClarityConnection;
 pub use clarity::vm::clarity::Error;
 use clarity::vm::clarity::TransactionConnection;
 
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::util::secp256k1::MessageSignature;
+
 ///
 /// A high-level interface for interacting with the Clarity VM.
 ///
@@ -106,6 +108,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
+    chain_id: u32,
 }
 
 ///
@@ -133,6 +136,7 @@ pub struct ClarityBlockConnection<'a, 'b> {
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
+    chain_id: u32,
     epoch: StacksEpochId,
 }
 
@@ -148,6 +152,7 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     burn_state_db: &'a dyn BurnStateDB,
     cost_track: &'a mut Option<LimitedCostTracker>,
     mainnet: bool,
+    chain_id: u32,
     epoch: StacksEpochId,
 }
 
@@ -199,6 +204,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
             mainnet: false,
+            chain_id: CHAIN_ID_TESTNET,
             epoch: epoch,
         }
     }
@@ -238,8 +244,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 }
 
 impl ClarityInstance {
-    pub fn new(mainnet: bool, datastore: MarfedKV) -> ClarityInstance {
-        ClarityInstance { datastore, mainnet }
+    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV) -> ClarityInstance {
+        ClarityInstance {
+            datastore,
+            mainnet,
+            chain_id,
+        }
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -294,6 +304,7 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
+                    self.chain_id,
                     epoch.block_limit.clone(),
                     &mut clarity_db,
                     epoch.epoch_id,
@@ -308,6 +319,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch: epoch.epoch_id,
         }
     }
@@ -331,6 +343,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch,
         }
     }
@@ -356,6 +369,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch,
         };
 
@@ -435,6 +449,7 @@ impl ClarityInstance {
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
+                    self.chain_id,
                     epoch.block_limit.clone(),
                     &mut clarity_db,
                     epoch.epoch_id,
@@ -449,6 +464,7 @@ impl ClarityInstance {
             burn_state_db,
             cost_track,
             mainnet: self.mainnet,
+            chain_id: self.chain_id,
             epoch: epoch.epoch_id,
         }
     }
@@ -514,7 +530,7 @@ impl ClarityInstance {
             result
         };
 
-        let mut env = OwnedEnvironment::new_free(self.mainnet, clarity_db, epoch_id);
+        let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
         env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
@@ -890,6 +906,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         let header_db = &self.header_db;
         let burn_state_db = &self.burn_state_db;
         let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
         ClarityTransactionConnection {
@@ -899,6 +916,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             burn_state_db,
             log: Some(log),
             mainnet,
+            chain_id,
             epoch: self.epoch,
         }
     }
@@ -1001,8 +1019,13 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
                 db.begin();
-                let mut vm_env =
-                    OwnedEnvironment::new_cost_limited(self.mainnet, db, cost_track, self.epoch);
+                let mut vm_env = OwnedEnvironment::new_cost_limited(
+                    self.mainnet,
+                    self.chain_id,
+                    db,
+                    cost_track,
+                    self.epoch,
+                );
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -1170,11 +1193,12 @@ mod tests {
     use stacks_common::types::chainstate::ConsensusHash;
 
     use super::*;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
 
     #[test]
     pub fn bad_syntax_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1214,7 +1238,7 @@ mod tests {
     #[test]
     pub fn test_initialize_contract_tx_sender_contract_caller() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         clarity_instance
@@ -1267,7 +1291,7 @@ mod tests {
     #[test]
     pub fn tx_rollback() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
@@ -1362,7 +1386,7 @@ mod tests {
     #[test]
     pub fn simple_test() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1426,7 +1450,7 @@ mod tests {
     #[test]
     pub fn test_block_roll_back() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         {
@@ -1484,7 +1508,8 @@ mod tests {
         }
 
         let confirmed_marf = MarfedKV::open(test_name, None, None).unwrap();
-        let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
+        let mut confirmed_clarity_instance =
+            ClarityInstance::new(false, CHAIN_ID_TESTNET, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
         let contract = "
@@ -1514,7 +1539,7 @@ mod tests {
             )
             .unwrap();
 
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
 
         // make an unconfirmed block off of the confirmed block
         {
@@ -1622,7 +1647,7 @@ mod tests {
     #[test]
     pub fn test_tx_roll_backs() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
@@ -1770,7 +1795,7 @@ mod tests {
         use stacks_common::util::secp256k1::MessageSignature;
 
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let sender = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
@@ -1875,7 +1900,7 @@ mod tests {
     #[test]
     pub fn test_block_limit() {
         let marf = MarfedKV::temporary();
-        let mut clarity_instance = ClarityInstance::new(false, marf);
+        let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
         let sender = StandardPrincipalData::transient().into();
 
