@@ -1,6 +1,5 @@
 use std;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::Ordering;
 use std::thread::{self, JoinHandle};
 
 use crate::neon;
