@@ -128,7 +128,7 @@ fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
 }
 
 /// Wait for the *height* of the stacks chain tip to increment.
-pub fn next_block_and_wait(sortition_db: &SortitionDB) -> bool {
+pub fn next_stacks_block_and_wait(sortition_db: &SortitionDB) -> bool {
     let current = get_stacks_tip_height(sortition_db);
     let mut next = current;
     eprintln!(
@@ -317,8 +317,8 @@ fn l1_integration_test() {
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
     // Wait for exactly two stacks blocks.
-    next_block_and_wait(&sortition_db);
-    next_block_and_wait(&sortition_db);
+    next_stacks_block_and_wait(&sortition_db);
+    next_stacks_block_and_wait(&sortition_db);
 
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(
