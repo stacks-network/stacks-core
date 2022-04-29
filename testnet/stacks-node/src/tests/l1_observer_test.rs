@@ -118,17 +118,14 @@ const PANIC_TIMEOUT_SECS: u64 = 600;
 
 /// Height of the current stacks tip.
 fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
-    let tip_snapshot = SortitionDB::get_canonical_sortition_tip_snapshot(&sortition_db.conn())
+    let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
         .expect("Could not read from SortitionDB.");
 
-    match tip_snapshot {
-        Some(sn) => sn.stacks_block_height.try_into().unwrap(),
-        None => -1,
-    }
+    tip_snapshot.stacks_block_height.try_into().unwrap()
 }
 
 /// Wait for the *height* of the stacks chain tip to increment.
-pub fn next_stacks_block_and_wait(sortition_db: &SortitionDB) -> bool {
+pub fn wait_for_next_stacks_block(sortition_db: &SortitionDB) -> bool {
     let current = get_stacks_tip_height(sortition_db);
     let mut next = current;
     eprintln!(
@@ -258,15 +255,13 @@ fn l1_integration_test() {
     // Give the run loop time to start.
     thread::sleep(Duration::from_millis(2_000));
 
-    let sortition_db = {
-        let burnchain = Burnchain::new(
-            &config.get_burn_db_path(),
-            &config.burnchain.chain,
-            &config.burnchain.mode,
-        )
-        .unwrap();
-        SortitionDB::open(&burnchain.get_db_path(), true).unwrap()
-    };
+    let burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )
+    .unwrap();
+    let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
@@ -317,16 +312,10 @@ fn l1_integration_test() {
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
     // Wait for exactly two stacks blocks.
-    next_stacks_block_and_wait(&sortition_db);
-    next_stacks_block_and_wait(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
