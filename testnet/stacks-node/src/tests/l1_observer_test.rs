@@ -11,6 +11,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::vm::types::QualifiedContractIdentifier;
+use std::convert::TryInto;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::time::{Duration, Instant};

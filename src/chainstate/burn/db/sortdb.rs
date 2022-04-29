@@ -2413,6 +2413,16 @@ impl SortitionDB {
         }
     }
 
+    /// Like `get_canonical_sortition_tip` but returns whole BlockSnapshot.
+    pub fn get_canonical_sortition_tip_snapshot(
+        conn: &Connection,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        let qry = "SELECT * FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        match query_row(conn, qry, NO_PARAMS) {
+            Ok(opt) => Ok(opt),
+            Err(e) => Err(db_error::from(e)),
+        }
+    }
     pub fn get_deposit_ft_ops(
         conn: &Connection,
         l1_block_id: &BurnchainHeaderHash,
