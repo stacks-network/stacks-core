@@ -1180,7 +1180,6 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
-    use crate::chainstate::stacks::index::storage::TrieFileStorage;
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::types::{StandardPrincipalData, Value};
@@ -1190,6 +1189,8 @@ mod tests {
 
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
+
+    use stacks_common::types::chainstate::ConsensusHash;
 
     use super::*;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -1914,6 +1915,13 @@ mod tests {
                 _height: u32,
                 _sortition_id: &SortitionId,
             ) -> Option<BurnchainHeaderHash> {
+                None
+            }
+
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
                 None
             }
 

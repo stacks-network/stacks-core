@@ -724,6 +724,8 @@ fn get_ancestor_sort_id_tx<C: SortitionContext>(
     ic.get_ancestor_block_hash(adjusted_height, &tip_block_hash)
 }
 
+/// Returns the difference between `block_height` and `context.first_block_height()`, if this
+/// is non-negative. Otherwise returns None.
 fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64) -> Option<u64> {
     let first_block_height = context.first_block_height();
     if block_height < first_block_height {
@@ -1592,12 +1594,16 @@ impl<'a> SortitionHandleConn<'a> {
         }
     }
 
+    /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
+    ///
+    /// Returns None if there is no block at this height.
     pub fn get_block_snapshot_by_height(
         &self,
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
+        // Note: This would return None if `block_height` were the height of `chain_tip`.
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
     }
 
@@ -3146,6 +3152,8 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
+    ///
+    /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
@@ -3432,6 +3440,8 @@ impl SortitionDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
+    ///
+    /// Returns None if there is no ancestor at this height.
     pub fn get_ancestor_snapshot<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
         ancestor_block_height: u64,

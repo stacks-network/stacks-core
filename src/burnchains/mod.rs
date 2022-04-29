@@ -29,7 +29,6 @@ use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
-use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -43,6 +42,9 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::TrieHash;
+
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -67,6 +69,7 @@ pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
+impl_byte_array_message_codec!(Txid, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
@@ -590,24 +593,22 @@ pub mod test {
 
     use super::*;
 
-    impl Txid {
-        pub fn from_test_data(
-            block_height: u64,
-            vtxindex: u32,
-            burn_header_hash: &BurnchainHeaderHash,
-            noise: u64,
-        ) -> Txid {
-            let mut bytes = vec![];
-            bytes.extend_from_slice(&block_height.to_be_bytes());
-            bytes.extend_from_slice(&vtxindex.to_be_bytes());
-            bytes.extend_from_slice(burn_header_hash.as_bytes());
-            bytes.extend_from_slice(&noise.to_be_bytes());
-            let h = DoubleSha256::from_data(&bytes[..]);
-            let mut hb = [0u8; 32];
-            hb.copy_from_slice(h.as_bytes());
+    pub fn Txid_from_test_data(
+        block_height: u64,
+        vtxindex: u32,
+        burn_header_hash: &BurnchainHeaderHash,
+        noise: u64,
+    ) -> Txid {
+        let mut bytes = vec![];
+        bytes.extend_from_slice(&block_height.to_be_bytes());
+        bytes.extend_from_slice(&vtxindex.to_be_bytes());
+        bytes.extend_from_slice(burn_header_hash.as_bytes());
+        bytes.extend_from_slice(&noise.to_be_bytes());
+        let h = DoubleSha256::from_data(&bytes[..]);
+        let mut hb = [0u8; 32];
+        hb.copy_from_slice(h.as_bytes());
 
-            Txid(hb)
-        }
+        Txid(hb)
     }
 
     pub fn BurnchainHeaderHash_from_test_data(
@@ -938,7 +939,7 @@ pub mod test {
                 self.fork_id,
             );
             txop.txid =
-                Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
+                Txid_from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
             txop.consensus_hash = self.parent_snapshot.consensus_hash.clone();
 
             self.txs
@@ -1033,7 +1034,7 @@ pub mod test {
                 self.fork_id,
             ); // NOTE: override this if you intend to insert into the sortdb!
             txop.txid =
-                Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
+                Txid_from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
             let epoch = SortitionDB::get_stacks_epoch(ic, txop.block_height)
                 .unwrap()

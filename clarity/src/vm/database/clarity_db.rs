@@ -52,6 +52,7 @@ use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
+use stacks_common::types::chainstate::ConsensusHash;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
@@ -93,6 +94,7 @@ pub trait HeadersDB {
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
         -> Option<BurnchainHeaderHash>;
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash>;
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed>;
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
@@ -101,16 +103,36 @@ pub trait HeadersDB {
 
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
+
+    /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
+
+    /// Returns the height of the burnchain when the Stacks chain started running.
     fn get_burn_start_height(&self) -> u32;
+
     fn get_pox_prepare_length(&self) -> u32;
     fn get_pox_reward_cycle_length(&self) -> u32;
     fn get_pox_rejection_fraction(&self) -> u64;
+
+    /// Returns the burnchain header hash for the given burn block height, as queried from the given SortitionId.
+    ///
+    /// Returns Some if `self.get_burn_start_height() <= height < self.get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash>;
+
+    /// Lookup a `SortitionId` keyed to a `ConsensusHash`.
+    ///
+    /// Returns None if no block found.
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId>;
+
+    /// The epoch is defined as by a start and end height. This returns
+    /// the epoch enclosing `height`.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 }
@@ -124,6 +146,9 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_burn_header_hash_for_block(&self, bhh: &StacksBlockId) -> Option<BurnchainHeaderHash> {
         (*self).get_burn_header_hash_for_block(bhh)
+    }
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        (*self).get_consensus_hash_for_block(id_bhh)
     }
     fn get_vrf_seed_for_block(&self, bhh: &StacksBlockId) -> Option<VRFSeed> {
         (*self).get_vrf_seed_for_block(bhh)
@@ -146,6 +171,13 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         (*self).get_burn_block_height(sortition_id)
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        (*self).get_sortition_id_from_consensus_hash(consensus_hash)
     }
 
     fn get_burn_start_height(&self) -> u32 {
@@ -218,6 +250,9 @@ impl HeadersDB for NullHeadersDB {
             None
         }
     }
+    fn get_consensus_hash_for_block(&self, _id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        None
+    }
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -246,6 +281,13 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_burn_start_height(&self) -> u32 {
         0
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        _consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        None
     }
 
     fn get_burn_header_hash(
@@ -624,6 +666,9 @@ impl<'a> ClarityDatabase<'a> {
 // Get block information
 
 impl<'a> ClarityDatabase<'a> {
+    /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
+    ///
+    /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
         self.store
             .get_block_header_hash(block_height)
@@ -632,6 +677,7 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Block header hash must return for provided block height")
     }
 
+    /// This is the height we are currently constructing. It comes from the MARF.
     pub fn get_current_block_height(&mut self) -> u32 {
         self.store.get_current_block_height()
     }
@@ -683,6 +729,58 @@ impl<'a> ClarityDatabase<'a> {
         self.headers_db
             .get_burn_header_hash_for_block(&id_bhh)
             .expect("Failed to get block data.")
+    }
+
+    /// Fetch the burnchain block header hash for a given burnchain height.
+    /// Because the burnchain can fork, we need to resolve the burnchain hash from the
+    /// currently-evaluated Stacks chain tip as follows:
+    ///
+    /// 1. Get the current Stacks tip height (which is in the process of being evaluated)
+    /// 2. Get the parent block's StacksBlockId, which is SHA512-256(consensus_hash, block_hash).
+    ///    This is the highest Stacks block in this fork whose consensus hash is known.
+    /// 3. Resolve the parent StacksBlockId to its consensus hash
+    /// 4. Resolve the consensus hash to the associated SortitionId
+    /// 5. Resolve the SortitionID at `burnchain_block_height` from the SortitionID obtained in
+    ///    (4).
+    ///
+    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
+    /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
+    /// fork).
+    pub fn get_burnchain_block_header_hash_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> Option<BurnchainHeaderHash> {
+        let current_stacks_height = self.get_current_block_height();
+
+        if current_stacks_height < 1 {
+            // we are in the Stacks genesis block
+            return None;
+        }
+
+        // this is the StacksBlockId of the last block evaluated in this fork
+        let parent_id_bhh = self.get_index_block_header_hash(current_stacks_height - 1);
+
+        // infallible, since we always store the consensus hash with the StacksBlockId in the
+        // headers DB
+        let consensus_hash = self
+            .headers_db
+            .get_consensus_hash_for_block(&parent_id_bhh)
+            .expect(&format!(
+                "FATAL: no consensus hash found for StacksBlockId {}",
+                &parent_id_bhh
+            ));
+
+        // infallible, since every sortition has a consensus hash
+        let sortition_id = self
+            .burn_state_db
+            .get_sortition_id_from_consensus_hash(&consensus_hash)
+            .expect(&format!(
+                "FATAL: no SortitionID found for consensus hash {}",
+                &consensus_hash
+            ));
+
+        self.burn_state_db
+            .get_burn_header_hash(burnchain_block_height, &sortition_id)
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

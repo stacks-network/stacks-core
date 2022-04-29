@@ -545,7 +545,33 @@ impl EventBatch {
 impl<'a> OwnedEnvironment<'a> {
     #[cfg(any(test, feature = "testing"))]
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
-        let epoch = StacksEpochId::Epoch2_05;
+        OwnedEnvironment {
+            context: GlobalContext::new(
+                false,
+                CHAIN_ID_TESTNET,
+                database,
+                LimitedCostTracker::new_free(),
+                StacksEpochId::Epoch2_05,
+            ),
+            default_contract: ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ),
+            call_stack: CallStack::new(),
+        }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a> {
+        database.begin();
+        let epoch = database.get_clarity_epoch_version();
+        let version = ClarityVersion::default_for_epoch(epoch);
+        database.roll_back();
+
+        debug!(
+            "Begin OwnedEnvironment(epoch = {}, version = {})",
+            &epoch, &version
+        );
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -556,7 +582,7 @@ impl<'a> OwnedEnvironment<'a> {
             ),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
+                version,
             ),
             call_stack: CallStack::new(),
         }
@@ -569,7 +595,7 @@ impl<'a> OwnedEnvironment<'a> {
         use_mainnet: bool,
     ) -> OwnedEnvironment<'a> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
-
+        let version = ClarityVersion::default_for_epoch(epoch);
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -578,7 +604,7 @@ impl<'a> OwnedEnvironment<'a> {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
+                version,
             ),
             call_stack: CallStack::new(),
         }
@@ -598,6 +624,7 @@ impl<'a> OwnedEnvironment<'a> {
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a> {
+        let version = ClarityVersion::default_for_epoch(epoch_id);
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -608,7 +635,7 @@ impl<'a> OwnedEnvironment<'a> {
             ),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
+                version,
             ),
             call_stack: CallStack::new(),
         }
@@ -621,11 +648,12 @@ impl<'a> OwnedEnvironment<'a> {
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a> {
+        let version = ClarityVersion::default_for_epoch(epoch_id);
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             default_contract: ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
+                version,
             ),
             call_stack: CallStack::new(),
         }
@@ -993,7 +1021,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     }
 
     /// This is the epoch of the the block that this transaction is executing within.
-    /// Note: in the current plans for 2.10, there is also a contract-specific **Clarity version**
+    /// Note: in the current plans for 2.1, there is also a contract-specific **Clarity version**
     ///  which governs which native functions are available / defined. That is separate from this
     ///  epoch identifier, and most Clarity VM changes should consult that value instead. This
     ///  epoch identifier is used for determining how cost functions should be applied.

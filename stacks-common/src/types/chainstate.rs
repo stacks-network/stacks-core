@@ -4,10 +4,12 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
+use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
+use crate::util::uint::Uint256;
 use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
@@ -22,6 +24,8 @@ use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use rand::Rng;
+use rand::SeedableRng;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 pub type StacksPublicKey = Secp256k1PublicKey;

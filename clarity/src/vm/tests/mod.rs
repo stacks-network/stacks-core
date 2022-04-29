@@ -38,9 +38,9 @@ use crate::vm::{
     clarity::{ClarityConnection, TransactionConnection},
     contexts::AssetMap,
     costs::{ExecutionCost, LimitedCostTracker},
-    database::{BurnStateDB, HeadersDB},
 };
 
+pub use crate::vm::database::BurnStateDB;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
 use super::events::StacksTransactionEvent;
