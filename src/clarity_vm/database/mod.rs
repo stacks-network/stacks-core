@@ -14,7 +14,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 
 use crate::chainstate::stacks::db::ChainstateTx;
-use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
@@ -26,6 +26,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use clarity::vm::database::SpecialCaseHandler;
+use stacks_common::types::chainstate::ConsensusHash;
 
 pub mod marf;
 
@@ -44,6 +45,10 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         get_stacks_header_info(self.0, id_bhh).map(|x| x.burn_header_hash)
+    }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self.0, id_bhh).map(|x| x.consensus_hash)
     }
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
@@ -79,6 +84,10 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
         get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_hash)
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self, id_bhh).map(|x| x.consensus_hash)
+    }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         get_stacks_header_info(self.deref().deref(), id_bhh).map(|x| x.burn_header_timestamp)
     }
@@ -97,7 +106,7 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     }
 }
 
-impl HeadersDB for crate::chainstate::stacks::index::marf::MARF<StacksBlockId> {
+impl HeadersDB for MARF<StacksBlockId> {
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -110,6 +119,10 @@ impl HeadersDB for crate::chainstate::stacks::index::marf::MARF<StacksBlockId> {
         id_bhh: &StacksBlockId,
     ) -> Option<BurnchainHeaderHash> {
         get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.burn_header_hash)
+    }
+
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        get_stacks_header_info(self.sqlite_conn(), id_bhh).map(|x| x.consensus_hash)
     }
 
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
@@ -158,6 +171,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         }
     }
 
+    /// Returns Some if `0 <= height < get_burn_block_height(sorition_id)`, and None otherwise.
     fn get_burn_header_hash(
         &self,
         height: u32,
@@ -172,6 +186,16 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None,
+        }
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
+            Ok(Some(x)) => Some(x.sortition_id),
             _ => return None,
         }
     }
@@ -220,8 +244,30 @@ impl BurnStateDB for SortitionDBConn<'_> {
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
         let db_handle = SortitionHandleConn::open_reader(self, &sortition_id).ok()?;
+
+        let current_height = match self.get_burn_block_height(sortition_id) {
+            None => {
+                return None;
+            }
+            Some(height) => height,
+        };
+
+        if height >= current_height {
+            return None;
+        }
+
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
+            _ => return None,
+        }
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
+            Ok(Some(x)) => Some(x.sortition_id),
             _ => return None,
         }
     }
@@ -273,6 +319,16 @@ impl MemoryBackingStore {
 
     pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    /// Returns a new ClarityDatabase with underlying databases `headers_db` and
+    /// `burn_state_db`.
+    pub fn as_clarity_db_with_databases<'a>(
+        &'a mut self,
+        headers_db: &'a dyn HeadersDB,
+        burn_state_db: &'a dyn BurnStateDB,
+    ) -> ClarityDatabase<'a> {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
     pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {

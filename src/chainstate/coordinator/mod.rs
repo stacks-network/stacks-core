@@ -71,6 +71,8 @@ use crate::types::chainstate::{
 };
 use clarity::vm::database::BurnStateDB;
 
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+
 pub use self::comm::CoordinatorCommunication;
 
 use stacks_common::util::get_epoch_time_secs;
@@ -1815,4 +1817,36 @@ pub fn check_chainstate_db_versions(
     }
 
     Ok(true)
+}
+
+/// Migrate all databases to their latest schemas.
+/// Verifies that this is possible as well
+pub fn migrate_chainstate_dbs(
+    epochs: &[StacksEpoch],
+    sortdb_path: &str,
+    chainstate_path: &str,
+    chainstate_marf_opts: Option<MARFOpenOpts>,
+) -> Result<(), Error> {
+    if !check_chainstate_db_versions(epochs, sortdb_path, chainstate_path)? {
+        warn!("Unable to migrate chainstate DBs to the latest schemas in the current epoch");
+        return Err(DBError::TooOldForEpoch.into());
+    }
+
+    if fs::metadata(&sortdb_path).is_ok() {
+        info!("Migrating sortition DB to the latest schema version");
+        SortitionDB::migrate_if_exists(&sortdb_path, epochs)?;
+    }
+    if fs::metadata(&chainstate_path).is_ok() {
+        info!("Migrating chainstate DB to the latest schema version");
+        let db_config = StacksChainState::get_db_config_from_path(&chainstate_path)?;
+
+        // this does the migration internally
+        let _ = StacksChainState::open(
+            db_config.mainnet,
+            db_config.chain_id,
+            chainstate_path,
+            chainstate_marf_opts,
+        )?;
+    }
+    Ok(())
 }

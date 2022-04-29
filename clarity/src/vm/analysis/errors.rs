@@ -124,7 +124,9 @@ pub enum CheckErrors {
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
+    NoSuchBurnBlockInfoProperty(String),
     GetBlockInfoExpectPropertyName,
+    GetBurnBlockInfoExpectPropertyName,
 
     NameAlreadyUsed(String),
 
@@ -366,7 +368,9 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
+            CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
+            CheckErrors::GetBurnBlockInfoExpectPropertyName => format!("missing property name for burn block info introspection"),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),

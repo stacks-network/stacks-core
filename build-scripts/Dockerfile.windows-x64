@@ -19,4 +19,4 @@ RUN CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc \
 RUN mkdir /out && cp -R /src/target/x86_64-pc-windows-gnu/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/blockstack-core.exe /out/blockstack-cli.exe /out/clarity-cli.exe /out/stacks-node.exe /
+COPY --from=build /out/stacks-inspect.exe /out/blockstack-cli.exe /out/clarity-cli.exe /out/stacks-node.exe /

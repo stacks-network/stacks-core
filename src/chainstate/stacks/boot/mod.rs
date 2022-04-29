@@ -207,19 +207,27 @@ impl StacksChainState {
     ) -> Result<u128, Error> {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
+        let chain_id = self.chain_id;
         let contract_identifier = boot::boot_code_id(pox_contract, mainnet);
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
         let result = self
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_readonly_clarity_env(mainnet, sender, None, cost_track, |env| {
-                    env.execute_contract(
-                        &contract_identifier,
-                        function,
-                        &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
-                        true,
-                    )
-                })
+                clarity_tx.with_readonly_clarity_env(
+                    mainnet,
+                    chain_id,
+                    sender,
+                    None,
+                    cost_track,
+                    |env| {
+                        env.execute_contract(
+                            &contract_identifier,
+                            function,
+                            &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                            true,
+                        )
+                    },
+                )
             })?
             .ok_or_else(|| Error::NoSuchBlockError)??
             .expect_u128();

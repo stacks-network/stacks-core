@@ -423,13 +423,20 @@ pub fn execute_with_parameters(
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
+    use crate::vm::tests::test_only_mainnet_to_chain_id;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let mut global_context =
-        GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut global_context = GlobalContext::new(
+        use_mainnet,
+        chain_id,
+        conn,
+        LimitedCostTracker::new_free(),
+        epoch,
+    );
     global_context.execute(|g| {
         let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -482,6 +489,8 @@ mod test {
 
     use super::ClarityVersion;
 
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+
     #[test]
     fn test_simple_user_function() {
         //
@@ -519,6 +528,7 @@ mod test {
         let mut marf = MemoryBackingStore::new();
         let mut global_context = GlobalContext::new(
             false,
+            CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,

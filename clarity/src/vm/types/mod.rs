@@ -617,6 +617,7 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
     }
 }
 
+// Properties for "get-block-info".
 define_named_enum!(BlockInfoProperty {
     Time("time"),
     VrfSeed("vrf-seed"),
@@ -624,6 +625,11 @@ define_named_enum!(BlockInfoProperty {
     IdentityHeaderHash("id-header-hash"),
     BurnchainHeaderHash("burnchain-header-hash"),
     MinerAddress("miner-address"),
+});
+
+// Properties for "get-burn-block-info".
+define_named_enum!(BurnBlockInfoProperty {
+    HeaderHash("header-hash"),
 });
 
 impl OptionalData {
@@ -659,6 +665,15 @@ impl BlockInfoProperty {
             Time => TypeSignature::UIntType,
             IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
             MinerAddress => TypeSignature::PrincipalType,
+        }
+    }
+}
+
+impl BurnBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::BurnBlockInfoProperty::*;
+        match self {
+            HeaderHash => BUFF_32.clone(),
         }
     }
 }

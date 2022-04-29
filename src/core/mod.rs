@@ -41,8 +41,7 @@ pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
-pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
-pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)
@@ -310,7 +309,7 @@ lazy_static! {
 pub static STACKS_EPOCH_2_05_MARKER: u8 = 0x05;
 
 /// Stacks 2.1 epoch marker.  All block-commits in 2.1 must have a memo bitfield with this value
-/// *or greater*
+/// *or greater*.
 pub static STACKS_EPOCH_2_1_MARKER: u8 = 0x06;
 
 #[test]

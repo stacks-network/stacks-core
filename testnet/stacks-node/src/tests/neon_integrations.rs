@@ -72,7 +72,6 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-use crate::tests::SK_3;
 use stacks::chainstate::stacks::miner::{
     TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
 };
@@ -799,7 +798,7 @@ fn get_chain_tip_height(http_origin: &str) -> u64 {
     res.stacks_tip_height
 }
 
-fn get_contract_src(
+pub fn get_contract_src(
     http_origin: &str,
     contract_addr: StacksAddress,
     contract_name: String,
@@ -4349,7 +4348,7 @@ fn microblock_limit_hit_integration_test() {
         100,
     );
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),

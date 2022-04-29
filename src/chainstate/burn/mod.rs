@@ -32,6 +32,7 @@ use crate::burnchains::PublicKey;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::Error as db_error;
 use stacks_common::util::hash::Hash32;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -40,7 +41,6 @@ use stacks_common::util::log;
 use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 pub use stacks_common::types::chainstate::ConsensusHash;

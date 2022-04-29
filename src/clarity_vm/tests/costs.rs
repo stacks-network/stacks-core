@@ -47,6 +47,7 @@ use std::collections::HashMap;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::tests::test_only_mainnet_to_chain_id;
 
 lazy_static! {
     static ref COST_VOTING_MAINNET_CONTRACT: QualifiedContractIdentifier =
@@ -121,6 +122,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         PrincipalOf => "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
+        GetBurnBlockInfo => "(get-block-info? time u1)", // TODO: use get-burn-block-info here once API is settled enough to change the mocked burn state DB in this file
         ConsOkay => "(ok 1)",
         ConsError => "(err 1)",
         ConsSome => "(some 1)",
@@ -170,7 +172,8 @@ where
     F: Fn(OwnedEnvironment) -> R,
 {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
 
     let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
     clarity_instance
@@ -951,7 +954,8 @@ fn epoch_21_test_all_testnet() {
 
 fn test_cost_contract_short_circuits(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -981,7 +985,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
+        let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
@@ -1176,7 +1180,8 @@ fn test_cost_contract_short_circuits_testnet() {
 
 fn test_cost_voting_integration(use_mainnet: bool) {
     let marf_kv = MarfedKV::temporary();
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, marf_kv);
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -1210,7 +1215,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
     let caller = QualifiedContractIdentifier::new(p1_principal.clone(), "caller".into());
 
     let mut marf_kv = {
-        let mut clarity_inst = ClarityInstance::new(use_mainnet, marf_kv);
+        let mut clarity_inst = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
         let mut block_conn = clarity_inst.begin_block(
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),

@@ -99,7 +99,7 @@ impl UnconfirmedState {
             chainstate.marf_opts.clone(),
         )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
@@ -136,7 +136,7 @@ impl UnconfirmedState {
             chainstate.marf_opts.clone(),
         )?;
 
-        let clarity_instance = ClarityInstance::new(chainstate.mainnet, marf);
+        let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
         let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;

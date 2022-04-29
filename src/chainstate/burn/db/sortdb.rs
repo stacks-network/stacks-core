@@ -66,6 +66,7 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
@@ -729,6 +730,8 @@ fn get_ancestor_sort_id_tx<C: SortitionContext>(
     ic.get_ancestor_block_hash(adjusted_height, &tip_block_hash)
 }
 
+/// Returns the difference between `block_height` and `context.first_block_height()`, if this
+/// is non-negative. Otherwise returns None.
 fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64) -> Option<u64> {
     let first_block_height = context.first_block_height();
     if block_height < first_block_height {
@@ -1597,12 +1600,16 @@ impl<'a> SortitionHandleConn<'a> {
         }
     }
 
+    /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
+    ///
+    /// Returns None if there is no block at this height.
     pub fn get_block_snapshot_by_height(
         &self,
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
+        // Note: This would return None if `block_height` were the height of `chain_tip`.
         SortitionDB::get_ancestor_snapshot(self, block_height, &self.context.chain_tip)
     }
 
@@ -2157,7 +2164,21 @@ impl SortitionDB {
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
         use crate::core::StacksEpochExtension;
+        SortitionDB::connect_test_with_epochs(
+            first_block_height,
+            first_burn_hash,
+            StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+        )
+    }
 
+    /// Open a burn database at random tmp dir (used for testing)
+    /// But, take a particular epoch configuration
+    #[cfg(test)]
+    pub fn connect_test_with_epochs(
+        first_block_height: u64,
+        first_burn_hash: &BurnchainHeaderHash,
+        epochs: Vec<StacksEpoch>,
+    ) -> Result<SortitionDB, db_error> {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
@@ -2171,7 +2192,7 @@ impl SortitionDB {
             first_block_height,
             first_burn_hash,
             get_epoch_time_secs(),
-            &StacksEpoch::unit_test(StacksEpochId::Epoch20, first_block_height),
+            &epochs,
             PoxConstants::test_default(),
             true,
         )
@@ -2530,7 +2551,7 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
@@ -2545,7 +2566,7 @@ impl SortitionDB {
         Ok(())
     }
 
-    fn apply_schema_3(tx: &SortitionDBTx) -> Result<(), db_error> {
+    fn apply_schema_3(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_3 {
             tx.execute_batch(sql_exec)?;
         }
@@ -2563,10 +2584,8 @@ impl SortitionDB {
                 if version == expected_version {
                     Ok(())
                 } else {
-                    Err(db_error::Other(format!(
-                        "The version of the sortition DB {} does not match the expected {} and cannot be updated from SortitionDB::open()",
-                        version, expected_version
-                    )))
+                    let version_u64 = version.parse::<u64>().unwrap();
+                    Err(db_error::OldSchema(version_u64))
                 }
             }
             Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
@@ -2574,19 +2593,23 @@ impl SortitionDB {
         }
     }
 
-    fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    /// Migrate the sortition DB to its latest version, given the set of system epochs
+    pub fn check_schema_version_and_update(
+        &mut self,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
         let expected_version = SORTITION_DB_VERSION.to_string();
         loop {
             match SortitionDB::get_schema_version(self.conn()) {
                 Ok(Some(version)) => {
                     if version == "1" {
                         let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_2(&tx, epochs)?;
+                        SortitionDB::apply_schema_2(&tx.deref(), epochs)?;
                         tx.commit()?;
                     } else if version == "2" {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
-                        SortitionDB::apply_schema_3(&tx)?;
+                        SortitionDB::apply_schema_3(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -2597,6 +2620,29 @@ impl SortitionDB {
                 Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
                 Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
             }
+        }
+    }
+
+    /// Open and migrate the sortition DB if it exists.
+    pub fn migrate_if_exists(path: &str, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
+        // the mainnet_default PoX constants
+        if let Err(db_error::OldSchema(_)) =
+            SortitionDB::open(path, false, PoxConstants::mainnet_default())
+        {
+            let index_path = db_mkdirs(path)?;
+            let marf = SortitionDB::open_index(&index_path)?;
+            let mut db = SortitionDB {
+                marf,
+                readwrite: true,
+                // not used by migration logic
+                first_block_height: 0,
+                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+                pox_constants: PoxConstants::mainnet_default(),
+            };
+            db.check_schema_version_and_update(epochs)
+        } else {
+            Ok(())
         }
     }
 
@@ -3180,6 +3226,8 @@ impl SortitionDB {
 
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
+    ///
+    /// Returns Err if the underlying SQLite call fails.
     pub fn get_canonical_sortition_tip(conn: &Connection) -> Result<SortitionId, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE pox_valid = 1 ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
@@ -3468,6 +3516,8 @@ impl SortitionDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
+    ///
+    /// Returns None if there is no ancestor at this height.
     pub fn get_ancestor_snapshot<C: SortitionContext>(
         ic: &IndexDBConn<'_, C, SortitionId>,
         ancestor_block_height: u64,
@@ -3815,7 +3865,7 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|s| s.parse().expect("BUG: bad mining bonus stored in DB")))
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     fn store_burn_distribution(
         &mut self,
         new_sortition: &SortitionId,
@@ -3831,7 +3881,7 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute(sql, args).unwrap();
     }
 
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "testing")))]
     fn store_burn_distribution(
         &mut self,
         _new_sortition: &SortitionId,

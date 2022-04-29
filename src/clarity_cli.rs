@@ -33,7 +33,7 @@ use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
-use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{
     vm::analysis,
@@ -82,8 +82,11 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::marf::WritableMarfStore;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::StacksEpochId;
+use stacks_common::consts::CHAIN_ID_MAINNET;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
@@ -224,6 +227,7 @@ fn run_analysis<C: ClarityStorage>(
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
         mainnet,
+        default_chain_id(mainnet),
         if mainnet {
             BLOCK_LIMIT_MAINNET_20.clone()
         } else {
@@ -387,6 +391,15 @@ where
     result
 }
 
+fn default_chain_id(mainnet: bool) -> u32 {
+    let chain_id = if mainnet {
+        CHAIN_ID_MAINNET
+    } else {
+        CHAIN_ID_TESTNET
+    };
+    chain_id
+}
+
 fn with_env_costs<F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
@@ -399,6 +412,7 @@ where
     let mut db = marf.as_clarity_db(header_db, &NULL_BURN_STATE_DB);
     let cost_track = LimitedCostTracker::new(
         mainnet,
+        default_chain_id(mainnet),
         if mainnet {
             BLOCK_LIMIT_MAINNET_20.clone()
         } else {
@@ -408,7 +422,13 @@ where
         DEFAULT_CLI_EPOCH,
     )
     .unwrap();
-    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, db, cost_track, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_cost_limited(
+        mainnet,
+        default_chain_id(mainnet),
+        db,
+        cost_track,
+        DEFAULT_CLI_EPOCH,
+    );
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -423,6 +443,7 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
+        default_chain_id(false),
         conn,
         LimitedCostTracker::new_free(),
         DEFAULT_CLI_EPOCH,
@@ -589,6 +610,17 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // mock it
+        let conn = self.conn();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            let hash_bytes = Hash160::from_data(&id_bhh.0);
+            Some(ConsensusHash(hash_bytes.0))
+        } else {
+            None
+        }
+    }
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -616,6 +648,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -624,6 +657,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -632,6 +666,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
@@ -756,7 +791,12 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+                let mut vm_env = OwnedEnvironment::new_free(
+                    mainnet,
+                    default_chain_id(mainnet),
+                    db,
+                    DEFAULT_CLI_EPOCH,
+                );
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content, None)
                     .unwrap();
@@ -784,7 +824,8 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(mainnet, db, DEFAULT_CLI_EPOCH);
+    let mut vm_env =
+        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
     vm_env
         .execute_transaction(
             sender,
@@ -1079,8 +1120,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 true
             };
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(mainnet, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
+            let mut vm_env = OwnedEnvironment::new_free(
+                mainnet,
+                default_chain_id(mainnet),
+                marf.as_clarity_db(),
+                DEFAULT_CLI_EPOCH,
+            );
             let mut exec_env = vm_env.get_exec_environment(None, None);
             let mut analysis_marf = MemoryBackingStore::new();
 
@@ -1145,8 +1190,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut analysis_marf = MemoryBackingStore::new();
             let mut marf = MemoryBackingStore::new();
-            let mut vm_env =
-                OwnedEnvironment::new_free(true, marf.as_clarity_db(), DEFAULT_CLI_EPOCH);
+            let mut vm_env = OwnedEnvironment::new_free(
+                true,
+                default_chain_id(true),
+                marf.as_clarity_db(),
+                DEFAULT_CLI_EPOCH,
+            );
 
             let contract_id = QualifiedContractIdentifier::transient();
 

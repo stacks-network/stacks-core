@@ -10186,10 +10186,8 @@ pub mod test {
 
     // TODO: invalid block with duplicate microblock public key hash (okay between forks, but not
     // within the same fork)
-    // TODO: (BLOCKED) build off of different points in the same microblock stream
     // TODO; skipped blocks
     // TODO: missing blocks
-    // TODO: invalid blocks
     // TODO: no-sortition
     // TODO: burnchain forks, and we mine the same anchored stacks block in the beginnings of the two descendent
     // forks.  Verify all descendents are unique -- if A --> B and A --> C, and B --> D and C -->
@@ -10198,5 +10196,4 @@ pub mod test {
     // TODO: confirm that if A is accepted but B is rejected, then C must also be rejected even if
     // it's on a different burnchain fork.
     // TODO: confirm that we can process B and C separately, even though they're the same block
-    // TODO: verify that the Clarity MARF stores _only_ Clarity data
 }

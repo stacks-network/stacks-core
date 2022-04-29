@@ -29,7 +29,6 @@ use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
-use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -43,6 +42,9 @@ use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::PoxId;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::TrieHash;
+
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
@@ -71,6 +73,7 @@ pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
+impl_byte_array_message_codec!(Txid, 32);
 pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
@@ -621,3 +624,4 @@ impl BurnchainView {
         self.last_burn_block_hashes = ret;
     }
 }
+

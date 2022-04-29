@@ -29,8 +29,8 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
-    BlockInfoProperty, BuffData, OptionalData, PrincipalData, SequenceData, TypeSignature, Value,
-    BUFF_32,
+    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
+    TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -767,4 +767,65 @@ pub fn special_get_block_info(
     };
 
     Ok(Value::some(result)?)
+}
+
+/// Interprets `args` as variables `[property_name, burnblock_height]`, and returns
+/// a property value determined by `property_name`:
+/// - `header_hash` returns the burnblock header hash at `burnblock_height`
+///
+/// # Errors:
+/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+pub fn special_get_burn_block_info(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    check_argument_count(2, args)?;
+
+    // Handle the block property name input arg.
+    let property_name = args[0]
+        .match_atom()
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+
+    let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
+        CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+    )?;
+
+    // Handle the block-height input arg clause.
+    let height_eval = eval(&args[1], env, context)?;
+    let height_value = match height_eval {
+        Value::UInt(result) => result,
+        x => {
+            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+        }
+    };
+
+    // Note: We assume that we will not have a height bigger than u32::MAX.
+    let height_value = match u32::try_from(height_value) {
+        Ok(result) => result,
+        _ => return Ok(Value::none()),
+    };
+
+    match block_info_prop {
+        BurnBlockInfoProperty::HeaderHash => {
+            let burnchain_header_hash_opt = env
+                .global_context
+                .database
+                .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+
+            match burnchain_header_hash_opt {
+                Some(burnchain_header_hash) => {
+                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                        data: burnchain_header_hash.as_bytes().to_vec(),
+                    })))
+                }
+                None => Ok(Value::none()),
+            }
+        }
+    }
 }
