@@ -113,8 +113,10 @@ impl Drop for StacksL1Controller {
     }
 }
 
+/// Longest time to wait for a stacks block before aborting.
 const PANIC_TIMEOUT_SECS: u64 = 600;
 
+/// Height of the current stacks tip.
 fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
     let tip_snapshot = SortitionDB::get_canonical_sortition_tip_snapshot(&sortition_db.conn())
         .expect("Could not read from SortitionDB.");
@@ -125,6 +127,7 @@ fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
     }
 }
 
+/// Wait for the *height* of the stacks chain tip to increment.
 pub fn next_block_and_wait(sortition_db: &SortitionDB) -> bool {
     let current = get_stacks_tip_height(sortition_db);
     let mut next = current;
