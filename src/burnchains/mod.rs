@@ -624,4 +624,3 @@ impl BurnchainView {
         self.last_burn_block_hashes = ret;
     }
 }
-
