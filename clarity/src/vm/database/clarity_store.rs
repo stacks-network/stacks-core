@@ -73,6 +73,7 @@ pub trait ClarityBackingStore {
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
+    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
     /// this function returns the current block height, as viewed by this marfed-kv structure,
@@ -307,7 +308,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        0
+        1
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {

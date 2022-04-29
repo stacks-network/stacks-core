@@ -101,7 +101,7 @@ pub struct ClarityTestSim {
     /// first to Epoch 2.0, then to Epoch 2.05, then to Epoch 2.1, etc. If the Epoch 2.0 transition
     /// is set to 0, Epoch 1.0 will be skipped. Otherwise, the simulated chain will
     /// begin in Epoch 1.0.
-    epoch_bounds: Vec<u64>,
+    pub epoch_bounds: Vec<u64>,
 }
 
 pub struct TestSimHeadersDB {
@@ -116,6 +116,7 @@ pub struct TestSimBurnStateDB {
     /// begin in Epoch 1.0.
     epoch_bounds: Vec<u64>,
     pox_constants: PoxConstants,
+    height: u32,
 }
 
 impl ClarityTestSim {
@@ -127,12 +128,10 @@ impl ClarityTestSim {
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
             );
 
-            store
-                .as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB)
-                .initialize();
+            let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+            db.initialize();
 
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB));
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
 
             for user_key in USER_KEYS.iter() {
                 owned_env.stx_faucet(
@@ -167,6 +166,7 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
@@ -199,12 +199,14 @@ impl ClarityTestSim {
             let burn_db = TestSimBurnStateDB {
                 epoch_bounds: self.epoch_bounds.clone(),
                 pox_constants: PoxConstants::test_default(),
+                height: (self.height + 100).try_into().unwrap(),
             };
 
             let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
             debug!("Execute block in epoch {}", &cur_epoch);
 
-            let mut owned_env = OwnedEnvironment::new(store.as_clarity_db(&headers_db, &burn_db));
+            let db = store.as_clarity_db(&headers_db, &burn_db);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };
 
@@ -252,8 +254,8 @@ impl ClarityTestSim {
 
             Self::check_and_bump_epoch(&mut store, &headers_db, &NULL_BURN_STATE_DB);
 
-            let mut owned_env =
-                OwnedEnvironment::new(store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB));
+            let db = store.as_clarity_db(&headers_db, &TEST_BURN_STATE_DB);
+            let mut owned_env = OwnedEnvironment::new_toplevel(db);
 
             f(&mut owned_env)
         };
@@ -266,15 +268,15 @@ impl ClarityTestSim {
     }
 }
 
-fn test_sim_height_to_hash(burn_height: u64, fork: u64) -> [u8; 32] {
+pub fn test_sim_height_to_hash(burn_height: u64, fork: u64) -> [u8; 32] {
     let mut out = [0; 32];
     out[0..8].copy_from_slice(&burn_height.to_le_bytes());
     out[8..16].copy_from_slice(&fork.to_le_bytes());
     out
 }
 
-fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
-    if &in_bytes[8..] != &[0; 24] {
+pub fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
+    if &in_bytes[16..] != &[0; 16] {
         None
     } else {
         let mut bytes = [0; 8];
@@ -283,6 +285,17 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
+pub fn test_sim_hash_to_fork(in_bytes: &[u8; 32]) -> Option<u64> {
+    if &in_bytes[16..] != &[0; 16] {
+        None
+    } else {
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(&in_bytes[8..16]);
+        Some(u64::from_le_bytes(bytes))
+    }
+}
+
+#[cfg(test)]
 fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
     let analysis = mem_type_check(contract, version).unwrap().1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
@@ -310,7 +323,33 @@ impl BurnStateDB for TestSimBurnStateDB {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        panic!("Not implemented in TestSim");
+        // generate burnchain header hash for height if the sortition ID is a valid test-sim
+        // sortition ID
+        if height >= self.height {
+            None
+        } else {
+            match (
+                test_sim_hash_to_height(&sortition_id.0),
+                test_sim_hash_to_fork(&sortition_id.0),
+            ) {
+                (Some(_ht), Some(fork)) => Some(BurnchainHeaderHash(test_sim_height_to_hash(
+                    height.into(),
+                    fork,
+                ))),
+                _ => None,
+            }
+        }
+    }
+
+    fn get_sortition_id_from_consensus_hash(
+        &self,
+        consensus_hash: &ConsensusHash,
+    ) -> Option<SortitionId> {
+        // consensus hashes are constructed as the leading 20 bytes of the stacks block ID from
+        // whence it came.
+        let mut bytes = [0u8; 32];
+        bytes[0..20].copy_from_slice(&consensus_hash.0);
+        Some(SortitionId(bytes))
     }
 
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
@@ -370,11 +409,13 @@ impl BurnStateDB for TestSimBurnStateDB {
     fn get_pox_rejection_fraction(&self) -> u64 {
         self.pox_constants.pox_rejection_fraction
     }
+
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
     }
 }
 
+#[cfg(test)]
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,
@@ -383,13 +424,23 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
         } else {
-            self.get_burn_block_height_for_block(id_bhh)?;
+            if self.get_burn_block_height_for_block(id_bhh).is_none() {
+                return None;
+            }
             Some(BurnchainHeaderHash(id_bhh.0.clone()))
         }
     }
 
     fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
         None
+    }
+
+    fn get_consensus_hash_for_block(&self, bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // capture the first 20 bytes of the block ID, which in this case captures the height and
+        // fork ID.
+        let mut bytes_20 = [0u8; 20];
+        bytes_20.copy_from_slice(&bhh.0[0..20]);
+        Some(ConsensusHash(bytes_20))
     }
 
     fn get_stacks_block_header_hash_for_block(
@@ -399,7 +450,9 @@ impl HeadersDB for TestSimHeadersDB {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(FIRST_STACKS_BLOCK_HASH)
         } else {
-            self.get_burn_block_height_for_block(id_bhh)?;
+            if self.get_burn_block_height_for_block(id_bhh).is_none() {
+                return None;
+            }
             Some(BlockHeaderHash(id_bhh.0.clone()))
         }
     }
@@ -415,6 +468,7 @@ impl HeadersDB for TestSimHeadersDB {
             )
         }
     }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32)
@@ -432,6 +486,7 @@ impl HeadersDB for TestSimHeadersDB {
             }
         }
     }
+
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
     }

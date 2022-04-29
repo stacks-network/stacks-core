@@ -1367,11 +1367,11 @@ and `false` if it is a `none`.",
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
-    input_type: "BlockInfoPropertyName, BlockHeightInt",
+    input_type: "BlockInfoPropertyName, uint",
     output_type: "(optional buff) | (optional uint)",
-    signature: "(get-block-info? prop-name block-height-expr)",
-    description: "The `get-block-info?` function fetches data for a block of the given block height. The
-value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
+    signature: "(get-block-info? prop-name block-height)",
+    description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
+value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
 
@@ -1381,6 +1381,10 @@ and block times are accurate only to within two hours. See [BIP113](https://gith
 
 The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer.
 
+`header-hash` returns the header hash of a Stacks node, given a Stacks chain height.
+
+`burnchain-header-hash` returns header hash of the burnchain (Bitcoin) node corresponding to the given Stacks chain height.
+
 The `miner-address` property returns a `principal` corresponding to the miner of the given block.
 
 The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
@@ -1388,6 +1392,25 @@ The `id-header-hash` is the block identifier value that must be used as input to
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
 (get-block-info? vrf-seed u0) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
+"
+};
+
+const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "BurnBlockInfoPropertyName, uint",
+    output_type: "(optional buff)",
+    signature: "(get-burn-block-info? prop-name block-height)",
+    description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
+value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
+include heights between the burnchain height at the time the Stacks chain was launched, and the last-processed burnchain
+block.  If the `block-height` argument falls outside of this range, then `none` shall be returned.
+
+The following `BlockInfoPropertyName` values are defined:
+
+* The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
+burnchain height `block-height`.
+",
+    example: "
+(get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
 "
 };
 
@@ -1937,6 +1960,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
         AsContract => make_for_special(&AS_CONTRACT_API, name),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
+        GetBurnBlockInfo => make_for_special(&GET_BURN_BLOCK_INFO_API, name),
         ConsOkay => make_for_special(&CONS_OK_API, name),
         ConsError => make_for_special(&CONS_ERR_API, name),
         ConsSome => make_for_special(&CONS_SOME_API, name),
@@ -2070,7 +2094,7 @@ mod test {
         ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
-    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
+    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
@@ -2078,7 +2102,7 @@ mod test {
     use crate::vm::analysis::type_check;
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
     use crate::{
-        types::chainstate::{BlockHeaderHash, BurnchainHeaderHash},
+        types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash},
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
@@ -2100,6 +2124,9 @@ mod test {
             _bhh: &StacksBlockId,
         ) -> Option<BurnchainHeaderHash> {
             None
+        }
+        fn get_consensus_hash_for_block(&self, _bhh: &StacksBlockId) -> Option<ConsensusHash> {
+            Some(ConsensusHash([0; 20]))
         }
         fn get_vrf_seed_for_block(&self, _bhh: &StacksBlockId) -> Option<VRFSeed> {
             Some(
@@ -2150,13 +2177,20 @@ mod test {
                 .unwrap(),
             )
         }
+        fn get_sortition_id_from_consensus_hash(
+            &self,
+            consensus_hash: &ConsensusHash,
+        ) -> Option<SortitionId> {
+            Some(SortitionId([0u8; 32]))
+        }
+
         fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
             Some(StacksEpoch {
-                epoch_id: StacksEpochId::Epoch20,
+                epoch_id: StacksEpochId::Epoch21,
                 start_height: 0,
                 end_height: u64::max_value(),
                 block_limit: ExecutionCost::max_value(),
-                network_epoch: PEER_VERSION_EPOCH_2_0,
+                network_epoch: PEER_VERSION_EPOCH_2_1,
             })
         }
         fn get_burn_start_height(&self) -> u32 {

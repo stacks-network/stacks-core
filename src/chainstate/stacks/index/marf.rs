@@ -1472,6 +1472,7 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(())
     }
 
+    // Comes from the marf.
     pub fn get_block_height_of(
         &mut self,
         bhh: &T,
@@ -1520,6 +1521,10 @@ impl<T: MarfTrieId> MARF<T> {
     }
 
     /// Reopen this MARF with readonly storage.
+    ///
+    /// Returns Err if:
+    ///   1) This class is already in the process of writing.
+    ///   2) A new underlying SQLite database connection cannot be established.
     pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
         if self.open_chain_tip.is_some() {
             error!(

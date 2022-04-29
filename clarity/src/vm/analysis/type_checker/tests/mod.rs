@@ -116,6 +116,41 @@ fn test_get_block_info() {
     }
 }
 
+#[test]
+fn test_get_burn_block_info() {
+    let good = ["(get-burn-block-info? header-hash u0)"];
+    let expected = ["(optional (buff 32))"];
+
+    let bad = [
+        "(get-burn-block-info? none u1)",
+        "(get-burn-block-info?)",
+        "(get-burn-block-info? header-hash)",
+        r#"(get-burn-block-info? header-hash "a")"#,
+    ];
+    let bad_expected = [
+        CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
+        CheckErrors::IncorrectArgumentCount(2, 0),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::TypeError(
+            UIntType,
+            SequenceType(StringType(ASCII(
+                BufferLength::try_from(1u32).expect("BufferLength::try_from failed"),
+            ))),
+        ),
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
 #[apply(test_clarity_versions_type_checker)]
 fn test_define_trait(#[case] version: ClarityVersion) {
     let good = [

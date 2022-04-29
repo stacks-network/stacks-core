@@ -33,7 +33,7 @@ use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::FromColumn;
 use stacks_common::address::c32::c32_address;
-use stacks_common::util::hash::{bytes_to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::clarity::{
     vm::analysis,
@@ -86,6 +86,7 @@ use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
@@ -609,6 +610,17 @@ impl HeadersDB for CLIHeadersDB {
         }
     }
 
+    fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
+        // mock it
+        let conn = self.conn();
+        if let Some(_) = get_cli_block_height(&conn, id_bhh) {
+            let hash_bytes = Hash160::from_data(&id_bhh.0);
+            Some(ConsensusHash(hash_bytes.0))
+        } else {
+            None
+        }
+    }
+
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         let conn = self.conn();
         if let Some(_) = get_cli_block_height(&conn, id_bhh) {
@@ -636,6 +648,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -644,6 +657,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
         if let Some(height) = get_cli_block_height(&conn, id_bhh) {
@@ -652,6 +666,7 @@ impl HeadersDB for CLIHeadersDB {
             None
         }
     }
+
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
