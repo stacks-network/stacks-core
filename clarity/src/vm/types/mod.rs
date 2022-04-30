@@ -1289,13 +1289,18 @@ impl From<TupleData> for Value {
     }
 }
 
-impl From<ContractName> for Value {
+impl From<ASCIIData> for Value {
+    fn from(ascii: ASCIIData) -> Self {
+        Value::Sequence(SequenceData::String(CharType::ASCII(ascii)))
+    }
+}
+impl From<ContractName> for ASCIIData {
     fn from(name: ContractName) -> Self {
         // ContractName is guaranteed to be between 5 and 40 bytes and contains only printable
         // ASCII already, so this conversion should not fail.
-        Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        ASCIIData {
             data: name.as_str().as_bytes().to_vec(),
-        })))
+        }
     }
 }
 

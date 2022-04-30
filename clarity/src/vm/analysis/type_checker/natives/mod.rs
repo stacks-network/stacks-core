@@ -500,7 +500,7 @@ fn check_principal_construct(
         checker.type_check_expects(
             &args[2],
             context,
-            &TypeSignature::contract_name_string_ascii(),
+            &TypeSignature::contract_name_string_ascii_type(),
         )?;
     }
     Ok(TypeSignature::new_response(
@@ -755,14 +755,14 @@ impl TypedNativeFunction {
                 returns: TypeSignature::UIntType,
             }))),
             PrincipalConstruct => Special(SpecialNativeFunction(&check_principal_construct)),
-            PrincipalParse => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+            PrincipalDestruct => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("principal".to_owned())
                         .expect("FAIL: ClarityName failed to accept default arg name"),
                 )],
                 returns: {
-                    /// The return type of `principal-parse` is a Response, in which the success
+                    /// The return type of `principal-destruct` is a Response, in which the success
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> TypeSignature {
                         TupleTypeSignature::try_from(vec![
@@ -771,12 +771,12 @@ impl TypedNativeFunction {
                             (
                                 "name".into(),
                                 TypeSignature::new_option(
-                                    TypeSignature::contract_name_string_ascii(),
+                                    TypeSignature::contract_name_string_ascii_type(),
                                 )
                                 .unwrap(),
                             ),
                         ])
-                        .expect("FAIL: PrincipalParse failed to initialize type signature")
+                        .expect("FAIL: PrincipalDestruct failed to initialize type signature")
                         .into()
                     }
                     TypeSignature::ResponseType(Box::new((

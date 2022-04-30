@@ -8,16 +8,13 @@ use crate::vm::errors::{
 use crate::vm::representations::ClarityName;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    signatures::BUFF_1, signatures::BUFF_20, BuffData, BufferLength, CharType, OptionalData,
-    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    signatures::BUFF_1, signatures::BUFF_20, ASCIIData, BuffData, BufferLength, CharType,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
+    SequenceSubtype, StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, ContractName, Environment, LocalContext};
 use stacks_common::util::hash::hex_bytes;
 use std::convert::TryFrom;
-
-use crate::vm::database::ClarityDatabase;
-use crate::vm::database::STXBalance;
 
 use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -25,6 +22,12 @@ use stacks_common::address::{
 };
 
 use crate::vm::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
+
+pub enum PrincipalConstructErrorCode {
+    VERSION_BYTE = 0,
+    BUFFER_LENGTH = 1,
+    CONTRACT_NAME = 2,
+}
 
 /// Returns true if `version` indicates a mainnet address.
 fn version_matches_mainnet(version: u8) -> bool {
@@ -77,7 +80,7 @@ pub fn special_is_standard(
 
 /// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
 /// and `hash-bytes`.
-fn create_principal_parse_tuple(
+fn create_principal_destruct_tuple(
     version: u8,
     hash_bytes: &[u8; 20],
     name_opt: Option<ContractName>,
@@ -99,7 +102,7 @@ fn create_principal_parse_tuple(
             (
                 "name".into(),
                 Value::Optional(OptionalData {
-                    data: name_opt.map(|name| Box::new(Value::from(name))),
+                    data: name_opt.map(|name| Box::new(Value::from(ASCIIData::from(name)))),
                 }),
             ),
         ])
@@ -107,46 +110,44 @@ fn create_principal_parse_tuple(
     )
 }
 
-/// Creates Response return type, to wrap an *actual error* result of a `principal-construct` or
-/// `principal-parse`.
+/// Creates Response return type, to wrap an *actual error* result of a `principal-construct`.
 ///
 /// The response is an error Response, where the `err` value is a tuple `{error_int,parse_tuple}`.
 /// `error_int` is of type `UInt`, `parse_tuple` is None.
-fn create_principal_true_error_response(error_int: u32) -> Value {
-    Value::Response(ResponseData {
-        committed: false,
-        data: Box::new(Value::Tuple(
-            TupleData::from_data(vec![
-                ("error_int".into(), Value::UInt(error_int.into())),
-                ("value".into(), Value::none()),
-            ])
-            .expect("FAIL: Failed to initialize tuple."),
-        )),
-    })
+fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Value {
+    Value::error(Value::Tuple(
+        TupleData::from_data(vec![
+            ("error_int".into(), Value::UInt(error_int as u128)),
+            ("value".into(), Value::none()),
+        ])
+        .expect("FAIL: Failed to initialize tuple."),
+    ))
+    .expect("FAIL: Failed to initialize (err ..) response")
 }
 
 /// Creates Response return type, to wrap a *return value returned as an error* result of a
-/// `principal-construct` or `principal-parse`.
+/// `principal-construct`.
 ///
 /// The response is an error Response, where the `err` value is a tuple `{error_int,value}`.
 /// `error_int` is of type `UInt`, `value` is of type `Some(Value)`.
-fn create_principal_value_error_response(error_int: u32, value: Value) -> Value {
-    Value::Response(ResponseData {
-        committed: false,
-        data: Box::new(Value::Tuple(
-            TupleData::from_data(vec![
-                ("error_int".into(), Value::UInt(error_int.into())),
-                (
-                    "value".into(),
-                    Value::some(value).expect("Unexpected problem creating Value."),
-                ),
-            ])
-            .expect("FAIL: Failed to initialize tuple."),
-        )),
-    })
+fn create_principal_value_error_response(
+    error_int: PrincipalConstructErrorCode,
+    value: Value,
+) -> Value {
+    Value::error(Value::Tuple(
+        TupleData::from_data(vec![
+            ("error_int".into(), Value::UInt(error_int as u128)),
+            (
+                "value".into(),
+                Value::some(value).expect("Unexpected problem creating Value."),
+            ),
+        ])
+        .expect("FAIL: Failed to initialize tuple."),
+    ))
+    .expect("FAIL: Failed to initialize (err ..) response")
 }
 
-pub fn special_principal_parse(
+pub fn special_principal_destruct(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -172,7 +173,7 @@ pub fn special_principal_parse(
     // channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
-    let tuple = create_principal_parse_tuple(version_byte, &hash_bytes, name_opt);
+    let tuple = create_principal_destruct_tuple(version_byte, &hash_bytes, name_opt);
     Ok(Value::Response(ResponseData {
         committed: version_byte_is_valid,
         data: Box::new(tuple),
@@ -207,25 +208,25 @@ pub fn special_principal_construct(
         }
     };
 
-    // This is an aborting error because this should have been caught in analysis pass.
-    if verified_version.len() > 1 {
+    let version_byte = if verified_version.len() > 1 {
+        // should have been caught by the type-checker
         return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
-    }
-
-    // If the version byte buffer has 0 bytes, this is a recoverable error, because it wasn't the
-    // job of the type system.
-    if verified_version.len() < 1 {
-        // do some kind of error
-        return Ok(create_principal_true_error_response(1));
-    }
-
-    // Assume: verified_version.len() == 1
-    let version_byte = (*verified_version)[0];
+    } else if verified_version.len() == 0 {
+        // the type checker does not check the actual length of the buffer, but a 0-length buffer
+        // will type-check to (buff 1)
+        return Ok(create_principal_true_error_response(
+            PrincipalConstructErrorCode::BUFFER_LENGTH,
+        ));
+    } else {
+        (*verified_version)[0]
+    };
 
     // If the version byte is >= 32, this is a runtime error, because it wasn't the job of the
     // type system.  This is a requirement for c32check encoding.
     if version_byte >= 32 {
-        return Ok(create_principal_true_error_response(1));
+        return Ok(create_principal_true_error_response(
+            PrincipalConstructErrorCode::BUFFER_LENGTH,
+        ));
     }
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
@@ -248,7 +249,9 @@ pub fn special_principal_construct(
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
     // wasn't the job of the type system (i.e. (buff X) for all X < 20 are all also (buff 20))
     if verified_hash_bytes.len() < 20 {
-        return Ok(create_principal_true_error_response(1));
+        return Ok(create_principal_true_error_response(
+            PrincipalConstructErrorCode::BUFFER_LENGTH,
+        ));
     }
 
     // Construct the principal.
@@ -260,12 +263,10 @@ pub fn special_principal_construct(
         // requested a contract principal.  Verify that the `name` is a valid ContractName.
         // The type-checker will have verified that it's (string-ascii 40), but not long enough.
         let name_bytes = match name {
-            Value::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => {
-                &ascii_data.data
-            }
+            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
                 return Err(CheckErrors::TypeValueError(
-                    TypeSignature::contract_name_string_ascii(),
+                    TypeSignature::contract_name_string_ascii_type(),
                     name,
                 )
                 .into())
@@ -273,15 +274,17 @@ pub fn special_principal_construct(
         };
 
         // If it's not long enough, then it's a runtime error that warrants an (err ..) response.
-        if name_bytes.len() < CONTRACT_MIN_NAME_LENGTH {
-            return Ok(create_principal_true_error_response(2));
+        if name_bytes.data.len() < CONTRACT_MIN_NAME_LENGTH {
+            return Ok(create_principal_true_error_response(
+                PrincipalConstructErrorCode::CONTRACT_NAME,
+            ));
         }
 
         // if it's too long, then this should have been caught by the type-checker
-        if name_bytes.len() > CONTRACT_MAX_NAME_LENGTH {
+        if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(CheckErrors::TypeValueError(
-                TypeSignature::contract_name_string_ascii(),
-                name,
+                TypeSignature::contract_name_string_ascii_type(),
+                Value::from(name_bytes),
             )
             .into());
         }
@@ -289,21 +292,17 @@ pub fn special_principal_construct(
         // The type-checker can't verify that the name is a valid ContractName, so we'll need to do
         // it here at runtime.  If it's not valid, then it warrants this function evaluating to
         // (err ..).
-        let name_string = match name {
-            // destruct again to avoid a .clone() on the inner ascii_data.data
-            Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => {
-                String::from_utf8(ascii_data.data).expect("FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string")
-            },
-            _ => {
-                unreachable!()
-            }
-        };
+        let name_string = String::from_utf8(name_bytes.data).expect(
+            "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string",
+        );
 
         let contract_name = match ContractName::try_from(name_string) {
             Ok(cn) => cn,
             Err(_) => {
                 // not a valid contract name
-                return Ok(create_principal_true_error_response(2));
+                return Ok(create_principal_true_error_response(
+                    PrincipalConstructErrorCode::CONTRACT_NAME,
+                ));
             }
         };
 
@@ -317,11 +316,11 @@ pub fn special_principal_construct(
     };
 
     if version_byte_is_valid {
-        Ok(Value::Response(ResponseData {
-            committed: version_byte_is_valid,
-            data: Box::new(principal),
-        }))
+        Ok(Value::okay(principal).expect("FAIL: failed to build an (ok ..) response"))
     } else {
-        Ok(create_principal_value_error_response(0, principal))
+        Ok(create_principal_value_error_response(
+            PrincipalConstructErrorCode::VERSION_BYTE,
+            principal,
+        ))
     }
 }

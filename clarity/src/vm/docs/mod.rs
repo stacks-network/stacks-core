@@ -279,9 +279,9 @@ Note: This function is only available starting with Stacks 2.1.",
 "#,
 };
 
-const PRINCIPAL_PARSE_API: SimpleFunctionAPI = SimpleFunctionAPI {
+const principal_destruct_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    signature: "(principal-parse principal-address)",
+    signature: "(principal-destruct principal-address)",
     description:  "A principal value represents either a set of keys, or a smart contract.
 The former, called a _standard principal_,
 is encoded as a `(buff 1)` *version byte*, indicating the type of account
@@ -290,7 +290,7 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 The latter, a _contract principal_, is encoded as a standard principal concatenated with
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
-`principal-parse` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
+`principal-destruct` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
 for standard principals, or `{version-byte, hash-bytes, name}` for contract principals.
 
 This method returns a `Response` that wraps this data as a tuple.
@@ -307,10 +307,10 @@ field will only be `(some ..)` if the principal is a contract principal.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
-(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
-(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
-(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
+(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
+(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
+(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
+(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
 "#,
 };
 
@@ -1994,7 +1994,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BuffToIntBe => make_for_simple_native(&BUFF_TO_INT_BE_API, &BuffToIntBe, name),
         BuffToUIntBe => make_for_simple_native(&BUFF_TO_UINT_BE_API, &BuffToUIntBe, name),
         IsStandard => make_for_simple_native(&IS_STANDARD_API, &IsStandard, name),
-        PrincipalParse => make_for_simple_native(&PRINCIPAL_PARSE_API, &IsStandard, name),
+        PrincipalDestruct => make_for_simple_native(&principal_destruct_API, &IsStandard, name),
         PrincipalConstruct => make_for_simple_native(&PRINCIPAL_CONSTRUCT_API, &IsStandard, name),
         StringToInt => make_for_simple_native(&STRING_TO_INT_API, &StringToInt, name),
         StringToUInt => make_for_simple_native(&STRING_TO_UINT_API, &StringToUInt, name),

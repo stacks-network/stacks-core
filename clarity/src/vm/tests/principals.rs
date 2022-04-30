@@ -24,6 +24,8 @@ use crate::vm::{
 use stacks_common::types::StacksEpochId;
 use std::collections::HashMap;
 
+use crate::vm::functions::principals::PrincipalConstructErrorCode;
+
 use stacks_common::util::hash::hex_bytes;
 
 #[test]
@@ -292,7 +294,7 @@ fn test_simple_is_standard_undefined_cases() {
 
 /// Creates a Tuple which is the result of parsing a Principal tuple into a Tuple of its `version`
 /// and `hash-bytes` and `name`
-fn create_principal_parse_tuple_from_strings(
+fn create_principal_destruct_tuple_from_strings(
     version: &str,
     hash_bytes: &str,
     name: Option<&str>,
@@ -330,13 +332,13 @@ fn create_principal_parse_tuple_from_strings(
 
 #[test]
 // Test that we can parse well-formed principals.
-fn test_principal_parse_good() {
+fn test_principal_destruct_good() {
     // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "16",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None
@@ -353,11 +355,11 @@ fn test_principal_parse_good() {
     );
 
     // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
+    let input = r#"(principal-destruct 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "14",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None,
@@ -374,11 +376,11 @@ fn test_principal_parse_good() {
     );
 
     // ST is testnet single-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1a",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None,
@@ -395,11 +397,11 @@ fn test_principal_parse_good() {
     );
 
     // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
+    let input = r#"(principal-destruct 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "15",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None
@@ -416,11 +418,11 @@ fn test_principal_parse_good() {
     );
 
     // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
+    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "16",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -437,11 +439,11 @@ fn test_principal_parse_good() {
     );
 
     // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7.foo)"#;
+    let input = r#"(principal-destruct 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "14",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -458,11 +460,11 @@ fn test_principal_parse_good() {
     );
 
     // ST is testnet single-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
+    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1a",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -479,11 +481,11 @@ fn test_principal_parse_good() {
     );
 
     // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-parse 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7.foo)"#;
+    let input = r#"(principal-destruct 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "15",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -503,13 +505,13 @@ fn test_principal_parse_good() {
 #[test]
 // Test that we notice principals that do not correspond to valid version bytes, and return them in
 // the error channel.
-fn test_principal_parse_bad_version_byte() {
+fn test_principal_destruct_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
-    let input = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
+    let input = r#"(principal-destruct 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1f",
                 "a46ff88886c2ef9762d970b4d2c63678835bd39d",
                 None
@@ -526,11 +528,11 @@ fn test_principal_parse_bad_version_byte() {
     );
 
     // SP is mainnet, but we run on testnet.
-    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "16",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None
@@ -547,11 +549,11 @@ fn test_principal_parse_bad_version_byte() {
     );
 
     // ST is testet, but we run on mainnet.
-    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1a",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 None
@@ -568,11 +570,11 @@ fn test_principal_parse_bad_version_byte() {
     );
 
     // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
-    let input = r#"(principal-parse 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)"#;
+    let input = r#"(principal-destruct 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1f",
                 "a46ff88886c2ef9762d970b4d2c63678835bd39d",
                 Some("foo")
@@ -589,11 +591,11 @@ fn test_principal_parse_bad_version_byte() {
     );
 
     // SP is mainnet, but we run on testnet.
-    let input = r#"(principal-parse 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
+    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "16",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -610,11 +612,11 @@ fn test_principal_parse_bad_version_byte() {
     );
 
     // ST is testet, but we run on mainnet.
-    let input = r#"(principal-parse 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
+    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(create_principal_parse_tuple_from_strings(
+            data: Box::new(create_principal_destruct_tuple_from_strings(
                 "1a",
                 "fa6bf38ed557fe417333710d6033e9419391a320",
                 Some("foo")
@@ -847,7 +849,10 @@ fn test_principal_construct_version_byte_future() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(0 as u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
+                    ),
                     (
                         "value".into(),
                         Value::some(create_principal_from_strings(
@@ -879,7 +884,10 @@ fn test_principal_construct_version_byte_future() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(0 as u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
+                    ),
                     (
                         "value".into(),
                         Value::some(create_principal_from_strings(
@@ -964,7 +972,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            TypeSignature::contract_name_string_ascii(),
+            TypeSignature::contract_name_string_ascii_type(),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     .as_bytes()
@@ -1000,7 +1008,10 @@ fn test_principal_construct_response_errors() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(1 as u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
+                    ),
                     ("value".into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
@@ -1024,7 +1035,10 @@ fn test_principal_construct_response_errors() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(1 as u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
+                    ),
                     ("value".into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
@@ -1039,7 +1053,10 @@ fn test_principal_construct_response_errors() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(1 as u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
+                    ),
                     ("value".into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
@@ -1062,7 +1079,10 @@ fn test_principal_construct_response_errors() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
+                    ),
                     ("value".into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
@@ -1085,7 +1105,10 @@ fn test_principal_construct_response_errors() {
             committed: false,
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
-                    ("error_int".into(), Value::UInt(2u128)),
+                    (
+                        "error_int".into(),
+                        Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
+                    ),
                     ("value".into(), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),

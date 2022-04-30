@@ -68,7 +68,7 @@ mod crypto;
 mod database;
 pub mod define;
 mod options;
-mod principals;
+pub mod principals;
 mod sequences;
 pub mod tuples;
 
@@ -107,7 +107,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
-    PrincipalParse("principal-parse", ClarityVersion::Clarity2),
+    PrincipalDestruct("principal-destruct", ClarityVersion::Clarity2),
     PrincipalConstruct("principal-construct", ClarityVersion::Clarity2),
     StringToInt("string-to-int", ClarityVersion::Clarity2),
     StringToUInt("string-to-uint", ClarityVersion::Clarity2),
@@ -315,9 +315,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::Unimplemented,
             ),
             IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
-            PrincipalParse => SpecialFunction(
-                "special_principal_parse",
-                &principals::special_principal_parse,
+            PrincipalDestruct => SpecialFunction(
+                "special_principal_destruct",
+                &principals::special_principal_destruct,
             ),
             PrincipalConstruct => SpecialFunction(
                 "special_principal_construct",

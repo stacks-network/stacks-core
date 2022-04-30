@@ -191,7 +191,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 return Err(Error::FunctionNotPermitted(function));
             }
-            IsStandard | PrincipalParse | PrincipalConstruct => {
+            IsStandard | PrincipalDestruct | PrincipalConstruct => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {

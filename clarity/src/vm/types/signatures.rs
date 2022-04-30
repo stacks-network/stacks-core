@@ -677,15 +677,15 @@ impl TypeSignature {
         ))
     }
 
-    pub fn contract_name_string_ascii() -> TypeSignature {
-        TypeSignature::bound_string_ascii(
+    pub fn contract_name_string_ascii_type() -> TypeSignature {
+        TypeSignature::bound_string_ascii_type(
             CONTRACT_MAX_NAME_LENGTH
                 .try_into()
                 .expect("FAIL: contract name max length exceeds u32 space"),
         )
     }
 
-    pub fn bound_string_ascii(max_len: u32) -> TypeSignature {
+    pub fn bound_string_ascii_type(max_len: u32) -> TypeSignature {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
             BufferLength::try_from(max_len)
                 .expect("FAIL: Max Clarity Value Size is no longer realizable in ASCII Type"),

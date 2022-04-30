@@ -2736,11 +2736,11 @@ fn test_comparison_types() {
 }
 
 #[test]
-fn test_principal_parse() {
+fn test_principal_destruct() {
     let good = [
         // Standard good examples.
-        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo)"#,
+        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo)"#,
     ];
     let expected = [
         "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))",
@@ -2749,11 +2749,11 @@ fn test_principal_parse() {
 
     let bad = [
         // Too many arguments.
-        r#"(principal-parse 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         // Too few arguments.
-        r#"(principal-parse)"#,
+        r#"(principal-destruct)"#,
         // Wrong type of arguments.
-        r#"(principal-parse 0x22)"#,
+        r#"(principal-destruct 0x22)"#,
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(1, 2),
@@ -2835,14 +2835,14 @@ fn test_principal_construct() {
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
-                TypeSignature::contract_name_string_ascii(),
-                TypeSignature::bound_string_ascii(41),
+                TypeSignature::contract_name_string_ascii_type(),
+                TypeSignature::bound_string_ascii_type(41),
             ),
         ),
         // bad argument type for `name`
         (
             r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
-            CheckErrors::TypeError(TypeSignature::contract_name_string_ascii(), UIntType),
+            CheckErrors::TypeError(TypeSignature::contract_name_string_ascii_type(), UIntType),
         ),
         // too many arguments
         (
