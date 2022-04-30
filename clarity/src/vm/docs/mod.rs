@@ -338,12 +338,11 @@ depending on whether or not the third `(string-ascii 40)` argument is given.
 
 This function returns a `Response`. On success, the `ok` value is a `Principal`.
 The `err` value is a value tuple with the form `{ error_int: uint, value: (optional principal) }`.
-If the `value` field in the `err` variant is `(some ..)`, then the wrapped `Principal` will be 
-the well-formed principal that could have been formed, had the version byte been supported.
 
 If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
 version byte for the current network, then the error will be `u0`, and `value` will contain
-`(some principal)`, where the wrapped value is the principal.
+`(some principal)`, where the wrapped value is the principal.  If the `version-byte` is not in this range, 
+however, then the `value` will be `none`.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
 value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_int`
