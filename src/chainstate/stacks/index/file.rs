@@ -192,7 +192,8 @@ impl TrieFile {
         Ok(buf)
     }
 
-    /// Copy the trie blobs out of a sqlite3 DB into their own file
+    /// Copy the trie blobs out of a sqlite3 DB into their own file.
+    /// NOTE: this is *not* thread-safe.  Do not call while the DB is being used by another thread.
     pub fn export_trie_blobs<T: MarfTrieId>(
         &mut self,
         db: &Connection,
@@ -208,6 +209,19 @@ impl TrieFile {
         // vacuum the DB every so often when running this, since the DB file won't shrink
         // otherwise.
         let vacuum_frequency = 4096;
+
+        // set SQLITE_TMPDIR if it isn't set already
+        let mut set_sqlite_tmpdir = false;
+        if let Err(_) = env::var("SQLITE_TMPDIR") {
+            if let Some(parent_path) = Path::new(db_path).parent() {
+                debug!(
+                    "Sqlite will store temporary migration state in '{}'",
+                    parent_path.display()
+                );
+                env::set_var("SQLITE_TMPDIR", parent_path);
+                set_sqlite_tmpdir = true;
+            }
+        }
 
         for block_id in 0..(max_block + 1) {
             match trie_sql::is_unconfirmed_block(db, block_id) {
@@ -277,6 +291,9 @@ impl TrieFile {
                     }
                     _ => {}
                 }
+            }
+            if set_sqlite_tmpdir {
+                env::remove_var("SQLITE_TMPDIR");
             }
         }
         Ok(())
