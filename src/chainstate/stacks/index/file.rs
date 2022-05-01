@@ -54,6 +54,7 @@ use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
 
 use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sql_vacuum;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
@@ -192,13 +193,22 @@ impl TrieFile {
     }
 
     /// Copy the trie blobs out of a sqlite3 DB into their own file
-    pub fn export_trie_blobs<T: MarfTrieId>(&mut self, db: &Connection) -> Result<(), Error> {
+    pub fn export_trie_blobs<T: MarfTrieId>(
+        &mut self,
+        db: &Connection,
+        db_path: &str,
+    ) -> Result<(), Error> {
         let max_block = trie_sql::count_blocks(db)?;
         info!(
             "Migrate {} blocks to external blob storage at {}",
             max_block,
             &self.get_path()
         );
+
+        // vacuum the DB every so often when running this, since the DB file won't shrink
+        // otherwise.
+        let vacuum_frequency = 4096;
+
         for block_id in 0..(max_block + 1) {
             match trie_sql::is_unconfirmed_block(db, block_id) {
                 Ok(true) => {
@@ -246,6 +256,26 @@ impl TrieFile {
                         &e
                     );
                     return Err(e);
+                }
+            }
+            if (block_id + 1) % vacuum_frequency == 0 {
+                // for fun, report the shrinkage
+                let size_before_opt = fs::metadata(db_path)
+                    .map(|stat| Some(stat.len()))
+                    .unwrap_or(None);
+
+                info!("Preemptively vacuuming the database file to free up space after copying trie blobs to a separate file");
+                sql_vacuum(db)?;
+
+                let size_after_opt = fs::metadata(db_path)
+                    .map(|stat| Some(stat.len()))
+                    .unwrap_or(None);
+
+                match (size_before_opt, size_after_opt) {
+                    (Some(sz_before), Some(sz_after)) => {
+                        debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
+                    }
+                    _ => {}
                 }
             }
         }

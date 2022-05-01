@@ -1439,7 +1439,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile::exists(&db_path)? {
                     // migrate blobs out of the old DB
-                    blobs.export_trie_blobs::<T>(&db)?;
+                    blobs.export_trie_blobs::<T>(&db, &db_path)?;
                 }
             }
         }
