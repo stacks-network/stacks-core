@@ -7,8 +7,23 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.05.0.2.0]
 
+### IMPORTANT! READ THIS FIRST
+
+Please read the following **WARNINGs** in their entirety before upgrading.
+
 WARNING: Please be aware that using this node on chainstate prior to this release will cause
-the node to spend up to 30 minutes migrating the data to a new schema.
+the node to spend **up to 30 minutes** migrating the data to a new schema.
+Depending on the storage medium, this may take even longer.
+
+WARNING: This migration process cannot be interrupted. If it is, the chainstate
+will be **irrecovarably corrupted and require a sync from genesis.**
+
+WARNING: You will need **at least 2x the disk space** for the migration to work.
+This is because a copy of the chainstate will be made in the same directory in
+order to apply the new schema.
+
+It is highly recommended that you **back up your chainstate** before running
+this version of the software on it.
 
 ### Changed
 - The MARF implementation will now defer calculating the root hash of a new trie
@@ -22,9 +37,7 @@ the node to spend up to 30 minutes migrating the data to a new schema.
 - The MARF implementation may now cache trie nodes in RAM if directed to do so
   by an environment variable (#3042).
 - Sortition processing performance has been improved by about an order of
-  magnitude, by avoiding a slew of expensive database reads (#3045).  WARNING:
-  applying this change to an existing chainstate directory will take a few
-  minutes when the node starts up.
+  magnitude, by avoiding a slew of expensive database reads (#3045).
 - Updated chains coordinator so that before a Stacks block or a burn block is processed, 
   an event is sent through the event dispatcher. This fixes #3015. 
 - Expose a node's public key and public key hash160 (i.e. what appears in
