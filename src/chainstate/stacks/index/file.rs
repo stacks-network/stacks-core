@@ -330,6 +330,9 @@ impl TrieFile {
         }
 
         TrieFile::post_migrate_vacuum(db, db_path);
+
+        debug!("Mark MARF trie migration of '{}' as finished", db_path);
+        trie_sql::set_migrated(db).expect("FATAL: failed to mark DB as migrated");
         Ok(())
     }
 }
