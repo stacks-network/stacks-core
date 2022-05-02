@@ -52,7 +52,9 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
+use crate::util_lib::db::query_count;
 use crate::util_lib::db::query_row;
+use crate::util_lib::db::query_rows;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::u64_to_sql;
@@ -528,6 +530,23 @@ pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
     let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
+}
+
+/// Do we have a partially-migrated database?
+/// Either all tries have offset and length 0, or they all don't.  If we have a mixture, then we're
+/// corrupted.
+pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
+    let num_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE external_offset = 0 AND external_length = 0",
+        NO_PARAMS,
+    )?;
+    let num_not_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0",
+        NO_PARAMS,
+    )?;
+    Ok(num_migrated > 0 && num_not_migrated > 0)
 }
 
 pub fn get_node_hash_bytes(
