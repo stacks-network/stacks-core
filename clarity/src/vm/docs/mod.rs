@@ -1531,8 +1531,7 @@ rather destroyed, reducing the circulating supply.
 On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
 returns one of the following error codes:
 
-`(err u1)` -- `sender` does not have enough balance to burn this amount
-`(err u3)` -- the amount specified is not positive
+`(err u1)` -- `sender` does not have enough balance to burn this amount or the amount specified is not positive
 ",
     example: "
 (define-fungible-token stackaroo)
