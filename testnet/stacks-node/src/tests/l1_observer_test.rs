@@ -261,7 +261,7 @@ fn l1_integration_test() {
         &config.burnchain.mode,
     )
     .unwrap();
-    let sortition_db = SortitionDB::open(&burnchain.get_db_path(), true).unwrap();
+    let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
@@ -316,7 +316,6 @@ fn l1_integration_test() {
     wait_for_next_stacks_block(&sortition_db);
 
     // The burnchain should have registered what the listener recorded.
-    let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
