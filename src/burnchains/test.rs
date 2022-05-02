@@ -1297,7 +1297,7 @@ fn create_stacks_event_block_for_block_commit() {
         1,
         "Only one event from the watched contract committed"
     );
-    assert_eq!(stacks_event_block.ops[0].event_index, 2);
+    assert_eq!(stacks_event_block.ops[0].event_index, 0);
 }
 
 #[test]
