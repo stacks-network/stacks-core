@@ -1443,6 +1443,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 }
             }
         }
+        if trie_sql::detect_partial_migration(&db)? {
+            panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+        }
 
         debug!(
             "Opened TrieFileStorage {}; external blobs: {}",
