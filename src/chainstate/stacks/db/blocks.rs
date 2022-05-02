@@ -4431,7 +4431,7 @@ impl StacksChainState {
     /// hyperchains fork yet.
     pub fn process_deposit_ft_ops(
         clarity_tx: &mut ClarityTx,
-        mut operations: Vec<DepositFtOp>,
+        operations: Vec<DepositFtOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let cost_so_far = clarity_tx.cost_so_far();
         // return valid receipts
@@ -4491,7 +4491,7 @@ impl StacksChainState {
     /// hyperchains fork yet.
     pub fn process_deposit_nft_ops(
         clarity_tx: &mut ClarityTx,
-        mut operations: Vec<DepositNftOp>,
+        operations: Vec<DepositNftOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let cost_so_far = clarity_tx.cost_so_far();
         // return valid receipts
