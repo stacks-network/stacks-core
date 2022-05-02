@@ -13,9 +13,12 @@ use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
 use reqwest::Response;
 use stacks::burnchains::Burnchain;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::net::{CallReadOnlyRequestBody, RPCPeerInfoData};
+use stacks::util::get_epoch_time_secs;
 use stacks::vm::types::QualifiedContractIdentifier;
+use std::convert::TryInto;
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -149,6 +152,40 @@ impl Drop for StacksL1Controller {
     }
 }
 
+/// Longest time to wait for a stacks block before aborting.
+const PANIC_TIMEOUT_SECS: u64 = 600;
+
+/// Height of the current stacks tip.
+fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
+    let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
+        .expect("Could not read from SortitionDB.");
+
+    tip_snapshot.stacks_block_height.try_into().unwrap()
+}
+
+/// Wait for the *height* of the stacks chain tip to increment.
+pub fn wait_for_next_stacks_block(sortition_db: &SortitionDB) -> bool {
+    let current = get_stacks_tip_height(sortition_db);
+    let mut next = current;
+    eprintln!(
+        "Issuing block at {}, waiting for bump ({})",
+        get_epoch_time_secs(),
+        current
+    );
+    let start = Instant::now();
+    while next <= current {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            error!("Timed out waiting for block to process, trying to continue test");
+            return false;
+        }
+        test_debug!("waiting for nex block, blocks_processed: {:?}", &next);
+        thread::sleep(Duration::from_millis(100));
+        next = get_stacks_tip_height(sortition_db);
+    }
+    eprintln!("Block bumped at {} ({})", get_epoch_time_secs(), next);
+    true
+}
+
 /// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
 /// from the Stacks-L1 chain.
 #[test]
@@ -257,6 +294,14 @@ fn l1_integration_test() {
     // Give the run loop time to start.
     thread::sleep(Duration::from_millis(2_000));
 
+    let burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )
+    .unwrap();
+    let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
@@ -305,18 +350,11 @@ fn l1_integration_test() {
 
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
-    // Sleep to give the run loop time to listen to blocks,
-    //  and start mining L2 blocks
-    thread::sleep(Duration::from_secs(60));
+    // Wait for exactly two stacks blocks.
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
-    let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
