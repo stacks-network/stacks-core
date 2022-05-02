@@ -208,12 +208,13 @@ impl TrieFile {
 
         // vacuum the DB every so often when running this, since the DB file won't shrink
         // otherwise.
-        let vacuum_frequency = 4096;
+        let vacuum_frequency = 1024;
 
-        // set SQLITE_TMPDIR if it isn't set already
+        // set SQLITE_TMPDIR if it isn't set ailready
         let mut set_sqlite_tmpdir = false;
-        if let Err(_) = env::var("SQLITE_TMPDIR") {
-            if let Some(parent_path) = Path::new(db_path).parent() {
+        let mut old_tmpdir_opt = None;
+        if let Some(parent_path) = Path::new(db_path).parent() {
+            if let Err(_) = env::var("SQLITE_TMPDIR") {
                 debug!(
                     "Sqlite will store temporary migration state in '{}'",
                     parent_path.display()
@@ -221,6 +222,10 @@ impl TrieFile {
                 env::set_var("SQLITE_TMPDIR", parent_path);
                 set_sqlite_tmpdir = true;
             }
+
+            // also set TMPDIR
+            old_tmpdir_opt = env::var("TMPDIR").ok();
+            env::set_var("TMPDIR", parent_path);
         }
 
         for block_id in 0..(max_block + 1) {
@@ -292,9 +297,17 @@ impl TrieFile {
                     _ => {}
                 }
             }
-            if set_sqlite_tmpdir {
-                env::remove_var("SQLITE_TMPDIR");
-            }
+        }
+        if set_sqlite_tmpdir {
+            debug!("Unset SQLITE_TMPDIR");
+            env::remove_var("SQLITE_TMPDIR");
+        }
+        if let Some(old_tmpdir) = old_tmpdir_opt {
+            debug!("Restore TMPDIR to '{}'", &old_tmpdir);
+            env::set_var("TMPDIR", old_tmpdir);
+        } else {
+            debug!("Unset TMPDIR");
+            env::remove_var("TMPDIR");
         }
         Ok(())
     }
