@@ -764,7 +764,7 @@ fn l1_deposit_stx_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-  
+
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
@@ -772,7 +772,7 @@ fn l1_deposit_stx_integration_test() {
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
-    
+
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
@@ -785,18 +785,18 @@ fn l1_deposit_stx_integration_test() {
     config.node.rpc_bind = "127.0.0.1:30443".into();
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
-  
+
     let mut l2_nonce = 0;
 
     config.burnchain.contract_identifier =
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
 
     config.node.miner = true;
-  
+
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-  
+
     // Sleep to give the run loop time to start
     thread::sleep(Duration::from_millis(2_000));
 
@@ -807,13 +807,13 @@ fn l1_deposit_stx_integration_test() {
     )
     .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
-  
+
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
     let mut l1_nonce = 0;
-  
+
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
@@ -828,7 +828,7 @@ fn l1_deposit_stx_integration_test() {
         &ft_trait_content,
     );
     l1_nonce += 1;
-  
+
     let nft_trait_content =
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
@@ -839,7 +839,7 @@ fn l1_deposit_stx_integration_test() {
         &nft_trait_content,
     );
     l1_nonce += 1;
-     // Publish the default hyperchains contract on the L1 chain
+    // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
@@ -848,7 +848,7 @@ fn l1_deposit_stx_integration_test() {
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
-  
+
     l1_nonce += 1;
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
@@ -931,14 +931,14 @@ fn l2_simple_contract_calls() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-  
+
     let nft_trait_name = "nft-trait-standard";
     let ft_trait_name = "ft-trait-standard";
-  
+
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
-  
+
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
@@ -951,7 +951,7 @@ fn l2_simple_contract_calls() {
     config.node.rpc_bind = "127.0.0.1:30443".into();
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
-  
+
     config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
         to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
         "hyperchain-controller".into(),
@@ -968,11 +968,11 @@ fn l2_simple_contract_calls() {
     });
 
     test_observer::spawn();
-    
+
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-  
+
     // Sleep to give the run loop time to start
     thread::sleep(Duration::from_millis(2_000));
 
@@ -983,7 +983,7 @@ fn l2_simple_contract_calls() {
     )
     .unwrap();
     let (sortition_db, _) = burnchain.open_db(true).unwrap();
-  
+
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
@@ -1019,7 +1019,7 @@ fn l2_simple_contract_calls() {
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
-    
+
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
     submit_tx(l1_rpc_origin, &hc_contract_publish);
@@ -1077,5 +1077,5 @@ fn l2_simple_contract_calls() {
     assert_eq!(small_contract_calls.len(), 2);
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
-    run_loop_thread.join().expect("Failed to join run loop.");     
+    run_loop_thread.join().expect("Failed to join run loop.");
 }
