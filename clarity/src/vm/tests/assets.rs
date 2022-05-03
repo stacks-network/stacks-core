@@ -750,7 +750,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     assert!(!is_committed(&result));
     assert!(is_err_code(&result, 1));
 
-    // Try to burn 0 tokens from p2's balance - Should fail with error code 3
+    // Try to burn 0 tokens from p2's balance - Should fail with error code 1
     let (result, _asset_map, _events) = execute_transaction(
         owned_env,
         p2_principal.clone(),
@@ -761,7 +761,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     .unwrap();
 
     assert!(!is_committed(&result));
-    assert!(is_err_code(&result, 3));
+    assert!(is_err_code(&result, 1));
 
     // Try to burn 1 tokens from p2's balance (out of 9100) - Should pass even though
     // sender != tx sender
