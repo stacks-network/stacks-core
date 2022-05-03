@@ -106,7 +106,7 @@
 
 ;; A user calls this function to deposit an NFT into the contract.
 ;; The function emits a print with details of this event.
-;; Returns response<int, bool>
+;; Returns response<bool, int>
 (define-public (deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>) (hc-contract-id principal))
     (let (
             ;; Check that the asset belongs to the allowed-contracts map
@@ -177,7 +177,7 @@
 
 ;; A user calls this function to deposit a fungible token into the contract.
 ;; The function emits a print with details of this event.
-;; Returns response<int, bool>
+;; Returns response<bool, int>
 (define-public (deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
     (let (
             ;; Check that the asset belongs to the allowed-contracts map
@@ -232,6 +232,38 @@
             (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id,
                     recipient: recipient, ft-name: ft-name, hc-function-name: hc-function-name })
         )
+
+        (ok true)
+    )
+)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; FOR STX TRANSFERS
+
+
+(define-private (inner-deposit-stx (amount uint) (sender principal))
+    (let (
+            (call-result (stx-transfer? amount sender CONTRACT_ADDRESS))
+            (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+        )
+        ;; Check that the transfer succeeded
+        (asserts! transfer-result (err ERR_TRANSFER_FAILED))
+
+        (ok true)
+    )
+)
+
+;; A user calls this function to deposit STX into the contract.
+;; The function emits a print with details of this event.
+;; Returns response<bool, int>
+(define-public (deposit-stx (amount uint) (sender principal))
+    (begin
+        ;; Try to transfer the STX to this contract
+        (asserts! (unwrap! (inner-deposit-stx amount sender) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        ;; Emit a print event - the node consumes this
+        (print { event: "deposit-stx", sender: sender, amount: amount })
 
         (ok true)
     )

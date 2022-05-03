@@ -47,7 +47,7 @@ use burnchains::{
 use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
-    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    DepositStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
     UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
@@ -96,6 +96,9 @@ impl BurnchainStateTransition {
                 BlockstackOperationType::LeaderBlockCommit(op) => {
                     // we don't yet know which block commits are going to be accepted until we have
                     // the burn distribution, so just account for them for now.
+                    accepted_ops.push(op.clone().into());
+                }
+                BlockstackOperationType::DepositStx(op) => {
                     accepted_ops.push(op.clone().into());
                 }
                 BlockstackOperationType::DepositFt(op) => {
@@ -420,6 +423,17 @@ impl Burnchain {
                         }
                     }
                 }
+                StacksHyperOpType::DepositStx { .. } => match DepositStxOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse deposit STX operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                },
                 StacksHyperOpType::DepositFt { .. } => match DepositFtOp::try_from(event) {
                     Ok(op) => Some(BlockstackOperationType::from(op)),
                     Err(e) => {

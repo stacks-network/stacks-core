@@ -203,6 +203,10 @@ pub enum StacksHyperOpType {
     BlockCommit {
         subnet_block_hash: BlockHeaderHash,
     },
+    DepositStx {
+        amount: u128,
+        sender: PrincipalData,
+    },
     DepositFt {
         l1_contract_id: QualifiedContractIdentifier,
         hc_contract_id: QualifiedContractIdentifier,

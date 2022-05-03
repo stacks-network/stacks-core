@@ -359,6 +359,10 @@ impl BurnchainController for MockController {
 
                 true
             }
+            BlockstackOperationType::DepositStx(_op) => {
+                debug!("Submitted deposit stx operation");
+                true
+            }
             BlockstackOperationType::DepositFt(_op) => {
                 debug!("Submitted deposit ft operation");
                 true
