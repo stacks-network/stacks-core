@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use chainstate::stacks::index::storage::TrieStorageConnection;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::error;
 use std::fmt;
 use std::fs;
@@ -65,6 +65,7 @@ use rand::Rng;
 use rand::RngCore;
 
 use serde_json::Error as serde_error;
+use vm::ClarityName;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -227,6 +228,13 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
     ) -> Result<QualifiedContractIdentifier, Error> {
         let value: String = row.get_unwrap(column_name);
         QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
+    }
+}
+
+impl FromColumn<ClarityName> for ClarityName {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ClarityName, Error> {
+        let value: String = row.get_unwrap(column_name);
+        ClarityName::try_from(value).map_err(|_| Error::ParseError)
     }
 }
 

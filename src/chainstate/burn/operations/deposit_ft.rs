@@ -13,6 +13,7 @@ impl TryFrom<&StacksHyperOp> for DepositFtOp {
         if let StacksHyperOpType::DepositFt {
             ref l1_contract_id,
             ref hc_contract_id,
+            ref hc_function_name,
             ref name,
             ref amount,
             ref sender,
@@ -24,6 +25,7 @@ impl TryFrom<&StacksHyperOp> for DepositFtOp {
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
                 l1_contract_id: l1_contract_id.clone(),
                 hc_contract_id: hc_contract_id.clone(),
+                hc_function_name: hc_function_name.clone(),
                 name: name.clone(),
                 amount: amount.clone(),
                 sender: sender.clone(),

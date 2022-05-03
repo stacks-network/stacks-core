@@ -85,7 +85,7 @@ Clarinet.test({
         ]);
         block.receipts[0].result.expectOk().expectBool(true);
         // Check that user owns NFT
-        let assets = chain.getAssetsMaps().assets[".simple-nft.nft"];
+        let assets = chain.getAssetsMaps().assets[".simple-nft.nft-token"];
         let nft_amount = assets[charlie.address];
         assertEquals(nft_amount, 1);
 
@@ -139,7 +139,7 @@ Clarinet.test({
             .expectOk()
             .expectBool(true);
         // Check that contract owns NFT, and that the user does not
-        assets = chain.getAssetsMaps().assets[".simple-nft.nft"];
+        assets = chain.getAssetsMaps().assets[".simple-nft.nft-token"];
         nft_amount = assets[charlie.address];
         assertEquals(nft_amount, 0);
         nft_amount = assets[hyperchain_contract.contract_id];

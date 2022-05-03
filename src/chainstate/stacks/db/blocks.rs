@@ -4427,6 +4427,124 @@ impl StacksChainState {
         all_receipts
     }
 
+    /// Process any deposit fungible token operations that haven't been processed in this
+    /// hyperchains fork yet.
+    pub fn process_deposit_ft_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<DepositFtOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        let cost_so_far = clarity_tx.cost_so_far();
+        // return valid receipts
+        operations
+            .into_iter()
+            .filter_map(|deposit_ft_op| {
+                let DepositFtOp {
+                    txid,
+                    burn_header_hash,
+                    hc_contract_id,
+                    hc_function_name,
+                    name,
+                    amount,
+                    sender,
+                    ..
+                } = deposit_ft_op;
+                // call the corresponding deposit function in the hyperchains contract
+                let result = clarity_tx.connection().as_transaction(|tx| {
+                    tx.run_contract_call(
+                        &sender.clone(),
+                        &hc_contract_id,
+                        &*hc_function_name,
+                        &[Value::UInt(amount), Value::Principal(sender)],
+                        |_, _| false,
+                    )
+                });
+                let mut execution_cost = clarity_tx.cost_so_far();
+                execution_cost
+                    .sub(&cost_so_far)
+                    .expect("BUG: cost declined between executions");
+
+                match result {
+                    Ok((value, _, events)) => Some(StacksTransactionReceipt {
+                        transaction: TransactionOrigin::Burn(txid),
+                        events,
+                        result: value,
+                        post_condition_aborted: false,
+                        stx_burned: 0,
+                        contract_analysis: None,
+                        execution_cost,
+                        microblock_header: None,
+                        tx_index: 0,
+                    }),
+                    Err(e) => {
+                        info!("DepositFt op processing error.";
+                              "error" => ?e,
+                              "txid" => %txid,
+                              "burn_block" => %burn_header_hash);
+                        None
+                    }
+                }
+            })
+            .collect()
+    }
+
+    /// Process any deposit NFT operations that haven't been processed in this
+    /// hyperchains fork yet.
+    pub fn process_deposit_nft_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<DepositNftOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        let cost_so_far = clarity_tx.cost_so_far();
+        // return valid receipts
+        operations
+            .into_iter()
+            .filter_map(|deposit_nft_op| {
+                let DepositNftOp {
+                    txid,
+                    burn_header_hash,
+                    hc_contract_id,
+                    hc_function_name,
+                    id,
+                    sender,
+                    ..
+                } = deposit_nft_op;
+                let result = clarity_tx.connection().as_transaction(|tx| {
+                    tx.run_contract_call(
+                        &sender.clone(),
+                        &hc_contract_id,
+                        &*hc_function_name,
+                        &[Value::UInt(id), Value::Principal(sender)],
+                        |_, _| false,
+                    )
+                });
+                let mut execution_cost = clarity_tx.cost_so_far();
+                execution_cost
+                    .sub(&cost_so_far)
+                    .expect("BUG: cost declined between executions");
+
+                match result {
+                    Ok((value, _, events)) => Some(StacksTransactionReceipt {
+                        transaction: TransactionOrigin::Burn(txid),
+                        events,
+                        result: value,
+                        post_condition_aborted: false,
+                        stx_burned: 0,
+                        contract_analysis: None,
+                        execution_cost,
+                        microblock_header: None,
+                        tx_index: 0,
+                    }),
+                    Err(e) => {
+                        info!("DepositNft op processing error.";
+                              "error" => ?e,
+                              "txid" => %txid,
+                              "burn_block" => %burn_header_hash);
+                        None
+                    }
+                }
+            })
+            .collect()
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
     fn process_block_transactions(
@@ -4602,9 +4720,9 @@ impl StacksChainState {
         chainstate_tx: &'a mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'a dyn BurnStateDB,
-        _conn: &Connection,
+        conn: &Connection,
         chain_tip: &StacksHeaderInfo,
-        _burn_tip: BurnchainHeaderHash,
+        burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
@@ -4628,6 +4746,9 @@ impl StacksChainState {
             )?;
             (latest_miners, parent_miner)
         };
+
+        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
+        let deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &burn_tip)?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -4739,8 +4860,18 @@ impl StacksChainState {
         clarity_tx.reset_cost(ExecutionCost::zero());
 
         // is this stacks block the first of a new epoch?
-        let (applied_epoch_transition, tx_receipts) =
+        let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+
+        // Process asset deposits
+        tx_receipts.extend(StacksChainState::process_deposit_ft_ops(
+            &mut clarity_tx,
+            deposit_ft_ops,
+        ));
+        tx_receipts.extend(StacksChainState::process_deposit_nft_ops(
+            &mut clarity_tx,
+            deposit_nft_ops,
+        ));
 
         Ok(SetupBlockResult {
             clarity_tx,
@@ -6132,6 +6263,7 @@ pub mod test {
 
     use super::*;
 
+    use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use serde_json;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
@@ -10509,5 +10641,208 @@ pub mod test {
             MessageSignature([1u8; 65]),
         ]);
         assert_eq!(ToSqlOutput::from("{\"signatures\":[\"0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\",\"0101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101\"]}".to_string()), list.to_sql().unwrap());
+    }
+
+    #[test]
+    fn test_process_deposit_ft_ops() {
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_process_deposit_ft_ops");
+
+        let privk_user = StacksPrivateKey::from_hex(
+            "027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01",
+        )
+        .unwrap();
+        let auth_user = TransactionAuth::from_p2pkh(&privk_user).unwrap();
+        let addr_publisher = auth_user.origin().address_testnet();
+
+        let mut conn = chainstate.block_begin(
+            &TEST_BURN_STATE_DB,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let hyperchain_simple_ft = "
+        (define-fungible-token ft-token)
+
+        (define-public (hyperchain-deposit-ft-token (amount uint) (recipient principal))
+          (ft-mint? ft-token amount recipient)
+        )
+
+        (define-read-only (get-token-balance (user principal))
+            (ft-get-balance ft-token user)
+        )
+        ";
+
+        let mut hc_deposit_contract_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth_user.clone(),
+            TransactionPayload::new_smart_contract("hc-deposit-contract", hyperchain_simple_ft)
+                .unwrap(),
+        );
+
+        hc_deposit_contract_tx.chain_id = 0x80000000;
+        hc_deposit_contract_tx.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&hc_deposit_contract_tx);
+        signer.sign_origin(&privk_user).unwrap();
+
+        let signed_contract_tx = signer.get_tx().unwrap();
+
+        // publish contract on hyperchains
+        let _ =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
+
+        // create deposit ft ops
+        let ops = vec![
+            // this op is well formed
+            DepositFtOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-ft-token"),
+                name: "ft-token".to_string(),
+                amount: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+            // this op calls a function that does not exist in the designated hyperchains contract
+            DepositFtOp {
+                txid: Txid([2; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-ft-token-DNE"),
+                name: "ft-token".to_string(),
+                amount: 5,
+                sender: PrincipalData::from(addr_publisher),
+            },
+            // this op tries to call a function in an unregistered contract
+            DepositFtOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract-DNE"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-ft-token"),
+                name: "ft-token".to_string(),
+                amount: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+        ];
+
+        // process ops
+        let processed_ops = StacksChainState::process_deposit_ft_ops(&mut conn, ops);
+
+        assert_eq!(processed_ops.len(), 1);
+    }
+
+    #[test]
+    fn test_process_deposit_nft_ops() {
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_process_deposit_nft_ops");
+
+        let privk_user = StacksPrivateKey::from_hex(
+            "027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01",
+        )
+        .unwrap();
+        let auth_user = TransactionAuth::from_p2pkh(&privk_user).unwrap();
+        let addr_publisher = auth_user.origin().address_testnet();
+
+        let mut conn = chainstate.block_begin(
+            &TEST_BURN_STATE_DB,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let hyperchain_simple_nft = "
+        (define-non-fungible-token nft-token uint)
+
+        (define-public (hyperchain-deposit-nft-token (id uint) (recipient principal))
+          (nft-mint? nft-token id recipient)
+        )
+
+        (define-read-only (get-token-owner (id uint))
+            (nft-get-owner? nft-token id)
+        )
+        ";
+
+        let mut hc_deposit_contract_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth_user.clone(),
+            TransactionPayload::new_smart_contract("hc-deposit-contract", hyperchain_simple_nft)
+                .unwrap(),
+        );
+
+        hc_deposit_contract_tx.chain_id = 0x80000000;
+        hc_deposit_contract_tx.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&hc_deposit_contract_tx);
+        signer.sign_origin(&privk_user).unwrap();
+
+        let signed_contract_tx = signer.get_tx().unwrap();
+
+        // publish contract on hyperchains
+        let _ =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
+
+        // create deposit nft ops
+        let ops = vec![
+            // this op is well formed
+            DepositNftOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-nft-token"),
+                id: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+            // this op calls a function that does not exist in the designated hyperchains contract
+            DepositNftOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-nft-token-DNE"),
+                id: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+            // this op tries to call a function in an unregistered contract
+            DepositNftOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                l1_contract_id: QualifiedContractIdentifier::local("l1-contract").unwrap(),
+                hc_contract_id: QualifiedContractIdentifier::new(
+                    StandardPrincipalData::from(addr_publisher),
+                    ContractName::from("hc-deposit-contract-DNE"),
+                ),
+                hc_function_name: ClarityName::from("hyperchain-deposit-nft-token"),
+                id: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+        ];
+
+        // process ops
+        let processed_ops = StacksChainState::process_deposit_nft_ops(&mut conn, ops);
+
+        assert_eq!(processed_ops.len(), 1);
     }
 }

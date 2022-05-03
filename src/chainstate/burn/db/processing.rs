@@ -295,9 +295,6 @@ impl<'a> SortitionHandleTx<'a> {
                 .is_ok()
         });
 
-        // block-wide check: no duplicate keys registered
-        assert!(Burnchain::ops_are_sorted(&blockstack_txs));
-
         // process them
         let res = self
             .process_checked_block_ops(
