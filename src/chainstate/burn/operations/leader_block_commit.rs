@@ -42,7 +42,7 @@ use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use core::STACKS_EPOCH_2_05_MARKER;
 use core::{StacksEpoch, StacksEpochId};
 use net::Error as net_error;
-use util::hash::to_hex;
+use util::hash::{to_hex, Sha512Trunc256Sum};
 use util::log;
 use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
@@ -67,10 +67,12 @@ impl TryFrom<&StacksHyperOp> for LeaderBlockCommitOp {
     fn try_from(value: &StacksHyperOp) -> Result<Self, Self::Error> {
         if let StacksHyperOpType::BlockCommit {
             ref subnet_block_hash,
+            ref withdrawal_merkle_root,
         } = value.event
         {
             Ok(LeaderBlockCommitOp {
                 block_header_hash: subnet_block_hash.clone(),
+                withdrawal_merkle_root: withdrawal_merkle_root.clone(),
                 txid: value.txid.clone(),
                 // use the StacksBlockId in the L1 event as the burnchain header hash
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
@@ -86,6 +88,7 @@ impl LeaderBlockCommitOp {
     pub fn initial(block_header_hash: &BlockHeaderHash) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_header_hash: block_header_hash.clone(),
+            withdrawal_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             // to be filled in
             txid: Txid([0u8; 32]),
             burn_header_hash: BurnchainHeaderHash::zero(),
@@ -96,6 +99,7 @@ impl LeaderBlockCommitOp {
     pub fn new(block_header_hash: &BlockHeaderHash) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             block_header_hash: block_header_hash.clone(),
+            withdrawal_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             // to be filled in
             txid: Txid([0u8; 32]),
             burn_header_hash: BurnchainHeaderHash::zero(),

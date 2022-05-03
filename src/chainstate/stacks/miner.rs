@@ -58,6 +58,7 @@ use chainstate::stacks::db::blocks::SetupBlockResult;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
 use vm::clarity::TransactionConnection;
+use clarity_vm::withdrawal::{create_withdrawal_merkle_tree};
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
@@ -976,6 +977,7 @@ impl StacksBlockBuilder {
         StacksBlockBuilder {
             chain_tip: parent_chain_tip.clone(),
             txs: vec![],
+            tx_receipts: vec![],
             micro_txs: vec![],
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
@@ -1231,6 +1233,7 @@ impl StacksBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
+            self.tx_receipts.push(receipt.clone());
             self.total_anchored_fees += fee;
 
             TransactionResult::success(&tx, fee, receipt)
@@ -1324,6 +1327,7 @@ impl StacksBlockBuilder {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
+                    self.tx_receipts.push(receipt);
                 }
                 Err(e) => {
                     warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
@@ -1366,6 +1370,9 @@ impl StacksBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+
+        let withdrawal_merkle_root = create_withdrawal_merkle_tree(&self.tx_receipts);
+        self.header.withdrawal_merkle_root = withdrawal_merkle_root;
 
         self.header
             .sign(&self.miner_privkey)

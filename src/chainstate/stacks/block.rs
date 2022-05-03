@@ -61,6 +61,7 @@ impl StacksMessageCodec for StacksBlockHeader {
         let parent_microblock_sequence: u16 = read_next(fd)?;
         let tx_merkle_root: Sha512Trunc256Sum = read_next(fd)?;
         let state_index_root: TrieHash = read_next(fd)?;
+        let withdrawal_merkle_root: Sha512Trunc256Sum = read_next(fd)?;
         let pubkey_hash_buf: Hash160 = read_next(fd)?;
         let miner_signatures: MessageSignatureList = read_next(fd)?;
 
@@ -73,6 +74,7 @@ impl StacksMessageCodec for StacksBlockHeader {
             parent_microblock_sequence,
             tx_merkle_root,
             state_index_root,
+            withdrawal_merkle_root,
             microblock_pubkey_hash: pubkey_hash_buf,
             miner_signatures,
         })
@@ -108,6 +110,7 @@ impl StacksBlockHeader {
         write_next(fd, &self.parent_microblock_sequence)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.withdrawal_merkle_root)?;
         write_next(fd, &self.microblock_pubkey_hash)?;
         if empty_sig {
             write_next(fd, &MessageSignatureList::empty())?;
@@ -130,6 +133,7 @@ impl StacksBlockHeader {
             parent_microblock_sequence: 0,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             microblock_pubkey_hash: Hash160([0u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         }
@@ -192,6 +196,7 @@ impl StacksBlockHeader {
             parent_microblock_sequence: parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
             state_index_root: state_index_root.clone(),
+            withdrawal_merkle_root: parent_header.withdrawal_merkle_root.clone(),
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
             miner_signatures: miner_signatures.clone(),
         }
@@ -951,6 +956,7 @@ mod test {
             parent_microblock_sequence: 3,
             tx_merkle_root: Sha512Trunc256Sum([2u8; 32]),
             state_index_root: TrieHash([3u8; 32]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([4u8; 32]),
             microblock_pubkey_hash: Hash160([4u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
@@ -978,7 +984,10 @@ mod test {
             0x02, 0x02, 0x02, 0x02, // state index root
             0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
             0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
-            0x03, 0x03, 0x03, 0x03, // public key hash buf
+            0x03, 0x03, 0x03, 0x03, // withdrawal merkle root
+            0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
+            0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
+            0x04, 0x04, 0x04, 0x04, // public key hash buf
             0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04,
             0x04, 0x04, 0x04, 0x04, 0x04, 0x04, // signature list (empty)
             0x00, 0x00, 0x00, 0x00,
@@ -1089,6 +1098,7 @@ mod test {
         let mh = block.header.parent_microblock.as_bytes().to_vec();
         let tr = block.header.tx_merkle_root.as_bytes().to_vec();
         let sr = block.header.state_index_root.as_bytes().to_vec();
+        let wr = block.header.withdrawal_merkle_root.as_bytes().to_vec();
         let pk = block.header.microblock_pubkey_hash.as_bytes().to_vec();
 
         let mut block_bytes = vec![
@@ -1119,6 +1129,10 @@ mod test {
             sr[0], sr[1], sr[2], sr[3], sr[4], sr[5], sr[6], sr[7], sr[8], sr[9], sr[10], sr[11],
             sr[12], sr[13], sr[14], sr[15], sr[16], sr[17], sr[18], sr[19], sr[20], sr[21], sr[22],
             sr[23], sr[24], sr[25], sr[26], sr[27], sr[28], sr[29], sr[30], sr[31],
+            // withdrawal merkle root
+            wr[0], wr[1], wr[2], wr[3], wr[4], wr[5], wr[6], wr[7], wr[8], wr[9], wr[10], wr[11],
+            wr[12], wr[13], wr[14], wr[15], wr[16], wr[17], wr[18], wr[19], wr[20], wr[21], wr[22],
+            wr[23], wr[24], wr[25], wr[26], wr[27], wr[28], wr[29], wr[30], wr[31],
             // public key hash buf
             pk[0], pk[1], pk[2], pk[3], pk[4], pk[5], pk[6], pk[7], pk[8], pk[9], pk[10], pk[11],
             pk[12], pk[13], pk[14], pk[15], pk[16], pk[17], pk[18], pk[19],
@@ -1286,7 +1300,8 @@ mod test {
             parent_microblock_sequence: 4,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([11u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
@@ -1296,6 +1311,7 @@ mod test {
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: header.block_hash(),
+            withdrawal_merkle_root: header.withdrawal_merkle_root,
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
                     .unwrap(),
@@ -1334,7 +1350,8 @@ mod test {
             parent_microblock_sequence: 4,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([11u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 

@@ -69,19 +69,20 @@
 )
 
 ;; Helper function: modifies the block-commits map with a new commit and prints related info
-(define-private (inner-commit-block (block (buff 32)) (commit-block-height uint))
+;; TODO(60) store withdrawal-root in contract state
+(define-private (inner-commit-block (block (buff 32)) (commit-block-height uint) (withdrawal-root (buff 32)))
     (begin
         (map-set block-commits commit-block-height block)
-        (print { event: "block-commit", block-commit: block})
+        (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root})
         (ok block)
     )
 )
 
 ;; Subnets miners call this to commit a block at a particular height
-(define-public (commit-block (block (buff 32)))
+(define-public (commit-block (block (buff 32)) (withdrawal-root (buff 32)))
     (let ((commit-block-height block-height))
         (unwrap! (can-commit-block? commit-block-height) (err ERR_VALIDATION_FAILED))
-        (inner-commit-block block commit-block-height)
+        (inner-commit-block block commit-block-height withdrawal-root)
     )
 )
 

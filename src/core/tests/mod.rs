@@ -117,6 +117,7 @@ fn make_block(
         parent_microblock_sequence: 0,
         tx_merkle_root: Sha512Trunc256Sum::empty(),
         state_index_root: TrieHash::from_empty_data(),
+        withdrawal_merkle_root: Sha512Trunc256Sum::empty(),
         microblock_pubkey_hash: Hash160([0; 20]),
         miner_signatures: MessageSignatureList::empty(),
     };

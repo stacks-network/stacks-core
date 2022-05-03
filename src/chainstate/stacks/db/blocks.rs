@@ -88,6 +88,7 @@ use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
 use util_lib::boot::boot_code_id;
+use clarity_vm::withdrawal::{create_withdrawal_merkle_tree};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -5304,6 +5305,9 @@ impl StacksChainState {
                 }
             }
 
+            tx_receipts.extend(microblock_txs_receipts.into_iter());
+
+            // check clarity state merkle root
             let root_hash = clarity_tx.get_root_hash();
             if root_hash != block.header.state_index_root {
                 let msg = format!(
@@ -5321,6 +5325,23 @@ impl StacksChainState {
             debug!("Reached state root {}", root_hash;
                    "microblock cost" => %microblock_execution_cost,
                    "block cost" => %block_cost);
+
+            // Check withdrawal state merkle root
+            // Process withdrawal events
+            let withdrawal_root_hash = create_withdrawal_merkle_tree(&tx_receipts);
+
+            if withdrawal_root_hash != block.header.withdrawal_merkle_root {
+                let msg = format!(
+                    "Block {} withdrawal root mismatch: expected {}, got {}",
+                    block.block_hash(),
+                    withdrawal_root_hash,
+                    block.header.withdrawal_merkle_root
+                );
+                warn!("{}", &msg);
+
+                clarity_tx.rollback_block();
+                return Err(Error::InvalidStacksBlock(msg));
+            }
 
             // good to go!
             clarity_tx.commit_to_block(chain_tip_consensus_hash, &block.block_hash());
@@ -5357,8 +5378,6 @@ impl StacksChainState {
                 total_coinbase,
             )
             .expect("FATAL: parsed and processed a block without a coinbase");
-
-            tx_receipts.extend(microblock_txs_receipts.into_iter());
 
             (
                 scheduled_miner_reward,
@@ -6381,6 +6400,7 @@ pub mod test {
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([10u8; 32]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
@@ -6475,7 +6495,8 @@ pub mod test {
             parent_microblock_sequence: 4,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([10u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
@@ -7936,7 +7957,8 @@ pub mod test {
             parent_microblock_sequence: microblocks[num_mblocks - 1].header.sequence,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([10u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 

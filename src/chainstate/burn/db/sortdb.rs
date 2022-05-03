@@ -196,9 +196,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let txid = Txid::from_column(row, "txid")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "l1_block_id")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "committed_block_hash")?;
+        let withdrawal_merkle_root = Sha512Trunc256Sum::from_column(row, "withdrawal_merkle_root")?;
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
+            withdrawal_merkle_root,
             txid,
             burn_header_hash,
         };
@@ -394,6 +396,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         txid TEXT NOT NULL,
         l1_block_id TEXT NOT NULL,
         committed_block_hash TEXT NOT NULL,
+        withdrawal_merkle_root TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
@@ -3120,12 +3123,13 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.txid,
             &block_commit.burn_header_hash,
             &block_commit.block_header_hash,
+            &block_commit.withdrawal_merkle_root,
             sort_id,
         ];
 
         self.execute(
-            "INSERT INTO block_commits (txid, l1_block_id, committed_block_hash, sortition_id) \
-                      VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO block_commits (txid, l1_block_id, committed_block_hash, withdrawal_merkle_root, sortition_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5)",
             args,
         )?;
 

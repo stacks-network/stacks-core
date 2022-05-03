@@ -1276,7 +1276,7 @@ fn create_stacks_event_block_for_block_commit() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "block-commit", block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#)
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012, withdrawal-root: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1291,7 +1291,7 @@ fn create_stacks_event_block_for_block_commit() {
                     ContractEvent {
                         contract_identifier: watched_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "block-commit", block-commit: 0x12345678901234567890123456789012 }"#)
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012, withdrawal-root: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#)
                             .unwrap().unwrap(),
                     }
                 )
@@ -1306,7 +1306,7 @@ fn create_stacks_event_block_for_block_commit() {
                     ContractEvent {
                         contract_identifier: ignored_contract.clone(),
                         topic: "print".into(),
-                        value: execute(r#"{ event: "block-commit", block-commit: 0x12345678901234567890123456789012 }"#)
+                        value: execute(r#"{ event: "block-commit", block-commit: 0x1234567890123456789012345678901212345678901234567890123456789012, withdrawal-root: 0x1234567890123456789012345678901212345678901234567890123456789012 }"#)
                             .unwrap().unwrap(),
                     }
                 )

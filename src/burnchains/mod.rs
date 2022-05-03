@@ -34,7 +34,7 @@ use chainstate::burn::ConsensusHash;
 use chainstate::stacks::StacksPublicKey;
 use core::*;
 use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::hash::Hash160;
+use util::hash::{Hash160, Sha512Trunc256Sum};
 use util::secp256k1::MessageSignature;
 use util_lib::db::Error as db_error;
 
@@ -202,6 +202,7 @@ pub struct BurnchainRecipient {
 pub enum StacksHyperOpType {
     BlockCommit {
         subnet_block_hash: BlockHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
     },
     DepositStx {
         amount: u128,

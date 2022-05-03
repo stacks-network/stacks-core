@@ -214,6 +214,8 @@ pub struct PreStxOp {
 pub struct LeaderBlockCommitOp {
     /// Hash of the committed block (anchor block hash)
     pub block_header_hash: BlockHeaderHash,
+    /// Merkle root of the withdrawal events
+    pub withdrawal_merkle_root: Sha512Trunc256Sum,
     /// Transaction ID of this commit op
     pub txid: Txid,
     /// Hash of the base chain block that produced this commit op.

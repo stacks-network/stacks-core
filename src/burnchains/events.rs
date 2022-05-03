@@ -16,7 +16,7 @@ use crate::types::chainstate::StacksBlockId;
 use crate::vm::representations::ClarityName;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
-use util::hash::to_hex;
+use util::hash::{to_hex, Sha512Trunc256Sum};
 
 use super::StacksHyperBlock;
 use super::StacksHyperOp;
@@ -240,7 +240,24 @@ impl StacksHyperOp {
                     } else {
                         Err("Expected 'block-commit' type to be buffer".into())
                     }?;
-
+                let withdrawal_merkle_root = tuple
+                    .get("withdrawal-root")
+                    .map_err(|_| "No 'withdrawal-root' field in Clarity tuple")?;
+                let withdrawal_merkle_root =
+                    if let ClarityValue::Sequence(SequenceData::Buffer(buff_data)) = withdrawal_merkle_root {
+                        if u32::from(buff_data.len()) != 32 {
+                            Err(format!(
+                                "Expected 'withdrawal-root' type to be length 32, found {}",
+                                buff_data.len()
+                            ))
+                        } else {
+                            let mut buff = [0; 32];
+                            buff.copy_from_slice(&buff_data.data);
+                            Ok(buff)
+                        }
+                    } else {
+                        Err("Expected 'withdrawal-root' type to be buffer".into())
+                    }?;
                 Ok(Self {
                     txid,
                     event_index,
@@ -248,6 +265,7 @@ impl StacksHyperOp {
                     opcode: 0,
                     event: StacksHyperOpType::BlockCommit {
                         subnet_block_hash: BlockHeaderHash(block_commit),
+                        withdrawal_merkle_root: Sha512Trunc256Sum(withdrawal_merkle_root),
                     },
                 })
             }

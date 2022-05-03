@@ -1,5 +1,6 @@
 /// High level interfaces for interacting with the Clarity vm
 pub mod clarity;
+pub mod withdrawal;
 
 pub mod special;
 
@@ -8,3 +9,4 @@ pub mod database;
 
 #[cfg(test)]
 mod tests;
+
