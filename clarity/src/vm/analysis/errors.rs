@@ -89,6 +89,7 @@ pub enum CheckErrors {
     BadTransferNFTArguments,
     BadMintFTArguments,
     BadBurnFTArguments,
+    BadWithdrawFTArguments,
 
     // tuples
     BadTupleFieldName,
@@ -351,6 +352,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadTransferNFTArguments => format!("transfer expects an asset, from principal, to principal"),
             CheckErrors::BadMintFTArguments => format!("mint expects a uint amount and from principal"),
             CheckErrors::BadBurnFTArguments => format!("burn expects a uint amount and from principal"),
+            CheckErrors::BadWithdrawFTArguments => format!("withdraw expects a uint amount and from principal"),
             CheckErrors::BadMapName => format!("invalid map name"),
             CheckErrors::NoSuchMap(map_name) => format!("use of unresolved map '{}'", map_name),
             CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),

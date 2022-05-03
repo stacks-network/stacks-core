@@ -98,6 +98,8 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
                   (err u4))))
           (define-public (revoke (name uint))
             (nft-burn? names name tx-sender))
+          (define-public (withdraw (name uint))
+            (nft-withdraw? names name tx-sender))
          ";
 
 #[test]
@@ -163,6 +165,12 @@ fn test_bad_asset_usage() {
         "(ft-burn? stackoos u1 tx-sender)",
         "(ft-burn? stackaroos 1 tx-sender)",
         "(ft-burn? stackaroos u1 123432343)",
+        "(ft-withdraw? stackoos u1 tx-sender)",
+        "(ft-withdraw? stackaroos 1 tx-sender)",
+        "(ft-withdraw? stackaroos u1 123432343)",
+        "(nft-withdraw? u1234 \"a\" tx-sender)",
+        "(nft-withdraw? stacka-nfts u2 tx-sender)",
+        "(nft-withdraw? stacka-nfts \"a\" u2)",
     ];
 
     let expected = [
@@ -205,6 +213,12 @@ fn test_bad_asset_usage() {
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::IntType),
+        CheckErrors::NoSuchFT("stackoos".to_string()),
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::IntType),
+        CheckErrors::BadTokenName,
+        CheckErrors::TypeError(string_ascii_type(10), TypeSignature::UIntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
     ];
 
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {

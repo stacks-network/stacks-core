@@ -204,7 +204,7 @@ pub fn check_special_get_token_supply(
     Ok(TypeSignature::UIntType)
 }
 
-pub fn check_special_burn_asset(
+pub fn check_special_burn_or_withdraw_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
@@ -235,7 +235,7 @@ pub fn check_special_burn_asset(
     )
 }
 
-pub fn check_special_burn_token(
+pub fn check_special_burn_withdraw_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,

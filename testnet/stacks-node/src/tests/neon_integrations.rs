@@ -70,7 +70,7 @@ pub mod test_observer {
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
 
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
+    pub const EVENT_OBSERVER_PORT: u16 = 60303;
 
     lazy_static! {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());

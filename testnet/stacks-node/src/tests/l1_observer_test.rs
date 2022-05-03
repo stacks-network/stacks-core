@@ -2,8 +2,9 @@ use std;
 use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 
+use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon;
-use crate::tests::neon_integrations::{get_account, submit_tx};
+use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::get_epoch_time_secs;
@@ -14,10 +15,14 @@ use clarity::vm::Value;
 use reqwest::Response;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::StacksPrivateKey;
-use stacks::net::{CallReadOnlyRequestBody, RPCPeerInfoData};
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload};
+use stacks::codec::StacksMessageCodec;
+use stacks::net::CallReadOnlyRequestBody;
+use stacks::net::RPCPeerInfoData;
+use stacks::util::hash::hex_bytes;
 use stacks::vm::types::QualifiedContractIdentifier;
-use std::convert::TryInto;
+use stacks::vm::ClarityName;
+use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -159,30 +164,55 @@ fn get_stacks_tip_height(sortition_db: &SortitionDB) -> i64 {
     let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
         .expect("Could not read from SortitionDB.");
 
-    tip_snapshot.stacks_block_height.try_into().unwrap()
+    tip_snapshot.canonical_stacks_tip_height.try_into().unwrap()
 }
 
 /// Wait for the *height* of the stacks chain tip to increment.
 pub fn wait_for_next_stacks_block(sortition_db: &SortitionDB) -> bool {
     let current = get_stacks_tip_height(sortition_db);
     let mut next = current;
-    eprintln!(
-        "Issuing block at {}, waiting for bump ({})",
-        get_epoch_time_secs(),
+    info!(
+        "wait_for_next_stacks_block: STARTS waiting at time {:?}, Stacks block height {:?}",
+        Instant::now(),
         current
     );
     let start = Instant::now();
     while next <= current {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
-            error!("Timed out waiting for block to process, trying to continue test");
-            return false;
+            panic!("Timed out waiting for block to process, aborting test.");
         }
-        test_debug!("waiting for nex block, blocks_processed: {:?}", &next);
         thread::sleep(Duration::from_millis(100));
         next = get_stacks_tip_height(sortition_db);
     }
-    eprintln!("Block bumped at {} ({})", get_epoch_time_secs(), next);
+    info!(
+        "wait_for_next_stacks_block: STOPS waiting at time {:?}, Stacks block height {}",
+        Instant::now(),
+        next
+    );
     true
+}
+
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
+/// match `test_fn`.
+fn select_transactions_where(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> Vec<StacksTransaction> {
+    let mut result = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            let test_value = test_fn(&parsed);
+            if test_value {
+                result.push(parsed);
+            }
+        }
+    }
+
+    return result;
 }
 
 /// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
@@ -734,7 +764,7 @@ fn l1_deposit_stx_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-
+  
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
@@ -742,7 +772,7 @@ fn l1_deposit_stx_integration_test() {
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
-
+    
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
@@ -755,17 +785,18 @@ fn l1_deposit_stx_integration_test() {
     config.node.rpc_bind = "127.0.0.1:30443".into();
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
+  
     let mut l2_nonce = 0;
 
     config.burnchain.contract_identifier =
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
 
     config.node.miner = true;
-
+  
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-
+  
     // Sleep to give the run loop time to start
     thread::sleep(Duration::from_millis(2_000));
 
@@ -776,13 +807,13 @@ fn l1_deposit_stx_integration_test() {
     )
     .unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
-
+  
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
     let mut l1_nonce = 0;
-
+  
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
@@ -797,6 +828,7 @@ fn l1_deposit_stx_integration_test() {
         &ft_trait_content,
     );
     l1_nonce += 1;
+  
     let nft_trait_content =
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
@@ -807,7 +839,7 @@ fn l1_deposit_stx_integration_test() {
         &nft_trait_content,
     );
     l1_nonce += 1;
-    // Publish the default hyperchains contract on the L1 chain
+     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
@@ -816,6 +848,7 @@ fn l1_deposit_stx_integration_test() {
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
+  
     l1_nonce += 1;
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
@@ -882,8 +915,167 @@ fn l1_deposit_stx_integration_test() {
     // Check that the user owns STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
     assert_eq!(account.balance, 10000001);
-
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
     run_loop_thread.join().expect("Failed to join run loop.");
+}
+
+/// Test that we can bring up an L2 node and make some simple calls to the L2 chain.
+/// Set up the L2 chain, make N calls, check that they are found in the listener.
+#[test]
+fn l2_simple_contract_calls() {
+    if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // Start Stacks L1.
+    let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
+    let l1_rpc_origin = "http://127.0.0.1:20443";
+  
+    let nft_trait_name = "nft-trait-standard";
+    let ft_trait_name = "ft-trait-standard";
+  
+    // Start the L2 run loop.
+    let mut config = super::new_test_conf();
+    config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
+  
+    config.burnchain.first_burn_header_hash =
+        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
+    config.burnchain.first_burn_header_height = 1;
+    config.burnchain.chain = "stacks_layer_1".to_string();
+    config.burnchain.mode = "hyperchain".to_string();
+    config.burnchain.rpc_ssl = false;
+    config.burnchain.rpc_port = 20443;
+    config.burnchain.peer_host = "127.0.0.1".into();
+    config.node.wait_time_for_microblocks = 10_000;
+    config.node.rpc_bind = "127.0.0.1:30443".into();
+    config.node.p2p_bind = "127.0.0.1:30444".into();
+    let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
+  
+    config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
+        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
+        "hyperchain-controller".into(),
+    );
+
+    config.node.miner = true;
+
+    let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
+    config.add_initial_balance(user_addr.to_string(), 10000000);
+
+    config.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    test_observer::spawn();
+    
+    let mut run_loop = neon::RunLoop::new(config.clone());
+    let termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+  
+    // Sleep to give the run loop time to start
+    thread::sleep(Duration::from_millis(2_000));
+
+    let burnchain = Burnchain::new(
+        &config.get_burn_db_path(),
+        &config.burnchain.chain,
+        &config.burnchain.mode,
+    )
+    .unwrap();
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
+  
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let _stacks_res = stacks_l1_controller
+        .start_process()
+        .expect("stacks l1 controller didn't start");
+    // Sleep to give the L1 chain time to start
+    thread::sleep(Duration::from_millis(10_000));
+
+    // Publish the NFT/FT traits
+    let ft_trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
+    let ft_trait_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        0,
+        1_000_000,
+        &ft_trait_name,
+        &ft_trait_content,
+    );
+    let nft_trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
+    let nft_trait_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        1,
+        1_000_000,
+        &nft_trait_name,
+        &nft_trait_content,
+    );
+    // Publish the default hyperchains contract on the L1 chain
+    let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
+    let hc_contract_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        2,
+        1_000_000,
+        config.burnchain.contract_identifier.name.as_str(),
+        &contract_content,
+    );
+    
+    submit_tx(l1_rpc_origin, &ft_trait_publish);
+    submit_tx(l1_rpc_origin, &nft_trait_publish);
+    submit_tx(l1_rpc_origin, &hc_contract_publish);
+    println!("Submitted FT, NFT, and Hyperchain contracts!");
+
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
+    let small_contract = "(define-public (return-one) (ok 1))";
+    let mut l2_nonce = 0;
+    {
+        let hyperchain_small_contract_publish = make_contract_publish(
+            &MOCKNET_PRIVATE_KEY_1,
+            l2_nonce,
+            1000,
+            "small-contract",
+            small_contract,
+        );
+        l2_nonce += 1;
+        submit_tx(&l2_rpc_origin, &hyperchain_small_contract_publish);
+    }
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
+    // Make two contract calls to "return-one".
+    for _ in 0..2 {
+        let small_contract_call1 = make_contract_call(
+            &MOCKNET_PRIVATE_KEY_1,
+            l2_nonce,
+            1000,
+            &user_addr,
+            "small-contract",
+            "return-one",
+            &[],
+        );
+        l2_nonce += 1;
+        submit_tx(&l2_rpc_origin, &small_contract_call1);
+        wait_for_next_stacks_block(&sortition_db);
+    }
+    // Wait extra blocks to avoid flakes.
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
+    // Check for two calls to "return-one".
+    let small_contract_calls = select_transactions_where(
+        &test_observer::get_blocks(),
+        |transaction| match &transaction.payload {
+            TransactionPayload::ContractCall(contract) => {
+                contract.contract_name == ContractName::try_from("small-contract").unwrap()
+                    && contract.function_name == ClarityName::try_from("return-one").unwrap()
+            }
+            _ => false,
+        },
+    );
+    assert_eq!(small_contract_calls.len(), 2);
+    termination_switch.store(false, Ordering::SeqCst);
+    stacks_l1_controller.kill_process();
+    run_loop_thread.join().expect("Failed to join run loop.");     
 }
