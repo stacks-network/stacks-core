@@ -6,11 +6,6 @@ use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon;
 use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
-use stacks::burnchains::Burnchain;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload};
-use stacks::codec::StacksMessageCodec;
-use stacks::util::hash::hex_bytes;
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::database::ClaritySerializable;
@@ -18,8 +13,13 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
 use reqwest::Response;
-use stacks::net::RPCPeerInfoData;
+use stacks::burnchains::Burnchain;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload};
+use stacks::codec::StacksMessageCodec;
 use stacks::net::CallReadOnlyRequestBody;
+use stacks::net::RPCPeerInfoData;
+use stacks::util::hash::hex_bytes;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
@@ -408,7 +408,6 @@ fn l1_integration_test() {
     stacks_l1_controller.kill_process();
     run_loop_thread.join().expect("Failed to join run loop.");
 }
-
 
 #[test]
 fn l1_deposit_asset_integration_test() {
