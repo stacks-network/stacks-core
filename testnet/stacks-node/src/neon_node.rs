@@ -1,5 +1,5 @@
 use std::cmp;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::collections::{HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::default::Default;
@@ -9,7 +9,7 @@ use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::{thread, thread::JoinHandle};
 
 use crate::burnchains::BurnchainController;
-use stacks::burnchains::{BurnchainParameters, Txid};
+use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::burn::BlockSnapshot;
@@ -1118,6 +1118,33 @@ fn spawn_miner_relayer(
     }).unwrap();
 
     Ok(relayer_handle)
+}
+
+fn find_last_stacks_block_this_produced<'a>(
+    burnchain: &Burnchain,
+    burn_header_hash: &BurnchainHeaderHash,
+    block_produced_at_burn_block: &'a BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash>,
+) -> Option<&'a BlockHeaderHash> {
+    let mut cursor = burn_header_hash.clone();
+    let (sortdb, _) = burnchain.open_db(false).unwrap();
+    for ((height, burn_block), block_produced) in block_produced_at_burn_block.iter().rev() {
+        let burn_block_at_height_opt = sortdb
+            .get_canonical_burn_block_at_height(*height)
+            .expect("Error in `sortdb.get_canonical_burn_block_at_height`.");
+        match burn_block_at_height_opt {
+            Some(burn_block_at_height) => {
+                if *burn_block == burn_block_at_height {
+                    // this commit is in the canonical burn chain fork
+                    return Some(block_produced);
+                }
+            }
+            None => {
+                break;
+            }
+        }
+    }
+
+    None
 }
 
 impl StacksNode {
