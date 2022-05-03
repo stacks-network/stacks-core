@@ -370,8 +370,9 @@ fn l1_integration_test() {
 }
 
 /// Test that we can bring up an L2 node and make some simple calls to the L2 chain.
+/// Set up the L2 chain, make N calls, check that they are found in the listener.
 #[test]
-fn l2_simple_contract_call() {
+fn l2_simple_contract_calls() {
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
         return;
     }
@@ -385,7 +386,6 @@ fn l2_simple_contract_call() {
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
-    let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
@@ -416,12 +416,6 @@ fn l2_simple_contract_call() {
     });
 
     test_observer::spawn();
-
-    let event_observers: Vec<String> = config
-        .events_observers
-        .iter()
-        .map(|pair| pair.endpoint.clone())
-        .collect();
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -499,7 +493,8 @@ fn l2_simple_contract_call() {
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
 
-    {
+    // Make two contract calls to "return-one".
+    for _ in 0..2 {
         let small_contract_call1 = make_contract_call(
             &MOCKNET_PRIVATE_KEY_1,
             l2_nonce,
@@ -511,25 +506,12 @@ fn l2_simple_contract_call() {
         );
         l2_nonce += 1;
         submit_tx(&l2_rpc_origin, &small_contract_call1);
+        wait_for_next_stacks_block(&sortition_db);
     }
-
-    wait_for_next_stacks_block(&sortition_db);
-    {
-        let small_contract_call1 = make_contract_call(
-            &MOCKNET_PRIVATE_KEY_1,
-            l2_nonce,
-            1000,
-            &user_addr,
-            "small-contract",
-            "return-one",
-            &[],
-        );
-        l2_nonce += 1;
-        submit_tx(&l2_rpc_origin, &small_contract_call1);
-    }
-    wait_for_next_stacks_block(&sortition_db);
+    // Wait an extra block to avoid flakes.
     wait_for_next_stacks_block(&sortition_db);
 
+    // Check for two calls to "return-one".
     let small_contract_calls = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
@@ -540,7 +522,6 @@ fn l2_simple_contract_call() {
             _ => false,
         },
     );
-
     assert_eq!(small_contract_calls.len(), 2);
 
     termination_switch.store(false, Ordering::SeqCst);
