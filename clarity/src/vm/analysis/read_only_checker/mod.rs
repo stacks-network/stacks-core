@@ -195,7 +195,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_all_read_only(args)
             }
             StxTransfer | StxBurn | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
-            | MintToken | TransferAsset | TransferToken | BurnAsset | BurnToken => {
+            | MintToken | TransferAsset | TransferToken | BurnAsset | BurnToken | WithdrawAsset
+            | WithdrawToken | StxWithdraw => {
                 self.check_all_read_only(args)?;
                 Ok(false)
             }

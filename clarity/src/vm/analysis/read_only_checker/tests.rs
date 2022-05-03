@@ -148,6 +148,8 @@ fn test_simple_read_only_violations() {
             (stx-burn? u10 tx-sender))",
         "(define-read-only (not-reading-only)
             (stx-transfer? u10 tx-sender tx-sender))",
+        "(define-read-only (not-reading-only)
+            (stx-burn? u10 tx-sender))",
     ];
 
     for contract in bad_contracts.iter() {
