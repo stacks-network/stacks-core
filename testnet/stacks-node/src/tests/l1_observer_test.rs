@@ -508,7 +508,8 @@ fn l2_simple_contract_calls() {
         submit_tx(&l2_rpc_origin, &small_contract_call1);
         wait_for_next_stacks_block(&sortition_db);
     }
-    // Wait an extra block to avoid flakes.
+    // Wait extra blocks to avoid flakes.
+    wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
 
     // Check for two calls to "return-one".
