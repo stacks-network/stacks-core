@@ -54,6 +54,7 @@ use crate::chainstate::stacks::index::TrieLeaf;
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
 
 use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::sql_vacuum;
 use crate::util_lib::db::sqlite_open;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
@@ -191,14 +192,92 @@ impl TrieFile {
         Ok(buf)
     }
 
-    /// Copy the trie blobs out of a sqlite3 DB into their own file
-    pub fn export_trie_blobs<T: MarfTrieId>(&mut self, db: &Connection) -> Result<(), Error> {
+    /// Vacuum the database and report the size before and after.
+    ///
+    /// Returns database errors.  Filesystem errors from reporting the file size change are masked.
+    fn inner_post_migrate_vacuum(db: &Connection, db_path: &str) -> Result<(), Error> {
+        // for fun, report the shrinkage
+        let size_before_opt = fs::metadata(db_path)
+            .map(|stat| Some(stat.len()))
+            .unwrap_or(None);
+
+        info!("Preemptively vacuuming the database file to free up space after copying trie blobs to a separate file");
+        sql_vacuum(db)?;
+
+        let size_after_opt = fs::metadata(db_path)
+            .map(|stat| Some(stat.len()))
+            .unwrap_or(None);
+
+        match (size_before_opt, size_after_opt) {
+            (Some(sz_before), Some(sz_after)) => {
+                debug!("Shrank DB from {} to {} bytes", sz_before, sz_after);
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    /// Vacuum the database, and set up and tear down the necessary environment variables to
+    /// use same parent directory for scratch space.
+    ///
+    /// Infallible -- any vacuum errors are masked.
+    fn post_migrate_vacuum(db: &Connection, db_path: &str) {
+        // set SQLITE_TMPDIR if it isn't set already
+        let mut set_sqlite_tmpdir = false;
+        let mut old_tmpdir_opt = None;
+        if let Some(parent_path) = Path::new(db_path).parent() {
+            if let Err(_) = env::var("SQLITE_TMPDIR") {
+                debug!(
+                    "Sqlite will store temporary migration state in '{}'",
+                    parent_path.display()
+                );
+                env::set_var("SQLITE_TMPDIR", parent_path);
+                set_sqlite_tmpdir = true;
+            }
+
+            // also set TMPDIR
+            old_tmpdir_opt = env::var("TMPDIR").ok();
+            env::set_var("TMPDIR", parent_path);
+        }
+
+        // don't materialize the error; just warn
+        let res = TrieFile::inner_post_migrate_vacuum(db, db_path);
+        if let Err(e) = res {
+            warn!("Failed to VACUUM the MARF DB post-migration: {:?}", &e);
+        }
+
+        if set_sqlite_tmpdir {
+            debug!("Unset SQLITE_TMPDIR");
+            env::remove_var("SQLITE_TMPDIR");
+        }
+        if let Some(old_tmpdir) = old_tmpdir_opt {
+            debug!("Restore TMPDIR to '{}'", &old_tmpdir);
+            env::set_var("TMPDIR", old_tmpdir);
+        } else {
+            debug!("Unset TMPDIR");
+            env::remove_var("TMPDIR");
+        }
+    }
+
+    /// Copy the trie blobs out of a sqlite3 DB into their own file.
+    /// NOTE: this is *not* thread-safe.  Do not call while the DB is being used by another thread.
+    pub fn export_trie_blobs<T: MarfTrieId>(
+        &mut self,
+        db: &Connection,
+        db_path: &str,
+    ) -> Result<(), Error> {
+        if trie_sql::detect_partial_migration(db)? {
+            panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+        }
+
         let max_block = trie_sql::count_blocks(db)?;
         info!(
             "Migrate {} blocks to external blob storage at {}",
             max_block,
             &self.get_path()
         );
+
         for block_id in 0..(max_block + 1) {
             match trie_sql::is_unconfirmed_block(db, block_id) {
                 Ok(true) => {
@@ -249,6 +328,11 @@ impl TrieFile {
                 }
             }
         }
+
+        TrieFile::post_migrate_vacuum(db, db_path);
+
+        debug!("Mark MARF trie migration of '{}' as finished", db_path);
+        trie_sql::set_migrated(db).expect("FATAL: failed to mark DB as migrated");
         Ok(())
     }
 }
