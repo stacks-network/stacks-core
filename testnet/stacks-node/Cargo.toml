@@ -2,7 +2,8 @@
 name = "stacks-node"
 version = "0.1.0"
 authors = ["Ludo Galabru <ludovic@blockstack.com>"]
-edition = "2018"
+edition = "2021"
+resolver = "2"
 
 [dependencies]
 lazy_static = "1.4.0"
@@ -21,6 +22,8 @@ base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+clarity = { package = "clarity", path = "../../clarity/." }
+stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -38,6 +41,6 @@ path = "src/main.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
-slog_json = ["stacks/slog_json"]
+slog_json = ["stacks/slog_json", "stacks_common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []

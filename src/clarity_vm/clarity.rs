@@ -19,58 +19,64 @@ use std::error;
 use std::fmt;
 use std::thread;
 
-use chainstate::stacks::boot::{
+use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
     BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
 };
-use chainstate::stacks::db::StacksAccount;
-use chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::Error as ChainstateError;
-use chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
-use util::strings::StacksString;
-use vm::analysis;
-use vm::analysis::AnalysisDatabase;
-use vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
-use vm::ast;
-use vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
-use vm::contexts::{AssetMap, Environment, OwnedEnvironment};
-use vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
-use vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
-    STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
-};
-use vm::errors::Error as InterpreterError;
-use vm::representations::SymbolicExpression;
-use vm::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
-};
-use vm::ContractName;
-
-use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
+use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::Error as ChainstateError;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::TransactionAuth;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::chainstate::stacks::TransactionPublicKeyEncoding;
 use crate::chainstate::stacks::TransactionSmartContract;
 use crate::chainstate::stacks::TransactionSpendingCondition;
 use crate::chainstate::stacks::TransactionVersion;
-use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
 use crate::core::StacksEpoch;
-use crate::core::StacksEpochId;
 use crate::core::FIRST_STACKS_BLOCK_ID;
 use crate::core::GENESIS_EPOCH;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::SortitionId;
 use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::StacksMicroblockHeader;
-use crate::types::proof::TrieHash;
-use crate::util::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use crate::util::db::Error as db_error;
+use crate::types::chainstate::TrieHash;
 use crate::util::secp256k1::MessageSignature;
-use types::chainstate::BurnchainHeaderHash;
+use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
+use crate::util_lib::strings::StacksString;
+use crate::{
+    burnchains::Burnchain,
+    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
+};
+use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
+use clarity::vm::analysis;
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
+use clarity::vm::ast;
+use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
+use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
+    STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
+};
+use clarity::vm::ContractName;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+
+use crate::util_lib::db::Error as DatabaseError;
+pub use clarity::vm::clarity::ClarityConnection;
+pub use clarity::vm::clarity::Error;
+use clarity::vm::clarity::TransactionConnection;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.
@@ -85,18 +91,43 @@ use types::chainstate::BurnchainHeaderHash;
 ///   and ClarityBlockConnections must be `commit_block`ed or `rollback_block`ed before discarding
 ///   begining the next connection (enforced by runtime panics).
 ///
+/// Note on generics and abstracting the structs in `clarity_vm::clarity` into `libclarity`: while
+///   multiple consumers of `libclarity` may need a high-level interface like
+///   instance -> block -> transaction, their lifetime parameters make the use of rust traits very
+///   difficult (in all likelihood, it would require higher-ordered traits, which is a
+///   discussed-but-not-yet-implemented feature of rust). Instead, consumers of `libclarity` which
+///   wish to benefit from some abstraction of high-level interfaces should implement the
+///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
+///   types in a Clarity-based blockchain.
+///
 pub struct ClarityInstance {
     datastore: MarfedKV,
     mainnet: bool,
 }
 
 ///
+/// This struct represents a "sealed" or "finished" Clarity block that
+/// has *not* yet been committed. This struct allows consumers of the
+/// `clarity_vm` module's high level interface to separate the
+/// completion of the Clarity operations in a Stacks block from the
+/// final commit to the database.
+///
+/// This is necessary to allow callers complete other operations like
+/// preparing a commitment to the chainstate headers MARF, and
+/// issuring event dispatches, before the Clarity database commits.
+///
+pub struct PreCommitClarityBlock<'a> {
+    datastore: WritableMarfStore<'a>,
+    commit_to: StacksBlockId,
+}
+
+///
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
-pub struct ClarityBlockConnection<'a> {
+pub struct ClarityBlockConnection<'a, 'b> {
     datastore: WritableMarfStore<'a>,
-    header_db: &'a dyn HeadersDB,
-    burn_state_db: &'a dyn BurnStateDB,
+    header_db: &'b dyn HeadersDB,
+    burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
     mainnet: bool,
     epoch: StacksEpochId,
@@ -124,60 +155,6 @@ pub struct ClarityReadOnlyConnection<'a> {
     epoch: StacksEpochId,
 }
 
-#[derive(Debug)]
-pub enum Error {
-    Analysis(CheckError),
-    Parse(ParseError),
-    Interpreter(InterpreterError),
-    BadTransaction(String),
-    CostError(ExecutionCost, ExecutionCost),
-    AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
-}
-
-impl From<CheckError> for Error {
-    fn from(e: CheckError) -> Self {
-        match e.err {
-            CheckErrors::CostOverflow => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            CheckErrors::MemoryBalanceExceeded(_a, _b) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            _ => Error::Analysis(e),
-        }
-    }
-}
-
-impl From<InterpreterError> for Error {
-    fn from(e: InterpreterError) -> Self {
-        match &e {
-            InterpreterError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => {
-                Error::CostError(a.clone(), b.clone())
-            }
-            InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            _ => Error::Interpreter(e),
-        }
-    }
-}
-
-impl From<ParseError> for Error {
-    fn from(e: ParseError) -> Self {
-        match e.err {
-            ParseErrors::CostOverflow => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            ParseErrors::MemoryBalanceExceeded(_a, _b) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
-            _ => Error::Parse(e),
-        }
-    }
-}
-
 impl From<ChainstateError> for Error {
     fn from(e: ChainstateError) -> Self {
         match e {
@@ -185,34 +162,6 @@ impl From<ChainstateError> for Error {
             ChainstateError::CostOverflowError(_, after, budget) => Error::CostError(after, budget),
             ChainstateError::ClarityError(x) => x,
             x => Error::BadTransaction(format!("{:?}", &x)),
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::CostError(ref a, ref b) => {
-                write!(f, "Cost Error: {} cost exceeded budget of {} cost", a, b)
-            }
-            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
-            Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::AbortedByCallback(..) => write!(f, "Post condition aborted transaction"),
-            Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            Error::CostError(ref _a, ref _b) => None,
-            Error::AbortedByCallback(..) => None,
-            Error::Analysis(ref e) => Some(e),
-            Error::Parse(ref e) => Some(e),
-            Error::Interpreter(ref e) => Some(e),
-            Error::BadTransaction(ref _s) => None,
         }
     }
 }
@@ -233,7 +182,7 @@ macro_rules! using {
     }};
 }
 
-impl ClarityBlockConnection<'_> {
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) -> () {
@@ -310,13 +259,13 @@ impl ClarityInstance {
         ))
     }
 
-    pub fn begin_block<'a>(
+    pub fn begin_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let mut datastore = self.datastore.begin(current, next);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -343,13 +292,13 @@ impl ClarityInstance {
         }
     }
 
-    pub fn begin_genesis_block<'a>(
+    pub fn begin_genesis_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let datastore = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
@@ -368,13 +317,13 @@ impl ClarityInstance {
 
     /// begin a genesis block with the default cost contract
     ///  used in testing + benchmarking
-    pub fn begin_test_genesis_block<'a>(
+    pub fn begin_test_genesis_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let writable = self.datastore.begin(current, next);
 
         let epoch = GENESIS_EPOCH;
@@ -448,12 +397,12 @@ impl ClarityInstance {
         datastore.rollback_unconfirmed()
     }
 
-    pub fn begin_unconfirmed<'a>(
+    pub fn begin_unconfirmed<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,
-        header_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityBlockConnection<'a> {
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
         let mut datastore = self.datastore.begin_unconfirmed(current);
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -518,7 +467,7 @@ impl ClarityInstance {
         })
     }
 
-    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, db_error> {
+    pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
         let mut datastore = self.datastore.begin_read_only(None);
         datastore.trie_exists_for_block(bhh)
     }
@@ -553,50 +502,7 @@ impl ClarityInstance {
     }
 }
 
-pub trait ClarityConnection {
-    /// Do something to the underlying DB that involves only reading.
-    fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R;
-
-    fn get_epoch(&self) -> StacksEpochId;
-
-    fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut ClarityDatabase) -> R,
-    {
-        self.with_clarity_db_readonly_owned(|mut db| (to_do(&mut db), db))
-    }
-
-    fn with_readonly_clarity_env<F, R>(
-        &mut self,
-        mainnet: bool,
-        sender: PrincipalData,
-        cost_track: LimitedCostTracker,
-        to_do: F,
-    ) -> Result<R, InterpreterError>
-    where
-        F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
-    {
-        let epoch_id = self.get_epoch();
-        self.with_clarity_db_readonly_owned(|clarity_db| {
-            let mut vm_env =
-                OwnedEnvironment::new_cost_limited(mainnet, clarity_db, cost_track, epoch_id);
-            let result = vm_env
-                .execute_in_env(sender, to_do)
-                .map(|(result, _, _)| result);
-            let (db, _) = vm_env
-                .destruct()
-                .expect("Failed to recover database reference after executing transaction");
-            (result, db)
-        })
-    }
-}
-
-impl ClarityConnection for ClarityBlockConnection<'_> {
+impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
@@ -657,7 +563,14 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
     }
 }
 
-impl<'a> ClarityBlockConnection<'a> {
+impl<'a> PreCommitClarityBlock<'a> {
+    pub fn commit(self) {
+        debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
+        self.datastore.commit_to(&self.commit_to);
+    }
+}
+
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -687,6 +600,15 @@ impl<'a> ClarityBlockConnection<'a> {
         self.datastore.test_commit();
 
         self.cost_track.unwrap()
+    }
+
+    pub fn precommit_to_block(self, final_bhh: StacksBlockId) -> PreCommitClarityBlock<'a> {
+        self.cost_track
+            .expect("Clarity block connection lost cost tracker before commitment");
+        PreCommitClarityBlock {
+            datastore: self.datastore,
+            commit_to: final_bhh,
+        }
     }
 
     /// Commits all changes in the current block by
@@ -804,7 +726,7 @@ impl<'a> ClarityBlockConnection<'a> {
         })
     }
 
-    pub fn start_transaction_processing<'b>(&'b mut self) -> ClarityTransactionConnection<'b, 'a> {
+    pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {
         let store = &mut self.datastore;
         let cost_track = &mut self.cost_track;
         let header_db = &self.header_db;
@@ -833,9 +755,8 @@ impl<'a> ClarityBlockConnection<'a> {
         r
     }
 
-    /// Get the MARF root hash
-    pub fn get_root_hash(&mut self) -> TrieHash {
-        self.datastore.get_root_hash()
+    pub fn seal(&mut self) -> TrieHash {
+        self.datastore.seal()
     }
 
     pub fn destruct(self) -> WritableMarfStore<'a> {
@@ -867,11 +788,11 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
     where
         F: FnOnce(&mut AnalysisDatabase) -> R,
     {
-        self.inner_with_analysis_db(|mut db| {
+        self.with_analysis_db(|mut db, cost_tracker| {
             db.begin();
             let result = to_do(&mut db);
             db.roll_back();
-            result
+            (cost_tracker, result)
         })
     }
 
@@ -900,96 +821,15 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
-    fn inner_with_analysis_db<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        using!(self.log, "log", |log| {
-            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
-            let r = to_do(&mut db);
-            (db.destroy().into(), r)
-        })
-    }
-
-    /// Do something to the underlying DB that involves writing.
-    pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut ClarityDatabase) -> Result<R, Error>,
-    {
-        using!(self.log, "log", |log| {
-            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(
-                rollback_wrapper,
-                &self.header_db,
-                &self.burn_state_db,
-            );
-
-            db.begin();
-            let result = to_do(&mut db);
-            if result.is_ok() {
-                db.commit();
-            } else {
-                db.roll_back();
-            }
-
-            (db.destroy().into(), result)
-        })
-    }
-
-    /// What's our total (block-wide) resource use so far?
-    pub fn cost_so_far(&self) -> ExecutionCost {
-        match self.cost_track {
-            Some(ref track) => track.get_total(),
-            None => ExecutionCost::zero(),
-        }
-    }
-
-    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
-    pub fn analyze_smart_contract(
-        &mut self,
-        identifier: &QualifiedContractIdentifier,
-        contract_content: &str,
-    ) -> Result<(ContractAST, ContractAnalysis), Error> {
-        using!(self.cost_track, "cost tracker", |mut cost_track| {
-            self.inner_with_analysis_db(|db| {
-                let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
-
-                let mut contract_ast = match ast_result {
-                    Ok(x) => x,
-                    Err(e) => return (cost_track, Err(e.into())),
-                };
-
-                let result = analysis::run_analysis(
-                    identifier,
-                    &mut contract_ast.expressions,
-                    db,
-                    false,
-                    cost_track,
-                );
-
-                match result {
-                    Ok(mut contract_analysis) => {
-                        let cost_track = contract_analysis.take_contract_cost_tracker();
-                        (cost_track, Ok((contract_ast, contract_analysis)))
-                    }
-                    Err((e, cost_track)) => (cost_track, Err(e.into())),
-                }
-            })
-        })
-    }
-
-    fn with_abort_callback<F, A, R>(
+impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
+    fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), Error>
+    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-        F: FnOnce(
-            &mut OwnedEnvironment,
-        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), Error>,
+        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
@@ -1032,115 +872,52 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         })
     }
 
-    /// Save a contract analysis output to the AnalysisDatabase
-    /// An error here would indicate that something has gone terribly wrong in the processing of a contract insert.
-    ///   the caller should likely abort the whole block or panic
-    pub fn save_analysis(
-        &mut self,
-        identifier: &QualifiedContractIdentifier,
-        contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
-        self.inner_with_analysis_db(|db| {
+    fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
+    where
+        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R),
+    {
+        using!(self.cost_track, "cost tracker", |cost_track| {
+            using!(self.log, "log", |log| {
+                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
+                let r = to_do(&mut db, cost_track);
+                (db.destroy().into(), r)
+            })
+        })
+    }
+}
+
+impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
+    /// Do something to the underlying DB that involves writing.
+    pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
+    where
+        F: FnOnce(&mut ClarityDatabase) -> Result<R, Error>,
+    {
+        using!(self.log, "log", |log| {
+            let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+            let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                rollback_wrapper,
+                &self.header_db,
+                &self.burn_state_db,
+            );
+
             db.begin();
-            let result = db.insert_contract(identifier, contract_analysis);
-            match result {
-                Ok(_) => {
-                    db.commit();
-                    Ok(())
-                }
-                Err(e) => {
-                    db.roll_back();
-                    Err(e)
-                }
-            }
-        })
-    }
-
-    /// Execute a STX transfer in the current block.
-    /// Will throw an error if it tries to spend STX that the 'from' principal doesn't have.
-    pub fn run_stx_transfer(
-        &mut self,
-        from: &PrincipalData,
-        to: &PrincipalData,
-        amount: u128,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
-        self.with_abort_callback(
-            |vm_env| vm_env.stx_transfer(from, to, amount).map_err(Error::from),
-            |_, _| false,
-        )
-        .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
-    }
-
-    /// Execute a contract call in the current block.
-    ///  If an error occurs while processing the transaction, it's modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    pub fn run_contract_call<F>(
-        &mut self,
-        sender: &PrincipalData,
-        contract: &QualifiedContractIdentifier,
-        public_function: &str,
-        args: &[Value],
-        abort_call_back: F,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
-    where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-    {
-        let expr_args: Vec<_> = args
-            .iter()
-            .map(|x| SymbolicExpression::atom_value(x.clone()))
-            .collect();
-
-        self.with_abort_callback(
-            |vm_env| {
-                vm_env
-                    .execute_transaction(
-                        sender.clone(),
-                        contract.clone(),
-                        public_function,
-                        &expr_args,
-                    )
-                    .map_err(Error::from)
-            },
-            abort_call_back,
-        )
-        .and_then(|(value, assets, events, aborted)| {
-            if aborted {
-                Err(Error::AbortedByCallback(Some(value), assets, events))
+            let result = to_do(&mut db);
+            if result.is_ok() {
+                db.commit();
             } else {
-                Ok((value, assets, events))
+                db.roll_back();
             }
+
+            (db.destroy().into(), result)
         })
     }
 
-    /// Initialize a contract in the current block.
-    ///  If an error occurs while processing the initialization, it's modifications will be rolled back.
-    /// abort_call_back is called with an AssetMap and a ClarityDatabase reference,
-    ///   if abort_call_back returns true, all modifications from this transaction will be rolled back.
-    ///      otherwise, they will be committed (though they may later be rolled back if the block itself is rolled back).
-    pub fn initialize_smart_contract<F>(
-        &mut self,
-        identifier: &QualifiedContractIdentifier,
-        contract_ast: &ContractAST,
-        contract_str: &str,
-        abort_call_back: F,
-    ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
-    where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-    {
-        let (_, asset_map, events, aborted) = self.with_abort_callback(
-            |vm_env| {
-                vm_env
-                    .initialize_contract_from_ast(identifier.clone(), contract_ast, contract_str)
-                    .map_err(Error::from)
-            },
-            abort_call_back,
-        )?;
-        if aborted {
-            Err(Error::AbortedByCallback(None, asset_map, events))
-        } else {
-            Ok((asset_map, events))
+    /// What's our total (block-wide) resource use so far?
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        match self.cost_track {
+            Some(ref track) => track.get_total(),
+            None => ExecutionCost::zero(),
         }
     }
 
@@ -1154,7 +931,15 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .handle_poison_microblock(sender, mblock_header_1, mblock_header_2)
+                    .execute_in_env(sender.clone(), |env| {
+                        env.run_as_transaction(|env| {
+                            StacksChainState::handle_poison_microblock(
+                                env,
+                                mblock_header_1,
+                                mblock_header_2,
+                            )
+                        })
+                    })
                     .map_err(Error::from)
             },
             |_, _| false,
@@ -1214,16 +999,16 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
-    use chainstate::stacks::index::storage::TrieFileStorage;
-    use vm::analysis::errors::CheckErrors;
-    use vm::database::{ClarityBackingStore, STXBalance};
-    use vm::types::{StandardPrincipalData, Value};
+    use crate::chainstate::stacks::index::storage::TrieFileStorage;
+    use clarity::vm::analysis::errors::CheckErrors;
+    use clarity::vm::database::{ClarityBackingStore, STXBalance};
+    use clarity::vm::types::{StandardPrincipalData, Value};
 
-    use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
-    use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+    use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+    use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
+    use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
-    use crate::types::proof::ClarityMarfTrieId;
 
     use super::*;
 
@@ -1517,7 +1302,7 @@ mod tests {
             fs::remove_dir_all(test_name).unwrap();
         }
 
-        let confirmed_marf = MarfedKV::open(test_name, None).unwrap();
+        let confirmed_marf = MarfedKV::open(test_name, None, None).unwrap();
         let mut confirmed_clarity_instance = ClarityInstance::new(false, confirmed_marf);
         let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -1537,7 +1322,7 @@ mod tests {
             )
             .commit_block();
 
-        let marf = MarfedKV::open_unconfirmed(test_name, None).unwrap();
+        let marf = MarfedKV::open_unconfirmed(test_name, None, None).unwrap();
 
         let genesis_metadata_entries = marf
             .sql_conn()
@@ -1783,11 +1568,11 @@ mod tests {
 
     #[test]
     pub fn test_post_condition_failure_contract_publish() {
-        use chainstate::stacks::db::*;
-        use chainstate::stacks::*;
-        use util::hash::Hash160;
-        use util::secp256k1::MessageSignature;
-        use util::strings::StacksString;
+        use crate::chainstate::stacks::db::*;
+        use crate::chainstate::stacks::*;
+        use crate::util_lib::strings::StacksString;
+        use stacks_common::util::hash::Hash160;
+        use stacks_common::util::secp256k1::MessageSignature;
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, marf);

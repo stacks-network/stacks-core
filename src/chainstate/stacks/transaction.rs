@@ -19,36 +19,24 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::*;
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use burnchains::Txid;
-use chainstate::stacks::*;
-use core::*;
-use net::Error as net_error;
-use util::hash::to_hex;
-use util::hash::Sha512Trunc256Sum;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use vm::ast::build_ast;
-use vm::representations::{ClarityName, ContractName};
-use vm::types::serialization::SerializationError as clarity_serialization_error;
-use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
-use vm::{SymbolicExpression, SymbolicExpressionType, Value};
+use clarity::vm::ast::build_ast;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
+use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::{SymbolicExpression, SymbolicExpressionType, Value};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
 
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::{StacksAddress, StacksMicroblockHeader};
-
-impl StacksMessageCodec for Value {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        self.serialize_write(fd).map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Value, codec_error> {
-        Value::deserialize_read(fd, None).map_err(|e| match e {
-            clarity_serialization_error::IOError(e) => codec_error::ReadError(e.err),
-            _ => codec_error::DeserializeError(format!("Failed to decode clarity value: {:?}", &e)),
-        })
-    }
-}
+use crate::types::chainstate::StacksAddress;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -1015,21 +1003,21 @@ impl StacksTransactionSigner {
 mod test {
     use std::error::Error;
 
-    use chainstate::stacks::test::codec_all_transactions;
-    use chainstate::stacks::StacksPublicKey as PubKey;
-    use chainstate::stacks::*;
-    use chainstate::stacks::{
+    use crate::chainstate::stacks::test::codec_all_transactions;
+    use crate::chainstate::stacks::StacksPublicKey as PubKey;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{
         C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     };
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
-    use net::*;
-    use util::hash::*;
-    use util::log;
-    use util::retry::BoundReader;
-    use util::retry::LogReader;
-    use vm::representations::{ClarityName, ContractName};
-    use vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use stacks_common::util::hash::*;
+    use stacks_common::util::log;
+    use stacks_common::util::retry::BoundReader;
+    use stacks_common::util::retry::LogReader;
 
     use super::*;
 

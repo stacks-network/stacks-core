@@ -1,28 +1,24 @@
-use cost_estimates::metrics::CostMetric;
-use cost_estimates::{EstimatorError, FeeEstimator};
-use vm::costs::ExecutionCost;
+use crate::cost_estimates::{EstimatorError, FeeEstimator};
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
+use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use crate::cost_estimates::FeeRateEstimate;
-use cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use rand::rngs::StdRng;
 use rand::thread_rng;
 use rand::RngCore;
 use rand::SeedableRng;
 
-use cost_estimates::tests::common::make_block_receipt;
+use crate::cost_estimates::tests::common::make_block_receipt;
 
 struct ConstantFeeEstimator {}
 
