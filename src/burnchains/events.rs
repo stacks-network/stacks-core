@@ -1,4 +1,4 @@
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -13,6 +13,7 @@ use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use crate::vm::representations::ClarityName;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
 use util::hash::to_hex;
@@ -287,6 +288,13 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'sender' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -296,6 +304,7 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::DepositFt {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         name,
                         amount,
                         sender,
@@ -335,6 +344,13 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'sender' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -344,6 +360,7 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::DepositNft {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         id,
                         sender,
                     },
@@ -387,6 +404,13 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'recipient' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -396,6 +420,7 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::WithdrawFt {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         name,
                         amount,
                         recipient,
@@ -435,6 +460,13 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'recipient' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
@@ -444,6 +476,7 @@ impl StacksHyperOp {
                     event: StacksHyperOpType::WithdrawNft {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         id,
                         recipient,
                     },

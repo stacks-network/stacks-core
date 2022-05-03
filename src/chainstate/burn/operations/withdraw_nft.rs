@@ -13,6 +13,7 @@ impl TryFrom<&StacksHyperOp> for WithdrawNftOp {
         if let StacksHyperOpType::WithdrawNft {
             ref l1_contract_id,
             ref hc_contract_id,
+            ref hc_function_name,
             ref id,
             ref recipient,
         } = value.event
@@ -23,6 +24,7 @@ impl TryFrom<&StacksHyperOp> for WithdrawNftOp {
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
                 l1_contract_id: l1_contract_id.clone(),
                 hc_contract_id: hc_contract_id.clone(),
+                hc_function_name: hc_function_name.clone(),
                 id: id.clone(),
                 recipient: recipient.clone(),
             })
