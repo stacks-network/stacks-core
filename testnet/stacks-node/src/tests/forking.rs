@@ -155,7 +155,7 @@ fn test_no_forks_ancestor_canonical_branch() {
 
 #[test]
 fn test_no_forks_common_ancestor() {
-    // First hit is from the fork.
+    // First hit is from before the fork.
     let db = make_sortition_db_for_fork_tests();
     let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
     map.insert((1, BurnchainHeaderHash([1; 32])), BlockHeaderHash([1; 32]));
