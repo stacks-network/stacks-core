@@ -1120,6 +1120,8 @@ fn spawn_miner_relayer(
     Ok(relayer_handle)
 }
 
+/// Find the highest height key entry in `block_produced_at_burn_block` that is on the canonical chain and
+/// return the associated Stacks block hash.
 pub fn find_last_stacks_block_this_produced<'a>(
     sortdb: &SortitionDB,
     block_produced_at_burn_block: &'a BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash>,
