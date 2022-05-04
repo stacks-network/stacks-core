@@ -38,6 +38,7 @@ use crate::vm::costs::{
 };
 
 mod assets;
+mod conversions;
 mod maps;
 mod options;
 mod sequences;
