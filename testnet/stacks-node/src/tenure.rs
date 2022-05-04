@@ -80,6 +80,7 @@ impl<'a> Tenure {
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
 
@@ -116,6 +117,7 @@ impl<'a> Tenure {
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
         chain_state

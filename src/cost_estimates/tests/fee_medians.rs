@@ -1,35 +1,32 @@
-use std::{env, path::PathBuf};
-use time::Instant;
+use std::env;
 
 use rand::seq::SliceRandom;
 use rand::Rng;
 
-use cost_estimates::metrics::CostMetric;
-use cost_estimates::{EstimatorError, FeeEstimator};
-use vm::costs::ExecutionCost;
+use crate::cost_estimates::metrics::CostMetric;
+use crate::cost_estimates::{EstimatorError, FeeEstimator};
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockHeader, StacksWorkScore};
-use types::proof::TrieHash;
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
+    CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
+use crate::cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
+use crate::cost_estimates::fee_medians::FeeRateAndWeight;
 use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use crate::cost_estimates::metrics::ProportionalDotProduct;
+use crate::cost_estimates::tests::common::*;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::types::{PrincipalData, StandardPrincipalData};
 use crate::vm::Value;
-use cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
-use cost_estimates::fee_medians::FeeRateAndWeight;
-use cost_estimates::tests::common::*;
 
 /// Returns true iff `b` is within `0.1%` of `a`.
 fn is_close_f64(a: f64, b: f64) -> bool {

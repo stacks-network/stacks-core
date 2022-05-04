@@ -21,24 +21,34 @@ use std::hash::{Hash, Hasher};
 use regex::Regex;
 
 use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksBlockId;
-use crate::util::boot::boot_code_id;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::ConsensusHash;
-use util::hash::{to_hex, Hash160, MerkleHashFunc};
-use vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use clarity::codec::StacksMessageCodec as ClarityStacksMessageCodec;
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::util_lib::boot::boot_code_id;
+use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc};
+
+use crate::types::chainstate::BlockHeaderHash;
 
 pub use self::db::AtlasDB;
 pub use self::download::AttachmentsDownloader;
 
+/// Implements AtlasDB and associated API. Stores information about attachments and attachment
+/// instances.
 pub mod db;
+/// Implements `AttachmentsDownloader`, which attempts to download the requested batch of
+/// attachment instances from peers.
 pub mod download;
 
 pub const MAX_ATTACHMENT_INV_PAGES_PER_REQUEST: usize = 8;
 pub const MAX_RETRY_DELAY: u64 = 600; // seconds
+/// This is the maximum number of pending attachments batches allowed
+///  in the synchronized channel before the coordinator will stall
+///  waiting for attachments to be processed.
+pub const ATTACHMENTS_CHANNEL_SIZE: usize = 5;
 
 lazy_static! {
     pub static ref BNS_CHARS_REGEX: Regex = Regex::new("^([a-z0-9]|[-_])*$").unwrap();
@@ -92,11 +102,12 @@ impl Attachment {
 pub struct AttachmentInstance {
     pub content_hash: Hash160,
     pub attachment_index: u32,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_block_hash: StacksBlockId,
     pub metadata: String,
     pub contract_id: QualifiedContractIdentifier,
     pub tx_id: Txid,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl AttachmentInstance {
@@ -106,8 +117,9 @@ impl AttachmentInstance {
         value: &Value,
         contract_id: &QualifiedContractIdentifier,
         index_block_hash: StacksBlockId,
-        block_height: u64,
+        stacks_block_height: u64,
         tx_id: Txid,
+        canonical_stacks_tip_height: Option<u64>,
     ) -> Option<AttachmentInstance> {
         if let Value::Tuple(ref attachment) = value {
             if let Ok(Value::Tuple(ref attachment_data)) = attachment.get("attachment") {
@@ -141,10 +153,11 @@ impl AttachmentInstance {
                             index_block_hash,
                             content_hash,
                             attachment_index: *attachment_index as u32,
-                            block_height,
+                            stacks_block_height,
                             metadata,
                             contract_id: contract_id.clone(),
                             tx_id,
+                            canonical_stacks_tip_height: canonical_stacks_tip_height,
                         };
                         return Some(instance);
                     }

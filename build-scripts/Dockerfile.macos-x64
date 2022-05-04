@@ -16,9 +16,9 @@ RUN wget -nc -O /tmp/osxcross.tar.zst "https://github.com/hirosystems/docker-osx
 RUN mkdir /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
 
 RUN . /opt/osxcross/env-macos-x86_64 && \
-    cargo build --target x86_64-apple-darwin --release --workspace=./
+    cargo build --target x86_64-apple-darwin --release --workspace
 
 RUN mkdir /out && cp -R /src/target/x86_64-apple-darwin/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/blockstack-core /out/blockstack-cli /out/clarity-cli /out/stacks-node /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
