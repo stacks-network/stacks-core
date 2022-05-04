@@ -25,6 +25,7 @@ use stacks::{address::AddressHashMode, util::hash::to_hex};
 use super::Config;
 
 // mod mempool;
+pub mod forking;
 pub mod l1_observer_test;
 #[allow(dead_code)]
 pub mod neon_integrations;

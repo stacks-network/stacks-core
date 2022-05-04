@@ -2417,6 +2417,18 @@ impl SortitionDB {
             last_burn_block_hashes: last_burn_block_hashes,
         })
     }
+
+    pub fn get_canonical_burn_block_at_height(
+        &self,
+        block_height: u64,
+    ) -> Result<Option<BurnchainHeaderHash>, BurnchainError> {
+        let chain_tip = Self::get_canonical_sortition_tip(self.conn())?;
+        let sortition_handle = self.index_handle(&chain_tip);
+        match sortition_handle.get_block_snapshot_by_height(block_height) {
+            Ok(result) => Ok(result.map(|snapshot| snapshot.burn_header_hash)),
+            Err(e) => Err(BurnchainError::DBError(e)),
+        }
+    }
 }
 
 // Querying methods
