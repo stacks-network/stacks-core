@@ -1120,13 +1120,10 @@ fn spawn_miner_relayer(
     Ok(relayer_handle)
 }
 
-fn find_last_stacks_block_this_produced<'a>(
-    burnchain: &Burnchain,
-    burn_header_hash: &BurnchainHeaderHash,
+pub fn find_last_stacks_block_this_produced<'a>(
+    sortdb: &SortitionDB,
     block_produced_at_burn_block: &'a BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash>,
 ) -> Option<&'a BlockHeaderHash> {
-    let mut cursor = burn_header_hash.clone();
-    let (sortdb, _) = burnchain.open_db(false).unwrap();
     for ((height, burn_block), block_produced) in block_produced_at_burn_block.iter().rev() {
         let burn_block_at_height_opt = sortdb
             .get_canonical_burn_block_at_height(*height)
