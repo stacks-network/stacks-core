@@ -87,6 +87,7 @@ use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use types::chainstate::BurnchainHeaderHash;
 use util_lib::boot::boot_code_id;
+use chainstate::stacks::Error::NoSuchBlockError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StagingMicroblock {
@@ -4800,7 +4801,14 @@ impl StacksChainState {
         };
 
         let deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &burn_tip)?;
-        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
+        // let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
+        let parent_block_burn_block = SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?.ok_or(
+            Error::InvalidStacksBlock(format!(
+                "Failed to load parent block snapshot. parent_consensus_hash = {}",
+                &parent_consensus_hash
+            )))?.burn_header_hash;
+
+        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops_between(conn, &parent_block_burn_block, &burn_tip, &chain_tip.consensus_hash)?;
         let deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &burn_tip)?;
 
         // load the execution cost of the parent block if the executor is the follower.

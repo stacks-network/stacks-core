@@ -2472,6 +2472,31 @@ impl SortitionDB {
         )
     }
 
+    pub fn get_deposit_ft_ops_between(
+        conn: &Connection,
+        parent_l1_block_id: &BurnchainHeaderHash,
+        l1_block_id: &BurnchainHeaderHash,
+        chain_tip_consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<DepositFtOp>, db_error> {
+        let mut curr_block_id = l1_block_id;
+        let mut curr_consensus_hash = chain_tip_consensus_hash;
+        let mut deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, curr_block_id)?;
+
+        while curr_block_id != parent_l1_block_id {
+            let curr_snapshot =SortitionDB::get_block_snapshot_consensus(conn, curr_consensus_hash)?.ok_or(
+                db_error::NotFoundError
+            )?;
+            let curr_block_id = curr_snapshot.burn_header_hash;
+            let curr_consensus_hash = curr_snapshot.consensus_hash;
+            let curr_deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &curr_block_id)?;
+
+            deposit_ft_ops.extend(curr_deposit_ft_ops.into_iter())
+        }
+
+        info!("COLLECTED DEPOSIT FT OPS btw {:?}/{:?}: {:?}", parent_l1_block_id, l1_block_id, deposit_ft_ops);
+        Ok(deposit_ft_ops)
+    }
+
     pub fn get_deposit_ft_ops(
         conn: &Connection,
         l1_block_id: &BurnchainHeaderHash,
