@@ -81,6 +81,20 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
+  core-contracts-clarinet-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: "Execute core contract unit tests in Clarinet"
+        uses: docker://hirosystems/clarinet:latest
+        with:
+          args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
+      - name: "Export code coverage"
+        uses: codecov/codecov-action@v1
+        with:
+          files: ./coverage.lcov
+          verbose: true
+
   # rustfmt checking
   rustfmt:
     runs-on: ubuntu-latest
