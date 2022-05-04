@@ -57,10 +57,10 @@ fn add_sortition_link(
     db: &mut SortitionDB,
     height: u64,
     hash_byte: u8,
-    parent_height: u64,
     parent_hash_byte: u8,
     grandparent_hash_byte: u8,
 ) {
+    let parent_height = height - 1;
     let mut ic = SortitionHandleTx::begin(db, &SortitionId([1; 32])).unwrap();
     let _ = ic
         .append_chain_tip_snapshot(
@@ -75,14 +75,14 @@ fn add_sortition_link(
 }
 
 // Make a SortitionDB with the following implied tree.
-//     / 2  -> 3 -> 4
-//   1
-//     \ 5
+//     / 3  -> 2 -> 1
+//   5
+//     \ 4
 fn make_sortition_db_for_fork_tests() -> SortitionDB {
     let mut db = SortitionDB::connect(
         &random_sortdb_test_dir(),
         1,
-        &BurnchainHeaderHash([1; 32]),
+        &BurnchainHeaderHash([5; 32]),
         get_epoch_time_secs(),
         &[StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
@@ -95,10 +95,10 @@ fn make_sortition_db_for_fork_tests() -> SortitionDB {
     )
     .unwrap();
 
-    add_sortition_link(&mut db, 2, 2, 1, 1, 0);
-    add_sortition_link(&mut db, 3, 3, 2, 2, 1);
-    add_sortition_link(&mut db, 4, 4, 3, 3, 2);
-    add_sortition_link(&mut db, 2, 5, 1, 1, 0);
+    add_sortition_link(&mut db, 2, 3, 5, 0);
+    add_sortition_link(&mut db, 3, 2, 3, 5);
+    add_sortition_link(&mut db, 4, 1, 2, 3);
+    add_sortition_link(&mut db, 2, 4, 5, 0);
     db
 }
 
@@ -112,11 +112,22 @@ fn test_no_forks_empty_map() {
 }
 
 #[test]
+fn test_no_forks_height_doesnt_match() {
+    let db = make_sortition_db_for_fork_tests();
+    // Hash exists but not at this height.
+
+    let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
+    map.insert((4, BurnchainHeaderHash([2; 32])), BlockHeaderHash([2; 32]));
+    let result = find_last_stacks_block_this_produced(&db, &map);
+    assert_eq!(None, result);
+}
+
+#[test]
 fn test_no_forks_non_canonical_path() {
     // We have an item in the map but it's not on the canonical branch.
     let db = make_sortition_db_for_fork_tests();
     let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
-    map.insert((2, BurnchainHeaderHash([5; 32])), BlockHeaderHash([5; 32]));
+    map.insert((2, BurnchainHeaderHash([4; 32])), BlockHeaderHash([4; 32]));
     let result = find_last_stacks_block_this_produced(&db, &map);
     assert_eq!(None, result);
 }
@@ -125,40 +136,47 @@ fn test_no_forks_non_canonical_path() {
 fn test_no_forks_ancestor_canonical_branch() {
     let db = make_sortition_db_for_fork_tests();
     // Item is on the canonical branch, so we find it.
-
     {
         let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
-        map.insert((2, BurnchainHeaderHash([2; 32])), BlockHeaderHash([2; 32]));
+        map.insert((3, BurnchainHeaderHash([2; 32])), BlockHeaderHash([2; 32]));
         let result = find_last_stacks_block_this_produced(&db, &map);
         assert_eq!(Some(&BlockHeaderHash([2; 32])), result);
+    }
+
+    // Item is on the canonical branch, so we find it.
+    {
+        let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
+        map.insert((2, BurnchainHeaderHash([3; 32])), BlockHeaderHash([3; 32]));
+        let result = find_last_stacks_block_this_produced(&db, &map);
+        assert_eq!(Some(&BlockHeaderHash([3; 32])), result);
     }
 
     // Multiple items on the canonical branch, so pick higher one.
     {
         let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
-        map.insert((1, BurnchainHeaderHash([1; 32])), BlockHeaderHash([1; 32]));
-        map.insert((2, BurnchainHeaderHash([2; 32])), BlockHeaderHash([2; 32]));
+        map.insert((1, BurnchainHeaderHash([5; 32])), BlockHeaderHash([5; 32]));
+        map.insert((2, BurnchainHeaderHash([3; 32])), BlockHeaderHash([3; 32]));
         let result = find_last_stacks_block_this_produced(&db, &map);
-        assert_eq!(Some(&BlockHeaderHash([2; 32])), result);
+        assert_eq!(Some(&BlockHeaderHash([3; 32])), result);
     }
 
     // Multiple items on the canonical branch, so pick higher one.
     {
         let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
-        map.insert((2, BurnchainHeaderHash([2; 32])), BlockHeaderHash([2; 32]));
-        map.insert((4, BurnchainHeaderHash([4; 32])), BlockHeaderHash([4; 32]));
+        map.insert((2, BurnchainHeaderHash([3; 32])), BlockHeaderHash([3; 32]));
+        map.insert((1, BurnchainHeaderHash([4; 32])), BlockHeaderHash([4; 32]));
 
         let result = find_last_stacks_block_this_produced(&db, &map);
-        assert_eq!(Some(&BlockHeaderHash([4; 32])), result);
+        assert_eq!(Some(&BlockHeaderHash([3; 32])), result);
     }
 }
 
 #[test]
 fn test_no_forks_common_ancestor() {
-    // First hit is from before the fork.
+    // First hit is from before     the fork.
     let db = make_sortition_db_for_fork_tests();
     let mut map: BTreeMap<(u64, BurnchainHeaderHash), BlockHeaderHash> = BTreeMap::new();
-    map.insert((1, BurnchainHeaderHash([1; 32])), BlockHeaderHash([1; 32]));
+    map.insert((1, BurnchainHeaderHash([5; 32])), BlockHeaderHash([5; 32]));
     let result = find_last_stacks_block_this_produced(&db, &map);
-    assert_eq!(Some(&BlockHeaderHash([1; 32])), result);
+    assert_eq!(Some(&BlockHeaderHash([5; 32])), result);
 }
