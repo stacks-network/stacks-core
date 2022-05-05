@@ -4800,16 +4800,29 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &burn_tip)?;
-        // let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
         let parent_block_burn_block = SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?.ok_or(
             Error::InvalidStacksBlock(format!(
                 "Failed to load parent block snapshot. parent_consensus_hash = {}",
                 &parent_consensus_hash
             )))?.burn_header_hash;
-
-        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops_between(conn, &parent_block_burn_block, &burn_tip, &chain_tip.consensus_hash)?;
-        let deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &burn_tip)?;
+        let deposit_stx_ops = SortitionDB::get_deposit_stx_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            &chain_tip.consensus_hash
+        )?;
+        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            &chain_tip.consensus_hash
+        )?;
+        let deposit_nft_ops = SortitionDB::get_deposit_nft_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            &chain_tip.consensus_hash
+        )?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent

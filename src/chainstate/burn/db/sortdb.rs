@@ -2461,6 +2461,31 @@ impl SortitionDB {
         }
     }
 
+    pub fn get_deposit_stx_ops_between(
+        conn: &Connection,
+        parent_l1_block_id: &BurnchainHeaderHash,
+        l1_block_id: &BurnchainHeaderHash,
+        chain_tip_consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<DepositStxOp>, db_error> {
+        let mut curr_block_id = l1_block_id.clone();
+        let mut deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &curr_block_id)?;
+        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
+
+        while curr_block_id != *parent_l1_block_id {
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
+                db_error::NotFoundError
+            )?;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
+            let curr_deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &curr_block_id)?;
+            deposit_stx_ops.extend(curr_deposit_stx_ops.into_iter());
+
+            curr_sortition_id = curr_snapshot.parent_sortition_id;
+        }
+
+
+        Ok(deposit_stx_ops)
+    }
+
     pub fn get_deposit_stx_ops(
         conn: &Connection,
         l1_block_id: &BurnchainHeaderHash,
@@ -2478,22 +2503,21 @@ impl SortitionDB {
         l1_block_id: &BurnchainHeaderHash,
         chain_tip_consensus_hash: &ConsensusHash,
     ) -> Result<Vec<DepositFtOp>, db_error> {
-        let mut curr_block_id = l1_block_id;
-        let mut curr_consensus_hash = chain_tip_consensus_hash;
-        let mut deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, curr_block_id)?;
+        let mut curr_block_id = l1_block_id.clone();
+        let mut deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &curr_block_id)?;
+        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
 
-        while curr_block_id != parent_l1_block_id {
-            let curr_snapshot =SortitionDB::get_block_snapshot_consensus(conn, curr_consensus_hash)?.ok_or(
+        while curr_block_id != *parent_l1_block_id {
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
                 db_error::NotFoundError
             )?;
-            let curr_block_id = curr_snapshot.burn_header_hash;
-            let curr_consensus_hash = curr_snapshot.consensus_hash;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
             let curr_deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &curr_block_id)?;
+            deposit_ft_ops.extend(curr_deposit_ft_ops.into_iter());
 
-            deposit_ft_ops.extend(curr_deposit_ft_ops.into_iter())
+            curr_sortition_id = curr_snapshot.parent_sortition_id;
         }
 
-        info!("COLLECTED DEPOSIT FT OPS btw {:?}/{:?}: {:?}", parent_l1_block_id, l1_block_id, deposit_ft_ops);
         Ok(deposit_ft_ops)
     }
 
@@ -2506,6 +2530,31 @@ impl SortitionDB {
             "SELECT * FROM deposit_ft WHERE l1_block_id = ?",
             &[l1_block_id],
         )
+    }
+
+
+    pub fn get_deposit_nft_ops_between(
+        conn: &Connection,
+        parent_l1_block_id: &BurnchainHeaderHash,
+        l1_block_id: &BurnchainHeaderHash,
+        chain_tip_consensus_hash: &ConsensusHash,
+    ) -> Result<Vec<DepositNftOp>, db_error> {
+        let mut curr_block_id = l1_block_id.clone();
+        let mut deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &curr_block_id)?;
+        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
+
+        while curr_block_id != *parent_l1_block_id {
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
+                db_error::NotFoundError
+            )?;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
+            let curr_deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &curr_block_id)?;
+            deposit_nft_ops.extend(curr_deposit_nft_ops.into_iter());
+
+            curr_sortition_id = curr_snapshot.parent_sortition_id;
+        }
+
+        Ok(deposit_nft_ops)
     }
 
     pub fn get_deposit_nft_ops(
