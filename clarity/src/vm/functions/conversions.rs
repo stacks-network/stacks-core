@@ -216,8 +216,12 @@ pub fn native_int_to_utf8(value: Value) -> Result<Value> {
 /// If the value cannot fit as serialized into the maximum buffer size,
 /// this returns `none`, otherwise, it will be `(some consensus-serialized-buffer)`
 pub fn to_consensus_buff(value: Value) -> Result<Value> {
-    let serialized = value.serialize_to_vec();
-    match Value::buff_from(serialized).and_then(Value::some) {
+    let clar_buff_serialized = match Value::buff_from(value.serialize_to_vec()) {
+        Ok(x) => x,
+        Err(_) => return Ok(Value::none()),
+    };
+
+    match Value::some(clar_buff_serialized) {
         Ok(x) => Ok(x),
         Err(_) => Ok(Value::none()),
     }
@@ -226,7 +230,7 @@ pub fn to_consensus_buff(value: Value) -> Result<Value> {
 /// Deserialize a Clarity value from a consensus serialized buffer.
 /// If the supplied buffer either fails to deserialize or deserializes
 /// to an unexpected type, returns `none`. Otherwise, it will be `(some value)`
-pub fn special_from_consensus_buff(
+pub fn from_consensus_buff(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -247,6 +251,8 @@ pub fn special_from_consensus_buff(
         ))
     }?;
 
+    runtime_cost(ClarityCostFunction::Unimplemented, env, input_bytes.len())?;
+
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
@@ -258,5 +264,5 @@ pub fn special_from_consensus_buff(
         return Ok(Value::none());
     }
 
-    Ok(result)
+    Value::some(result)
 }

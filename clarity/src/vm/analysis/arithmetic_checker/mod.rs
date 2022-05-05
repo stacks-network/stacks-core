@@ -181,7 +181,7 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | FetchEntry | SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset
             | MintToken | TransferAsset | TransferToken | ContractCall | StxTransfer
             | StxTransferMemo | StxBurn | AtBlock | GetStxBalance | GetTokenSupply | BurnToken
-            | BurnAsset | StxGetAccount => {
+            | FromConsensusBuff | ToConsensusBuff | BurnAsset | StxGetAccount => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print

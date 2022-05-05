@@ -285,9 +285,13 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo
             | GetBurnBlockInfo | TupleGet | TupleMerge | Len | Print | AsContract | Begin
             | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner
-            | GetTokenSupply | ElementAt | IndexOf | Slice => {
+            | GetTokenSupply | ElementAt | IndexOf | Slice | ToConsensusBuff => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
+            }
+            FromConsensusBuff => {
+                // Check only the second+ arguments: the first argument is a type parameter
+                self.check_each_expression_is_read_only(&args[1..])
             }
             AtBlock => {
                 check_argument_count(2, args)?;

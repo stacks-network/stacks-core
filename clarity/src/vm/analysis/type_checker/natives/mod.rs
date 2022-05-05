@@ -813,6 +813,12 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
+            ToConsensusBuff => Special(SpecialNativeFunction(
+                &conversions::check_special_to_consensus_buff,
+            )),
+            FromConsensusBuff => Special(SpecialNativeFunction(
+                &conversions::check_special_from_consensus_buff,
+            )),
         }
     }
 }
