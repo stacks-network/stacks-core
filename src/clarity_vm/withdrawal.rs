@@ -1,16 +1,24 @@
-use clarity_vm::database::marf::MarfedKV;
-use clarity::types::chainstate::{TrieHash, StacksBlockId, ConsensusHash, BlockHeaderHash};
-use clarity::vm::database::ClarityBackingStore;
-use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::events::StacksTransactionReceipt;
-use clarity::vm::events::{StacksTransactionEvent, STXEventType, FTEventType, NFTWithdrawEventData, STXWithdrawEventData, NFTEventType};
-use vm::events::FTWithdrawEventData;
+use chainstate::stacks::StacksBlockHeader;
+use clarity::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
+use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use clarity::vm::database::ClarityBackingStore;
+use clarity::vm::events::{
+    FTEventType, NFTEventType, NFTWithdrawEventData, STXEventType, STXWithdrawEventData,
+    StacksTransactionEvent,
+};
 use clarity::vm::types::PrincipalData;
-use clarity::util::hash::{Sha512Trunc256Sum, MerkleTree};
+use clarity_vm::database::marf::MarfedKV;
 use regex::internal::Input;
+use vm::events::FTWithdrawEventData;
 
 pub fn make_key_for_withdrawal(data: String, sender: &PrincipalData, withdrawal_id: u32) -> String {
-    format!("withdrawal::{}::{}::{}", withdrawal_id, data, sender.to_string())
+    format!(
+        "withdrawal::{}::{}::{}",
+        withdrawal_id,
+        data,
+        sender.to_string()
+    )
 }
 
 pub fn make_key_for_ft_withdrawal(data: &FTWithdrawEventData, withdrawal_id: u32) -> String {
@@ -37,17 +45,20 @@ pub fn generate_withdrawal_keys(tx_receipts: &Vec<StacksTransactionReceipt>) -> 
                 let key = make_key_for_nft_withdrawal(data, withdrawal_id);
                 withdrawal_id += 1;
                 items.push(key);
-            } else if let StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) = event {
+            } else if let StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) =
+                event
+            {
                 let key = make_key_for_ft_withdrawal(data, withdrawal_id);
                 withdrawal_id += 1;
                 items.push(key);
-            } else if let StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) = event {
+            } else if let StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) =
+                event
+            {
                 let key = make_key_for_stx_withdrawal(data, withdrawal_id);
                 withdrawal_id += 1;
                 items.push(key);
             }
         }
-
     }
     // Sort items before converting them to a byte vector to be inserted into a Merkle tree.
     items.sort();
@@ -58,7 +69,7 @@ pub fn generate_withdrawal_keys(tx_receipts: &Vec<StacksTransactionReceipt>) -> 
 /// Put all withdrawal keys and values into a single Merkle tree
 /// The order of the transaction receipts will affect the final tree
 pub fn create_withdrawal_merkle_tree(
-    tx_receipts: &Vec<StacksTransactionReceipt>
+    tx_receipts: &Vec<StacksTransactionReceipt>,
 ) -> Sha512Trunc256Sum {
     let items = generate_withdrawal_keys(tx_receipts);
 

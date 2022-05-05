@@ -244,7 +244,9 @@ impl StacksHyperOp {
                     .get("withdrawal-root")
                     .map_err(|_| "No 'withdrawal-root' field in Clarity tuple")?;
                 let withdrawal_merkle_root =
-                    if let ClarityValue::Sequence(SequenceData::Buffer(buff_data)) = withdrawal_merkle_root {
+                    if let ClarityValue::Sequence(SequenceData::Buffer(buff_data)) =
+                        withdrawal_merkle_root
+                    {
                         if u32::from(buff_data.len()) != 32 {
                             Err(format!(
                                 "Expected 'withdrawal-root' type to be length 32, found {}",

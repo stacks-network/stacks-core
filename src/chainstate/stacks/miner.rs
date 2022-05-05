@@ -57,8 +57,8 @@ use chainstate::stacks::address::StacksAddressExtensions;
 use chainstate::stacks::db::blocks::SetupBlockResult;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
+use clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use vm::clarity::TransactionConnection;
-use clarity_vm::withdrawal::{create_withdrawal_merkle_tree};
 
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
