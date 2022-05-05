@@ -331,4 +331,33 @@ impl StacksChainState {
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?
             .is_some())
     }
+
+    /// Load up the past N ancestors' index block hashes of a given block, *including* the given
+    /// index_block_hash.  The returned vector will contain the following hashes, in this order
+    ///     * index_block_hash
+    ///     * 1st ancestor of index_block_hash
+    ///     * 2nd ancestor of index_block_hash
+    ///     ...
+    ///     * Nth ancestor of index_block_hash
+    pub fn get_ancestor_index_hashes(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+        count: u64,
+    ) -> Result<Vec<StacksBlockId>, Error> {
+        let mut ret = vec![index_block_hash.clone()];
+        for _i in 0..count {
+            let parent_index_block_hash = {
+                let cur_index_block_hash = ret.last().expect("FATAL: empty list of ancestors");
+                match StacksChainState::get_parent_block_id(conn, &cur_index_block_hash)? {
+                    Some(ibhh) => ibhh,
+                    None => {
+                        // out of ancestors
+                        break;
+                    }
+                }
+            };
+            ret.push(parent_index_block_hash);
+        }
+        Ok(ret)
+    }
 }
