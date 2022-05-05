@@ -149,6 +149,7 @@ pub enum CheckErrors {
 
     // argument counts
     RequiresAtLeastArguments(usize, usize),
+    RequiresAtMostArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
     IfArmsMustMatch(TypeSignature, TypeSignature),
     MatchArmsMustMatch(TypeSignature, TypeSignature),
@@ -286,6 +287,14 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
+pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
+    if args.len() > expected {
+        Err(CheckErrors::RequiresAtMostArguments(expected, args.len()))
+    } else {
+        Ok(())
+    }
+}
+
 fn formatted_expected_types(expected_types: &Vec<TypeSignature>) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
@@ -382,7 +391,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
             CheckErrors::UndefinedFunction(var_name) => format!("use of unresolved function '{}'", var_name),
-            CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} argument, got {}", expected, found),
+            CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} arguments, got {}", expected, found),
+            CheckErrors::RequiresAtMostArguments(expected, found) => format!("expecting < {} arguments, got {}", expected, found),
             CheckErrors::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {} arguments, got {}", expected_count, found_count),
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{}' and '{}')", type_1, type_2),
