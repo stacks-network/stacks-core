@@ -8,7 +8,7 @@ WORKDIR /src
 
 COPY . .
 
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev openssl-dev
 
 RUN mkdir /out
 
