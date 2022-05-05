@@ -3422,17 +3422,25 @@ pub mod test {
             ) -> (StacksBlock, Vec<StacksMicroblock>),
         {
             let mut sortdb = self.sortdb.take().unwrap();
-            let mut burn_block = {
-                let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-                TestBurnchainBlock::new(&sn, 0)
-            };
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-            let last_sortition_block =
-                SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap(); // no forks here
-
+            let mut burn_block = TestBurnchainBlock::new(&tip, 0);
             let mut stacks_node = self.stacks_node.take().unwrap();
 
             let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
+            let parent_sortition_opt = match parent_block_opt.as_ref() {
+                Some(parent_block) => {
+                    let ic = sortdb.index_conn();
+                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                        &ic,
+                        &tip.sortition_id,
+                        &parent_block.block_hash(),
+                    )
+                    .unwrap()
+                }
+                None => None,
+            };
+
             let parent_microblock_header_opt =
                 get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
             let last_key = stacks_node.get_last_key(&self.miner);
@@ -3469,13 +3477,13 @@ pub mod test {
                 &microblocks,
                 1000,
                 &last_key,
-                Some(&last_sortition_block),
+                parent_sortition_opt.as_ref(),
             );
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             // patch in reward set info
             match get_next_recipients(
-                &last_sortition_block,
+                &tip,
                 &mut stacks_node.chainstate,
                 &mut sortdb,
                 &self.config.burnchain,
