@@ -11440,7 +11440,7 @@ pub mod test {
                         sortdb.conn(),
                         &tip.burn_header_hash,
                         tip.block_height,
-                        0
+                        0,
                     )
                     .unwrap();
 
@@ -11717,7 +11717,7 @@ pub mod test {
                         sortdb.conn(),
                         &tip.burn_header_hash,
                         tip.block_height,
-                        0
+                        0,
                     )
                     .unwrap();
 
