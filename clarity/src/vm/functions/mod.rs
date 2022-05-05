@@ -149,6 +149,9 @@ define_named_enum!(NativeFunctions {
     GetStxBalance("stx-get-balance"),
     StxTransfer("stx-transfer?"),
     StxBurn("stx-burn?"),
+    StxWithdraw("stx-withdraw?"),
+    WithdrawToken("ft-withdraw?"),
+    WithdrawAsset("nft-withdraw?"),
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
@@ -422,6 +425,13 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetStxBalance => SpecialFunction("special_stx_balance", &assets::special_stx_balance),
             StxTransfer => SpecialFunction("special_stx_transfer", &assets::special_stx_transfer),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
+            StxWithdraw => SpecialFunction("special_stx_withdraw", &assets::special_stx_withdraw),
+            WithdrawAsset => {
+                SpecialFunction("special_withdraw_asset", &assets::special_withdraw_asset)
+            }
+            WithdrawToken => {
+                SpecialFunction("special_withdraw_token", &assets::special_withdraw_token)
+            }
         };
         Some(callable)
     } else {

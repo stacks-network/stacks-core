@@ -49,9 +49,11 @@ use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use vm::ClarityName;
 
 pub mod deposit_ft;
 pub mod deposit_nft;
+pub mod deposit_stx;
 pub mod leader_block_commit;
 pub mod withdraw_ft;
 pub mod withdraw_nft;
@@ -219,6 +221,19 @@ pub struct LeaderBlockCommitOp {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct DepositStxOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // Amount of STX that was deposited
+    pub amount: u128,
+    // The principal that performed the deposit
+    pub sender: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct DepositFtOp {
     /// Transaction ID of this commit op
     pub txid: Txid,
@@ -229,6 +244,8 @@ pub struct DepositFtOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute deposit
+    pub hc_function_name: ClarityName,
     // Name of fungible token
     pub name: String,
     // Amount of the fungible token that was deposited
@@ -248,6 +265,8 @@ pub struct DepositNftOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this NFT
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute deposit
+    pub hc_function_name: ClarityName,
     // The ID of the NFT transferred
     pub id: u128,
     // The principal that performed the deposit
@@ -265,6 +284,8 @@ pub struct WithdrawFtOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this fungible token
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute withdrawal
+    pub hc_function_name: ClarityName,
     // The name of the fungible token
     pub name: String,
     // Amount of the fungible token that was deposited
@@ -284,6 +305,8 @@ pub struct WithdrawNftOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // Contract ID on hyperchain for this NFT
     pub hc_contract_id: QualifiedContractIdentifier,
+    // Name of the function to call in the hyperchains contract to execute withdrawal
+    pub hc_function_name: ClarityName,
     // The ID of the NFT being withdrawn
     pub id: u128,
     // The principal the contract is sending the NFT to
@@ -325,6 +348,7 @@ pub struct UserBurnSupportOp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BlockstackOperationType {
     LeaderBlockCommit(LeaderBlockCommitOp),
+    DepositStx(DepositStxOp),
     DepositFt(DepositFtOp),
     DepositNft(DepositNftOp),
     WithdrawFt(WithdrawFtOp),
@@ -334,6 +358,12 @@ pub enum BlockstackOperationType {
 impl From<LeaderBlockCommitOp> for BlockstackOperationType {
     fn from(op: LeaderBlockCommitOp) -> Self {
         BlockstackOperationType::LeaderBlockCommit(op)
+    }
+}
+
+impl From<DepositStxOp> for BlockstackOperationType {
+    fn from(op: DepositStxOp) -> Self {
+        BlockstackOperationType::DepositStx(op)
     }
 }
 
@@ -369,6 +399,7 @@ impl BlockstackOperationType {
     pub fn txid_ref(&self) -> &Txid {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
+            BlockstackOperationType::DepositStx(ref data) => &data.txid,
             BlockstackOperationType::DepositFt(ref data) => &data.txid,
             BlockstackOperationType::DepositNft(ref data) => &data.txid,
             BlockstackOperationType::WithdrawFt(ref data) => &data.txid,
@@ -387,6 +418,7 @@ impl BlockstackOperationType {
     pub fn burn_header_hash(&self) -> BurnchainHeaderHash {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::DepositStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DepositFt(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DepositNft(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::WithdrawFt(ref data) => data.burn_header_hash.clone(),
@@ -400,6 +432,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
+            BlockstackOperationType::DepositStx(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::DepositFt(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::DepositNft(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::WithdrawFt(ref mut data) => data.set_burn_height(height),
@@ -413,6 +446,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.burn_header_hash = hash
             }
+            BlockstackOperationType::DepositStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DepositFt(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DepositNft(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::WithdrawFt(ref mut data) => data.burn_header_hash = hash,
@@ -425,6 +459,7 @@ impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::DepositStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DepositFt(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DepositNft(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::WithdrawFt(ref op) => write!(f, "{:?}", op),

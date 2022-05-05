@@ -1,4 +1,4 @@
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -13,6 +13,7 @@ use vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
+use crate::vm::representations::ClarityName;
 use crate::vm::types::CharType;
 use crate::vm::types::SequenceData;
 use util::hash::to_hex;
@@ -250,6 +251,27 @@ impl StacksHyperOp {
                     },
                 })
             }
+            "\"deposit-stx\"" => {
+                // Parse 2 fields: amount and sender
+                let amount = tuple
+                    .get("amount")
+                    .map_err(|_| "No 'amount' field in Clarity tuple")?
+                    .clone()
+                    .expect_u128();
+                let sender = tuple
+                    .get("sender")
+                    .map_err(|_| "No 'sender' field in Clarity tuple")?
+                    .clone()
+                    .expect_principal();
+
+                Ok(Self {
+                    txid,
+                    event_index,
+                    in_block: in_block.clone(),
+                    opcode: 1,
+                    event: StacksHyperOpType::DepositStx { amount, sender },
+                })
+            }
             "\"deposit-ft\"" => {
                 // Parse 5 fields: ft-amount, ft-name, l1-contract-id, hc-contract-id, and sender
                 let amount = tuple
@@ -287,15 +309,23 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'sender' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
                     event_index,
                     in_block: in_block.clone(),
-                    opcode: 1,
+                    opcode: 2,
                     event: StacksHyperOpType::DepositFt {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         name,
                         amount,
                         sender,
@@ -335,15 +365,23 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'sender' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
                     event_index,
                     in_block: in_block.clone(),
-                    opcode: 2,
+                    opcode: 3,
                     event: StacksHyperOpType::DepositNft {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         id,
                         sender,
                     },
@@ -387,15 +425,23 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'recipient' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
                     event_index,
                     in_block: in_block.clone(),
-                    opcode: 3,
+                    opcode: 4,
                     event: StacksHyperOpType::WithdrawFt {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         name,
                         amount,
                         recipient,
@@ -435,15 +481,23 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'recipient' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
+                let hc_function_name = tuple
+                    .get("hc-function-name")
+                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
+                    .clone()
+                    .expect_ascii();
+                let hc_function_name = ClarityName::try_from(hc_function_name)
+                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
 
                 Ok(Self {
                     txid,
                     event_index,
                     in_block: in_block.clone(),
-                    opcode: 4,
+                    opcode: 5,
                     event: StacksHyperOpType::WithdrawNft {
                         l1_contract_id,
                         hc_contract_id,
+                        hc_function_name,
                         id,
                         recipient,
                     },

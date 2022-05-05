@@ -584,6 +584,7 @@ impl EventDispatcher {
                     StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
+                    | StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);
@@ -612,6 +613,15 @@ impl EventDispatcher {
                             &mut dispatch_matrix,
                         );
                     }
+                    StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(
+                        event_data,
+                    )) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
                     StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
                             &event_data.asset_identifier,
@@ -627,6 +637,13 @@ impl EventDispatcher {
                         );
                     }
                     StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data)) => {
+                        self.update_dispatch_matrix_if_observer_subscribed(
+                            &event_data.asset_identifier,
+                            i,
+                            &mut dispatch_matrix,
+                        );
+                    }
+                    StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(event_data)) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
                             &event_data.asset_identifier,
                             i,

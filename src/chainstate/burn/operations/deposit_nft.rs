@@ -13,6 +13,7 @@ impl TryFrom<&StacksHyperOp> for DepositNftOp {
         if let StacksHyperOpType::DepositNft {
             ref l1_contract_id,
             ref hc_contract_id,
+            ref hc_function_name,
             ref id,
             ref sender,
         } = value.event
@@ -23,6 +24,7 @@ impl TryFrom<&StacksHyperOp> for DepositNftOp {
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
                 l1_contract_id: l1_contract_id.clone(),
                 hc_contract_id: hc_contract_id.clone(),
+                hc_function_name: hc_function_name.clone(),
                 id: id.clone(),
                 sender: sender.clone(),
             })

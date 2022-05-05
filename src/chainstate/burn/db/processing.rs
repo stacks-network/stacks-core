@@ -59,6 +59,19 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
+            BlockstackOperationType::DepositStx(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "deposit_stx",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "amount" => %op.amount,
+                        "sender" => %op.sender,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
             BlockstackOperationType::DepositFt(ref op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
@@ -294,9 +307,6 @@ impl<'a> SortitionHandleTx<'a> {
             self.check_transaction(burnchain, blockstack_op, reward_set_info)
                 .is_ok()
         });
-
-        // block-wide check: no duplicate keys registered
-        assert!(Burnchain::ops_are_sorted(&blockstack_txs));
 
         // process them
         let res = self
