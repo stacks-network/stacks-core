@@ -48,7 +48,8 @@ use self::contexts::{ContractContext, TypeMap, TypingContext};
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
+    CheckErrors, CheckResult,
 };
 use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;

@@ -50,6 +50,7 @@ mod assets;
 mod contracts;
 mod datamaps;
 mod defines;
+mod principals;
 mod sequences;
 mod simple_apply_eval;
 mod traits;
