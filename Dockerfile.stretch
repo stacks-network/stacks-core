@@ -12,7 +12,7 @@ RUN mkdir /out
 
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
 
-RUN cp target/release/stacks-node /out
+RUN cp target/release/hyperchain-node /out
 
 FROM debian:stretch-slim
 
