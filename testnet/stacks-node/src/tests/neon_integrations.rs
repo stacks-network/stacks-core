@@ -727,7 +727,7 @@ fn most_recent_utxo_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
+pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
     get_account(http_origin, account).balance
 }
 
