@@ -74,8 +74,6 @@ fn advance_to_2_1(
         4 * prepare_phase_len / 5,
         5,
         15,
-        (16 * reward_cycle_len - 1).into(),
-        (17 * reward_cycle_len).into(),
         u32::max_value(),
     );
     burnchain_config.pox_constants = pox_constants.clone();
