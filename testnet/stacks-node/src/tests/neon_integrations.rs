@@ -634,7 +634,11 @@ const FAUCET_CONTRACT: &'static str = "
 #[test]
 fn faucet_test() {
     let (mut conf, miner_account) = mockstack_test_conf();
-
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000010101010101010101010101010101010101010101010101".to_string();
+    conf.burnchain.first_burn_header_height = 0;
+    conf.burnchain.first_burn_header_timestamp = 0;
+    
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
