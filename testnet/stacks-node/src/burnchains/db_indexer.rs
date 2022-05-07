@@ -236,7 +236,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         // In order to record this block, we either: 1) have already started recording, or 2) this
         // block has the "first hash" we're looking for.
         if current_canonical_tip_opt.is_none() {
-            if header.header_hash != self.first_burn_header_hash {
+            if header.parent_header_hash != self.first_burn_header_hash {
                 return Ok(());
             }
         }

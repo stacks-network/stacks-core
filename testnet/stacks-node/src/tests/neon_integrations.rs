@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use stacks::burnchains::Burnchain;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::codec::StacksMessageCodec;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData};
@@ -23,7 +25,7 @@ use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
 use crate::{Config, ConfigFile, Keychain};
-
+use std::convert::TryInto;
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -462,6 +464,10 @@ fn mockstack_integration_test() {
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000010101010101010101010101010101010101010101010101".to_string();
+    conf.burnchain.first_burn_header_height = 0;
+    conf.burnchain.first_burn_header_timestamp = 0;
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
