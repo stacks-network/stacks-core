@@ -638,7 +638,7 @@ fn faucet_test() {
         "0000000000000000010101010101010101010101010101010101010101010101".to_string();
     conf.burnchain.first_burn_header_height = 0;
     conf.burnchain.first_burn_header_timestamp = 0;
-    
+
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
