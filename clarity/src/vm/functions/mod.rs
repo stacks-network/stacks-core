@@ -68,7 +68,7 @@ mod crypto;
 mod database;
 pub mod define;
 mod options;
-mod principals;
+pub mod principals;
 mod sequences;
 pub mod tuples;
 
@@ -107,6 +107,8 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
+    PrincipalDestruct("principal-destruct", ClarityVersion::Clarity2),
+    PrincipalConstruct("principal-construct", ClarityVersion::Clarity2),
     StringToInt("string-to-int", ClarityVersion::Clarity2),
     StringToUInt("string-to-uint", ClarityVersion::Clarity2),
     IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
@@ -292,7 +294,6 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
                 ClarityCostFunction::Unimplemented,
             ),
-            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             StringToInt => NativeFunction(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
@@ -312,6 +313,15 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "native_int_to_utf8",
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
                 ClarityCostFunction::Unimplemented,
+            ),
+            IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
+            PrincipalDestruct => SpecialFunction(
+                "special_principal_destruct",
+                &principals::special_principal_destruct,
+            ),
+            PrincipalConstruct => SpecialFunction(
+                "special_principal_construct",
+                &principals::special_principal_construct,
             ),
             Fold => SpecialFunction("special_fold", &sequences::special_fold),
             Concat => SpecialFunction("special_concat", &sequences::special_concat),
