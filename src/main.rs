@@ -52,6 +52,7 @@ use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
 use blockstack_lib::burnchains::db::BurnchainDB;
 use blockstack_lib::burnchains::Address;
 use blockstack_lib::burnchains::Burnchain;
+use blockstack_lib::burnchains::BurnchainParameters;
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
@@ -684,7 +685,7 @@ check if the associated microblocks can be downloaded
                 .expect("Failed to compute PoX cycle");
 
             match result {
-                Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                Ok((_, _, confirmed_by, ..)) => results.push((eval_height, true, confirmed_by)),
                 Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
             };
         }
@@ -694,6 +695,113 @@ check if the associated microblocks can be downloaded
             println!("{}, {}, {}", &r.0, &r.1, &r.2);
         }
 
+        process::exit(0);
+    }
+
+    if argv[1] == "reward-cycle-spends" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} reward-cycle-spends <path to mainnet/burnchain/sortition> <cycle-id>",
+                argv[0]
+            );
+            process::exit(1);
+        }
+        let sort_db = SortitionDB::open(&argv[2], false, PoxConstants::mainnet_default())
+            .expect(&format!("Failed to open {}", argv[2]));
+        let cycle: u64 = argv[3].parse().expect("Failed to parse <cycle-id>");
+
+        let burnchain_params = BurnchainParameters::bitcoin_mainnet();
+        let pox_consts = PoxConstants::mainnet_default();
+        let start_height = burnchain_params.first_block_height
+            + cycle * (pox_consts.reward_cycle_length as u64)
+            + 1;
+        let end_height = burnchain_params.first_block_height
+            + (cycle + 1) * (pox_consts.reward_cycle_length as u64)
+            + 1;
+        let prepare_start_height = end_height - (pox_consts.prepare_length as u64);
+
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+
+        if chain_tip.block_height < end_height {
+            eprintln!(
+                "Burnchain tip is not yet at end-of-cycle height {} (only at {})",
+                &end_height, &chain_tip.block_height
+            );
+            process::exit(1);
+        }
+
+        let sort_conn = sort_db.index_handle(&chain_tip.sortition_id);
+
+        let reward_phase_winners = sort_conn
+            .get_sortition_winners_in_fork(
+                (start_height - 1) as u32,
+                (prepare_start_height - 1) as u32,
+            )
+            .unwrap();
+
+        let mut reward_phase_payouts = vec![];
+        let mut cur_height = start_height;
+
+        for (winner_txid, winner_height) in reward_phase_winners.into_iter() {
+            while cur_height < winner_height {
+                // no sortition here
+                reward_phase_payouts.push(0);
+                cur_height += 1;
+            }
+            let block_commit = sort_conn
+                .get_block_commit_by_txid(&winner_txid)
+                .unwrap()
+                .unwrap();
+            reward_phase_payouts.push(block_commit.burn_fee);
+            cur_height += 1;
+        }
+
+        assert_eq!(
+            reward_phase_payouts.len() as u64,
+            (pox_consts.reward_cycle_length - pox_consts.prepare_length) as u64
+        );
+
+        let reward_cycle_tip =
+            SortitionDB::get_ancestor_snapshot(&sort_conn, end_height - 1, &chain_tip.sortition_id)
+                .expect("Failed to get chain tip to evaluate at")
+                .expect("Failed to get chain tip to evaluate at");
+
+        let pox_result = sort_conn
+            .get_chosen_pox_anchor_check_position(
+                &reward_cycle_tip.burn_header_hash,
+                &pox_consts,
+                true,
+            )
+            .expect("Failed to compute PoX cycle");
+
+        let reward_cycle_json = match pox_result {
+            Ok((ch, bh, confirmed_by, burns)) => {
+                json!({
+                    "reward_phase": reward_phase_payouts,
+                    "prepare_phase": {
+                        "decision": "PoX",
+                        "anchor_block": {
+                            "block_hash": format!("{}", &bh),
+                            "consensus_hash": format!("{}", &ch),
+                            "confirmations": confirmed_by,
+                        },
+                        "burns": burns
+                    }
+                })
+            }
+            Err(confirmed_by) => {
+                json!({
+                    "reward_phase": reward_phase_payouts,
+                    "prepare_phase": {
+                        "decision": "PoB",
+                        "max_confirmations": confirmed_by
+                    }
+                })
+            }
+        };
+
+        println!("{}", reward_cycle_json.to_string());
         process::exit(0);
     }
 
