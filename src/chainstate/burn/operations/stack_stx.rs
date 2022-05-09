@@ -67,23 +67,15 @@ impl PreStxOp {
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
-        pox_sunset_ht: u64,
     ) -> Result<PreStxOp, op_error> {
-        PreStxOp::parse_from_tx(
-            block_header.block_height,
-            &block_header.block_hash,
-            tx,
-            pox_sunset_ht,
-        )
+        PreStxOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
 
     /// parse a PreStxOp
-    /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         tx: &BurnchainTransaction,
-        pox_sunset_ht: u64,
     ) -> Result<PreStxOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
@@ -111,15 +103,6 @@ impl PreStxOp {
             warn!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
         };
-
-        // check if we've reached PoX disable
-        if block_height >= pox_sunset_ht {
-            debug!(
-                "PreStxOp broadcasted after sunset. Ignoring. txid={}",
-                tx.txid()
-            );
-            return Err(op_error::InvalidInput);
-        }
 
         Ok(PreStxOp {
             output: outputs[0].address,
@@ -206,25 +189,21 @@ impl StackStxOp {
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
         sender: &StacksAddress,
-        pox_sunset_ht: u64,
     ) -> Result<StackStxOp, op_error> {
         StackStxOp::parse_from_tx(
             block_header.block_height,
             &block_header.block_hash,
             tx,
             sender,
-            pox_sunset_ht,
         )
     }
 
     /// parse a StackStxOp
-    /// `pox_sunset_ht` is the height at which PoX *disables*
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
         tx: &BurnchainTransaction,
         sender: &StacksAddress,
-        pox_sunset_ht: u64,
     ) -> Result<StackStxOp, op_error> {
         // can't be too careful...
         let outputs = tx.get_recipients();
@@ -256,15 +235,6 @@ impl StackStxOp {
             warn!("Invalid tx data");
             op_error::ParseError
         })?;
-
-        // check if we've reached PoX disable
-        if block_height >= pox_sunset_ht {
-            debug!(
-                "StackStxOp broadcasted after sunset. Ignoring. txid={}",
-                tx.txid()
-            );
-            return Err(op_error::InvalidInput);
-        }
 
         Ok(StackStxOp {
             sender: sender.clone(),
@@ -422,7 +392,6 @@ mod tests {
             16843022,
             &BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
-            16843023,
         )
         .unwrap();
 
@@ -483,7 +452,6 @@ mod tests {
             &BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
             &sender,
-            16843023,
         )
         .unwrap();
 

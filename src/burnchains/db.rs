@@ -430,8 +430,6 @@ mod tests {
 
         let mut burnchain = Burnchain::regtest(":memory:");
         burnchain.pox_constants = PoxConstants::test_default();
-        burnchain.pox_constants.sunset_start = 999;
-        burnchain.pox_constants.sunset_end = 1000;
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
@@ -542,8 +540,6 @@ mod tests {
 
         let mut burnchain = Burnchain::regtest(":memory:");
         burnchain.pox_constants = PoxConstants::test_default();
-        burnchain.pox_constants.sunset_start = 999;
-        burnchain.pox_constants.sunset_end = 1000;
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
