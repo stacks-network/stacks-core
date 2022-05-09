@@ -1793,9 +1793,9 @@ impl<'a> SortitionHandleConn<'a> {
         get_block_commit_by_txid(self.conn(), txid)
     }
 
-    /// Return a vec of sortition winner's burn header hash and stacks header hash, ordered by
-    ///   increasing block height in the range (block_height_begin, block_height_end]
-    fn get_sortition_winners_in_fork(
+    /// Return a vec of sortition winner's txids and block heights,
+    ///   in order over the interval (block_height_begin, block_height_end]
+    pub fn get_sortition_winners_in_fork(
         &self,
         block_height_begin: u32,
         block_height_end: u32,
@@ -1828,18 +1828,31 @@ impl<'a> SortitionHandleConn<'a> {
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
         match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
-            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Ok((c_hash, bh_hash, ..))) => Ok(Some((c_hash, bh_hash))),
             Ok(Err(_)) => Ok(None),
             Err(e) => Err(e),
         }
     }
 
+    /// Return identifying information for a PoX anchor block that would have been selected
+    /// `pox_consts.reward_cycle_length` sortitions ago, as of `prepare_end_bhh`.  If
+    /// `check_position` is `true` and `prepare_end_bhh` does _not_ fall on the reward cycle
+    /// boundary, then this method returns `Err(CoordinatorError::NotPrepareEndBlock)`.
+    ///
+    /// Returns Ok(Ok(ch, bh, confs, burns)) if an anchor block was chosen -- i.e. confs >= F*w
+    ///     * ch, bhh identify the Stacks block that is the anchor block
+    ///     * confs is the number of confirmations
+    ///     * burns is the list of burns spent by the anchor block's descendants
+    ///
+    /// Returns Ok(Err(confs)) if an anchor block was not chosen -- i.e. confs < F*w
+    /// Returns Err(..) if we could not calculate this result for some reason.
     pub fn get_chosen_pox_anchor_check_position(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
         check_position: bool,
-    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
+    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32, Vec<u64>), u32>, CoordinatorError>
+    {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
                 .ok_or_else(|| {
@@ -1873,20 +1886,29 @@ impl<'a> SortitionHandleConn<'a> {
         let prepare_end = block_height;
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
-        let mut candidate_anchors = HashMap::new();
-        let mut memoized_candidates: HashMap<_, (Txid, u64)> = HashMap::new();
+        let mut candidate_anchors: HashMap<_, (u32, Vec<u64>)> = HashMap::new();
+        let mut memoized_candidates: HashMap<_, (Txid, u64, Vec<u64>)> = HashMap::new();
 
         // iterate over every sortition winner in the prepare phase
         //   looking for their highest ancestor _before_ prepare_begin.
         let winners = self.get_sortition_winners_in_fork(prepare_begin, prepare_end)?;
         for (winner_commit_txid, winner_block_height) in winners.into_iter() {
-            let mut cursor = (winner_commit_txid, winner_block_height);
+            let block_commit = self
+                .get_block_commit_by_txid(&winner_commit_txid)?
+                .expect("CORRUPTED: Failed to fetch block commit for known sortition winner");
+            let mut cursor = (
+                winner_commit_txid,
+                winner_block_height,
+                vec![block_commit.burn_fee],
+            );
             let mut found_ancestor = true;
 
             while cursor.1 > (prepare_begin as u64) {
                 // check if we've already discovered the candidate for this block
                 if let Some(ancestor) = memoized_candidates.get(&cursor.1) {
-                    cursor = ancestor.clone();
+                    let mut combined_burns = ancestor.2.clone();
+                    combined_burns.append(&mut cursor.2);
+                    cursor = (ancestor.0, ancestor.1, combined_burns);
                 } else {
                     // get the block commit
                     let block_commit = self.get_block_commit_by_txid(&cursor.0)?.expect(
@@ -1912,7 +1934,11 @@ impl<'a> SortitionHandleConn<'a> {
                     );
                     assert!(sn.sortition, "CORRUPTED: accepted block commit, but parent pointer not a sortition winner");
 
-                    cursor = (sn.winning_block_txid, sn.block_height);
+                    cursor = (
+                        sn.winning_block_txid,
+                        sn.block_height,
+                        vec![block_commit.burn_fee],
+                    );
                 }
             }
             if !found_ancestor {
@@ -1922,20 +1948,25 @@ impl<'a> SortitionHandleConn<'a> {
             //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
             //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
             let highest_ancestor = cursor.1;
+            let mut burn_fees = cursor.2.clone();
             memoized_candidates.insert(winner_block_height, cursor);
-            if let Some(x) = candidate_anchors.get_mut(&highest_ancestor) {
-                *x += 1;
+            if let Some((confs, burnt)) = candidate_anchors.get_mut(&highest_ancestor) {
+                *confs += 1;
+                burnt.clear();
+                burnt.append(&mut burn_fees);
             } else {
-                candidate_anchors.insert(highest_ancestor, 1u32);
+                candidate_anchors.insert(highest_ancestor, (1u32, burn_fees));
             }
         }
 
         // did any candidate receive >= F*w?
         let mut result = None;
         let mut max_confirmed_by = 0;
-        for (candidate, confirmed_by) in candidate_anchors.into_iter() {
+        let mut max_burnt = vec![];
+        for (candidate, (confirmed_by, all_burns)) in candidate_anchors.into_iter() {
             if confirmed_by > max_confirmed_by {
                 max_confirmed_by = confirmed_by;
+                max_burnt = all_burns;
             }
             if confirmed_by >= pox_consts.anchor_threshold {
                 // find the sortition at height
@@ -1947,7 +1978,8 @@ impl<'a> SortitionHandleConn<'a> {
                         .replace((
                             sn.consensus_hash,
                             sn.winning_stacks_block_hash,
-                            confirmed_by
+                            confirmed_by,
+                            max_burnt.clone()
                         ))
                         .is_none(),
                     "BUG: multiple anchor blocks received more confirmations than anchor_threshold"
@@ -1965,7 +1997,7 @@ impl<'a> SortitionHandleConn<'a> {
                 Ok(Err(max_confirmed_by))
             }
             Some(response) => {
-                info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, result);
+                info!("Reward cycle #{} ({}): {:?} reached (F*w), expecting consensus over proof of transfer", reward_cycle_id, block_height, &response);
                 Ok(Ok(response))
             }
         }
@@ -4554,7 +4586,6 @@ pub mod tests {
         sn.parent_sortition_id = sn.sortition_id.clone();
         sn.burn_header_hash = next_hash;
         sn.block_height += 1;
-        sn.num_sortitions += 1;
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
 
@@ -4562,6 +4593,11 @@ pub mod tests {
             sn.sortition = true;
             sn.winning_stacks_block_hash = cmt.block_header_hash;
             sn.winning_block_txid = cmt.txid;
+            sn.num_sortitions += 1;
+        } else {
+            sn.sortition = false;
+            sn.winning_stacks_block_hash = BlockHeaderHash([0x00; 32]);
+            sn.winning_block_txid = Txid([0x00; 32]);
         }
 
         let index_root = tx
@@ -8004,5 +8040,209 @@ pub mod tests {
                 db_tx.commit().unwrap();
             }
         }
+    }
+
+    fn test_make_block_commit_from_snapshot(
+        db: &SortitionDB,
+        parent_snapshot: &BlockSnapshot,
+        vtxindex: u32,
+        burn_fee: u64,
+        key: Option<LeaderKeyRegisterOp>,
+    ) -> LeaderBlockCommitOp {
+        if parent_snapshot.sortition {
+            let parent_block_commit =
+                get_block_commit_by_txid(db.conn(), &parent_snapshot.winning_block_txid)
+                    .unwrap()
+                    .unwrap();
+            let txid = {
+                let mut bytes = [0u8; 44];
+                bytes[0..32].copy_from_slice(&parent_block_commit.txid.0);
+                bytes[32..40].copy_from_slice(&burn_fee.to_be_bytes());
+                bytes[40..44].copy_from_slice(&vtxindex.to_be_bytes());
+                Txid(Sha512Trunc256Sum::from_data(&bytes).0)
+            };
+
+            let block_commit = LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash(
+                    Sha512Trunc256Sum::from_data(&parent_block_commit.block_header_hash.0).0,
+                ),
+                new_seed: VRFSeed(Sha512Trunc256Sum::from_data(&parent_block_commit.new_seed.0).0),
+                parent_block_ptr: parent_block_commit.block_height as u32,
+                parent_vtxindex: parent_block_commit.vtxindex as u16,
+                key_block_ptr: parent_block_commit.key_block_ptr,
+                key_vtxindex: parent_block_commit.key_vtxindex,
+                memo: vec![0x80],
+                commit_outs: vec![],
+
+                burn_fee: burn_fee,
+                input: (Txid([0; 32]), 0),
+                apparent_sender: BurnchainSigner {
+                    public_keys: vec![StacksPublicKey::from_hex(
+                        "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                    )
+                    .unwrap()],
+                    num_sigs: 1,
+                    hash_mode: AddressHashMode::SerializeP2PKH,
+                },
+
+                txid: txid,
+                vtxindex: vtxindex,
+
+                // ignored?
+                burn_parent_modulus: ((parent_snapshot.block_height + 1)
+                    % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                block_height: parent_snapshot.block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            };
+            block_commit
+        } else {
+            let key = key.unwrap();
+            let txid = {
+                let mut bytes = [0u8; 44];
+                bytes[0..32].copy_from_slice(&key.txid.0);
+                bytes[32..40].copy_from_slice(&burn_fee.to_be_bytes());
+                bytes[40..44].copy_from_slice(&vtxindex.to_be_bytes());
+                Txid(Sha512Trunc256Sum::from_data(&bytes).0)
+            };
+
+            // make a genesis commit
+            let block_commit = LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash(
+                    Sha512Trunc256Sum::from_data(&parent_snapshot.burn_header_hash.0).0,
+                ),
+                new_seed: VRFSeed(
+                    Sha512Trunc256Sum::from_data(&parent_snapshot.burn_header_hash.0).0,
+                ),
+                parent_block_ptr: 0,
+                parent_vtxindex: 0,
+                key_block_ptr: key.block_height as u32,
+                key_vtxindex: key.vtxindex as u16,
+                memo: vec![0x80],
+                commit_outs: vec![],
+
+                burn_fee: burn_fee,
+                input: (Txid([0; 32]), 0),
+                apparent_sender: BurnchainSigner {
+                    public_keys: vec![StacksPublicKey::from_hex(
+                        "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                    )
+                    .unwrap()],
+                    num_sigs: 1,
+                    hash_mode: AddressHashMode::SerializeP2PKH,
+                },
+
+                txid: txid,
+                vtxindex: vtxindex,
+
+                // ignored?
+                burn_parent_modulus: ((parent_snapshot.block_height + 1)
+                    % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+                block_height: parent_snapshot.block_height + 1,
+                burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            };
+            block_commit
+        }
+    }
+
+    #[test]
+    fn test_get_chosen_pox_anchor_check_position() {
+        let first_block_height = 100;
+        let first_burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+        let mut db = SortitionDB::connect_test_with_epochs(
+            first_block_height,
+            &first_burn_header_hash,
+            StacksEpoch::unit_test_2_1(0),
+        )
+        .unwrap();
+
+        let pox_consts = PoxConstants::new(20, 10, 6, 1, 1, 0);
+
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x22; 20]),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(
+                &BitcoinAddress::from_scriptpubkey(
+                    BitcoinNetworkType::Testnet,
+                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
+                )
+                .unwrap(),
+            ),
+            txid: Txid::from_bytes_be(
+                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: first_block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x02; 32]),
+        };
+
+        let mut sn = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x02; 32]),
+            &vec![BlockstackOperationType::LeaderKeyRegister(
+                leader_key.clone(),
+            )],
+            None,
+            None,
+        );
+
+        // make the first commit
+        let cmt = test_make_block_commit_from_snapshot(&db, &sn, 1, 1, Some(leader_key));
+        sn = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x03; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+            Some(sn),
+            Some(cmt),
+        );
+
+        // confirm an anchor block with two miners
+        let mut expected_anchor_block_commit = None;
+        for i in 4..23 {
+            let cmt1 = test_make_block_commit_from_snapshot(&db, &sn, 1, 10 * i + 1, None);
+            let cmt2 = test_make_block_commit_from_snapshot(&db, &sn, 2, 100 * i + 1, None);
+
+            let winner = if i % 2 == 0 {
+                cmt1.clone()
+            } else {
+                cmt2.clone()
+            };
+            if i == 11 {
+                expected_anchor_block_commit = Some(winner.clone());
+            }
+
+            sn = test_append_snapshot_with_winner(
+                &mut db,
+                BurnchainHeaderHash([i as u8; 32]),
+                &vec![
+                    BlockstackOperationType::LeaderBlockCommit(cmt1.clone()),
+                    BlockstackOperationType::LeaderBlockCommit(cmt2.clone()),
+                ],
+                Some(sn),
+                Some(winner),
+            );
+        }
+
+        let expected_anchor_block_commit = expected_anchor_block_commit.unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let index_handle = db.index_handle(&tip.sortition_id);
+        let (ch, bhh, confs, burns) = index_handle
+            .get_chosen_pox_anchor_check_position(&tip.parent_burn_header_hash, &pox_consts, true)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(bhh, expected_anchor_block_commit.block_header_hash);
+        assert_eq!(confs, 10);
+        assert_eq!(
+            burns,
+            vec![121, 1301, 141, 1501, 161, 1701, 181, 1901, 201, 2101]
+        );
     }
 }
