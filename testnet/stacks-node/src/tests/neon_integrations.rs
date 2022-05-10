@@ -26,6 +26,7 @@ use crate::tests::{
 };
 use crate::{Config, ConfigFile, Keychain};
 use std::convert::TryInto;
+
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -42,13 +43,8 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
+    conf.burnchain.contract_identifier = QualifiedContractIdentifier::transient();
 
-    // test to make sure config file parsing is correct
-    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
-        .burnchain
-        .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['T' as u8, '2' as u8]);
-    conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
