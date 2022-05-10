@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -24,9 +25,11 @@ use stacks::util::sleep_ms;
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
 
+use crate::burnchains::l1_events::burnchain_from_config;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
+use super::db_indexer::DBBurnchainIndexer;
 use super::{BurnchainChannel, Error};
 
 #[derive(Clone)]
@@ -38,9 +41,9 @@ pub struct MockChannel {
 pub struct MockController {
     /// This is the simulated contract identifier
     contract_identifier: QualifiedContractIdentifier,
-    burnchain: Option<Burnchain>,
+    burnchain: Burnchain,
     config: Config,
-    indexer: MockIndexer,
+    indexer: DBBurnchainIndexer,
 
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
@@ -81,13 +84,13 @@ lazy_static! {
         }])),
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     });
-    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
+    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
-fn make_mock_byte_string(from: u64) -> [u8; 32] {
-    let mut output = [1; 32];
-    output[0..8].copy_from_slice(&from.to_be_bytes());
+fn make_mock_byte_string(from: i64) -> [u8; 32] {
+    let mut output = [0; 32];
+    output[24..32].copy_from_slice(&from.to_be_bytes());
     output
 }
 
@@ -166,10 +169,18 @@ impl MockBlockDownloader {
 impl MockController {
     pub fn new(config: Config, coordinator: CoordinatorChannels) -> MockController {
         let contract_identifier = config.burnchain.contract_identifier.clone();
-        let indexer = MockIndexer::new(contract_identifier.clone());
+        let indexer = DBBurnchainIndexer::new(
+            &config.get_burnchain_path_str(),
+            config.burnchain.clone(),
+            true,
+        )
+        .expect("Failed to initialize DBBurnchainIndexer.");
+        let burnchain = burnchain_from_config(&config.get_burn_db_path(), &config.burnchain)
+            .expect("Creation of burnchain has failed.");
+
         MockController {
             contract_identifier,
-            burnchain: None,
+            burnchain,
             config,
             indexer,
             db: None,
@@ -221,9 +232,10 @@ impl MockController {
             }
         });
 
-        let parent_index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block - 1));
+        let parent_index_block_hash =
+            StacksBlockId(make_mock_byte_string(*next_burn_block as i64 - 1));
 
-        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block));
+        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block as i64));
 
         let new_block = NewBlock {
             block_height: *next_burn_block,
@@ -235,9 +247,13 @@ impl MockController {
 
         *next_burn_block += 1;
 
-        info!("Layer 1 block mined");
+        info!("Layer 1 block mined";
+            "block_height" => new_block.block_height,
+            "index_block_hash" => %new_block.index_block_hash,
+            "parent_index_block_hash" => %new_block.parent_index_block_hash);
 
-        MOCK_EVENTS_STREAM
+        self.indexer
+            .get_channel()
             .push_block(new_block)
             .expect("`push_block` has failed.");
     }
@@ -429,16 +445,7 @@ impl BurnchainController for MockController {
     }
 
     fn get_burnchain(&self) -> Burnchain {
-        match &self.burnchain {
-            Some(burnchain) => burnchain.clone(),
-            None => {
-                let working_dir = self.config.get_burn_db_path();
-                Burnchain::new(&working_dir, "mockstack", "hyperchain").unwrap_or_else(|e| {
-                    error!("Failed to instantiate burnchain: {}", e);
-                    panic!()
-                })
-            }
-        }
+        self.burnchain.clone()
     }
 
     fn wait_for_sortitions(&mut self, height_to_wait: Option<u64>) -> Result<BurnchainTip, Error> {

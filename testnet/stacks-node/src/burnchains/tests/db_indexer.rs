@@ -14,7 +14,7 @@ fn make_test_config() -> BurnchainConfig {
     config.first_burn_header_height = 1;
     config.first_burn_header_hash =
         "0101010101010101010101010101010101010101010101010101010101010101".to_string();
-    config.first_burn_header_timestamp = 1u64;
+    config.first_burn_header_timestamp = 0u64;
     config
 }
 
