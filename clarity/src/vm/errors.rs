@@ -16,7 +16,9 @@
 
 use crate::types::chainstate::BlockHeaderHash;
 pub use crate::vm::analysis::errors::CheckErrors;
-pub use crate::vm::analysis::errors::{check_argument_count, check_arguments_at_least};
+pub use crate::vm::analysis::errors::{
+    check_argument_count, check_arguments_at_least, check_arguments_at_most,
+};
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
