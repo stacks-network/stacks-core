@@ -523,6 +523,7 @@ fn mockstack_integration_test() {
 
 /// Test that we can set a "first burn block" far in the future and then listen until we hear it.
 #[test]
+#[ignore]
 fn mockstack_wait_for_first_block() {
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
