@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -83,13 +84,13 @@ lazy_static! {
         }])),
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     });
-    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
+    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
-fn make_mock_byte_string(from: u64) -> [u8; 32] {
-    let mut output = [1; 32];
-    output[0..8].copy_from_slice(&from.to_be_bytes());
+fn make_mock_byte_string(from: i64) -> [u8; 32] {
+    let mut output = [0; 32];
+    output[24..32].copy_from_slice(&from.to_be_bytes());
     output
 }
 
@@ -231,9 +232,10 @@ impl MockController {
             }
         });
 
-        let parent_index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block - 1));
+        let parent_index_block_hash =
+            StacksBlockId(make_mock_byte_string(*next_burn_block as i64 - 1));
 
-        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block));
+        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block as i64));
 
         let new_block = NewBlock {
             block_height: *next_burn_block,

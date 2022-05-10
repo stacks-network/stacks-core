@@ -298,8 +298,8 @@ pub fn next_block_and_wait(
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
-    eprintln!(
-        "Issuing block at {}, waiting for bump ({})",
+    info!(
+        "next_block_and_wait: Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
         current
     );
@@ -312,8 +312,8 @@ pub fn next_block_and_wait(
         }
         thread::sleep(Duration::from_millis(100));
     }
-    eprintln!(
-        "Block bumped at {} ({})",
+    info!(
+        "next_block_and_wait: Block bumped at {} ({})",
         get_epoch_time_secs(),
         blocks_processed.load(Ordering::SeqCst)
     );
@@ -461,9 +461,8 @@ fn mockstack_integration_test() {
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
     conf.burnchain.first_burn_header_hash =
-        "0000000000000000010101010101010101010101010101010101010101010101".to_string();
-    conf.burnchain.first_burn_header_height = 0;
-    conf.burnchain.first_burn_header_timestamp = 0;
+        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
+    conf.burnchain.first_burn_header_height = 1;
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -480,6 +479,8 @@ fn mockstack_integration_test() {
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
+    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block();
 
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -516,6 +517,40 @@ fn mockstack_integration_test() {
         assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
         assert!(res.contains("stacks_node_active_miners_total 1"));
     }
+
+    channel.stop_chains_coordinator();
+}
+
+/// Test that we can set a "first burn block" far in the future and then listen until we hear it.
+#[test]
+fn mockstack_wait_for_first_block() {
+    let (mut conf, miner_account) = mockstack_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000000000000000000000000000000000000000000000000010".to_string();
+    conf.burnchain.first_burn_header_height = 16;
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    wait_for_runloop(&blocks_processed);
+
+    // Walk up 16 + 1 blocks.
+    btc_regtest_controller.next_block();
+    for i in 0..16 {
+        btc_regtest_controller.next_block();
+    }
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     channel.stop_chains_coordinator();
 }
@@ -631,9 +666,8 @@ const FAUCET_CONTRACT: &'static str = "
 fn faucet_test() {
     let (mut conf, miner_account) = mockstack_test_conf();
     conf.burnchain.first_burn_header_hash =
-        "0000000000000000010101010101010101010101010101010101010101010101".to_string();
-    conf.burnchain.first_burn_header_height = 0;
-    conf.burnchain.first_burn_header_timestamp = 0;
+        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
+    conf.burnchain.first_burn_header_height = 1;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -663,6 +697,9 @@ fn faucet_test() {
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
+
+    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block();
 
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

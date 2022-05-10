@@ -225,7 +225,7 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
     ///   1) we have already added a block
     ///   2) the new block's header hash is `self.first_burn_header_hash`
     fn push_block(&self, new_block: NewBlock) -> Result<(), BurnchainError> {
-        debug!("BurnchainChannel::push_block pushing: {:?}", &new_block);
+        debug!("BurnchainChannel: try pushing; new_block {:?}", &new_block);
         // Re-open the connection.
         let open_flags = OpenFlags::SQLITE_OPEN_READ_WRITE;
         let mut connection = sqlite_open(&self.output_db_path, open_flags, true)?;
@@ -236,8 +236,18 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         // In order to record this block, we either: 1) have already started recording, or 2) this
         // block has the "first hash" we're looking for.
         if current_canonical_tip_opt.is_none() {
-            if header.parent_header_hash != self.first_burn_header_hash {
+            info!(
+                "BurnchainChannel: have not written any blocks yet; trying burn header hash {:?}",
+                &header.header_hash
+            );
+            if header.header_hash != self.first_burn_header_hash {
+                info!("BurnchainChannel: not the first block we are looking for; header.header_hash {:?}, self.first_burn_header_hash {:?}", &header.header_hash, &self.first_burn_header_hash);
                 return Ok(());
+            } else {
+                info!(
+                    "BurnchainChannel: wakes up after finding {:?}",
+                    &header.header_hash
+                );
             }
         }
 
