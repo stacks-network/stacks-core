@@ -3086,16 +3086,7 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(
-            5,
-            3,
-            3,
-            25,
-            5,
-            u64::max_value(),
-            u64::max_value(),
-            u32::max_value(),
-        );
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u32::max_value());
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -3113,16 +3104,7 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(
-            5,
-            3,
-            3,
-            25,
-            5,
-            u64::max_value(),
-            u64::max_value(),
-            u32::max_value(),
-        );
+        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u32::max_value());
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {
