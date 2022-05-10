@@ -51,6 +51,7 @@ pub enum SerializationError {
     BadTypeError(CheckErrors),
     DeserializationError(String),
     DeserializeExpected(TypeSignature),
+    LeftoverBytesInDeserialization,
 }
 
 lazy_static! {
@@ -74,6 +75,9 @@ impl std::fmt::Display for SerializationError {
                 "Deserialization expected the type of the input to be: {}",
                 e
             ),
+            SerializationError::LeftoverBytesInDeserialization => {
+                write!(f, "Deserialization error: bytes left over in buffer")
+            }
         }
     }
 }
@@ -422,6 +426,17 @@ impl Value {
         Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
     }
 
+    /// Deserialize just like `deserialize_read` but also
+    ///  return the bytes read
+    pub fn deserialize_read_count<R: Read>(
+        r: &mut R,
+        expected_type: Option<&TypeSignature>,
+    ) -> Result<(Value, u64), SerializationError> {
+        let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
+        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
+            .map(|value| (value, bound_reader.num_read()))
+    }
+
     fn inner_deserialize_read<R: Read>(
         r: &mut R,
         expected_type: Option<&TypeSignature>,
@@ -737,13 +752,10 @@ impl Value {
         Ok(())
     }
 
-    /// This function attempts to deserialize a hex string into a Clarity Value.
-    ///   The `expected_type` parameter determines whether or not the deserializer should expect (and enforce)
-    ///   a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    ///   have their max-length and other type information set by the type declarations in the contract.
-    ///   If passed `None`, the deserializer will construct the values as if they were literals in the contract, e.g.,
-    ///     list max length = the length of the list.
-
+    /// This function attempts to deserialize a byte buffer into a Clarity Value.
+    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
+    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
+    /// have their max-length and other type information set by the type declarations in the contract.
     pub fn try_deserialize_bytes(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
@@ -751,12 +763,38 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected))
     }
 
+    /// This function attempts to deserialize a hex string into a Clarity Value.
+    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
+    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
+    /// have their max-length and other type information set by the type declarations in the contract.
     pub fn try_deserialize_hex(
         hex: &str,
         expected: &TypeSignature,
     ) -> Result<Value, SerializationError> {
         let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
         Value::try_deserialize_bytes(&mut data, expected)
+    }
+
+    /// This function attempts to deserialize a byte buffer into a
+    /// Clarity Value, while ensuring that the whole byte buffer is
+    /// consumed by the deserialization, erroring if it is not. The
+    /// `expected_type` parameter tells the deserializer to expect
+    /// (and enforce) a particular type. `ClarityDB` uses this to
+    /// ensure that lists, tuples, etc. loaded from the database have
+    /// their max-length and other type information set by the type
+    /// declarations in the contract.
+    pub fn try_deserialize_bytes_exact(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+    ) -> Result<Value, SerializationError> {
+        let input_length = bytes.len();
+        let (value, read_count) =
+            Value::deserialize_read_count(&mut bytes.as_slice(), Some(expected))?;
+        if read_count != (input_length as u64) {
+            Err(SerializationError::LeftoverBytesInDeserialization)
+        } else {
+            Ok(value)
+        }
     }
 
     pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {

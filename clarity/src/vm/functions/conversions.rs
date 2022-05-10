@@ -256,7 +256,7 @@ pub fn from_consensus_buff(
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in
     // Clarity (as a none return).
-    let result = match Value::try_deserialize_bytes(&input_bytes, &type_arg) {
+    let result = match Value::try_deserialize_bytes_exact(&input_bytes, &type_arg) {
         Ok(value) => value,
         Err(_) => return Ok(Value::none()),
     };
