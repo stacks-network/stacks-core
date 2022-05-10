@@ -247,7 +247,10 @@ impl MockController {
 
         *next_burn_block += 1;
 
-        info!("Layer 1 block mined, {:?}", &new_block);
+        info!("Layer 1 block mined";
+            "block_height" => new_block.block_height,
+            "index_block_hash" => %new_block.index_block_hash,
+            "parent_index_block_hash" => %new_block.parent_index_block_hash);
 
         self.indexer
             .get_channel()

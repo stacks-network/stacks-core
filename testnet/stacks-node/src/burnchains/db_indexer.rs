@@ -237,16 +237,17 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
         // block has the "first hash" we're looking for.
         if current_canonical_tip_opt.is_none() {
             info!(
-                "BurnchainChannel: have not written any blocks yet; trying burn header hash {:?}",
-                &header.header_hash
+                "BurnchainChannel: have not written any blocks yet";
+                "header_hash" => %header.header_hash
             );
             if header.header_hash != self.first_burn_header_hash {
-                info!("BurnchainChannel: not the first block we are looking for; header.header_hash {:?}, self.first_burn_header_hash {:?}", &header.header_hash, &self.first_burn_header_hash);
+                info!("BurnchainChannel: not the first block we are looking for";
+                "header_hash"=> %self.first_burn_header_hash, "self.first_burn_header_hash" => %self.first_burn_header_hash);
                 return Ok(());
             } else {
                 info!(
-                    "BurnchainChannel: wakes up after finding {:?}",
-                    &header.header_hash
+                    "BurnchainChannel: wakes up after finding first header";
+                    "header_hash" => %header.header_hash
                 );
             }
         }
