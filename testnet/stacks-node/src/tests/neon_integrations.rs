@@ -52,6 +52,10 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
+    conf.burnchain.first_burn_header_height = 1;
+
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
@@ -460,9 +464,6 @@ fn mockstack_integration_test() {
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
-    conf.burnchain.first_burn_header_height = 1;
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -666,9 +667,6 @@ const FAUCET_CONTRACT: &'static str = "
 #[test]
 fn faucet_test() {
     let (mut conf, miner_account) = mockstack_test_conf();
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
-    conf.burnchain.first_burn_header_height = 1;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
