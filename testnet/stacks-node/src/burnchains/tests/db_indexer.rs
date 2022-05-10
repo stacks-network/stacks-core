@@ -11,9 +11,9 @@ fn make_test_config() -> BurnchainConfig {
     let mut config = BurnchainConfig::default();
     config.chain = "stacks_layer_1".to_string();
     config.mode = "hyperchain".to_string();
-    config.first_burn_header_height = 0;
+    config.first_burn_header_height = 1;
     config.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        "0101010101010101010101010101010101010101010101010101010101010101".to_string();
     config.first_burn_header_timestamp = 0u64;
     config
 }
