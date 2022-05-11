@@ -2465,25 +2465,24 @@ impl SortitionDB {
         conn: &Connection,
         parent_l1_block_id: &BurnchainHeaderHash,
         l1_block_id: &BurnchainHeaderHash,
-        get_ops_in_block: F
+        get_ops_in_block: F,
     ) -> Result<Vec<Op>, db_error>
-    where F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>
+    where
+        F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>,
     {
         let mut curr_block_id = l1_block_id.clone();
         let mut ops = get_ops_in_block(conn, &curr_block_id)?;
         let mut curr_sortition_id = SortitionId::new(&curr_block_id);
 
         while curr_block_id != *parent_l1_block_id {
-            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
-                db_error::NotFoundError
-            )?;
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
+                .ok_or(db_error::NotFoundError)?;
             curr_block_id = curr_snapshot.parent_burn_header_hash;
             let curr_ops = get_ops_in_block(conn, &curr_block_id)?;
             ops.extend(curr_ops.into_iter());
 
             curr_sortition_id = curr_snapshot.parent_sortition_id;
         }
-
 
         Ok(ops)
     }
