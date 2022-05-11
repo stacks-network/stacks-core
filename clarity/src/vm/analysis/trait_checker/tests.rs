@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::errors::CheckErrors;
-use vm::analysis::mem_type_check;
-use vm::analysis::type_check;
-use vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use vm::ast::errors::ParseErrors;
-use vm::ast::{build_ast, parse};
-use vm::database::MemoryBackingStore;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::mem_type_check;
+use crate::vm::analysis::type_check;
+use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::{build_ast, parse};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 #[test]
 fn test_dynamic_dispatch_by_defining_trait() {
@@ -1287,4 +1287,39 @@ fn test_return_trait_with_contract_of_wrapped_in_let() {
         type_check(&target_contract_id, &mut target_contract, db, true)
     })
     .unwrap();
+}
+
+#[test]
+fn test_trait_contract_not_found() {
+    let trait_contract_src = "(define-trait my-trait
+        ((hello (int) (response uint uint)))
+    )
+    (define-private (pass-trait (a <my-trait>))
+        (print a)
+    )
+    (define-public (call-it)
+        (ok (pass-trait .impl-contract))
+    )";
+    let impl_contract_src = "(define-public (hello (a int))
+    (ok u0)
+)";
+
+    let trait_contract_id = QualifiedContractIdentifier::local("trait-contract").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("impl-contract").unwrap();
+
+    let mut impl_contract = parse(&impl_contract_id, impl_contract_src).unwrap();
+    let mut trait_contract = parse(&trait_contract_id, trait_contract_src).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db
+        .execute(|db| {
+            type_check(&impl_contract_id, &mut impl_contract, db, true)?;
+            type_check(&trait_contract_id, &mut trait_contract, db, true)
+        })
+        .unwrap_err();
+    match err.err {
+        CheckErrors::NoSuchContract(contract) => assert!(contract.ends_with(".trait-contract")),
+        _ => panic!("{:?}", err),
+    }
 }

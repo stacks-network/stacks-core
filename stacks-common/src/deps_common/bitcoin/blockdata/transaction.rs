@@ -27,12 +27,14 @@ use std::default::Default;
 use std::fmt;
 use std::io::Write;
 
-use deps_common::bitcoin::blockdata::script::Script;
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable, VarInt};
-use deps_common::bitcoin::network::serialize::{
+use crate::deps_common::bitcoin::blockdata::script::Script;
+use crate::deps_common::bitcoin::network::encodable::{
+    ConsensusDecodable, ConsensusEncodable, VarInt,
+};
+use crate::deps_common::bitcoin::network::serialize::{
     self, serialize, BitcoinHash, SimpleDecoder, SimpleEncoder,
 };
-use deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
 /// A reference to a transaction output
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -173,7 +175,7 @@ impl Transaction {
     /// this will give the correct txid (not including witnesses) while `bitcoin_hash`
     /// will also hash witnesses.
     pub fn txid(&self) -> Sha256dHash {
-        use deps_common::bitcoin::util::hash::Sha256dEncoder;
+        use crate::deps_common::bitcoin::util::hash::Sha256dEncoder;
 
         let mut enc = Sha256dEncoder::new();
         self.version.consensus_encode(&mut enc).unwrap();
@@ -331,7 +333,7 @@ impl Transaction {
 
 impl BitcoinHash for Transaction {
     fn bitcoin_hash(&self) -> Sha256dHash {
-        use deps_common::bitcoin::util::hash::Sha256dEncoder;
+        use crate::deps_common::bitcoin::util::hash::Sha256dEncoder;
 
         let mut enc = Sha256dEncoder::new();
         self.consensus_encode(&mut enc).unwrap();
@@ -510,12 +512,12 @@ impl SigHashType {
 mod tests {
     use super::{Transaction, TxIn};
 
-    use deps_common;
-    use deps_common::bitcoin::blockdata::script::Script;
-    use deps_common::bitcoin::network::serialize::deserialize;
-    use deps_common::bitcoin::network::serialize::BitcoinHash;
-    use deps_common::bitcoin::util::hash::Sha256dHash;
-    use util::hash::hex_bytes;
+    use crate::deps_common;
+    use crate::deps_common::bitcoin::blockdata::script::Script;
+    use crate::deps_common::bitcoin::network::serialize::deserialize;
+    use crate::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+    use crate::util::hash::hex_bytes;
 
     #[test]
     fn test_txin() {
@@ -525,8 +527,8 @@ mod tests {
 
     #[test]
     fn test_is_coinbase() {
-        use deps_common::bitcoin::blockdata::constants;
-        use deps_common::bitcoin::network::constants::Network;
+        use crate::deps_common::bitcoin::blockdata::constants;
+        use crate::deps_common::bitcoin::network::constants::Network;
 
         let genesis = deps_common::bitcoin::blockdata::constants::genesis_block(Network::Bitcoin);
         assert!(genesis.txdata[0].is_coin_base());

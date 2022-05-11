@@ -1,4 +1,4 @@
-name: stacks-blockchain
+name: CI
 
 # Only run when:
 #   - PRs are opened against the master branch
@@ -18,24 +18,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Notify Slack channel of workflow start
-  notify-start:
-    runs-on: ubuntu-latest
-    # Only run on non-PR events or only PRs that aren't from forks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    outputs:
-      slack_message_id: ${{ steps.slack.outputs.message_id }}
-    steps:
-      - name: Notify slack start
-        id: slack
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        uses: voxmedia/github-action-slack-notify-build@v1.1.2
-        with:
-          channel: devops-notify
-          status: STARTING
-          color: warning
-
   # Run unit tests with code coverage
   unit-tests:
     runs-on: ubuntu-latest

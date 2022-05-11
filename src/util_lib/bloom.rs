@@ -19,19 +19,19 @@ use std::collections::HashMap;
 use std::hash::Hasher;
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
-use codec::Error as codec_error;
-use codec::StacksMessageCodec;
-use codec::{read_next, write_next};
+use stacks_common::codec::Error as codec_error;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, write_next};
 
-use util_lib::db::query_expect_row;
-use util_lib::db::Error as db_error;
-use util_lib::db::{DBConn, DBTx};
+use crate::util_lib::db::query_expect_row;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{DBConn, DBTx};
 
-use util::hash::to_hex;
+use stacks_common::util::hash::to_hex;
 
 use rusqlite::blob::Blob;
 use rusqlite::Error as sqlite_error;
@@ -616,7 +616,7 @@ pub mod test {
 
     use rusqlite::OpenFlags;
 
-    use util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
+    use crate::util_lib::db::{sql_pragma, tx_begin_immediate, tx_busy_handler, DBConn, DBTx};
 
     pub fn setup_bloom_counter(db_name: &str) -> DBConn {
         let db_path = format!("/tmp/test_bloom_filter_{}.db", db_name);

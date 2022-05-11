@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::types::signatures::{ListTypeData, SequenceSubtype};
-use vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use vm::types::{TypeSignature, Value};
+use crate::vm::types::signatures::{ListTypeData, SequenceSubtype};
+use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
+use crate::vm::types::{TypeSignature, Value};
 
+use crate::vm::analysis::errors::CheckError;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::execute;
 use std::convert::TryInto;
-use vm::analysis::errors::CheckError;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
 
 #[test]
 fn test_simple_list_admission() {

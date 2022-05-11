@@ -14,15 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::hash::hex_bytes;
-use vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
-use vm::contracts::Contract;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::events::StacksTransactionEvent;
-use vm::execute as vm_execute;
-use vm::representations::SymbolicExpression;
-use vm::tests::{execute, is_committed, is_err_code, symbols_from_values, with_memory_environment};
-use vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value};
+use crate::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use crate::vm::contracts::Contract;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::events::StacksTransactionEvent;
+use crate::vm::execute as vm_execute;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::tests::{
+    execute, is_committed, is_err_code, symbols_from_values, with_memory_environment,
+};
+use crate::vm::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
+};
+use stacks_common::util::hash::hex_bytes;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))

@@ -10,8 +10,8 @@ RUN cargo build
 
 RUN mkdir /out
 
-RUN /src/target/debug/blockstack-core docgen | jq . > /out/clarity-reference.json
-RUN /src/target/debug/blockstack-core docgen_boot | jq . > /out/boot-contracts-reference.json
+RUN /src/target/debug/stacks-inspect docgen | jq . > /out/clarity-reference.json
+RUN /src/target/debug/stacks-inspect docgen_boot | jq . > /out/boot-contracts-reference.json
 
 FROM scratch AS export-stage
 COPY --from=build /out/clarity-reference.json /

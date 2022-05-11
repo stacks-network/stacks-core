@@ -24,31 +24,31 @@ use std::mem;
 use rand;
 use rand::Rng;
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
-use burnchains::BurnchainView;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::MAX_BLOCK_LEN;
-use codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
-use core::PEER_VERSION_TESTNET;
-use net::db::LocalPeer;
-use net::Error as net_error;
-use net::*;
-use util::hash::to_hex;
-use util::hash::DoubleSha256;
-use util::hash::Hash160;
-use util::hash::MerkleHashFunc;
-use util::log;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksBlock;
+use crate::chainstate::stacks::StacksMicroblock;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::net::db::LocalPeer;
+use crate::net::Error as net_error;
+use crate::net::*;
+use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::MerkleHashFunc;
+use stacks_common::util::log;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
@@ -91,7 +91,7 @@ impl Preamble {
         privkey: &Secp256k1PrivateKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the premable with a blank signature
         let old_signature = self.signature.clone();
@@ -101,10 +101,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = old_signature;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privkey
             .sign(&digest_bits)
@@ -122,7 +122,7 @@ impl Preamble {
         pubkey: &Secp256k1PublicKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the preamble with a blank signature
         let sig_bits = self.signature.clone();
@@ -132,10 +132,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = sig_bits;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let res = pubkey
             .verify(&digest_bits, &self.signature)
@@ -1289,9 +1289,9 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
-    use codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
-    use util::hash::hex_bytes;
-    use util::secp256k1::*;
+    use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::secp256k1::*;
 
     use super::*;
 

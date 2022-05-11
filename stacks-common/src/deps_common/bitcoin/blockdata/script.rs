@@ -29,12 +29,12 @@ use std::{error, fmt};
 
 use serde;
 
-use deps_common::bitcoin::blockdata::opcodes;
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::blockdata::opcodes;
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 // careful...
-use deps_common::bitcoin::util::hash::Hash160;
+use crate::deps_common::bitcoin::util::hash::Hash160;
 
 use sha2::Digest;
 use sha2::Sha256;
@@ -324,8 +324,8 @@ impl Script {
     pub fn to_v0_p2wsh(&self) -> Script {
         let mut tmp = [0; 32];
         let mut sha2 = Sha256::new();
-        sha2.input(&self.0);
-        tmp.copy_from_slice(&sha2.result().as_slice());
+        sha2.update(&self.0);
+        tmp.copy_from_slice(&sha2.finalize().as_slice());
         Builder::new().push_int(0).push_slice(&tmp).into_script()
     }
 
@@ -702,13 +702,13 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Script {
 
 #[cfg(test)]
 mod test {
-    use util::hash::hex_bytes as hex_decode;
+    use crate::util::hash::hex_bytes as hex_decode;
 
     use super::build_scriptint;
     use super::*;
 
-    use deps_common::bitcoin::blockdata::opcodes;
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::blockdata::opcodes;
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn script() {

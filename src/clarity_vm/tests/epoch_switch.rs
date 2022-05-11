@@ -16,33 +16,33 @@
 
 use rusqlite::{Connection, OptionalExtension};
 
-use chainstate::burn::db::sortdb::{
+use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
-use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use chainstate::stacks::index::MarfTrieId;
-use util_lib::db::{DBConn, FromRow};
-use vm::analysis::AnalysisDatabase;
-use vm::database::{
+use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::{DBConn, FromRow};
+use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
 };
-use vm::errors::{InterpreterResult, RuntimeErrorType};
-use vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
+use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
 use crate::burnchains::PoxConstants;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
-use chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 
-use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 
 use rand::thread_rng;
 use rand::RngCore;
 
-use util::hash::to_hex;
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::hash::to_hex;
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,
@@ -67,7 +67,7 @@ fn test_burnstatedb_epoch(
 
 #[test]
 fn test_vm_epoch_switch() {
-    use chainstate::burn::db::tests::test_append_snapshot;
+    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
 
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 32];

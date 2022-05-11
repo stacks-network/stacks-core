@@ -15,17 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::types::chainstate::BlockHeaderHash;
+pub use crate::vm::analysis::errors::CheckErrors;
+pub use crate::vm::analysis::errors::{check_argument_count, check_arguments_at_least};
+use crate::vm::ast::errors::ParseError;
+use crate::vm::contexts::StackTrace;
+use crate::vm::costs::CostErrors;
+use crate::vm::types::{TypeSignature, Value};
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use std::error;
 use std::error::Error as ErrorTrait;
 use std::fmt;
-pub use vm::analysis::errors::CheckErrors;
-pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
-use vm::ast::errors::ParseError;
-use vm::contexts::StackTrace;
-use vm::costs::CostErrors;
-use vm::types::{TypeSignature, Value};
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -221,7 +221,7 @@ impl Into<Value> for ShortReturnType {
 #[cfg(test)]
 mod test {
     use super::*;
-    use vm::execute;
+    use crate::vm::execute;
 
     #[test]
     fn error_formats() {

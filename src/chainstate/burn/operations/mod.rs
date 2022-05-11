@@ -21,31 +21,31 @@ use std::fmt;
 use std::fs;
 use std::io;
 
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::Error as BurnchainError;
+use crate::burnchains::Txid;
+use crate::burnchains::{Address, PublicKey};
+use crate::burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::leader_block_commit::{
+    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::VRFSeed;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::Error as BurnchainError;
-use burnchains::Txid;
-use burnchains::{Address, PublicKey};
-use burnchains::{BurnchainRecipient, BurnchainSigner, BurnchainTransaction};
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::operations::leader_block_commit::{
-    MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
-};
 
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use util::hash::Hash160;
-use util::hash::Sha512Trunc256Sum;
-use util::secp256k1::MessageSignature;
-use util::vrf::VRFPublicKey;
-use util_lib::db::DBConn;
-use util_lib::db::DBTx;
-use util_lib::db::Error as db_error;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};

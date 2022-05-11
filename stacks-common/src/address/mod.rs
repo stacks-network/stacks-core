@@ -17,12 +17,12 @@
 use std::error;
 use std::fmt;
 
-use types::PublicKey;
+use crate::types::PublicKey;
 
-use deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
-use deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
+use crate::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use crate::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};
 
-use util::hash::Hash160;
+use crate::util::hash::Hash160;
 
 use sha2::Digest;
 use sha2::Sha256;
@@ -31,6 +31,8 @@ use std::convert::TryFrom;
 
 pub mod b58;
 pub mod c32;
+#[cfg(test)]
+pub mod c32_old;
 
 pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
 pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
@@ -196,8 +198,8 @@ fn to_bits_p2sh_p2wsh<K: PublicKey>(num_sigs: usize, pubkeys: &Vec<K>) -> Hash16
     let mut digest = Sha256::new();
     let mut d = [0u8; 32];
 
-    digest.input(bldr.into_script().as_bytes());
-    d.copy_from_slice(digest.result().as_slice());
+    digest.update(bldr.into_script().as_bytes());
+    d.copy_from_slice(digest.finalize().as_slice());
 
     let ws = Builder::new().push_int(0).push_slice(&d).into_script();
     let ws_hash = Hash160::from_data(&ws.as_bytes());
@@ -223,9 +225,9 @@ pub fn public_keys_to_address_hash<K: PublicKey>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use util::hash::*;
-    use util::log;
-    use util::secp256k1::Secp256k1PublicKey as PubKey;
+    use crate::util::hash::*;
+    use crate::util::log;
+    use crate::util::secp256k1::Secp256k1PublicKey as PubKey;
 
     struct PubkeyFixture {
         keys: Vec<PubKey>,

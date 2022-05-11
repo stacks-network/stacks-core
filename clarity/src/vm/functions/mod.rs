@@ -14,26 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use address::AddressHashMode;
-use util::hash;
-use vm::callables::{CallableType, NativeHandle};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{
+use crate::vm::callables::{CallableType, NativeHandle};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
-use vm::errors::{
+use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
-pub use vm::functions::assets::stx_transfer_consolidated;
-use vm::is_reserved;
-use vm::representations::SymbolicExpressionType::{Atom, List};
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{
+pub use crate::vm::functions::assets::stx_transfer_consolidated;
+use crate::vm::is_reserved;
+use crate::vm::representations::SymbolicExpressionType::{Atom, List};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
-use vm::{eval, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash;
 
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
@@ -155,8 +155,8 @@ define_named_enum!(NativeFunctions {
 });
 
 pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
-    use vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
-    use vm::functions::NativeFunctions::*;
+    use crate::vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
+    use crate::vm::functions::NativeFunctions::*;
     if let Some(native_function) = NativeFunctions::lookup_by_name(name) {
         let callable = match native_function {
             Add => NativeFunction(

@@ -17,11 +17,11 @@
 use std::collections::HashMap;
 use std::{clone::Clone, cmp::Eq, hash::Hash};
 
-use util::hash::Sha512Trunc256Sum;
-use vm::database::clarity_store::make_contract_hash_key;
-use vm::errors::InterpreterResult as Result;
-use vm::types::{QualifiedContractIdentifier, TypeSignature};
-use vm::Value;
+use crate::vm::database::clarity_store::make_contract_hash_key;
+use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::Value;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::types::chainstate::StacksBlockId;
 

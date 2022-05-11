@@ -10,6 +10,8 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Common modules for blockstack_lib, libclarity"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
+resolver = "2"
+edition = "2021"
 
 [lib]
 name = "stacks_common"
@@ -20,11 +22,10 @@ rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
-sha3 = "0.8.2"
-ripemd160 = "0.8.0"
+sha3 = "0.10.1"
+ripemd = "0.1.1"
 lazy_static = "1.4.0"
 percent-encoding = "2.1.0"
-sha2 = "0.8.0"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
@@ -36,7 +37,7 @@ version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.secp256k1]
-version = "0.19.0"
+version = "0.21.0"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
@@ -66,5 +67,8 @@ developer-mode = []
 slog_json = ["slog-json"]
 testing = []
 
-[target.'cfg(all(target_arch = "x86_64", not(target_env = "msvc")))'.dependencies]
-sha2-asm = "0.5.3"
+[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+
+[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), target_env = "msvc"))'.dependencies]
+sha2 = { version = "0.10" }

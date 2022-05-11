@@ -34,7 +34,7 @@ extern crate integer_sqrt;
 extern crate mio;
 extern crate percent_encoding;
 extern crate regex;
-extern crate ripemd160;
+extern crate ripemd;
 extern crate sha2;
 extern crate sha3;
 extern crate siphasher;

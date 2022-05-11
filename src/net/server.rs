@@ -31,27 +31,27 @@ use std::sync::mpsc::SendError;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 
-use net::atlas::AtlasDB;
-use net::connection::*;
-use net::db::*;
-use net::http::*;
-use net::p2p::{PeerMap, PeerNetwork};
-use net::poll::*;
-use net::rpc::*;
-use net::Error as net_error;
-use net::*;
+use crate::net::atlas::AtlasDB;
+use crate::net::connection::*;
+use crate::net::db::*;
+use crate::net::http::*;
+use crate::net::p2p::{PeerMap, PeerNetwork};
+use crate::net::poll::*;
+use crate::net::rpc::*;
+use crate::net::Error as net_error;
+use crate::net::*;
 
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::stacks::db::StacksChainState;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::db::StacksChainState;
 
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
 
 use mio::net as mio_net;
 
-use util::get_epoch_time_secs;
+use stacks_common::util::get_epoch_time_secs;
 
-use core::mempool::*;
+use crate::core::mempool::*;
 
 #[derive(Debug)]
 pub struct HttpPeer {
@@ -723,25 +723,25 @@ impl HttpPeer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::rpc::*;
-    use net::test::*;
-    use net::*;
+    use crate::net::codec::*;
+    use crate::net::http::*;
+    use crate::net::rpc::*;
+    use crate::net::test::*;
+    use crate::net::*;
     use std::cell::RefCell;
 
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::BurnchainView;
     use crate::types::chainstate::BurnchainHeaderHash;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainView;
 
+    use crate::burnchains::*;
+    use crate::chainstate::stacks::db::blocks::test::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chain_error;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::*;
     use crate::types::chainstate::BlockHeaderHash;
-    use burnchains::*;
-    use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chain_error;
-    use chainstate::stacks::*;
-    use chainstate::stacks::*;
 
     use std::sync::mpsc::sync_channel;
     use std::sync::mpsc::Receiver;
@@ -755,17 +755,17 @@ mod test {
     use std::net::SocketAddr;
     use std::net::TcpStream;
 
-    use util::get_epoch_time_secs;
-    use util::pipe::*;
-    use util::sleep_ms;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::sleep_ms;
 
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::StacksBlockHeader;
-    use codec::MAX_MESSAGE_LEN;
-    use vm::contracts::Contract;
-    use vm::representations::ClarityName;
-    use vm::representations::ContractName;
-    use vm::types::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::StacksBlockHeader;
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::representations::ClarityName;
+    use clarity::vm::representations::ContractName;
+    use clarity::vm::types::*;
+    use stacks_common::codec::MAX_MESSAGE_LEN;
 
     fn test_http_server<F, C>(
         test_name: &str,
@@ -817,7 +817,7 @@ mod test {
         let mut client_threads = vec![];
         let mut client_handles = vec![];
         let (mut chainstate, _) =
-            StacksChainState::open(false, network_id, &chainstate_path).unwrap();
+            StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
         for i in 0..num_clients {
             let request = make_request(i, &mut chainstate);
             client_requests.push(request);
@@ -894,6 +894,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51001),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -923,6 +924,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51011),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -967,10 +969,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51021,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51021),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;
@@ -1031,10 +1033,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51031,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51031),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;
@@ -1086,6 +1088,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51041),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1141,6 +1144,7 @@ mod test {
             |client_id, _| {
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51051),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1210,10 +1214,10 @@ mod test {
                 let signed_contract_tx = signer.get_tx().unwrap();
 
                 let mut request = HttpRequestType::PostTransaction(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51061,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51061),
+                        None,
+                    ),
                     signed_contract_tx,
                     None,
                 );
@@ -1313,6 +1317,7 @@ mod test {
                 // send a different request
                 let mut request = HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
                     PeerHost::from_host_port("127.0.0.1".to_string(), 51083),
+                    None,
                 ));
                 request.metadata_mut().keep_alive = false;
 
@@ -1361,10 +1366,10 @@ mod test {
                 );
 
                 let mut request = HttpRequestType::GetBlock(
-                    HttpRequestMetadata::from_host(PeerHost::from_host_port(
-                        "127.0.0.1".to_string(),
-                        51071,
-                    )),
+                    HttpRequestMetadata::from_host(
+                        PeerHost::from_host_port("127.0.0.1".to_string(), 51071),
+                        None,
+                    ),
                     index_block_hash,
                 );
                 request.metadata_mut().keep_alive = false;

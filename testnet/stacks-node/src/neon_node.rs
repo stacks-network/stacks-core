@@ -6,6 +6,7 @@ use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use crate::burnchains::BurnchainController;
@@ -570,6 +571,7 @@ fn spawn_peer(
         is_mainnet,
         config.burnchain.chain_id,
         &stacks_chainstate_path,
+        Some(config.node.get_marf_opts()),
     )
     .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
@@ -637,7 +639,10 @@ fn spawn_peer(
                 };
 
                 let mut expected_attachments = match attachments_rx.try_recv() {
-                    Ok(expected_attachments) => expected_attachments,
+                    Ok(expected_attachments) => {
+                        debug!("Atlas: received attachments: {:?}", &expected_attachments);
+                        expected_attachments
+                    }
                     _ => {
                         trace!("Atlas: attachment channel is empty");
                         HashSet::new()
@@ -734,7 +739,10 @@ fn spawn_peer(
                 }
             }
 
-            relay_channel.try_send(RelayerDirective::Exit).unwrap();
+            while let Err(TrySendError::Full(_)) = relay_channel.try_send(RelayerDirective::Exit) {
+                warn!("Failed to direct relayer thread to exit, sleeping and trying again");
+                thread::sleep(Duration::from_secs(5));
+            }
             info!("P2P thread exit!");
         })
         .unwrap();
@@ -802,8 +810,13 @@ fn spawn_miner_relayer(
     //   should address via #1449
     let mut sortdb = SortitionDB::open(&burn_db_path, true).map_err(NetError::DBError)?;
 
-    let (mut chainstate, _) = StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path)
-        .map_err(|e| NetError::ChainstateError(e.to_string()))?;
+    let (mut chainstate, _) = StacksChainState::open(
+        is_mainnet,
+        chain_id,
+        &stacks_chainstate_path,
+        Some(config.node.get_marf_opts()),
+    )
+    .map_err(|e| NetError::ChainstateError(e.to_string()))?;
 
     let mut last_mined_blocks: HashMap<
         BurnchainHeaderHash,
@@ -1009,7 +1022,8 @@ fn spawn_miner_relayer(
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
                         if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
-                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})", issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
+                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
+                                    issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
                             continue;
                         }
                     }
@@ -1242,6 +1256,8 @@ impl StacksNode {
             // bootstrap nodes *always* allowed
             let mut tx = peerdb.tx_begin().unwrap();
             for initial_neighbor in initial_neighbors.iter() {
+                // update peer in case public key changed
+                PeerDB::update_peer(&mut tx, &initial_neighbor).unwrap();
                 PeerDB::set_allow_peer(
                     &mut tx,
                     initial_neighbor.addr.network_id,

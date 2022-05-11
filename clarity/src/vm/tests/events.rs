@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::contexts::OwnedEnvironment;
-use vm::costs::ExecutionCost;
-use vm::events::*;
-use vm::tests::execute;
-use vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::events::*;
+use crate::vm::tests::execute;
+use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
 
-use types::StacksEpochId;
+use stacks_common::types::StacksEpochId;
 
-use vm::database::MemoryBackingStore;
-use vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();

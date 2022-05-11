@@ -22,29 +22,29 @@ use rand::seq::index::sample;
 use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
-use ripemd160::Ripemd160;
+use ripemd::Ripemd160;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 use sha2::Sha256;
 
-use burnchains::Address;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use core::SYSTEM_FORK_SET_VERSION;
-use util::hash::Hash32;
-use util::hash::Sha512Trunc256Sum;
-use util::hash::{to_hex, Hash160};
-use util::log;
-use util::uint::Uint256;
-use util::vrf::VRFProof;
-use util_lib::db::Error as db_error;
+use crate::burnchains::Address;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::core::SYSTEM_FORK_SET_VERSION;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::hash::Hash32;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::log;
+use stacks_common::util::uint::Uint256;
+use stacks_common::util::vrf::VRFProof;
 
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed};
 
-pub use types::chainstate::ConsensusHash;
+pub use stacks_common::types::chainstate::ConsensusHash;
 
 /// This module contains the code for processing the burn chain state database
 pub mod db;
@@ -131,10 +131,10 @@ impl SortitionHash {
     pub fn mix_burn_header(&self, burn_header_hash: &BurnchainHeaderHash) -> SortitionHash {
         use sha2::Digest;
         let mut sha2 = Sha256::new();
-        sha2.input(self.as_bytes());
-        sha2.input(burn_header_hash.as_bytes());
+        sha2.update(self.as_bytes());
+        sha2.update(burn_header_hash.as_bytes());
         let mut ret = [0u8; 32];
-        ret.copy_from_slice(sha2.result().as_slice());
+        ret.copy_from_slice(sha2.finalize().as_slice());
         SortitionHash(ret)
     }
 
@@ -142,10 +142,10 @@ impl SortitionHash {
     pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
         use sha2::Digest;
         let mut sha2 = Sha256::new();
-        sha2.input(self.as_bytes());
-        sha2.input(VRF_seed.as_bytes());
+        sha2.update(self.as_bytes());
+        sha2.update(VRF_seed.as_bytes());
         let mut ret = [0u8; 32];
-        ret.copy_from_slice(&sha2.result()[..]);
+        ret.copy_from_slice(&sha2.finalize()[..]);
         SortitionHash(ret)
     }
 
@@ -195,10 +195,10 @@ impl OpsHash {
         use sha2::Digest;
         let mut hasher = Sha256::new();
         for txid in txids {
-            hasher.input(txid.as_bytes());
+            hasher.update(txid.as_bytes());
         }
         let mut result_32 = [0u8; 32];
-        result_32.copy_from_slice(hasher.result().as_slice());
+        result_32.copy_from_slice(hasher.finalize().as_slice());
         OpsHash(result_32)
     }
 }
@@ -269,31 +269,31 @@ impl ConsensusHashExtensions for ConsensusHash {
             let mut hasher = Sha256::new();
 
             // fork-set version...
-            hasher.input(SYSTEM_FORK_SET_VERSION);
+            hasher.update(SYSTEM_FORK_SET_VERSION);
 
             // burn block hash...
-            hasher.input(burn_header_hash.as_bytes());
+            hasher.update(burn_header_hash.as_bytes());
 
             // ops hash...
-            hasher.input(opshash.as_bytes());
+            hasher.update(opshash.as_bytes());
 
             // total burn amount on this fork...
-            hasher.input(&burn_bytes);
+            hasher.update(&burn_bytes);
 
             // previous consensus hashes...
             for ch in prev_consensus_hashes {
-                hasher.input(ch.as_bytes());
+                hasher.update(ch.as_bytes());
             }
 
-            result = hasher.result();
+            result = hasher.finalize();
         }
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.input(&result);
+        r160.update(&result);
 
         let mut ch_bytes = [0u8; 20];
-        ch_bytes.copy_from_slice(r160.result().as_slice());
+        ch_bytes.copy_from_slice(r160.finalize().as_slice());
         ConsensusHash(ch_bytes)
     }
 
@@ -359,29 +359,31 @@ impl ConsensusHashExtensions for ConsensusHash {
         let result = {
             use sha2::Digest;
             let mut hasher = Sha256::new();
-            hasher.input(bytes);
-            hasher.result()
+            hasher.update(bytes);
+            hasher.finalize()
         };
 
-        use ripemd160::Digest;
+        use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.input(&result);
+        r160.update(&result);
 
         let mut ch_bytes = [0u8; 20];
-        ch_bytes.copy_from_slice(r160.result().as_slice());
+        ch_bytes.copy_from_slice(r160.finalize().as_slice());
         ConsensusHash(ch_bytes)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::stacks::index::TrieHashExtension;
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::util_lib::db::Error as db_error;
     use rusqlite::Connection;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, Hash160};
-    use util::log;
-    use util_lib::db::Error as db_error;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::log;
 
     use crate::types::chainstate::BurnchainHeaderHash;
 

@@ -20,32 +20,32 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
 use crate::codec::MAX_MESSAGE_LEN;
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::operations::*;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use core::*;
-use net::Error as net_error;
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use chainstate::stacks::StacksBlockHeader;
-use chainstate::stacks::StacksMicroblockHeader;
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -610,10 +610,10 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
 
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
-        sha2.input(&bytes[..]);
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&bytes[..]);
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privk
             .sign(&digest_bits)
@@ -638,13 +638,14 @@ impl StacksMicroblockHeader {
 
     pub fn check_recover_pubkey(&self) -> Result<Vec<Hash160>, net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         let mut bytes = vec![];
         self.serialize(&mut bytes, true)
             .expect("BUG: failed to serialize to a vec");
+
         sha2.input(&bytes[..]); // new
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let mut hashes = vec![];
         for signature in self.miner_signatures.signatures() {
@@ -871,20 +872,20 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
-    use address::*;
-    use burnchains::BurnchainBlockHeader;
-    use burnchains::BurnchainSigner;
-    use burnchains::Txid;
-    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use chainstate::stacks::address::StacksAddressExtensions;
-    use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use net::codec::test::*;
-    use net::codec::*;
-    use net::*;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::burnchains::BurnchainSigner;
+    use crate::burnchains::Txid;
+    use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::test::*;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use stacks_common::address::*;
+    use stacks_common::util::hash::*;
     use std::error::Error;
-    use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
 
