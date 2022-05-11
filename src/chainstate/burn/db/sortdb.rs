@@ -2461,14 +2461,16 @@ impl SortitionDB {
         }
     }
 
-    pub fn get_deposit_stx_ops_between(
+    pub fn get_ops_between<F, Op>(
         conn: &Connection,
         parent_l1_block_id: &BurnchainHeaderHash,
         l1_block_id: &BurnchainHeaderHash,
-        chain_tip_consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<DepositStxOp>, db_error> {
+        get_ops_in_block: F
+    ) -> Result<Vec<Op>, db_error>
+    where F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>
+    {
         let mut curr_block_id = l1_block_id.clone();
-        let mut deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &curr_block_id)?;
+        let mut ops = get_ops_in_block(conn, &curr_block_id)?;
         let mut curr_sortition_id = SortitionId::new(&curr_block_id);
 
         while curr_block_id != *parent_l1_block_id {
@@ -2476,14 +2478,14 @@ impl SortitionDB {
                 db_error::NotFoundError
             )?;
             curr_block_id = curr_snapshot.parent_burn_header_hash;
-            let curr_deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &curr_block_id)?;
-            deposit_stx_ops.extend(curr_deposit_stx_ops.into_iter());
+            let curr_ops = get_ops_in_block(conn, &curr_block_id)?;
+            ops.extend(curr_ops.into_iter());
 
             curr_sortition_id = curr_snapshot.parent_sortition_id;
         }
 
 
-        Ok(deposit_stx_ops)
+        Ok(ops)
     }
 
     pub fn get_deposit_stx_ops(
@@ -2497,30 +2499,6 @@ impl SortitionDB {
         )
     }
 
-    pub fn get_deposit_ft_ops_between(
-        conn: &Connection,
-        parent_l1_block_id: &BurnchainHeaderHash,
-        l1_block_id: &BurnchainHeaderHash,
-        chain_tip_consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<DepositFtOp>, db_error> {
-        let mut curr_block_id = l1_block_id.clone();
-        let mut deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &curr_block_id)?;
-        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
-
-        while curr_block_id != *parent_l1_block_id {
-            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
-                db_error::NotFoundError
-            )?;
-            curr_block_id = curr_snapshot.parent_burn_header_hash;
-            let curr_deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &curr_block_id)?;
-            deposit_ft_ops.extend(curr_deposit_ft_ops.into_iter());
-
-            curr_sortition_id = curr_snapshot.parent_sortition_id;
-        }
-
-        Ok(deposit_ft_ops)
-    }
-
     pub fn get_deposit_ft_ops(
         conn: &Connection,
         l1_block_id: &BurnchainHeaderHash,
@@ -2530,31 +2508,6 @@ impl SortitionDB {
             "SELECT * FROM deposit_ft WHERE l1_block_id = ?",
             &[l1_block_id],
         )
-    }
-
-
-    pub fn get_deposit_nft_ops_between(
-        conn: &Connection,
-        parent_l1_block_id: &BurnchainHeaderHash,
-        l1_block_id: &BurnchainHeaderHash,
-        chain_tip_consensus_hash: &ConsensusHash,
-    ) -> Result<Vec<DepositNftOp>, db_error> {
-        let mut curr_block_id = l1_block_id.clone();
-        let mut deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &curr_block_id)?;
-        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
-
-        while curr_block_id != *parent_l1_block_id {
-            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?.ok_or(
-                db_error::NotFoundError
-            )?;
-            curr_block_id = curr_snapshot.parent_burn_header_hash;
-            let curr_deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &curr_block_id)?;
-            deposit_nft_ops.extend(curr_deposit_nft_ops.into_iter());
-
-            curr_sortition_id = curr_snapshot.parent_sortition_id;
-        }
-
-        Ok(deposit_nft_ops)
     }
 
     pub fn get_deposit_nft_ops(
