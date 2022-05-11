@@ -12,7 +12,7 @@ use crate::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
-use chainstate::stacks::db::blocks::MessageSignatureList;
+use crate::chainstate::stacks::db::blocks::MessageSignatureList;
 
 /// Make a block receipt from `tx_receipts` with some dummy values filled for test.
 #[cfg(test)]

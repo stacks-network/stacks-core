@@ -55,7 +55,6 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::*;
-use crate::core::POX_REWARD_CYCLE_LENGTH;
 use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::HttpReservedHeader;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
@@ -2402,7 +2401,7 @@ pub mod test {
             &self,
             block: &StacksBlock,
             metadata: &StacksHeaderInfo,
-            receipts: &Vec<events::StacksTransactionReceipt>,
+            receipts: &Vec<StacksTransactionReceipt>,
             parent: &StacksBlockId,
             winner_txid: Txid,
             matured_rewards: &Vec<accounts::MinerReward>,
@@ -2435,7 +2434,7 @@ pub mod test {
             // pass
         }
 
-        fn dispatch_boot_receipts(&mut self, _receipts: Vec<events::StacksTransactionReceipt>) {
+        fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {
             // pass
         }
     }

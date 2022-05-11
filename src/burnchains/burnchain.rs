@@ -27,12 +27,6 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::burnchains::bitcoin::address::address_type_to_version_byte;
-use crate::burnchains::bitcoin::address::to_c32_version_byte;
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::address::BitcoinAddressType;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
@@ -46,10 +40,9 @@ use crate::burnchains::{
     BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    DepositStxOp, DepositFtOp, DepositNftOp, WithdrawFtOp, WithdrawNftOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -74,9 +67,9 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
+use crate::burnchains::{StacksHyperOpType};
 
-use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
+use crate::types::chainstate::{BurnchainHeaderHash};
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 

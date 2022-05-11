@@ -84,7 +84,7 @@ use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::chainstate::stacks::StacksBlockHeader;
-use crate::types::chainstate::{PoxId, SortitionId};
+use crate::types::chainstate::SortitionId;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]

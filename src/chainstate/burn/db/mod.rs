@@ -25,7 +25,6 @@ use serde_json::Error as serde_error;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::FromColumn;

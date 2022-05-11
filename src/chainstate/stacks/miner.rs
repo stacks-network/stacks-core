@@ -3621,8 +3621,8 @@ pub mod test {
         tx_coinbase_signed
     }
 
-    pub fn mine_empty_anchored_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -3651,8 +3651,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_burn_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_burn_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -3687,8 +3687,8 @@ pub mod test {
         (stacks_block, vec![])
     }
 
-    pub fn mine_empty_anchored_block_with_stacks_height_pubkh<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -3830,12 +3830,11 @@ pub mod test {
         miner.sign_as_origin(&mut tx_signer);
         let tx_stx_transfer_signed = tx_signer.get_tx().unwrap();
         tx_stx_transfer_signed
-
     }
 
     /// Mine invalid token transfers
-    pub fn mine_invalid_token_transfers_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_invalid_token_transfers_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -3912,8 +3911,8 @@ pub mod test {
 
     /// mine a smart contract in an anchored block, and mine a contract-call in the same anchored
     /// block
-    pub fn mine_smart_contract_contract_call_block<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_contract_call_block(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -3962,8 +3961,8 @@ pub mod test {
     }
 
     /// mine a smart contract in an anchored block, and mine some contract-calls to it in a microblock tail
-    pub fn mine_smart_contract_block_contract_call_microblock<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -4048,8 +4047,8 @@ pub mod test {
     /// mine a smart contract in an anchored block, and mine a contract-call to it in a microblock.
     /// Make it so all microblocks throw a runtime exception, but confirm that they are still mined
     /// anyway.
-    pub fn mine_smart_contract_block_contract_call_microblock_exception<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn mine_smart_contract_block_contract_call_microblock_exception(
+        clarity_tx: &mut ClarityTx,
         builder: &mut StacksBlockBuilder,
         miner: &mut TestMiner,
         burnchain_height: usize,
@@ -6338,7 +6337,6 @@ pub mod test {
                 tenure_id,
                 stacks_block.txs.len()
             );
-
         }
     }
 

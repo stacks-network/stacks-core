@@ -42,7 +42,6 @@ use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
 use crate::codec::MAX_MESSAGE_LEN;
@@ -85,10 +84,6 @@ use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::monitoring::set_last_execution_cost_observed;
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::monitoring::set_last_execution_cost_observed;
 use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 

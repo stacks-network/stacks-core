@@ -375,8 +375,6 @@ impl ConsensusHashExtensions for ConsensusHash {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
-    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::util_lib::db::Error as db_error;

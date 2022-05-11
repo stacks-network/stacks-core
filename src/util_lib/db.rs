@@ -65,7 +65,7 @@ use rand::Rng;
 use rand::RngCore;
 
 use serde_json::Error as serde_error;
-use vm::ClarityName;
+use clarity::vm::ClarityName;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;

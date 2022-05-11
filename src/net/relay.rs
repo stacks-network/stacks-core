@@ -52,9 +52,9 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::types::chainstate::SortitionId;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::monitoring::update_stacks_tip_height;
+use crate::types::chainstate::SortitionId;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 

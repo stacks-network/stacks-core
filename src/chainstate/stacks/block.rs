@@ -644,7 +644,7 @@ impl StacksMicroblockHeader {
         self.serialize(&mut bytes, true)
             .expect("BUG: failed to serialize to a vec");
 
-        sha2.input(&bytes[..]); // new
+        sha2.update(&bytes[..]);
         digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let mut hashes = vec![];

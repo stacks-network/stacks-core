@@ -1,21 +1,21 @@
 use std::collections::HashMap;
 
-use address::*;
-use burnchains::db::*;
-use burnchains::Burnchain;
-use burnchains::*;
-use chainstate::burn::db::sortdb::*;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::*;
-use chainstate::burn::*;
-use chainstate::coordinator::comm::*;
-use chainstate::coordinator::*;
-use chainstate::stacks::*;
-use util::get_epoch_time_secs;
-use util::hash::*;
-use util::secp256k1::*;
-use util::vrf::*;
-use util_lib::db::*;
+use crate::address::*;
+use crate::burnchains::db::*;
+use crate::burnchains::Burnchain;
+use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::*;
+use crate::chainstate::coordinator::comm::*;
+use crate::chainstate::coordinator::*;
+use crate::chainstate::stacks::*;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::*;
+use stacks_common::util::secp256k1::*;
+use stacks_common::util::vrf::*;
+use crate::util_lib::db::*;
 
 use crate::burnchains::events::ContractEvent;
 use crate::burnchains::events::NewBlock;

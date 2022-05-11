@@ -25,11 +25,9 @@ use std::sync::{
 
 use rusqlite::Connection;
 
-use crate::address;
 use crate::burnchains::{db::*, *};
 use crate::chainstate;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;

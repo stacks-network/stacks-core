@@ -43,6 +43,7 @@ use rand::RngCore;
 
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::util::hash::to_hex;
+use crate::chainstate::burn::db::tests::test_append_snapshot;
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,
@@ -67,8 +68,6 @@ fn test_burnstatedb_epoch(
 
 #[test]
 fn test_vm_epoch_switch() {
-    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
-
     let mut rng = rand::thread_rng();
     let mut buf = [0u8; 32];
     rng.fill_bytes(&mut buf);

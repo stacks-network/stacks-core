@@ -60,7 +60,7 @@ impl<'a> SortitionHandleTx<'a> {
                 })
             }
             BlockstackOperationType::DepositStx(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "deposit_stx",
@@ -73,7 +73,7 @@ impl<'a> SortitionHandleTx<'a> {
                 })
             }
             BlockstackOperationType::DepositFt(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "deposit_ft",
@@ -89,7 +89,7 @@ impl<'a> SortitionHandleTx<'a> {
                 })
             }
             BlockstackOperationType::DepositNft(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "deposit_nft",
@@ -104,7 +104,7 @@ impl<'a> SortitionHandleTx<'a> {
                 })
             }
             BlockstackOperationType::WithdrawFt(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "withdraw_ft",
@@ -120,7 +120,7 @@ impl<'a> SortitionHandleTx<'a> {
                 })
             }
             BlockstackOperationType::WithdrawNft(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "withdraw_nft",
@@ -367,9 +367,8 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::{tests::test_append_snapshot, SortitionDB};
+    use crate::chainstate::burn::db::sortdb::SortitionDB;
     use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
@@ -379,7 +378,7 @@ mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
     use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
-
+    use crate::chainstate::burn::db::tests::test_append_snapshot;
     use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
 
     use super::*;

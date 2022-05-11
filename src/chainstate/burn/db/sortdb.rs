@@ -34,7 +34,6 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512_256};
 
 use crate::address::AddressHashMode;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Address, PublicKey, Txid};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
@@ -83,6 +82,9 @@ use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
 };
+
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::vrf::VRFPublicKey;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -1608,6 +1610,7 @@ impl SortitionDB {
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
         use crate::core::StacksEpochExtension;
+        use stacks_common::util::get_epoch_time_secs;
 
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
@@ -1888,13 +1891,11 @@ impl SortitionDB {
     /// Because the block_commit_parents table is not populated on schema migration, the returned
     /// value may be NULL (and this is okay).
     pub fn get_block_commit_parent_sortition_id(
-        conn: &Connection,
-        txid: &Txid,
-        sortition_id: &SortitionId,
+        _conn: &Connection,
+        _txid: &Txid,
+        _sortition_id: &SortitionId,
     ) -> Result<Option<SortitionId>, db_error> {
-        let qry = "SELECT parent_sortition_id AS sortition_id FROM block_commit_parents WHERE block_commit_parents.block_commit_txid = ?1 AND block_commit_parents.block_commit_sortition_id = ?2";
-        let args: &[&dyn ToSql] = &[txid, sortition_id];
-        query_row(conn, qry, args)
+        panic!("Not implemented");
     }
 
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
@@ -3220,15 +3221,6 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO deposit_ft (txid, l1_block_id, l1_contract_id, hc_contract_id, hc_function_name, name, amount, sender, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
-
-        let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
-        let res = self.execute("INSERT INTO block_commit_parents (block_commit_sortition_id, block_commit_txid, parent_sortition_id) VALUES (?1, ?2, ?3)", parent_args);
-
-        // in tests, this table doesn't always exist.  Do nothing in that case, but in prod, error
-        // out if this fails.
-        if !cfg!(test) {
-            res?;
-        }
 
         Ok(())
     }

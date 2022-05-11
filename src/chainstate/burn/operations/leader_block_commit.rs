@@ -17,15 +17,11 @@
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
-use crate::burnchains::{BitcoinNetworkType, StacksHyperOp, StacksHyperOpType};
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
-use crate::address::AddressHashMode;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Txid;
+use crate::burnchains::{BitcoinNetworkType, StacksHyperOp, StacksHyperOpType};
 use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};

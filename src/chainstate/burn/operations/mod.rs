@@ -49,7 +49,7 @@ use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use vm::ClarityName;
+use clarity::vm::ClarityName;
 
 pub mod deposit_ft;
 pub mod deposit_nft;

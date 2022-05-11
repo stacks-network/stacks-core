@@ -36,7 +36,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
+use crate::core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
