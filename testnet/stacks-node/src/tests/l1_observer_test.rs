@@ -218,7 +218,6 @@ fn select_transactions_where(
 /// This test brings up the Stacks-L1 chain in "mocknet" mode, and ensures that our listener can hear and record burn blocks
 /// from the Stacks-L1 chain.
 #[test]
-#[ignore]
 fn l1_basic_listener_test() {
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
         return;
@@ -279,7 +278,6 @@ fn l1_basic_listener_test() {
 }
 
 #[test]
-#[ignore]
 fn l1_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_integration_test
@@ -412,7 +410,6 @@ fn l1_integration_test() {
 }
 
 #[test]
-#[ignore]
 fn l1_deposit_asset_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_asset_integration_test
@@ -757,7 +754,6 @@ fn l1_deposit_asset_integration_test() {
 /// This test calls the `deposit-stx` function in the hyperchains contract.
 /// We expect to see the stx balance for the user in question increase.
 #[test]
-#[ignore]
 fn l1_deposit_stx_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_stx_integration_test
@@ -927,7 +923,6 @@ fn l1_deposit_stx_integration_test() {
 /// Test that we can bring up an L2 node and make some simple calls to the L2 chain.
 /// Set up the L2 chain, make N calls, check that they are found in the listener.
 #[test]
-#[ignore]
 fn l2_simple_contract_calls() {
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
         return;
