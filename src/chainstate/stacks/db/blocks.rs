@@ -11258,6 +11258,11 @@ pub mod test {
         transfer_op
     }
 
+    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// operations are picked up and applied as expected in the given Stacks fork, even though
+    /// there are empty sortitions.
     #[test]
     fn test_get_stacking_and_transfer_burn_ops_v210() {
         let mut peer_config =
@@ -11286,9 +11291,6 @@ pub mod test {
         let initial_balance = 1000000000;
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
         peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
-
-        let recv_addr =
-            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11488,6 +11490,11 @@ pub mod test {
         );
     }
 
+    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// operations are only dropped from consideration if there are more than 6 sortitions
+    /// between when they are mined and when the next Stacks block is mined.
     #[test]
     fn test_get_stacking_and_transfer_burn_ops_v210_expiration() {
         let mut peer_config = TestPeerConfig::new(
@@ -11519,9 +11526,6 @@ pub mod test {
         let initial_balance = 1000000000;
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
         peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
-
-        let recv_addr =
-            StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
         let mut peer = TestPeer::new(peer_config);
 

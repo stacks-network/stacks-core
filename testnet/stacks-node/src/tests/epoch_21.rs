@@ -609,7 +609,10 @@ fn transition_fixes_bitcoin_rigidity() {
     // mine it
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's fire off our transfer op that will not land in a sortition pre-2.1
+    // let's fire off a transfer op that will not land in the Stacks 2.1 epoch.  It should not be
+    // applied, even though it's within 6 blocks of the next Stacks block, which will be in epoch
+    // 2.1.  This verifies that the new burnchain consideration window only applies to sortitions
+    // that happen in Stacks 2.1.
     let recipient_sk = StacksPrivateKey::new();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
