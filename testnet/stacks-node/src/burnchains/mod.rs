@@ -1,3 +1,5 @@
+use crate::config::BurnchainConfig;
+
 use super::operations::BurnchainOpSigner;
 
 use std::fmt;
@@ -12,6 +14,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::StacksEpoch;
+use stacks::types::chainstate::BurnchainHeaderHash;
 
 /// This module implements a burnchain controller that
 /// simulates the L1 chain. This controller accepts miner
@@ -174,4 +177,23 @@ impl BurnchainController for PanicController {
     ) -> Result<BurnchainTip, Error> {
         panic!()
     }
+}
+
+/// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
+/// and then override the "first block" information using `config`.
+pub fn burnchain_from_config(
+    burn_db_path: &str,
+    config: &BurnchainConfig,
+) -> Result<Burnchain, burnchains::Error> {
+    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
+    burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&config.first_burn_header_hash)
+        .expect(&format!(
+            "Could not parse BurnchainHeaderHash: {}",
+            &config.first_burn_header_hash
+        ));
+    burnchain.first_block_height = config.first_burn_header_height;
+    burnchain.first_block_timestamp = config.first_burn_header_timestamp as u32;
+
+    info!("burnchain: {:?}", &burnchain);
+    Ok(burnchain)
 }
