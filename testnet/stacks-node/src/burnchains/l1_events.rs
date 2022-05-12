@@ -363,7 +363,6 @@ impl BurnchainController for L1Controller {
         &mut self,
         target_block_height_opt: Option<u64>,
     ) -> Result<(BurnchainTip, u64), Error> {
-        self.indexer.connect(true)?;
         self.receive_blocks(
             false,
             target_block_height_opt.map_or_else(|| Some(1), |x| Some(x)),

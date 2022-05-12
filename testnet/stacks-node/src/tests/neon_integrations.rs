@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use stacks::burnchains::Burnchain;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::codec::StacksMessageCodec;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData};
@@ -23,6 +25,7 @@ use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
 use crate::{Config, ConfigFile, Keychain};
+use std::convert::TryInto;
 
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -40,19 +43,18 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
+    conf.burnchain.contract_identifier = QualifiedContractIdentifier::transient();
 
-    // test to make sure config file parsing is correct
-    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
-        .burnchain
-        .magic_bytes;
-    assert_eq!(magic_bytes.as_bytes(), &['T' as u8, '2' as u8]);
-    conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
+    conf.burnchain.first_burn_header_height = 1;
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
@@ -300,8 +302,8 @@ pub fn next_block_and_wait(
     blocks_processed: &Arc<AtomicU64>,
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
-    eprintln!(
-        "Issuing block at {}, waiting for bump ({})",
+    info!(
+        "next_block_and_wait: Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
         current
     );
@@ -314,8 +316,8 @@ pub fn next_block_and_wait(
         }
         thread::sleep(Duration::from_millis(100));
     }
-    eprintln!(
-        "Block bumped at {} ({})",
+    info!(
+        "next_block_and_wait: Block bumped at {} ({})",
         get_epoch_time_secs(),
         blocks_processed.load(Ordering::SeqCst)
     );
@@ -478,6 +480,8 @@ fn mockstack_integration_test() {
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
+    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block();
 
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -514,6 +518,41 @@ fn mockstack_integration_test() {
         assert!(res.contains("stacks_node_miner_current_median_commitment_low 1"));
         assert!(res.contains("stacks_node_active_miners_total 1"));
     }
+
+    channel.stop_chains_coordinator();
+}
+
+/// Test that we can set a "first burn block" far in the future and then listen until we hear it.
+#[test]
+#[ignore]
+fn mockstack_wait_for_first_block() {
+    let (mut conf, miner_account) = mockstack_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.burnchain.first_burn_header_hash =
+        "0000000000000000000000000000000000000000000000000000000000000010".to_string();
+    conf.burnchain.first_burn_header_height = 16;
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    wait_for_runloop(&blocks_processed);
+
+    // Walk up 16 + 1 blocks.
+    btc_regtest_controller.next_block();
+    for i in 0..16 {
+        btc_regtest_controller.next_block();
+    }
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     channel.stop_chains_coordinator();
 }
@@ -657,6 +696,9 @@ fn faucet_test() {
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
+
+    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block();
 
     // first block wakes up the run loop
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
