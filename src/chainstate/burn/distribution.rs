@@ -28,6 +28,7 @@ use crate::chainstate::burn::operations::{
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::StacksEpochId;
 use crate::core::MINING_COMMITMENT_WINDOW;
 use crate::monitoring;
 use stacks_common::address::AddressHashMode;
@@ -82,10 +83,10 @@ impl LinkedCommitIdentifier {
         }
     }
 
-    fn burn_fee(&self) -> u64 {
+    fn burn_fee(&self, epoch_id: StacksEpochId) -> u64 {
         match self {
             LinkedCommitIdentifier::Missed(_) => 1,
-            LinkedCommitIdentifier::Valid(ref op) => op.burn_fee,
+            LinkedCommitIdentifier::Valid(ref op) => op.sortition_spend(epoch_id),
         }
     }
 
@@ -155,6 +156,7 @@ impl BurnSamplePoint {
     ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
     ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     pub fn make_min_median_distribution(
+        epoch_id: StacksEpochId,
         mut block_commits: Vec<Vec<LeaderBlockCommitOp>>,
         mut missed_commits: Vec<Vec<MissedBlockCommit>>,
         burn_blocks: Vec<bool>,
@@ -252,7 +254,7 @@ impl BurnSamplePoint {
                     .iter()
                     .map(|commit| {
                         if let Some(commit) = commit {
-                            commit.op.burn_fee() as u128
+                            commit.op.burn_fee(epoch_id) as u128
                         } else {
                             // use 1 as the linked commit min. this gives a miner a _small_
                             //  chance of winning a block even if they haven't performed chained utxos yet
@@ -280,7 +282,10 @@ impl BurnSamplePoint {
                 } else {
                     unreachable!("BUG: first linked commit should always be valid");
                 };
-                assert_eq!(candidate.burn_fee as u128, most_recent_burn);
+                assert_eq!(
+                    candidate.sortition_spend(epoch_id) as u128,
+                    most_recent_burn
+                );
 
                 debug!("Burn sample";
                        "txid" => %candidate.txid.to_string(),
@@ -331,7 +336,12 @@ impl BurnSamplePoint {
         _consumed_leader_keys: Vec<LeaderKeyRegisterOp>,
         user_burns: Vec<UserBurnSupportOp>,
     ) -> Vec<BurnSamplePoint> {
-        Self::make_min_median_distribution(vec![all_block_candidates], vec![], vec![true])
+        Self::make_min_median_distribution(
+            StacksEpochId::Epoch21,
+            vec![all_block_candidates],
+            vec![],
+            vec![true],
+        )
     }
 
     /// Calculate the ranges between 0 and 2**256 - 1 over which each point in the burn sample
@@ -416,6 +426,7 @@ mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::StacksEpochId;
     use crate::core::MINING_COMMITMENT_WINDOW;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::StacksAddress;
@@ -485,8 +496,9 @@ mod tests {
         }
     }
 
-    fn make_block_commit(
+    fn make_block_commit_with_destroyed(
         burn_fee: u64,
+        destroyed: u64,
         vrf_ident: u32,
         block_id: u64,
         txid_id: u64,
@@ -516,6 +528,7 @@ mod tests {
             key_vtxindex: 0,
             memo: vec![],
             burn_fee,
+            destroyed: destroyed,
             input: (input_txid, 3),
             apparent_sender: BurnchainSigner::new_p2pkh(&StacksPublicKey::new()),
             commit_outs: vec![],
@@ -529,6 +542,19 @@ mod tests {
             },
             burn_header_hash: BurnchainHeaderHash([0; 32]),
         }
+    }
+
+    fn make_block_commit(
+        burn_fee: u64,
+        vrf_ident: u32,
+        block_id: u64,
+        txid_id: u64,
+        input_tx: Option<u64>,
+        block_ht: u64,
+    ) -> LeaderBlockCommitOp {
+        make_block_commit_with_destroyed(
+            burn_fee, 0, vrf_ident, block_id, txid_id, input_tx, block_ht,
+        )
     }
 
     #[test]
@@ -582,6 +608,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch21,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, false, false, false],
@@ -646,6 +673,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch2_05,
             commits.clone(),
             vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
             vec![false, false, false, false, false, false],
@@ -664,6 +692,174 @@ mod tests {
 
         assert_eq!(result[0].user_burns.len(), 0);
         assert_eq!(result[1].user_burns.len(), 0);
+    }
+
+    #[test]
+    fn make_mean_min_median_with_destroyed() {
+        // test case 1:
+        //    miner 1:  3 4 5 4 5 4
+        //       ub  :  1 0 0 0 0 0
+        //    miner 2:  1 3 3 3 3 3
+        //       ub  :  1 0 0 0 0 0
+        //              0 1 0 0 0 0
+        //                   ..
+
+        // user burns are ignored:
+        //
+        // miner 1 => min = 3, median = 4, last_burn = 4
+        // miner 2 => min = 1, median = 3, last_burn = 3
+
+        let commits = vec![
+            vec![
+                make_block_commit_with_destroyed(2, 1, 1, 1, 1, None, 1),
+                make_block_commit_with_destroyed(1, 0, 2, 2, 2, None, 1),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 2, 3, 3, 3, Some(1), 2),
+                make_block_commit_with_destroyed(2, 1, 4, 4, 4, Some(2), 2),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 3, 5, 5, 5, Some(3), 3),
+                make_block_commit_with_destroyed(2, 1, 6, 6, 6, Some(4), 3),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 2, 7, 7, 7, Some(5), 4),
+                make_block_commit_with_destroyed(2, 1, 8, 8, 8, Some(6), 4),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 3, 9, 9, 9, Some(7), 5),
+                make_block_commit_with_destroyed(2, 1, 10, 10, 10, Some(8), 5),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 2, 11, 11, 11, Some(9), 6),
+                make_block_commit_with_destroyed(2, 1, 12, 12, 12, Some(10), 6),
+            ],
+        ];
+        let user_burns = vec![
+            vec![make_user_burn(1, 1, 1, 1, 1), make_user_burn(1, 2, 2, 2, 1)],
+            vec![make_user_burn(1, 4, 4, 4, 2)],
+            vec![make_user_burn(1, 6, 6, 6, 3)],
+            vec![make_user_burn(1, 8, 8, 8, 4)],
+            vec![make_user_burn(1, 10, 10, 10, 5)],
+            vec![make_user_burn(1, 12, 12, 12, 6)],
+        ];
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch21,
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, false, false, false],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
+
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 0);
+
+        // prior to 2.1, only the burn_fee value will be considered
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch2_05,
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, false, false, false],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        // destroyed tokens not counted
+        assert_eq!(result[0].burns, 2);
+        assert_eq!(result[1].burns, 2);
+
+        // test case 2:
+        //    miner 1:  4 4 5 4 5 3
+        //    miner 2:  4 4 4 4 4 1
+        //       ub  :  0 0 0 0 0 2
+        //               *split*
+
+        // miner 1 => min = 3, median = 4, last_burn = 3
+        // miner 2 => min = 1, median = 4, last_burn = 1
+
+        let commits = vec![
+            vec![
+                make_block_commit_with_destroyed(2, 2, 1, 1, 1, None, 1),
+                make_block_commit_with_destroyed(2, 2, 2, 2, 2, None, 1),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 2, 3, 3, 3, Some(1), 2),
+                make_block_commit_with_destroyed(2, 2, 4, 4, 4, Some(2), 2),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 3, 5, 5, 5, Some(3), 3),
+                make_block_commit_with_destroyed(2, 2, 6, 6, 6, Some(4), 3),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 2, 7, 7, 7, Some(5), 4),
+                make_block_commit_with_destroyed(2, 2, 8, 8, 8, Some(6), 4),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 3, 9, 9, 9, Some(7), 5),
+                make_block_commit_with_destroyed(2, 2, 10, 10, 10, Some(8), 5),
+            ],
+            vec![
+                make_block_commit_with_destroyed(2, 1, 11, 11, 11, Some(9), 6),
+                make_block_commit_with_destroyed(1, 0, 11, 11, 12, Some(10), 6),
+            ],
+        ];
+        let user_burns = vec![
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![make_user_burn(2, 11, 11, 1, 6)],
+        ];
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch21,
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, false, false, false],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 3);
+        assert_eq!(result[1].burns, 1);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
+
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 0);
+
+        // prior to 2.1, only the burn_fee value will be considered
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch2_05,
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, false, false, false],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 2);
+        assert_eq!(result[1].burns, 1);
     }
 
     #[test]
@@ -705,6 +901,7 @@ mod tests {
         ];
 
         let mut result = BurnSamplePoint::make_min_median_distribution(
+            StacksEpochId::Epoch21,
             commits.clone(),
             missed_commits.clone(),
             vec![false, false, false, false, false, false],
@@ -1035,6 +1232,7 @@ mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -1079,6 +1277,7 @@ mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -1123,6 +1322,7 @@ mod tests {
             memo: vec![0x80],
 
             burn_fee: 23456,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -1178,7 +1378,7 @@ mod tests {
                 block_commits: vec![block_commit_1.clone()],
                 user_burns: vec![],
                 res: vec![BurnSamplePoint {
-                    burns: block_commit_1.burn_fee.into(),
+                    burns: block_commit_1.total_spend().into(),
                     range_start: Uint256::zero(),
                     range_end: Uint256::max(),
                     candidate: block_commit_1.clone(),
@@ -1191,7 +1391,7 @@ mod tests {
                 user_burns: vec![],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1203,7 +1403,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1222,7 +1422,7 @@ mod tests {
                 user_burns: vec![user_burn_noblock.clone()],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1234,7 +1434,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1253,7 +1453,7 @@ mod tests {
                 user_burns: vec![user_burn_nokey.clone()],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1265,7 +1465,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1288,7 +1488,7 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1300,7 +1500,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1324,7 +1524,7 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1336,7 +1536,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1362,7 +1562,7 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0xffffffffffffffff,
@@ -1374,7 +1574,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0xffffffffffffffff,
                             0xffffffffffffffff,
@@ -1408,7 +1608,7 @@ mod tests {
                 ],
                 res: vec![
                     BurnSamplePoint {
-                        burns: block_commit_1.burn_fee.into(),
+                        burns: block_commit_1.total_spend().into(),
                         range_start: Uint256::zero(),
                         range_end: Uint256([
                             0x3ed94d3cb0a84709,
@@ -1420,7 +1620,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: block_commit_2.burn_fee.into(),
+                        burns: block_commit_2.total_spend().into(),
                         range_start: Uint256([
                             0x3ed94d3cb0a84709,
                             0x0963dded799a7c1a,
@@ -1437,7 +1637,7 @@ mod tests {
                         user_burns: vec![],
                     },
                     BurnSamplePoint {
-                        burns: (block_commit_3.burn_fee).into(),
+                        burns: (block_commit_3.total_spend()).into(),
                         range_start: Uint256([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,
