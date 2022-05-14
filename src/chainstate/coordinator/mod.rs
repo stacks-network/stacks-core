@@ -79,6 +79,7 @@ pub enum PoxAnchorBlockStatus {
 #[derive(Debug, PartialEq)]
 pub struct RewardCycleInfo {
     pub anchor_status: PoxAnchorBlockStatus,
+    pub pox_cutoff: u64,
 }
 
 impl RewardCycleInfo {
@@ -104,11 +105,20 @@ impl RewardCycleInfo {
             NotSelected => None,
         }
     }
-    pub fn known_selected_anchor_block_owned(self) -> Option<Vec<StacksAddress>> {
+    pub fn known_selected_anchor_block_owned(self) -> Option<(Vec<StacksAddress>, u64)> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
             SelectedAndUnknown(_) => None,
-            SelectedAndKnown(_, reward_set) => Some(reward_set),
+            SelectedAndKnown(_, reward_set) => Some((reward_set, self.pox_cutoff)),
+            NotSelected => None,
+        }
+    }
+    pub fn get_pox_cutoff(&self) -> Option<u64> {
+        use self::PoxAnchorBlockStatus::*;
+        match self.anchor_status {
+            SelectedAndUnknown(_) => Some(self.pox_cutoff),
+            SelectedAndKnown(_, _) => Some(self.pox_cutoff),
+            // n/a.
             NotSelected => None,
         }
     }
@@ -452,7 +462,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             let ic = sort_db.index_handle(sortition_tip);
             ic.get_chosen_pox_anchor(&parent_bhh, &burnchain.pox_constants)
         }?;
-        if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
+        if let Some((consensus_hash, stacks_block_hash, pox_cutoff)) = reward_cycle_info {
             info!("Anchor block selected: {}", stacks_block_hash);
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
                 &chain_state.db(),
@@ -472,10 +482,14 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             } else {
                 PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)
             };
-            Ok(Some(RewardCycleInfo { anchor_status }))
+            Ok(Some(RewardCycleInfo {
+                anchor_status,
+                pox_cutoff,
+            }))
         } else {
             Ok(Some(RewardCycleInfo {
                 anchor_status: PoxAnchorBlockStatus::NotSelected,
+                pox_cutoff: 0,
             }))
         }
     } else {
@@ -496,7 +510,7 @@ fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if commit.commit_outs.len() == 0 {
                 continue;
             }
-            let amt_per_address = commit.burn_fee / (commit.commit_outs.len() as u64);
+            let amt_per_address = commit.total_spend() / (commit.commit_outs.len() as u64);
             for addr in commit.commit_outs.iter() {
                 if addr.is_burn() {
                     burn_amt += amt_per_address;
