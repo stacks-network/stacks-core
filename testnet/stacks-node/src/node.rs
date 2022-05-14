@@ -1057,6 +1057,7 @@ impl Node {
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
             burn_fee,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: self.keychain.get_burnchain_signer(),
             key_block_ptr: key.block_height as u32,
