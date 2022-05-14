@@ -3789,7 +3789,14 @@ impl StacksChainState {
             SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
                 .expect("FATAL: have block commit but no total burns in its sortition");
 
-        Ok(Some((block_commit.burn_fee, sortition_burns)))
+        let epoch =
+            SortitionDB::get_stacks_epoch(db_handle, penultimate_sortition_snapshot.block_height)?
+                .expect("FATAL: do not have epoch at penultimate sortition");
+
+        Ok(Some((
+            block_commit.sortition_spend(epoch.epoch_id),
+            sortition_burns,
+        )))
     }
 
     /// Pre-process and store an anchored block to staging, queuing it up for
