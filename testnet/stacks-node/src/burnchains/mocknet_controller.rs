@@ -192,6 +192,7 @@ impl BurnchainController for MocknetController {
                         key_vtxindex: payload.key_vtxindex,
                         memo: payload.memo,
                         burn_fee: payload.burn_fee,
+                        destroyed: 0,
                         apparent_sender: payload.apparent_sender,
                         input: payload.input,
                         commit_outs: payload.commit_outs,
