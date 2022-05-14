@@ -128,7 +128,7 @@ impl<'a> SortitionHandleTx<'a> {
             .fold(Some(0u64), |acc, op| {
                 if let Some(acc) = acc {
                     let bf = match op {
-                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.total_spend(),
                         BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
                         _ => 0,
                     };
@@ -425,6 +425,7 @@ mod tests {
 
             commit_outs: vec![],
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
