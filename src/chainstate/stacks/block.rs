@@ -1330,6 +1330,7 @@ mod test {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
