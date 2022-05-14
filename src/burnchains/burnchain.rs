@@ -120,6 +120,11 @@ impl BurnchainStateTransition {
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
+        let epoch = SortitionDB::get_stacks_epoch(sort_tx, parent_snapshot.block_height + 1)?
+            .expect(&format!(
+                "FATAL: no epoch known at burn height {}",
+                parent_snapshot.block_height + 1
+            ));
 
         assert!(Burnchain::ops_are_sorted(block_ops));
 
@@ -240,6 +245,7 @@ impl BurnchainStateTransition {
         // calculate the burn distribution from these operations.
         // The resulting distribution will contain the user burns that match block commits
         let burn_dist = BurnSamplePoint::make_min_median_distribution(
+            epoch.epoch_id,
             windowed_block_commits,
             windowed_missed_commits,
             burn_blocks,
@@ -461,10 +467,22 @@ impl Burnchain {
         (effective_height % (self.pox_constants.reward_cycle_length as u64)) == 1
     }
 
-    pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
+    pub fn static_reward_cycle_to_block_height(
+        reward_cycle: u64,
+        first_block_ht: u64,
+        reward_cycle_len: u64,
+    ) -> u64 {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
-        self.first_block_height + reward_cycle * (self.pox_constants.reward_cycle_length as u64) + 1
+        first_block_ht + reward_cycle * reward_cycle_len + 1
+    }
+
+    pub fn reward_cycle_to_block_height(&self, reward_cycle: u64) -> u64 {
+        Self::static_reward_cycle_to_block_height(
+            reward_cycle,
+            self.first_block_height,
+            self.pox_constants.reward_cycle_length.into(),
+        )
     }
 
     /// Returns the active reward cycle at the given burn block height
@@ -1834,6 +1852,7 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -1874,6 +1893,7 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -1914,6 +1934,7 @@ pub mod tests {
             memo: vec![0x80],
 
             burn_fee: 23456,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -2232,7 +2253,7 @@ pub mod tests {
 
             let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
                 let bf = match op {
-                    BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                    BlockstackOperationType::LeaderBlockCommit(ref op) => op.total_spend(),
                     BlockstackOperationType::UserBurnSupport(ref op) => 0,
                     _ => 0,
                 };
@@ -2480,6 +2501,7 @@ pub mod tests {
                     memo: vec![i],
 
                     burn_fee: i as u64,
+                    destroyed: 0,
                     input: (Txid([0; 32]), 0),
                     apparent_sender: BurnchainSigner {
                         public_keys: vec![StacksPublicKey::from_hex(
