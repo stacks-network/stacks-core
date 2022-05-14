@@ -74,6 +74,8 @@ pub enum Error {
     BlockCommitAnchorCheck,
     BlockCommitBadModulus,
     BlockCommitBadEpoch,
+    BlockCommitPoxOverpay,
+    BlockCommitPoxUnderpay,
     MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
@@ -119,6 +121,12 @@ impl fmt::Display for Error {
             }
             Error::BlockCommitBadEpoch => {
                 write!(f, "Block commit has an invalid epoch")
+            }
+            Error::BlockCommitPoxOverpay => {
+                write!(f, "Block commit overpaid PoX addresses")
+            }
+            Error::BlockCommitPoxUnderpay => {
+                write!(f, "Block commit did not pay the full PoX amount")
             }
             Error::MissedBlockCommit(_) => write!(
                 f,
@@ -218,6 +226,8 @@ pub struct LeaderBlockCommitOp {
 
     /// how many burn tokens (e.g. satoshis) were committed to produce this block
     pub burn_fee: u64,
+    /// number of burnchain tokens destroyed.
+    pub destroyed: u64,
     /// the input transaction, used in mining commitment smoothing
     pub input: (Txid, u32),
 
