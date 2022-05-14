@@ -114,6 +114,12 @@ impl<'a> SortitionHandleTx<'a> {
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let this_block_height = block_header.block_height;
         let this_block_hash = block_header.block_hash.clone();
+        let epoch = SortitionDB::get_stacks_epoch(self, parent_snapshot.block_height + 1)?.expect(
+            &format!(
+                "FATAL: no epoch known at burn height {}",
+                parent_snapshot.block_height + 1
+            ),
+        );
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
         let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits)
@@ -128,7 +134,9 @@ impl<'a> SortitionHandleTx<'a> {
             .fold(Some(0u64), |acc, op| {
                 if let Some(acc) = acc {
                     let bf = match op {
-                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.total_spend(),
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                            op.sortition_spend(epoch.epoch_id)
+                        }
                         BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
                         _ => 0,
                     };
