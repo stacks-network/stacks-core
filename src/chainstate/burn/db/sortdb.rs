@@ -1979,7 +1979,11 @@ impl<'a> SortitionHandleConn<'a> {
     ///     * ch, bhh identify the Stacks block that is the anchor block
     ///     * confs is the number of confirmations
     ///     * burns is the list of burns spent by the anchor block's descendants (only winning
-    ///     commits' burns are considered).
+    ///     commits' burns are considered).  Note that the *total burn* -- PoX cutoff burn +
+    ///     send-to-burn-address burn -- are considered, *even before* Stacks 2.1.  This is fine,
+    ///     because this information is derived to calculate the next reward cycle's PoX cutoff,
+    ///     and this isn't used by the sortition logic or block-commit logic until the proper time
+    ///     anyway.
     ///
     /// Returns Ok(Err(confs)) if an anchor block was not chosen -- i.e. confs < F*w
     /// Returns Err(..) if we could not calculate this result for some reason.
