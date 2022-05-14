@@ -510,6 +510,7 @@ fn make_genesis_block_with_recipients(
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
+        destroyed: 0,
         input: (Txid([0; 32]), 0),
         apparent_sender: BurnchainSigner {
             num_sigs: 1,
@@ -691,6 +692,7 @@ fn make_stacks_block_with_input(
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
+        destroyed: 0,
         input,
         apparent_sender: BurnchainSigner {
             num_sigs: 1,
