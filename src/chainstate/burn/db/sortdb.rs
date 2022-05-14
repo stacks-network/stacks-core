@@ -3546,6 +3546,9 @@ impl SortitionDB {
         conn: &Connection,
         block_snapshot: &BlockSnapshot,
     ) -> Result<u64, db_error> {
+        let cur_epoch = SortitionDB::get_stacks_epoch(conn, block_snapshot.block_height)?
+            .expect("FATAL: no epoch defined for snapshot");
+
         let user_burns = SortitionDB::get_user_burns_by_block(conn, &block_snapshot.sortition_id)?;
         let block_commits =
             SortitionDB::get_block_commits_by_block(conn, &block_snapshot.sortition_id)?;
@@ -3558,7 +3561,7 @@ impl SortitionDB {
         }
         for i in 0..block_commits.len() {
             burn_total = burn_total
-                .checked_add(block_commits[i].total_spend())
+                .checked_add(block_commits[i].sortition_spend(cur_epoch.epoch_id))
                 .expect("Way too many tokens burned");
         }
         Ok(burn_total)

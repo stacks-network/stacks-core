@@ -20,6 +20,7 @@
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo},
