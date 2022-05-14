@@ -72,6 +72,9 @@ jobs:
           - tests::epoch_205::test_cost_limit_switch_version205
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::bigger_microblock_streams_in_2_05
+          - tests::epoch_21::transition_fixes_utxo_chaining
+          - tests::epoch_21::transition_adds_burn_block_height
+          - tests::epoch_21::transition_caps_discount_mining_upside
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
