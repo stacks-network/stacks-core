@@ -264,10 +264,17 @@ impl RPCPoxInfoData {
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
+        burn_block_height: u64,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
-        let contract_identifier = boot_code_id("pox", mainnet);
+        let contract_identifier = boot_code_id(
+            burnchain
+                .pox_constants
+                .active_pox_contract(burn_block_height),
+            mainnet,
+        );
+
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -672,11 +679,12 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         burnchain: &Burnchain,
         canonical_stacks_tip_height: u64,
+        burn_block_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
-        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, burnchain) {
+        match RPCPoxInfoData::from_db(sortdb, chainstate, tip, burnchain, burn_block_height) {
             Ok(pi) => {
                 let response = HttpResponseType::PoxInfo(response_metadata, pi);
                 response.send(http, fd)
@@ -2262,6 +2270,7 @@ impl ConversationHttp {
                         &tip,
                         &network.burnchain,
                         network.burnchain_tip.canonical_stacks_tip_height,
+                        network.burnchain_tip.block_height,
                     )?;
                 }
                 None
@@ -4137,11 +4146,13 @@ mod test {
                         &tip.anchored_block_hash,
                     )
                 };
+                let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 let pox_info = RPCPoxInfoData::from_db(
                     &mut sortdb,
                     chainstate,
                     &stacks_block_id,
                     &peer_client.config.burnchain,
+                    burn_tip.block_height,
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
@@ -4194,11 +4205,13 @@ mod test {
                     .unwrap()
                     .unconfirmed_chain_tip
                     .clone();
+                let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 let pox_info = RPCPoxInfoData::from_db(
                     &mut sortdb,
                     chainstate,
                     &stacks_block_id,
                     &peer_client.config.burnchain,
+                    burn_tip.block_height,
                 )
                 .unwrap();
                 *pox_server_info.borrow_mut() = Some(pox_info);
