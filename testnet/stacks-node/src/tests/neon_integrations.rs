@@ -753,7 +753,7 @@ pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Acco
     }
 }
 
-fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
+pub fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/pox", http_origin);
     client
