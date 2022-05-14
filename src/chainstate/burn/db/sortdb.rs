@@ -241,6 +241,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
         let memo_hex: String = row.get_unwrap("memo");
         let burn_fee_str: String = row.get_unwrap("burn_fee");
+        let destroyed_str: String = row.get_unwrap("destroyed");
         let input_json: String = row.get_unwrap("input");
         let apparent_sender_json: String = row.get_unwrap("apparent_sender");
 
@@ -261,6 +262,10 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .parse::<u64>()
             .expect("DB Corruption: burn is not parseable as u64");
 
+        let destroyed = destroyed_str
+            .parse::<u64>()
+            .expect("DB Corruption: destroyed is not parseable as u64");
+
         let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
 
         let block_commit = LeaderBlockCommitOp {
@@ -274,6 +279,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             burn_parent_modulus,
 
             burn_fee,
+            destroyed,
             input,
             apparent_sender,
             commit_outs,
@@ -428,7 +434,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "3";
+pub const SORTITION_DB_VERSION: &'static str = "4";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -510,7 +516,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         memo TEXT,
         commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
-        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers (OBSOLETE; IGNORED)
+        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers (OBSOLETE; RENAMED TO destroyed)
         input TEXT NOT NULL,
         apparent_sender TEXT NOT NULL,
         burn_parent_modulus INTEGER NOT NULL,
@@ -605,6 +611,10 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
+
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
+    ALTER TABLE block_commits RENAME COLUMN sunset_burn TO destroyed;
+    "#];
 
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_sortition_id";
@@ -729,6 +739,75 @@ fn get_adjusted_block_height<C: SortitionContext>(context: &C, block_height: u64
     Some(block_height - first_block_height)
 }
 
+/// Get the PoX spend cutoff for the current cycle, given the PoX cutoff MARF value and a handle to
+/// the sortition DB and the associated context (i.e. from either a SortitionHandleConn or
+/// SortitionHandleTx).
+///
+/// The PoX cutoff takes effect in the first full reward cycle *after* Stacks 2.1 goes live,
+/// so if we ask for the cutoff in the reward cycle just prior to it, then the the cutoff is
+/// u64::MAX.  It is not defined in reward cycles earlier than this.
+fn inner_get_pox_cutoff(
+    conn: &DBConn,
+    context: &SortitionHandleContext,
+    pox_cutoff_opt: Option<String>,
+) -> Result<Option<u64>, db_error> {
+    let chain_tip = context.chain_tip.clone(); // grr borrow checker
+    match pox_cutoff_opt {
+        None => {
+            // possibly in the penultimate Stacks 2.05 reward cycle
+            let tip = SortitionDB::get_block_snapshot(conn, &chain_tip)?
+                .ok_or(db_error::NotFoundError)?;
+
+            let rc = Burnchain::static_block_height_to_reward_cycle(
+                tip.block_height,
+                context.first_block_height,
+                context.pox_constants.reward_cycle_length.into(),
+            )
+            .expect("FATAL: tip block height is mined before the first block height");
+            let rc_start = Burnchain::static_reward_cycle_to_block_height(
+                rc,
+                context.first_block_height,
+                context.pox_constants.reward_cycle_length.into(),
+            );
+
+            let epochs = SortitionDB::get_stacks_epochs(conn)?;
+            let cur_epoch_index = StacksEpoch::find_epoch(&epochs, tip.block_height).expect(
+                &format!("FATAL: no epoch found for height {}", tip.block_height),
+            );
+            let rc_start_epoch_index = StacksEpoch::find_epoch(&epochs, rc_start).expect(&format!(
+                "Fatal: no epoch found for rc start height {}",
+                rc_start
+            ));
+
+            if epochs[cur_epoch_index].epoch_id < StacksEpochId::Epoch21 {
+                // we're before epoch 2.1, so no cutoff defined.
+                Ok(None)
+            } else if epochs[cur_epoch_index].epoch_id > StacksEpochId::Epoch21
+                || (StacksEpochId::Epoch21 == epochs[cur_epoch_index].epoch_id
+                    && epochs[rc_start_epoch_index].epoch_id != epochs[cur_epoch_index].epoch_id)
+            {
+                // we're currently in or after 2.1, but the reward cycle did not start in 2.1.  So, the
+                // cutoff is u64::MAX -- miners can spend as much as they want on PoX outputs
+                // until we've gone through a prepare phase in 2.1.
+                Ok(Some(u64::MAX))
+            } else {
+                // we're in a 2.1 reward cycle that started in 2.1. If there's no PoX cutoff
+                // defined, then PoX must be disabled and thus there's no cutoff to report.
+                Ok(None)
+            }
+        }
+        Some(x) => {
+            // we have a PoX cutoff.  If it's 0, then we're PoB and must report no cutoff.
+            let cutoff = db_keys::pox_cutoff_from_string(&x);
+            if cutoff > 0 {
+                Ok(Some(cutoff))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
+
 struct db_keys;
 impl db_keys {
     /// store an entry that maps from a PoX anchor's <stacks-block-header-hash> to <sortition-id of last block in prepare phase that chose it>
@@ -808,6 +887,25 @@ impl db_keys {
         byte_buff.copy_from_slice(&bytes[0..2]);
         u16::from_le_bytes(byte_buff)
     }
+
+    pub fn pox_cutoff() -> &'static str {
+        "sortition_db::pox_cutoff"
+    }
+
+    pub fn pox_cutoff_to_string(cutoff: u64) -> String {
+        to_hex(
+            &u64::try_from(cutoff)
+                .expect("BUG: maximum cutoff size should be u64")
+                .to_le_bytes(),
+        )
+    }
+
+    pub fn pox_cutoff_from_string(cutoff: &str) -> u64 {
+        let bytes = hex_bytes(cutoff).expect("CORRUPTION: bad format written for PoX cutoff");
+        let mut byte_buff = [0; 8];
+        byte_buff.copy_from_slice(&bytes[0..8]);
+        u64::from_le_bytes(byte_buff)
+    }
 }
 
 impl<'a> SortitionHandleTx<'a> {
@@ -842,12 +940,22 @@ impl<'a> SortitionHandleTx<'a> {
         chain_tip: &SortitionId,
     ) -> Result<Option<BlockSnapshot>, db_error> {
         let sortition_identifier_key = db_keys::sortition_id_for_bhh(burn_header_hash);
-        let sortition_id = match self.get_indexed(&chain_tip, &sortition_identifier_key)? {
+        let sortition_id = match self.get_indexed(chain_tip, &sortition_identifier_key)? {
             None => return Ok(None),
             Some(x) => SortitionId::from_hex(&x).expect("FATAL: bad Sortition ID stored in DB"),
         };
 
         SortitionDB::get_block_snapshot(self.tx(), &sortition_id)
+    }
+
+    /// Get the PoX spend cutoff for the current cycle.
+    /// The PoX cutoff takes effect in the first full reward cycle *after* Stacks 2.1 goes live,
+    /// so if we ask for the cutoff in the reward cycle just prior to it, then the the cutoff is
+    /// u64::MAX.  It is not defined in reward cycles earlier than this.
+    pub fn get_pox_cutoff(&mut self) -> Result<Option<u64>, db_error> {
+        let context = self.context.clone(); // grr borrow checker
+        let pox_cutoff_opt = self.get_indexed(&context.chain_tip, db_keys::pox_cutoff())?;
+        inner_get_pox_cutoff(self, &context, pox_cutoff_opt)
     }
 
     /// Get a leader key at a specific location in the burn chain's fork history, given the
@@ -1816,8 +1924,32 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(result)
     }
 
+    /// Calculate the PoX payout cutoff. Any PoX payouts higher than this must burn the difference.
+    /// The cutoff is a function of the burnchain burns for the winning block-commits in the
+    /// prepare phase.
+    ///
+    /// The currently-used function is 4 * min(median(burns), mean(burns))
+    pub fn calculate_pox_cutoff(mut burns: Vec<u64>) -> u64 {
+        if burns.len() < 2 {
+            // PoX definitely not engaged
+            return 0;
+        }
+
+        burns.sort();
+
+        let mean_burn = burns.iter().fold(0, |acc, x| acc + x) / (burns.len() as u64);
+        let median_burn = if burns.len() % 2 == 0 {
+            (burns[burns.len() / 2 - 1] + burns[burns.len() / 2]) / 2
+        } else {
+            burns[burns.len() - 1] / 2
+        };
+
+        4 * cmp::min(median_burn, mean_burn)
+    }
+
     /// Return identifying information for a PoX anchor block for the reward cycle that
-    ///   begins the block after `prepare_end_bhh`.
+    ///   begins the block after `prepare_end_bhh`, as well as the PoX payout cutoff for this
+    ///   cycle.
     /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
     ///   selected, return `None`
     /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
@@ -1826,9 +1958,13 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, CoordinatorError> {
         match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
-            Ok(Ok((c_hash, bh_hash, ..))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Ok((c_hash, bh_hash, _, burns))) => Ok(Some((
+                c_hash,
+                bh_hash,
+                SortitionHandleConn::calculate_pox_cutoff(burns),
+            ))),
             Ok(Err(_)) => Ok(None),
             Err(e) => Err(e),
         }
@@ -1842,7 +1978,8 @@ impl<'a> SortitionHandleConn<'a> {
     /// Returns Ok(Ok(ch, bh, confs, burns)) if an anchor block was chosen -- i.e. confs >= F*w
     ///     * ch, bhh identify the Stacks block that is the anchor block
     ///     * confs is the number of confirmations
-    ///     * burns is the list of burns spent by the anchor block's descendants
+    ///     * burns is the list of burns spent by the anchor block's descendants (only winning
+    ///     commits' burns are considered).
     ///
     /// Returns Ok(Err(confs)) if an anchor block was not chosen -- i.e. confs < F*w
     /// Returns Err(..) if we could not calculate this result for some reason.
@@ -1899,7 +2036,7 @@ impl<'a> SortitionHandleConn<'a> {
             let mut cursor = (
                 winner_commit_txid,
                 winner_block_height,
-                vec![block_commit.burn_fee],
+                vec![block_commit.total_spend()],
             );
             let mut found_ancestor = true;
 
@@ -1937,7 +2074,7 @@ impl<'a> SortitionHandleConn<'a> {
                     cursor = (
                         sn.winning_block_txid,
                         sn.block_height,
-                        vec![block_commit.burn_fee],
+                        vec![block_commit.total_spend()],
                     );
                 }
             }
@@ -1948,14 +2085,14 @@ impl<'a> SortitionHandleConn<'a> {
             //   highest ancestor of winner_stacks_bh whose sortition occurred before prepare_begin
             //  the winner of that sortition is the PoX anchor block candidate that winner_stacks_bh is "voting for"
             let highest_ancestor = cursor.1;
-            let mut burn_fees = cursor.2.clone();
+            let mut total_spends = cursor.2.clone();
             memoized_candidates.insert(winner_block_height, cursor);
             if let Some((confs, burnt)) = candidate_anchors.get_mut(&highest_ancestor) {
                 *confs += 1;
                 burnt.clear();
-                burnt.append(&mut burn_fees);
+                burnt.append(&mut total_spends);
             } else {
-                candidate_anchors.insert(highest_ancestor, (1u32, burn_fees));
+                candidate_anchors.insert(highest_ancestor, (1u32, total_spends));
             }
         }
 
@@ -2001,6 +2138,15 @@ impl<'a> SortitionHandleConn<'a> {
                 Ok(Ok(response))
             }
         }
+    }
+
+    /// Get the PoX spend cutoff for the current cycle.
+    /// The PoX cutoff takes effect in the first full reward cycle *after* Stacks 2.1 goes live,
+    /// so if we ask for the cutoff in the reward cycle just prior to it, then the the cutoff is
+    /// u64::MAX.  It is not defined in reward cycles earlier than this.
+    pub fn get_pox_cutoff(&self) -> Result<Option<u64>, db_error> {
+        let pox_cutoff_opt = self.get_indexed(&self.context.chain_tip, db_keys::pox_cutoff())?;
+        inner_get_pox_cutoff(self, &self.context, pox_cutoff_opt)
     }
 }
 
@@ -2358,6 +2504,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_SCHEMA_3 {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_4 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
@@ -2569,6 +2718,17 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_4(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_4 {
+            tx.execute_batch(sql_exec)?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["4"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2602,6 +2762,10 @@ impl SortitionDB {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_3(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "3" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -3390,7 +3554,7 @@ impl SortitionDB {
         }
         for i in 0..block_commits.len() {
             burn_total = burn_total
-                .checked_add(block_commits[i].burn_fee)
+                .checked_add(block_commits[i].total_spend())
                 .expect("Way too many tokens burned");
         }
         Ok(burn_total)
@@ -3994,6 +4158,25 @@ impl<'a> SortitionHandleTx<'a> {
                 assert!(parent_sortition_id != SortitionId([0x00; 32]));
             }
         }
+        if parent_sortition_id == SortitionId([0x00; 32])
+            && (block_commit.parent_block_ptr != 0 || block_commit.parent_vtxindex != 0)
+        {
+            warn!(
+                "insert_block_commit: No block snapshot at height {} vtxindex {}",
+                block_commit.parent_block_ptr, block_commit.parent_vtxindex
+            );
+        }
+        test_debug!(
+            "Parent sortition of block-commit {},{},{} is {} ({},{})",
+            &block_commit.txid,
+            block_commit.block_height,
+            block_commit.vtxindex,
+            &parent_sortition_id,
+            block_commit.parent_block_ptr,
+            block_commit.parent_vtxindex
+        );
+
+        let (burn_fee_str, destroyed_str) = block_commit.encode_spends_for_db();
 
         let args: &[&dyn ToSql] = &[
             &block_commit.txid,
@@ -4007,16 +4190,16 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.key_block_ptr,
             &block_commit.key_vtxindex,
             &to_hex(&block_commit.memo[..]),
-            &block_commit.burn_fee.to_string(),
+            &burn_fee_str,
             &tx_input_str,
             sort_id,
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
-            &0i64,
+            &destroyed_str,
             &apparent_sender_str,
             &block_commit.burn_parent_modulus,
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus) \
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, destroyed, apparent_sender, burn_parent_modulus) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)", args)?;
 
         let parent_args: &[&dyn ToSql] = &[sort_id, &block_commit.txid, &parent_sortition_id];
@@ -4241,6 +4424,7 @@ impl<'a> SortitionHandleTx<'a> {
                 }
                 // if we have selected an anchor block, write that info
                 if let Some(ref anchor_block) = reward_info.selected_anchor_block() {
+                    test_debug!("Anchor block is {}", anchor_block);
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
 
@@ -4252,7 +4436,9 @@ impl<'a> SortitionHandleTx<'a> {
                 }
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
-                if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
+                if let Some((mut reward_set, pox_cutoff)) =
+                    reward_info.known_selected_anchor_block_owned()
+                {
                     if reward_set.len() > 0 {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
@@ -4276,9 +4462,15 @@ impl<'a> SortitionHandleTx<'a> {
                         keys.push(db_keys::pox_reward_set_entry(ix as u16));
                         values.push(address.to_string());
                     }
+
+                    keys.push(db_keys::pox_cutoff().to_string());
+                    values.push(db_keys::pox_cutoff_to_string(pox_cutoff));
                 } else {
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(0));
+
+                    keys.push(db_keys::pox_cutoff().to_string());
+                    values.push(db_keys::pox_cutoff_to_string(0));
                 }
 
                 // in all cases, write the new PoX bit vector
@@ -4567,12 +4759,14 @@ pub mod tests {
         tx.commit().unwrap();
     }
 
-    pub fn test_append_snapshot_with_winner(
+    pub fn test_append_snapshot_with_winner_and_pox_info(
         db: &mut SortitionDB,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,
         parent_sn: Option<BlockSnapshot>,
         winning_block_commit: Option<LeaderBlockCommitOp>,
+        reward_cycle_info: Option<RewardCycleInfo>,
+        reward_set_info: Option<RewardSetInfo>,
     ) -> BlockSnapshot {
         let mut sn = match parent_sn {
             Some(sn) => sn,
@@ -4588,6 +4782,7 @@ pub mod tests {
         sn.block_height += 1;
         sn.sortition_id = SortitionId::stubbed(&sn.burn_header_hash);
         sn.consensus_hash = ConsensusHash(Hash160::from_data(&sn.consensus_hash.0).0);
+        sn.sortition_hash = SortitionHash(Sha512Trunc256Sum::from_data(&sn.sortition_hash.0).0);
 
         if let Some(cmt) = winning_block_commit {
             sn.sortition = true;
@@ -4601,13 +4796,39 @@ pub mod tests {
         }
 
         let index_root = tx
-            .append_chain_tip_snapshot(&sn_parent, &sn, block_ops, &vec![], None, None, None)
+            .append_chain_tip_snapshot(
+                &sn_parent,
+                &sn,
+                block_ops,
+                &vec![],
+                reward_cycle_info,
+                reward_set_info.as_ref(),
+                None,
+            )
             .unwrap();
         sn.index_root = index_root;
 
         tx.commit().unwrap();
 
         sn
+    }
+
+    pub fn test_append_snapshot_with_winner(
+        db: &mut SortitionDB,
+        next_hash: BurnchainHeaderHash,
+        block_ops: &Vec<BlockstackOperationType>,
+        parent_sn: Option<BlockSnapshot>,
+        winning_block_commit: Option<LeaderBlockCommitOp>,
+    ) -> BlockSnapshot {
+        test_append_snapshot_with_winner_and_pox_info(
+            db,
+            next_hash,
+            block_ops,
+            parent_sn,
+            winning_block_commit,
+            None,
+            None,
+        )
     }
 
     pub fn test_append_snapshot(
@@ -4761,6 +4982,7 @@ pub mod tests {
 
             commit_outs: vec![],
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -5582,6 +5804,7 @@ pub mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -5653,7 +5876,7 @@ pub mod tests {
 
         {
             let burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &commit_snapshot).unwrap();
-            assert_eq!(burn_amt, block_commit.burn_fee + user_burn.burn_fee);
+            assert_eq!(burn_amt, block_commit.total_spend() + user_burn.burn_fee);
 
             let no_burn_amt = SortitionDB::get_block_burn_amount(db.conn(), &key_snapshot).unwrap();
             assert_eq!(no_burn_amt, 0);
@@ -7710,6 +7933,7 @@ pub mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -7751,6 +7975,7 @@ pub mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -7792,6 +8017,7 @@ pub mod tests {
             commit_outs: vec![],
 
             burn_fee: 12345,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -7833,6 +8059,7 @@ pub mod tests {
             commit_outs: vec![],
 
             burn_fee: 1,
+            destroyed: 0,
             input: (Txid([0; 32]), 0),
             apparent_sender: BurnchainSigner {
                 public_keys: vec![StacksPublicKey::from_hex(
@@ -8075,6 +8302,7 @@ pub mod tests {
                 commit_outs: vec![],
 
                 burn_fee: burn_fee,
+                destroyed: 0,
                 input: (Txid([0; 32]), 0),
                 apparent_sender: BurnchainSigner {
                     public_keys: vec![StacksPublicKey::from_hex(
@@ -8121,6 +8349,7 @@ pub mod tests {
                 commit_outs: vec![],
 
                 burn_fee: burn_fee,
+                destroyed: 0,
                 input: (Txid([0; 32]), 0),
                 apparent_sender: BurnchainSigner {
                     public_keys: vec![StacksPublicKey::from_hex(
@@ -8204,7 +8433,7 @@ pub mod tests {
 
         // confirm an anchor block with two miners
         let mut expected_anchor_block_commit = None;
-        for i in 4..23 {
+        for i in 4..22 {
             let cmt1 = test_make_block_commit_from_snapshot(&db, &sn, 1, 10 * i + 1, None);
             let cmt2 = test_make_block_commit_from_snapshot(&db, &sn, 2, 100 * i + 1, None);
 
@@ -8234,7 +8463,7 @@ pub mod tests {
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         let index_handle = db.index_handle(&tip.sortition_id);
         let (ch, bhh, confs, burns) = index_handle
-            .get_chosen_pox_anchor_check_position(&tip.parent_burn_header_hash, &pox_consts, true)
+            .get_chosen_pox_anchor_check_position(&tip.burn_header_hash, &pox_consts, true)
             .unwrap()
             .unwrap();
 
@@ -8244,5 +8473,167 @@ pub mod tests {
             burns,
             vec![121, 1301, 141, 1501, 161, 1701, 181, 1901, 201, 2101]
         );
+    }
+
+    #[test]
+    fn test_get_pox_cutoff() {
+        let first_block_height = 100;
+        let first_burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+        let mut db = SortitionDB::connect_test_with_epochs(
+            first_block_height,
+            &first_burn_header_hash,
+            StacksEpoch::all(0, 1, 115), // at block height 115 (the middle of a reward cycle), epoch 2.1 activates
+        )
+        .unwrap();
+
+        let pox_consts = PoxConstants::new(20, 10, 6, 1, 1, 0);
+
+        let leader_key = LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash([0x22; 20]),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(
+                &BitcoinAddress::from_scriptpubkey(
+                    BitcoinNetworkType::Testnet,
+                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
+                )
+                .unwrap(),
+            ),
+            txid: Txid::from_bytes_be(
+                &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
+                    .unwrap(),
+            )
+            .unwrap(),
+            vtxindex: 2,
+            block_height: first_block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x02; 32]),
+        };
+
+        let mut sn = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x02; 32]),
+            &vec![BlockstackOperationType::LeaderKeyRegister(
+                leader_key.clone(),
+            )],
+            None,
+            None,
+        );
+
+        // make the first commit
+        let cmt = test_make_block_commit_from_snapshot(&db, &sn, 1, 1, Some(leader_key));
+        sn = test_append_snapshot_with_winner(
+            &mut db,
+            BurnchainHeaderHash([0x03; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+            Some(sn),
+            Some(cmt),
+        );
+
+        // build first reward cycle, and confirm an anchor block.
+        // The anchor block is mined at i = 10
+        for i in 4..22 {
+            let cmt = test_make_block_commit_from_snapshot(&db, &sn, 1, 10 * i + 1, None);
+            sn = test_append_snapshot_with_winner(
+                &mut db,
+                BurnchainHeaderHash([i as u8; 32]),
+                &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+                Some(sn),
+                Some(cmt.clone()),
+            );
+
+            let epoch = SortitionDB::get_stacks_epoch(db.conn(), sn.block_height)
+                .unwrap()
+                .unwrap();
+
+            if sn.block_height < 115 {
+                // we don't yet have a pox cutoff, since we're in epoch 2.05
+                assert_eq!(epoch.epoch_id, StacksEpochId::Epoch2_05);
+
+                let mut sort_tx = db.tx_begin_at_tip();
+                assert_eq!(sort_tx.get_pox_cutoff().unwrap(), None);
+            } else if sn.block_height < 120 {
+                // 2.1 activated in the middle of the reward cycle, so the pox cutoff defaults to
+                //   u64::MAX
+                assert_eq!(epoch.epoch_id, StacksEpochId::Epoch21);
+                let mut sort_tx = db.tx_begin_at_tip();
+                assert_eq!(sort_tx.get_pox_cutoff().unwrap(), Some(u64::MAX));
+            }
+        }
+
+        // build second reward cycle with the anchor block and a mocked reward set
+        let (anchor_ch, anchor_bhh) = {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+            let index_handle = db.index_handle(&tip.sortition_id);
+            let (ch, bhh, _confs, burns) = index_handle
+                .get_chosen_pox_anchor_check_position(&tip.burn_header_hash, &pox_consts, true)
+                .unwrap()
+                .unwrap();
+
+            // NOTE: anchor block is at i = 10
+            assert_eq!(
+                burns,
+                vec![121, 131, 141, 151, 161, 171, 181, 191, 201, 211]
+            );
+
+            let median_burn = (burns[4] + burns[5]) / 2;
+            let avg_burn = burns.iter().fold(0, |acc, x| acc + x) / 10;
+
+            assert_eq!(median_burn, 166);
+            assert_eq!(avg_burn, 166);
+
+            assert_eq!(
+                SortitionHandleConn::calculate_pox_cutoff(burns),
+                4 * cmp::min(median_burn, avg_burn)
+            );
+
+            (ch, bhh)
+        };
+
+        let mock_reward_addresses =
+            vec![
+                StacksAddress::from_string("STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6").unwrap();
+                ((pox_consts.reward_cycle_length - pox_consts.prepare_length) * 2) as usize
+            ];
+        let cmt = test_make_block_commit_from_snapshot(&db, &sn, 1, 10 * 23 + 1, None);
+
+        sn = test_append_snapshot_with_winner_and_pox_info(
+            &mut db,
+            BurnchainHeaderHash([23u8; 32]),
+            &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
+            Some(sn),
+            Some(cmt.clone()),
+            Some(RewardCycleInfo {
+                anchor_status: PoxAnchorBlockStatus::SelectedAndKnown(
+                    anchor_bhh.clone(),
+                    mock_reward_addresses,
+                ),
+                pox_cutoff: 10_000, // NOTE: this is different than calculate_pox_cutoff(); we're only testing that this value gets stored and is loadable
+            }),
+            Some(RewardSetInfo {
+                anchor_block: anchor_bhh.clone(),
+                recipients: vec![
+                    (
+                        StacksAddress::from_string("STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6")
+                            .unwrap(),
+                        0,
+                    ),
+                    (
+                        StacksAddress::from_string("STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6")
+                            .unwrap(),
+                        1,
+                    ),
+                ],
+            }),
+        );
+
+        // this loads now
+        {
+            let mut sort_tx = db.tx_begin_at_tip();
+            assert_eq!(sort_tx.get_pox_cutoff().unwrap(), Some(10_000));
+        }
     }
 }
