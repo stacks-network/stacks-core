@@ -753,7 +753,7 @@ check if the associated microblocks can be downloaded
                 .get_block_commit_by_txid(&winner_txid)
                 .unwrap()
                 .unwrap();
-            reward_phase_payouts.push(block_commit.burn_fee);
+            reward_phase_payouts.push(block_commit.total_spend());
             cur_height += 1;
         }
 
