@@ -399,6 +399,7 @@ fn inner_generate_block_commit_op(
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
     commit_outs: Vec<StacksAddress>,
+    destroyed: u64,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -408,6 +409,7 @@ fn inner_generate_block_commit_op(
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         burn_fee,
+        destroyed,
         input: (Txid([0; 32]), 0),
         apparent_sender: sender,
         key_block_ptr: key.block_height as u32,
@@ -2153,11 +2155,25 @@ impl StacksNode {
             vec![StacksAddress::burn_address(config.is_mainnet())]
         };
 
+        let pox_cutoff = {
+            let reader_handle = burn_db.index_handle(&burn_block.sortition_id);
+            reader_handle
+                .get_pox_cutoff()
+                .expect("FATAL: failed to query sortition DB for PoX cutoff")
+                .unwrap_or(u64::MAX)
+        };
+
+        let (pox_out, destroyed) = if pox_cutoff < burn_fee_cap {
+            (pox_cutoff, burn_fee_cap - pox_cutoff)
+        } else {
+            (burn_fee_cap, 0)
+        };
+
         // let's commit
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            burn_fee_cap,
+            pox_out,
             &registered_key,
             parent_block_burn_height
                 .try_into()
@@ -2165,6 +2181,7 @@ impl StacksNode {
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
             commit_outs,
+            destroyed,
             burn_block.block_height,
         );
 
