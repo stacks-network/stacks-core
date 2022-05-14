@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::thread;
 
@@ -19,20 +20,35 @@ use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::BitcoinRegtestController;
 use crate::BurnchainController;
+use crate::Keychain;
+
 use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::distribution::BurnSamplePoint;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 
 use stacks::burnchains::PoxConstants;
+use stacks::burnchains::Txid;
 
+use crate::stacks_common::types::chainstate::BlockHeaderHash;
+use crate::stacks_common::types::chainstate::VRFSeed;
 use crate::stacks_common::types::Address;
+use crate::stacks_common::util::hash::bytes_to_hex;
 use crate::stacks_common::util::hash::hex_bytes;
 
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+
+use stacks::core::STACKS_EPOCH_2_1_MARKER;
+
+use clarity::vm::ClarityVersion;
+use stacks::clarity_cli::vm_execute as execute;
 
 fn advance_to_2_1(
     mut initial_balances: Vec<InitialBalance>,
@@ -143,8 +159,6 @@ fn advance_to_2_1(
 
     // these should all succeed across the epoch 2.1 boundary
     for _i in 0..5 {
-        // also, make *huge* block-commits with invalid marker bytes once we reach the new
-        // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
 
         // this block is the epoch transition?
@@ -455,4 +469,251 @@ fn transition_adds_burn_block_height() {
 
     test_observer::clear();
     coord_channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn transition_caps_discount_mining_upside() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = PrincipalData::from(to_addr(&spender_sk));
+    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash160 = Hash160::from_node_public_key(&pox_pubkey);
+    let pox_pubkey_hash = bytes_to_hex(&pox_pubkey_hash160.to_bytes().to_vec());
+
+    test_observer::spawn();
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    let keychain = Keychain::default(conf.node.seed.clone());
+
+    conf.initial_balances = vec![InitialBalance {
+        address: spender_addr.clone(),
+        amount: 200_000_000_000_000,
+    }];
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+
+    conf.burnchain.epochs = Some(epochs);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let reward_cycle_len = 20;
+    let prepare_phase_len = 10;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        1,
+        230,
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    // give one coinbase to the miner, and then burn the rest
+    btc_regtest_controller.bootstrap_chain(1);
+
+    let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+    btc_regtest_controller.set_mining_pubkey(
+        "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa".to_string(),
+    );
+
+    // bitcoin chain starts at epoch 2.05 boundary, minus 5 blocks to go
+    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 6);
+
+    // only one UTXO for our mining pubkey
+    let utxos = btc_regtest_controller
+        .get_all_utxos(&Secp256k1PublicKey::from_hex(&mining_pubkey).unwrap());
+    assert_eq!(utxos.len(), 1);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let runloop_burnchain = burnchain_config.clone();
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    let key_block_ptr = tip_info.burn_block_height as u32;
+    let key_vtxindex = 1; // nothing else here but the coinbase
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // cross the epoch 2.05 boundary
+    for _i in 0..3 {
+        debug!("Burnchain block height is {}", tip_info.burn_block_height);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // cross the epoch 2.1 boundary
+    for _i in 0..5 {
+        debug!("Burnchain block height is {}", tip_info.burn_block_height);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // wait until the next reward cycle starts
+    let mut tip_info = get_chain_info(&conf);
+    while tip_info.burn_block_height < 221 {
+        debug!("Burnchain block height is {}", tip_info.burn_block_height);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        tip_info = get_chain_info(&conf);
+    }
+
+    // stack all the tokens
+    let tx = make_contract_call(
+        &spender_sk,
+        0,
+        300,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-stx",
+        &[
+            Value::UInt(200_000_000_000_000 - 1_000),
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                ClarityVersion::Clarity2,
+            )
+            .unwrap()
+            .unwrap(),
+            Value::UInt((tip_info.burn_block_height + 3).into()),
+            Value::UInt(12),
+        ],
+    );
+
+    submit_tx(&http_origin, &tx);
+
+    // wait till next reward phase
+    while tip_info.burn_block_height < 241 {
+        debug!("Burnchain block height is {}", tip_info.burn_block_height);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        tip_info = get_chain_info(&conf);
+    }
+
+    // verify stacking worked
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        pox_info.current_cycle.stacked_ustx,
+        200_000_000_000_000 - 1_000
+    );
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+
+    // try to send a PoX payout that over-spends
+    assert!(!burnchain_config.is_in_prepare_phase(tip_info.burn_block_height + 1));
+
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
+
+    // allow using 0-conf utxos
+    bitcoin_controller.set_allow_rbf(false);
+    let mut bad_commits = HashSet::new();
+
+    for i in 0..10 {
+        let burn_fee_cap = 100000000; // 1 BTC
+        let commit_outs = vec![
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: pox_pubkey_hash160.clone(),
+            },
+            StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: pox_pubkey_hash160.clone(),
+            },
+        ];
+
+        // let's commit an oversized commit
+        let burn_parent_modulus = (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+        let block_header_hash = BlockHeaderHash([0xff - (i as u8); 32]);
+
+        let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            block_header_hash: block_header_hash.clone(),
+            burn_fee: burn_fee_cap,
+            destroyed: 0,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: keychain.get_burnchain_signer(),
+            key_block_ptr,
+            key_vtxindex,
+            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            new_seed: VRFSeed([0x11; 32]),
+            parent_block_ptr: tip_info.burn_block_height.try_into().unwrap(),
+            parent_vtxindex: 1,
+            // to be filled in
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash::zero(),
+            burn_parent_modulus,
+            commit_outs,
+        });
+
+        let mut op_signer = keychain.generate_op_signer();
+        let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
+        assert!(res, "Failed to submit block-commit");
+
+        bad_commits.insert(block_header_hash);
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    // commit not even accepted
+    // (NOTE: there's no directly way to confirm here that it was rejected due to
+    // BlockCommitPoxOverpay)
+
+    let sortdb = btc_regtest_controller.sortdb_mut();
+    let all_snapshots = sortdb.get_all_snapshots().unwrap();
+
+    for i in (all_snapshots.len() - 2)..all_snapshots.len() {
+        let commits =
+            SortitionDB::get_block_commits_by_block(sortdb.conn(), &all_snapshots[i].sortition_id)
+                .unwrap();
+        assert_eq!(commits.len(), 1);
+        assert!(!bad_commits.contains(&commits[0].block_header_hash));
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 }
