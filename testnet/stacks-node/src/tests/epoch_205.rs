@@ -603,6 +603,7 @@ fn transition_empty_blocks() {
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                 block_header_hash: BlockHeaderHash([0xff; 32]),
                 burn_fee: burn_fee_cap,
+                destroyed: 0,
                 input: (Txid([0; 32]), 0),
                 apparent_sender: keychain.get_burnchain_signer(),
                 key_block_ptr,
