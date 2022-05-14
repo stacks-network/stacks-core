@@ -56,6 +56,8 @@ use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
+use stacks_common::util::hash::to_hex;
+
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
 #[cfg(test)]
@@ -96,6 +98,7 @@ impl OngoingBlockCommit {
 
 #[derive(Clone)]
 struct LeaderBlockCommitFees {
+    destroyed_fee: u64,
     fee_rate: u64,
     sortition_fee: u64,
     outputs_len: u64,
@@ -123,6 +126,12 @@ impl LeaderBlockCommitFees {
         payload: &LeaderBlockCommitOp,
         config: &Config,
     ) -> LeaderBlockCommitFees {
+        let destroyed_fee = if payload.destroyed > 0 {
+            cmp::max(payload.destroyed, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
         let number_of_transfers = payload.commit_outs.len() as u64;
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         let sortition_fee = value_per_transfer * number_of_transfers;
@@ -131,6 +140,7 @@ impl LeaderBlockCommitFees {
         let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
 
         LeaderBlockCommitFees {
+            destroyed_fee,
             fee_rate,
             sortition_fee,
             outputs_len: number_of_transfers,
@@ -154,7 +164,7 @@ impl LeaderBlockCommitFees {
     }
 
     pub fn estimated_amount_required(&self) -> u64 {
-        self.estimated_miner_fee() + self.rbf_fee() + self.sortition_fee
+        self.estimated_miner_fee() + self.rbf_fee() + self.destroyed_fee + self.sortition_fee
     }
 
     pub fn total_spent(&self) -> u64 {
@@ -166,7 +176,7 @@ impl LeaderBlockCommitFees {
     }
 
     pub fn total_spent_in_outputs(&self) -> u64 {
-        self.sortition_fee
+        self.destroyed_fee + self.sortition_fee
     }
 
     pub fn min_tx_size(&self) -> u64 {
@@ -607,6 +617,7 @@ impl BitcoinRegtestController {
                 .expect("Public key incorrect");
         let filter_addresses = vec![address.to_b58()];
 
+        debug!("Get UTXOs for {}", &address);
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
                 &self.config,
@@ -960,7 +971,7 @@ impl BitcoinRegtestController {
         };
 
         let consensus_output = TxOut {
-            value: 0,
+            value: estimated_fees.destroyed_fee,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -1003,6 +1014,10 @@ impl BitcoinRegtestController {
             txids,
         };
 
+        debug!(
+            "Miner node: Submitting tx {}",
+            &to_hex(&serialized_tx.bytes)
+        );
         info!(
             "Miner node: submitting leader_block_commit (txid: {}, rbf: {}, total spent: {}, size: {}, fee_rate: {})",
             txid.to_hex(),
@@ -1145,9 +1160,11 @@ impl BitcoinRegtestController {
     ) -> Option<(Transaction, UTXOSet)> {
         let utxos = if let Some(utxos) = utxos_to_include {
             // in RBF, you have to consume the same UTXOs
+            debug!("Using utxos_to_include: {:?}", &utxos);
             utxos
         } else {
             // Fetch some UTXOs
+            debug!("Fetching UTXOs for {}", &public_key.to_hex());
             let utxos =
                 match self.get_utxos(&public_key, total_required, utxos_to_exclude, block_height) {
                     Some(utxos) => utxos,
