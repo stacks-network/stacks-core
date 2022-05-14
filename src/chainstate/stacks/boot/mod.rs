@@ -1866,7 +1866,7 @@ pub mod test {
                     if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
                         eprintln!("prepare phase {}: {:?}", burn_height, opdata);
                         assert!(opdata.all_outputs_burn());
-                        assert!(opdata.burn_fee > 0);
+                        assert!(opdata.total_spend() > 0);
 
                         if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle {
                             prepared = true;
@@ -1886,7 +1886,7 @@ pub mod test {
                             assert!(opdata.all_outputs_burn());
                         }
 
-                        assert!(opdata.burn_fee > 0);
+                        assert!(opdata.total_spend() > 0);
                     }
                 }
             }
