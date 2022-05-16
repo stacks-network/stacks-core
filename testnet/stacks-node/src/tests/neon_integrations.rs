@@ -1841,7 +1841,7 @@ fn microblock_integration_test() {
     // this microblock should correspond to `second_microblock`
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
-    assert_eq!(transactions.len(), 1);
+    assert!(transactions.len() >= 1);
     let tx_sequence = transactions[0]
         .get("microblock_sequence")
         .unwrap()
@@ -1883,7 +1883,7 @@ fn microblock_integration_test() {
     // this microblock should correspond to the first microblock that was posted
     let microblock = microblock_events.pop().unwrap();
     let transactions = microblock.get("transactions").unwrap().as_array().unwrap();
-    assert_eq!(transactions.len(), 1);
+    assert!(transactions.len() >= 1);
     let tx_sequence = transactions[0]
         .get("microblock_sequence")
         .unwrap()
