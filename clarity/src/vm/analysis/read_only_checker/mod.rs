@@ -292,6 +292,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FromConsensusBuff => {
                 // Check only the second+ arguments: the first argument is a type parameter
+                check_argument_count(2, args)?;
                 self.check_each_expression_is_read_only(&args[1..])
             }
             AtBlock => {

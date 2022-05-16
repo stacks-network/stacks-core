@@ -294,7 +294,7 @@ macro_rules! check_match {
 impl TypeSignature {
     /// Return the maximum length of the consensus serialization of a
     /// Clarity value of this type. The returned length *may* not fit
-    /// in in a Clarity buffer! For example, the maximum serialized
+    /// in a Clarity buffer! For example, the maximum serialized
     /// size of a `(buff 1024*1024)` is `1+1024*1024` because of the
     /// type prefix byte. However, that is 1 byte larger than the maximum
     /// buffer size in Clarity.
@@ -422,8 +422,7 @@ impl Value {
         r: &mut R,
         expected_type: Option<&TypeSignature>,
     ) -> Result<Value, SerializationError> {
-        let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
-        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
+        Self::deserialize_read_count(r, expected_type).map(|(value, _)| value)
     }
 
     /// Deserialize just like `deserialize_read` but also
@@ -433,8 +432,30 @@ impl Value {
         expected_type: Option<&TypeSignature>,
     ) -> Result<(Value, u64), SerializationError> {
         let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
-        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
-            .map(|value| (value, bound_reader.num_read()))
+        let value = Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)?;
+        let bytes_read = bound_reader.num_read();
+        if let Some(expected_type) = expected_type {
+            let expect_size = match expected_type.max_serialized_size() {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!(
+                        "Failed to determine max serialized size when checking expected_type argument";
+                        "err" => ?e
+                    );
+                    return Ok((value, bytes_read));
+                }
+            };
+
+            assert!(
+                expect_size as u64 >= bytes_read,
+                "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
+                expect_size,
+                bytes_read,
+                expected_type,
+            );
+        }
+
+        Ok((value, bytes_read))
     }
 
     fn inner_deserialize_read<R: Read>(

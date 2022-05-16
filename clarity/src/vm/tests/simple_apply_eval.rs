@@ -324,11 +324,6 @@ fn test_from_consensus_buff_type_checks() {
 
     for (input, expected) in vectors.iter() {
         let result = vm_execute_v2(input).expect_err("Should raise an error");
-        eprintln!("{}", result.to_string());
-    }
-
-    for (input, expected) in vectors.iter() {
-        let result = vm_execute_v2(input).expect_err("Should raise an error");
         assert_eq!(&result.to_string(), expected);
     }
 }
