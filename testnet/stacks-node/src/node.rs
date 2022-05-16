@@ -13,8 +13,8 @@ use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    StacksTransactionSigner, TransactionAnchorMode, TransactionPayload, TransactionVersion,
+    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
@@ -775,7 +775,7 @@ impl Node {
         microblocks: Vec<StacksMicroblock>,
         db: &mut SortitionDB,
     ) -> ChainTip {
-        let parent_consensus_hash = {
+        let _parent_consensus_hash = {
             // look up parent consensus hash
             let ic = db.index_conn();
             let parent_consensus_hash = StacksChainState::get_parent_consensus_hash(
@@ -825,30 +825,6 @@ impl Node {
 
             parent_consensus_hash
         };
-
-        // get previous burn block stats
-        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
-            if anchored_block.is_first_mined() {
-                (BurnchainHeaderHash([0; 32]), 0, 0)
-            } else {
-                match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
-                    .unwrap()
-                {
-                    Some(sn) => (
-                        sn.burn_header_hash,
-                        sn.block_height as u32,
-                        sn.burn_header_timestamp,
-                    ),
-                    None => {
-                        // shouldn't happen
-                        warn!(
-                            "CORRUPTION: block {}/{} does not correspond to a burn block",
-                            &parent_consensus_hash, &anchored_block.header.parent_block
-                        );
-                        (BurnchainHeaderHash([0; 32]), 0, 0)
-                    }
-                }
-            };
 
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
@@ -929,26 +905,6 @@ impl Node {
             .unwrap();
             StacksChainState::consensus_load(&block_path).unwrap()
         };
-
-        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
-            &parent_consensus_hash,
-            &block.header.parent_block,
-        );
-
-        self.event_dispatcher.process_chain_tip(
-            &block,
-            &metadata,
-            &receipts,
-            &parent_index_hash,
-            Txid([0; 32]),
-            &vec![],
-            None,
-            parent_burn_block_hash,
-            parent_burn_block_height,
-            parent_burn_block_timestamp,
-            &processed_block.anchored_block_cost,
-            &processed_block.parent_microblocks_cost,
-        );
 
         let chain_tip = ChainTip {
             metadata,

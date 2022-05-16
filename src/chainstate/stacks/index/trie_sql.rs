@@ -52,7 +52,9 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::index::{trie_sql, BlockMap, MarfTrieId};
+use crate::util_lib::db::query_count;
 use crate::util_lib::db::query_row;
+use crate::util_lib::db::query_rows;
 use crate::util_lib::db::sql_pragma;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::u64_to_sql;
@@ -96,11 +98,15 @@ static SQL_MARF_DATA_TABLE_SCHEMA_2: &str = "
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER DEFAULT 1 NOT NULL
 );
+CREATE TABLE IF NOT EXISTS migrated_version (
+    version INTEGER DEFAULT 1 NOT NULL
+);
 ALTER TABLE marf_data ADD COLUMN external_offset INTEGER DEFAULT 0 NOT NULL;
 ALTER TABLE marf_data ADD COLUMN external_length INTEGER DEFAULT 0 NOT NULL;
 CREATE INDEX IF NOT EXISTS index_external_offset ON marf_data(external_offset);
 
 INSERT OR REPLACE INTO schema_version (version) VALUES (2);
+INSERT OR REPLACE INTO migrated_version (version) VALUES (1);
 ";
 
 pub static SQL_MARF_SCHEMA_VERSION: u64 = 2;
@@ -118,6 +124,19 @@ pub fn create_tables_if_needed(conn: &mut Connection) -> Result<(), Error> {
 fn get_schema_version(conn: &Connection) -> u64 {
     // if the table doesn't exist, then the version is 1.
     let sql = "SELECT version FROM schema_version";
+    match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
+        Ok(x) => x as u64,
+        Err(e) => {
+            debug!("Failed to get schema version: {:?}", &e);
+            1u64
+        }
+    }
+}
+
+/// Get the last schema version before the last attempted migration
+fn get_migrated_version(conn: &Connection) -> u64 {
+    // if the table doesn't exist, then the version is 1.
+    let sql = "SELECT version FROM migrated_version";
     match conn.query_row(sql, NO_PARAMS, |row| row.get::<_, i64>("version")) {
         Ok(x) => x as u64,
         Err(e) => {
@@ -156,6 +175,14 @@ pub fn migrate_tables_if_needed<T: MarfTrieId>(conn: &mut Connection) -> Result<
                 panic!("{}", &msg);
             }
         }
+    }
+    if first_version == SQL_MARF_SCHEMA_VERSION
+        && get_migrated_version(conn) != SQL_MARF_SCHEMA_VERSION
+        && !trie_sql::detect_partial_migration(conn)?
+    {
+        // no migration will need to happen, so stop checking
+        debug!("Marking MARF data as fully-migrated");
+        set_migrated(conn)?;
     }
     Ok(first_version)
 }
@@ -528,6 +555,39 @@ pub fn get_external_blobs_length(conn: &Connection) -> Result<u64, Error> {
     let qry = "SELECT (external_offset + external_length) AS blobs_length FROM marf_data ORDER BY external_offset DESC LIMIT 1";
     let max_len = query_row(conn, qry, NO_PARAMS)?.unwrap_or(0);
     Ok(max_len)
+}
+
+/// Do we have a partially-migrated database?
+/// Either all tries have offset and length 0, or they all don't.  If we have a mixture, then we're
+/// corrupted.
+pub fn detect_partial_migration(conn: &Connection) -> Result<bool, Error> {
+    let migrated_version = get_migrated_version(conn);
+    let schema_version = get_schema_version(conn);
+    if migrated_version == schema_version {
+        return Ok(false);
+    }
+
+    let num_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE external_offset = 0 AND external_length = 0 AND unconfirmed = 0",
+        NO_PARAMS,
+    )?;
+    let num_not_migrated = query_count(
+        conn,
+        "SELECT COUNT(*) FROM marf_data WHERE external_offset != 0 AND external_length != 0 AND unconfirmed = 0",
+        NO_PARAMS,
+    )?;
+    Ok(num_migrated > 0 && num_not_migrated > 0)
+}
+
+/// Mark a migration as completed
+pub fn set_migrated(conn: &Connection) -> Result<(), Error> {
+    conn.execute(
+        "UPDATE migrated_version SET version = ?1",
+        &[&u64_to_sql(SQL_MARF_SCHEMA_VERSION)?],
+    )
+    .map_err(|e| e.into())
+    .and_then(|_| Ok(()))
 }
 
 pub fn get_node_hash_bytes(
