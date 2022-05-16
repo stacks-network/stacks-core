@@ -260,7 +260,7 @@ impl L1Controller {
             hash_mode.to_version_testnet()
         };
         StacksAddress::from_public_keys(addr_version, &hash_mode, 1, &vec![signer.get_public_key()])
-            .unwrap()
+            .expect("Failed to make Stacks address from public key")
     }
 
     fn make_mine_contract_call(
@@ -321,7 +321,9 @@ impl L1Controller {
             return false;
         }
         // step 1: figure out the miner's nonce
+        debug!("Get miner address from op_signer");
         let miner_address = self.l1_addr_from_signer(op_signer);
+        debug!("Got miner address"; "address" => %miner_address);
         let nonce = match self.l1_get_nonce(&miner_address) {
             Ok(x) => x,
             Err(e) => {
@@ -329,6 +331,7 @@ impl L1Controller {
                 return false;
             }
         };
+        debug!("Got miner nonce"; "nonce" => nonce, "address" => %miner_address);
 
         // step 2: fee estimate (todo: #issue)
         let fee = 100_000;
@@ -344,6 +347,8 @@ impl L1Controller {
                 return false;
             }
         };
+
+        debug!("Made contract call");
 
         match self.l1_submit_tx(contract_call) {
             Ok(x) => {
