@@ -5135,7 +5135,6 @@ pub mod tests {
             sn.parent_sortition_id = sn_parent.sortition_id.clone();
             sn.burn_header_hash = next_hash;
             sn.block_height += 1;
-            sn.num_sortitions += 1;
             sn.consensus_hash = ConsensusHash([0x23; 20]);
 
             let index_root = tx
