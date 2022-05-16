@@ -25,6 +25,7 @@ use crate::chainstate::stacks::db::test::chainstate_path;
 use crate::chainstate::stacks::db::test::instantiate_chainstate;
 use crate::chainstate::stacks::db::test::instantiate_chainstate_with_balances;
 use crate::chainstate::stacks::db::StreamCursor;
+use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
@@ -287,7 +288,13 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -312,7 +319,13 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -336,7 +349,13 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -365,7 +384,13 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -392,7 +417,13 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
