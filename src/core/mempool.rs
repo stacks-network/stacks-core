@@ -1019,7 +1019,11 @@ impl MemPoolDB {
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, &ConsiderTransaction, &mut dyn CostEstimator) -> Result<bool, E>,
+        F: FnMut(
+            &mut C,
+            &ConsiderTransaction,
+            &mut dyn CostEstimator,
+        ) -> Result<Option<TransactionEvent>, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
@@ -1079,7 +1083,8 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                    let todo_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut())?;
+                    if !todo_result.is_some() {
                         debug!("Mempool iteration early exit from iterator");
                         break;
                     }
