@@ -879,6 +879,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 let mut num_added = 0;
                 intermediate_result = mem_pool.iterate_candidates(
                     &mut clarity_tx,
+                    &mut tx_events,
                     self.anchor_block_height,
                     mempool_settings.clone(),
                     |clarity_tx, to_consider, estimator| {
@@ -908,8 +909,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             &block_limit_hit,
                         ) {
                             Ok(tx_result) => {
-                        let result_event = tx_result.convert_to_event();
-                                tx_events.push(tx_result.convert_to_event());
+                                let result_event = tx_result.convert_to_event();
                                 match tx_result {
                                     TransactionResult::Success(TransactionSuccess {
                                         receipt,
@@ -1990,6 +1990,7 @@ impl StacksBlockBuilder {
                 let mut num_considered = 0;
                 intermediate_result = mempool.iterate_candidates(
                     &mut epoch_tx,
+                    &mut tx_events,
                     tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
@@ -2054,7 +2055,6 @@ impl StacksBlockBuilder {
                             txinfo.metadata.len,
                             &block_limit_hit,
                         );
-                        tx_events.push(tx_result.convert_to_event());
 
                         let result_event = tx_result.convert_to_event();
                         match tx_result {

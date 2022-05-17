@@ -1009,10 +1009,14 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  `todo` returns a boolean representing whether or not to keep iterating.
+    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None if we
+    ///  hit an error that wasn't transaction specific.
+    /// 
+    /// `output_events` is modified in place, adding all substantive transaction events output by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
+        output_events: &mut Vec<TransactionEvent>,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
@@ -1083,10 +1087,15 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    let todo_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut())?;
-                    if !todo_result.is_some() {
-                        debug!("Mempool iteration early exit from iterator");
-                        break;
+                    // Run `todo` on the transaction.
+                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                        Some(tx_event) => {
+                            output_events.push(tx_event);
+                        }
+                        None => {
+                            debug!("Mempool iteration early exit from iterator");
+                            break;
+                        }
                     }
 
                     self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
