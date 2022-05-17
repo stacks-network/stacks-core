@@ -1871,6 +1871,11 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
+    /// Return the size of the snapshots table, for test.
+    pub fn count_snapshots(&self) -> Result<Option<u64>, db_error> {
+        let qry = "SELECT count(*) FROM snapshots";
+        query_row(self.conn(), qry, NO_PARAMS)
+    }
     /// Get the schema version of a sortition DB, given the path to it.
     /// Returns the version string, if it exists
     pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {

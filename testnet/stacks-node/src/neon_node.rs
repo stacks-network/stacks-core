@@ -1024,19 +1024,21 @@ fn spawn_miner_relayer(
                         debug!("Relayer: burnchain has advanced from {} to {}", &burn_header_hash, &burn_chain_tip);
                     }
 
-                    debug!(
-                        "Relayer: Run tenure";
-                        "height" => last_burn_block.block_height,
-                        "burn_header_hash" => %burn_chain_tip,
-                        "last_burn_header_hash" => %burn_header_hash
-                    );
-
                     let tenure_begin = get_epoch_time_ms();
                     fault_injection_long_tenure();
 
                     let mut last_mined_blocks_vec = last_mined_blocks
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
+
+
+                    debug!(
+                        "Relayer: Run tenure";
+                        "height" => last_burn_block.block_height,
+                        "burn_header_hash" => %burn_chain_tip,
+                        "last_burn_header_hash" => %burn_header_hash,
+                        "last_mined_blocks_vec.len()" => last_mined_blocks_vec.len(),
+                    );
 
                     let last_mined_block_opt = StacksNode::relayer_run_tenure(
                         &config,
