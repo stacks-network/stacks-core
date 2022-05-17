@@ -3,13 +3,13 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use crate::burnchains::Txid;
+use clarity::vm::types::Value as ClarityValue;
+use clarity::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 use serde::de::Error as DeserError;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serializer;
 use stacks_common::util::HexError;
-use clarity::vm::types::Value as ClarityValue;
-use clarity::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;

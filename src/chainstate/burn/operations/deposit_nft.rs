@@ -1,7 +1,7 @@
 use crate::burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::DepositNftOp;
+use crate::chainstate::burn::operations::Error as op_error;
 use clarity::types::chainstate::BurnchainHeaderHash;
 use std::convert::TryFrom;
 

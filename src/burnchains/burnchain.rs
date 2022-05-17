@@ -34,6 +34,7 @@ use crate::burnchains::indexer::{
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::PublicKey;
+use crate::burnchains::StacksHyperOpType;
 use crate::burnchains::Txid;
 use crate::burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
@@ -41,8 +42,8 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    DepositStxOp, DepositFtOp, DepositNftOp, WithdrawFtOp, WithdrawNftOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
+    DepositStxOp, LeaderBlockCommitOp, WithdrawFtOp, WithdrawNftOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -67,9 +68,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
-use crate::burnchains::{StacksHyperOpType};
 
-use crate::types::chainstate::{BurnchainHeaderHash};
+use crate::types::chainstate::BurnchainHeaderHash;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 

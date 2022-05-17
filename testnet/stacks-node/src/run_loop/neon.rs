@@ -22,11 +22,11 @@ use stacks::chainstate::coordinator::{
     migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
     Error as coord_error,
 };
-use stacks::util_lib::db::Error as db_error;
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
-use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
-use tokio::sync::oneshot::Sender;
 use stacks::net::atlas::ATTACHMENTS_CHANNEL_SIZE;
+use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
+use stacks::util_lib::db::Error as db_error;
+use tokio::sync::oneshot::Sender;
 
 use crate::run_loop::l1_observer;
 

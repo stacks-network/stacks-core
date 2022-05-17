@@ -11,11 +11,11 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
+use crate::util_lib::db::*;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
 use stacks_common::util::vrf::*;
-use crate::util_lib::db::*;
 
 use crate::burnchains::events::ContractEvent;
 use crate::burnchains::events::NewBlock;

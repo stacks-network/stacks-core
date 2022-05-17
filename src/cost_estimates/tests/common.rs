@@ -7,12 +7,12 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
+use crate::chainstate::stacks::db::blocks::MessageSignatureList;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
-use crate::chainstate::stacks::db::blocks::MessageSignatureList;
 
 /// Make a block receipt from `tx_receipts` with some dummy values filled for test.
 #[cfg(test)]

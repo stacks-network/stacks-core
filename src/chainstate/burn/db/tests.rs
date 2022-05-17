@@ -1,7 +1,6 @@
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
-use stacks_common::address::AddressHashMode;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::db_keys;
 use crate::chainstate::burn::operations::{
@@ -12,15 +11,16 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
+use crate::util_lib::db::Error as db_error;
 use rand::RngCore;
+use stacks_common::address::AddressHashMode;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::vrf::*;
-use crate::util_lib::db::Error as db_error;
 
+use crate::chainstate::burn::*;
 use crate::util::hash::to_hex;
 use crate::vm::costs::ExecutionCost;
-use crate::chainstate::burn::*;
 use stacks_common::types::chainstate::*;
 
 use super::sortdb::*;

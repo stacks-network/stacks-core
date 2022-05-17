@@ -41,9 +41,9 @@ use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_E
 use rand::thread_rng;
 use rand::RngCore;
 
+use crate::chainstate::burn::db::tests::test_append_snapshot;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::util::hash::to_hex;
-use crate::chainstate::burn::db::tests::test_append_snapshot;
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,
