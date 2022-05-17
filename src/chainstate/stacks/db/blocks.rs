@@ -5328,7 +5328,8 @@ impl StacksChainState {
 
             // Check withdrawal state merkle root
             // Process withdrawal events
-            let withdrawal_root_hash = create_withdrawal_merkle_tree(&tx_receipts);
+            let withdrawal_tree = create_withdrawal_merkle_tree(&tx_receipts);
+            let withdrawal_root_hash = withdrawal_tree.root();
 
             if withdrawal_root_hash != block.header.withdrawal_merkle_root {
                 let msg = format!(

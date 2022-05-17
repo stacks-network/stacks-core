@@ -10,9 +10,13 @@
 (define-constant ERR_TRANSFER_FAILED 5)
 (define-constant ERR_DISALLOWED_ASSET 6)
 (define-constant ERR_ASSET_ALREADY_ALLOWED 7)
+(define-constant ERR_MERKLE_ROOT_DOES_NOT_MATCH 8)
+(define-constant ERR_INVALID_MERKLE_ROOT 9)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
+;; Map recording withdrawal roots
+(define-map withdrawal-roots-map (buff 32) bool)
 
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
@@ -73,6 +77,7 @@
 (define-private (inner-commit-block (block (buff 32)) (commit-block-height uint) (withdrawal-root (buff 32)))
     (begin
         (map-set block-commits commit-block-height block)
+        (map-set withdrawal-roots-map withdrawal-root true)
         (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root})
         (ok block)
     )
@@ -162,9 +167,9 @@
 ;; FOR FUNGIBLE TOKEN ASSET TRANSFERS
 
 
-(define-private (inner-deposit-ft-asset (amount uint) (sender principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
+(define-private (inner-transfer-ft-asset (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (let (
-            (call-result (contract-call? ft-contract transfer amount sender CONTRACT_ADDRESS memo))
+            (call-result (contract-call? ft-contract transfer amount sender recipient memo))
             (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
         )
         ;; Check that the transfer succeeded
@@ -183,7 +188,7 @@
             (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)))
         )
         ;; Try to transfer the FT to this contract
-        (asserts! (unwrap! (inner-deposit-ft-asset amount sender memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+        (asserts! (unwrap! (inner-transfer-ft-asset amount sender CONTRACT_ADDRESS memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
@@ -241,9 +246,9 @@
 ;; FOR STX TRANSFERS
 
 
-(define-private (inner-deposit-stx (amount uint) (sender principal))
+(define-private (inner-transfer-stx (amount uint) (sender principal) (recipient principal))
     (let (
-            (call-result (stx-transfer? amount sender CONTRACT_ADDRESS))
+            (call-result (stx-transfer? amount sender recipient))
             (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
         )
         ;; Check that the transfer succeeded
@@ -259,10 +264,80 @@
 (define-public (deposit-stx (amount uint) (sender principal))
     (begin
         ;; Try to transfer the STX to this contract
-        (asserts! (unwrap! (inner-deposit-stx amount sender) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+        (asserts! (unwrap! (inner-transfer-stx amount sender CONTRACT_ADDRESS) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
         (print { event: "deposit-stx", sender: sender, amount: amount })
+
+        (ok true)
+    )
+)
+
+(define-private (create-new-buff (curr-hash (buff 32)) (sibling-hash (buff 32)) (is-sibling-left-side bool) (is-leaf bool))
+    (let (
+            (concatted-hash (if is-sibling-left-side
+                    (concat sibling-hash curr-hash)
+                    (concat curr-hash sibling-hash)
+                ))
+          )
+
+        (if is-leaf
+            (concat 0x00 concatted-hash)
+            (concat 0x01 concatted-hash)
+        )
+    )
+
+
+)
+
+(define-private (hash-help (sibling (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool))) (curr-node-hash (buff 32)))
+    (let (
+            (sibling-hash (get hash sibling))
+            (is-sibling-left-side (get is-left-side sibling))
+            (is-leaf (get is-leaf sibling))
+            (new-buff (create-new-buff curr-node-hash sibling-hash is-sibling-left-side is-leaf))
+        )
+       (sha512/256 new-buff)
+    )
+)
+
+;; might need to pass in list describing left or right sibling - this affects concatenation order in hash-help
+(define-private (check-withdrawal-root (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
+    (begin
+        ;; Check that the user submitted a valid withdrawal root
+        (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
+        (let (
+                (calculated-withdrawal-root (fold hash-help sibling-hashes claim-hash))
+                (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
+            )
+
+            (ok roots-match)
+        )
+    )
+)
+
+
+(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
+    (let (
+            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
+         )
+
+        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+
+        (asserts! (unwrap! (as-contract (inner-transfer-stx amount tx-sender recipient)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        (ok true)
+    )
+)
+
+(define-public (withdraw-ft (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
+    (let (
+            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
+         )
+
+        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+
+        (asserts! (unwrap! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (ok true)
     )

@@ -1371,7 +1371,8 @@ impl StacksBlockBuilder {
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
 
-        let withdrawal_merkle_root = create_withdrawal_merkle_tree(&self.tx_receipts);
+        let withdrawal_tree = create_withdrawal_merkle_tree(&self.tx_receipts);
+        let withdrawal_merkle_root = withdrawal_tree.root();
         self.header.withdrawal_merkle_root = withdrawal_merkle_root;
 
         self.header

@@ -168,7 +168,7 @@ pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
-enum MerklePathOrder {
+pub enum MerklePathOrder {
     Left = 0x02,
     Right = 0x03,
 }
@@ -398,8 +398,8 @@ pub struct MerkleTree<H: MerkleHashFunc> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerklePathPoint<H: MerkleHashFunc> {
-    order: MerklePathOrder,
-    hash: H,
+    pub order: MerklePathOrder,
+    pub hash: H,
 }
 
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
