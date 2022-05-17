@@ -296,10 +296,10 @@ pub mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 15;
+const PANIC_TIMEOUT_SECS: u64 = 60;
 /// Create a `btc_controller` block, specifying parent as `specify_parent`.
 /// Wait for `blocks_processed` to be incremented, AND wait for the number of snapshots
-/// in `sortition_db` to be icremented.
+/// in `sortition_db` to be incremented.
 /// Panic on timeout.
 pub fn next_block_and_wait(
     btc_controller: &mut MockController,
