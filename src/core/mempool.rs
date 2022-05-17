@@ -1011,7 +1011,7 @@ impl MemPoolDB {
     ///
     ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None if we
     ///  hit an error that wasn't transaction specific.
-    /// 
+    ///
     /// `output_events` is modified in place, adding all substantive transaction events output by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
