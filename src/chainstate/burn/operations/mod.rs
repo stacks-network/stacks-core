@@ -284,10 +284,6 @@ pub struct WithdrawFtOp {
 
     // Contract ID on L1 chain for this fungible token
     pub l1_contract_id: QualifiedContractIdentifier,
-    // Contract ID on hyperchain for this fungible token
-    pub hc_contract_id: QualifiedContractIdentifier,
-    // Name of the function to call in the hyperchains contract to execute withdrawal
-    pub hc_function_name: ClarityName,
     // The name of the fungible token
     pub name: String,
     // Amount of the fungible token that was deposited

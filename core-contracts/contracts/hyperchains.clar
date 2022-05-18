@@ -12,11 +12,14 @@
 (define-constant ERR_ASSET_ALREADY_ALLOWED 7)
 (define-constant ERR_MERKLE_ROOT_DOES_NOT_MATCH 8)
 (define-constant ERR_INVALID_MERKLE_ROOT 9)
+(define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 10)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
 ;; Map recording withdrawal roots
 (define-map withdrawal-roots-map (buff 32) bool)
+;; Map recording processed withdrawal leaves
+(define-map processed-withdrawal-leaves-map (buff 32) bool)
 
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
@@ -202,16 +205,19 @@
     )
 )
 
-;; Helper function for `withdraw-ft-asset`
-(define-public (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
-    (let (
-        (call-result (as-contract (contract-call? ft-contract transfer amount CONTRACT_ADDRESS recipient memo)))
-        (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
-    )
-        ;; Check that the transfer succeeded
-        (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        (ok true)
+(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let (
+            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
+         )
+
+        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+
+        ;; TODO: should check leaf validity
+
+        (asserts! (unwrap! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        (finish-withdraw claim-hash)
     )
 )
 
@@ -219,22 +225,21 @@
 ;; send it to a recipient.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (hc-contract-id principal))
-    (let (
-            ;; Check that the asset belongs to the allowed-contracts map
-            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET)))
-        )
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (begin
+        ;; Check that the asset belongs to the allowed-contracts map
+        (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
-        (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+        (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract withdrawal-root claim-hash sibling-hashes) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
             )
             ;; Emit a print event - the node consumes this
-            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, hc-contract-id: hc-contract-id,
-                    recipient: recipient, ft-name: ft-name, hc-function-name: hc-function-name })
+            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract,
+                    recipient: recipient, ft-name: ft-name })
         )
 
         (ok true)
@@ -273,51 +278,9 @@
     )
 )
 
-(define-private (create-new-buff (curr-hash (buff 32)) (sibling-hash (buff 32)) (is-sibling-left-side bool) (is-leaf bool))
-    (let (
-            (concatted-hash (if is-sibling-left-side
-                    (concat sibling-hash curr-hash)
-                    (concat curr-hash sibling-hash)
-                ))
-          )
-
-        (if is-leaf
-            (concat 0x00 concatted-hash)
-            (concat 0x01 concatted-hash)
-        )
-    )
 
 
-)
-
-(define-private (hash-help (sibling (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool))) (curr-node-hash (buff 32)))
-    (let (
-            (sibling-hash (get hash sibling))
-            (is-sibling-left-side (get is-left-side sibling))
-            (is-leaf (get is-leaf sibling))
-            (new-buff (create-new-buff curr-node-hash sibling-hash is-sibling-left-side is-leaf))
-        )
-       (sha512/256 new-buff)
-    )
-)
-
-;; might need to pass in list describing left or right sibling - this affects concatenation order in hash-help
-(define-private (check-withdrawal-root (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
-    (begin
-        ;; Check that the user submitted a valid withdrawal root
-        (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
-        (let (
-                (calculated-withdrawal-root (fold hash-help sibling-hashes claim-hash))
-                (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
-            )
-
-            (ok roots-match)
-        )
-    )
-)
-
-
-(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
+(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
             (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
          )
@@ -330,15 +293,58 @@
     )
 )
 
-(define-public (withdraw-ft (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) (is-leaf bool)) )))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; GENERAL WITHDRAWAL FUNCTIONS
+
+
+(define-private (create-new-buff (curr-hash (buff 32)) (sibling-hash (buff 32)) (is-sibling-left-side bool))
     (let (
-            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
-         )
+            (concatted-hash (if is-sibling-left-side
+                    (concat sibling-hash curr-hash)
+                    (concat curr-hash sibling-hash)
+                ))
+          )
 
-        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+          (concat 0x01 concatted-hash)
+    )
 
-        (asserts! (unwrap! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
+)
+
+(define-private (hash-help (sibling (tuple (hash (buff 32)) (is-left-side bool))) (curr-node-hash (buff 32)))
+    (let (
+            (sibling-hash (get hash sibling))
+            (is-sibling-left-side (get is-left-side sibling))
+            (new-buff (create-new-buff curr-node-hash sibling-hash is-sibling-left-side))
+        )
+       (sha512/256 new-buff)
+    )
+)
+
+;; might need to pass in list describing left or right sibling - this affects concatenation order in hash-help
+(define-private (check-withdrawal-root (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool)) )))
+    (begin
+        ;; Check that the user submitted a valid withdrawal root
+        (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
+
+        ;; Check that this withdrawal leaf has not been processed before
+        (asserts! (is-none (map-get? processed-withdrawal-leaves-map claim-hash)) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+
+        (let (
+                (calculated-withdrawal-root (fold hash-help sibling-hashes claim-hash))
+                (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
+            )
+            (print { calculated-root: calculated-withdrawal-root, roots-match: roots-match, sibs: sibling-hashes, claim-hash: claim-hash, actual-root: withdrawal-root })
+            (ok roots-match)
+        )
+    )
+)
+
+(define-private (finish-withdraw (claim-hash (buff 32)))
+    (begin
+        (asserts! (map-insert processed-withdrawal-leaves-map claim-hash true) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
         (ok true)
     )
 )

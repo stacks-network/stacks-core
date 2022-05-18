@@ -463,7 +463,7 @@ where
     }
 
     /// Get the leaf hash
-    fn get_leaf_hash(leaf_data: &[u8]) -> H {
+    pub fn get_leaf_hash(leaf_data: &[u8]) -> H {
         H::from_tagged_data(MERKLE_PATH_LEAF_TAG, leaf_data)
     }
 

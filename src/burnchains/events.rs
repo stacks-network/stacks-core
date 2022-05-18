@@ -414,7 +414,6 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'ft-amount' field in Clarity tuple")?
                     .clone()
                     .expect_u128();
-                // check that this is a valid way of getting the ID of the L1 contract.
                 let l1_contract_id = tuple
                     .get("l1-contract-id")
                     .map_err(|_| "No 'l1-contract-id' field in Clarity tuple")?
@@ -424,16 +423,6 @@ impl StacksHyperOp {
                     Ok(id)
                 } else {
                     Err("Expected 'l1-contract-id' to be a contract principal")
-                }?;
-                let hc_contract_id = tuple
-                    .get("hc-contract-id")
-                    .map_err(|_| "No 'hc-contract-id' field in Clarity tuple")?
-                    .clone()
-                    .expect_principal();
-                let hc_contract_id = if let PrincipalData::Contract(id) = hc_contract_id {
-                    Ok(id)
-                } else {
-                    Err("Expected 'hc-contract-id' to be a contract principal")
                 }?;
                 let name = tuple
                     .get("ft-name")
@@ -445,14 +434,6 @@ impl StacksHyperOp {
                     .map_err(|_| "No 'recipient' field in Clarity tuple")?
                     .clone()
                     .expect_principal();
-                let hc_function_name = tuple
-                    .get("hc-function-name")
-                    .map_err(|_| "No 'hc-function-name' field in Clarity tuple")?
-                    .clone()
-                    .expect_ascii();
-                let hc_function_name = ClarityName::try_from(hc_function_name)
-                    .map_err(|e| format!("Failed to parse Clarity name: {:?}", e))?;
-
                 Ok(Self {
                     txid,
                     event_index,
@@ -460,8 +441,6 @@ impl StacksHyperOp {
                     opcode: 4,
                     event: StacksHyperOpType::WithdrawFt {
                         l1_contract_id,
-                        hc_contract_id,
-                        hc_function_name,
                         name,
                         amount,
                         recipient,

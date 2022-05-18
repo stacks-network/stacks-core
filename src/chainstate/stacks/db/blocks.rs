@@ -5338,7 +5338,7 @@ impl StacksChainState {
                     withdrawal_root_hash,
                     block.header.withdrawal_merkle_root
                 );
-                warn!("{}", &msg);
+                info!("{}", &msg);
 
                 clarity_tx.rollback_block();
                 return Err(Error::InvalidStacksBlock(msg));

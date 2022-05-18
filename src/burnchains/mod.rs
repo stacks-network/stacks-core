@@ -225,8 +225,6 @@ pub enum StacksHyperOpType {
     },
     WithdrawFt {
         l1_contract_id: QualifiedContractIdentifier,
-        hc_contract_id: QualifiedContractIdentifier,
-        hc_function_name: ClarityName,
         name: String,
         amount: u128,
         recipient: PrincipalData,

@@ -10,7 +10,7 @@ use clarity::types::chainstate::StacksAddress;
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::database::ClaritySerializable;
 use clarity::vm::representations::ContractName;
-use clarity::vm::types::{PrincipalData, AssetIdentifier};
+use clarity::vm::types::{PrincipalData, AssetIdentifier, TypeSignature};
 use clarity::vm::Value;
 use reqwest::Response;
 use stacks::burnchains::Burnchain;
@@ -34,7 +34,7 @@ use stacks::vm::costs::ExecutionCost;
 use stacks::clarity::types::chainstate::StacksPublicKey;
 use stacks::vm::events::{StacksTransactionEvent, FTWithdrawEventData};
 use stacks::vm::events::FTEventType::FTWithdrawEvent;
-use clarity::util::hash::MerklePathOrder;
+use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -761,6 +761,20 @@ fn l1_deposit_asset_integration_test() {
             .serialize()
     );
 
+    // Check that the user does not own the FT on the L1
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-balance",
+        vec![Value::Principal(user_addr.into()).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
+    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
+
     // call withdraw on the L2
     let l2_withdraw_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
@@ -775,6 +789,8 @@ fn l1_deposit_asset_integration_test() {
         ],
     );
     l2_nonce += 1;
+    // deposit ft-token into hyperchains contract on L1
+    submit_tx(&l2_rpc_origin, &l2_withdraw_ft_tx);
 
     // Sleep to give the run loop time to mine a block
     thread::sleep(Duration::from_secs(25));
@@ -822,18 +838,18 @@ fn l1_deposit_asset_integration_test() {
     let withdrawal_tree = create_withdrawal_merkle_tree(&vec![withdrawal_receipt]);
     let withdrawal_key = generate_key_from_event(&event, 0).unwrap();
     let withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&withdrawal_key);
+    let withdrawal_leaf_hash = MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(withdrawal_key_bytes.as_slice()).as_bytes().to_vec();
     let path = withdrawal_tree.path(&withdrawal_key_bytes).unwrap();
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
-    // use path to get sibling hashes
-    // if pathOrder == Left, is_sib_left = False
 
     let mut sib_data = Vec::new();
     for (i, sib) in path.iter().enumerate() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
+        // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
         let curr_sib_data = vec![(ClarityName::from("hash"), sib_hash),
-                                        (ClarityName::from("is-left-side"), sib_is_left),
-                            (ClarityName::from("is-leaf"), Value::Bool(i == 0))];
+                                        (ClarityName::from("is-left-side"), sib_is_left)
+                            ];
         let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
         sib_data.push(sib_tuple);
     }
@@ -851,10 +867,13 @@ fn l1_deposit_asset_integration_test() {
             Value::none(),
             Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::buff_from(root_hash).unwrap(),
+            Value::buff_from(withdrawal_leaf_hash).unwrap(),
             Value::list_from(sib_data).unwrap(),
         ],
     );
     l1_nonce += 1;
+    // withdraw ft-token from hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_withdraw_ft_tx);
 
     // Sleep to give the run loop time to mine a block
     thread::sleep(Duration::from_secs(25));
@@ -869,7 +888,11 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    assert_eq!(res["result"], "0x0100000000000000000000000000000001");
+    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
+    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    assert_eq!(amount, Value::okay(Value::UInt(1)).unwrap());
+
+
 
     // let l1_withdraw_nft_tx = make_contract_call(
     //     &MOCKNET_PRIVATE_KEY_1,
