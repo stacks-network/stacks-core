@@ -4029,9 +4029,9 @@ pub mod test {
                 6,
                 2,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();
@@ -4116,9 +4116,8 @@ pub mod test {
                 6,
                 0,
             );
-            builder
-                .try_mine_tx(clarity_tx, &tx_contract_call_signed)
-                .unwrap();
+            builder.micro_txs.clear();
+            builder.micro_txs.push(tx_contract_call_signed);
 
             // put the contract-call into a microblock
             let microblock = builder.mine_next_microblock().unwrap();

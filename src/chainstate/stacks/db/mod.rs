@@ -355,6 +355,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     }
 
     pub fn seal(&mut self) -> TrieHash {
+        info!("Sealing...");
         self.block.seal()
     }
 
