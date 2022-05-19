@@ -94,12 +94,81 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     }
 }
 
+impl FromRow<MinerReward> for MinerReward {
+    fn from_row<'a>(row: &'a Row) -> Result<MinerReward, db_error> {
+        let recipient = StacksAddress::from_column(row, "recipient")?;
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let coinbase_text: String = row.get_unwrap("coinbase");
+        let tx_fees_anchored_text: String = row.get_unwrap("tx_fees_anchored");
+        let tx_fees_streamed_confirmed_text: String = row.get_unwrap("tx_fees_streamed_confirmed");
+        let tx_fees_streamed_produced_text: String = row.get_unwrap("tx_fees_streamed_produced");
+
+        let coinbase = coinbase_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_anchored = tx_fees_anchored_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_streamed_confirmed = tx_fees_streamed_confirmed_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_streamed_produced = tx_fees_streamed_produced_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+
+        Ok(MinerReward {
+            address: recipient,
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed,
+            vtxindex,
+        })
+    }
+}
+
 impl MinerReward {
     pub fn total(&self) -> u128 {
         self.coinbase
             + self.tx_fees_anchored
             + self.tx_fees_streamed_produced
             + self.tx_fees_streamed_confirmed
+    }
+
+    pub fn is_child(&self) -> bool {
+        self.coinbase > 0 && self.tx_fees_streamed_produced == 0
+    }
+
+    pub fn is_parent(&self) -> bool {
+        self.coinbase == 0
+    }
+
+    pub fn try_add_parent(&self, other: &MinerReward) -> Option<MinerReward> {
+        if !other.is_parent() {
+            return None;
+        }
+        if !self.is_child() {
+            return None;
+        }
+        Some(MinerReward {
+            address: self.address.clone(),
+            coinbase: self.coinbase,
+            tx_fees_anchored: self.tx_fees_anchored,
+            tx_fees_streamed_produced: other.tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed: self.tx_fees_streamed_confirmed,
+            vtxindex: self.vtxindex,
+        })
+    }
+
+    pub fn genesis(mainnet: bool) -> MinerReward {
+        MinerReward {
+            address: StacksAddress::burn_address(mainnet),
+            coinbase: 0,
+            tx_fees_anchored: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
+            vtxindex: 0,
+        }
     }
 }
 
@@ -134,6 +203,26 @@ impl MinerPaymentSchedule {
             stacks_block_height: 0,
             vtxindex: 0,
         }
+    }
+
+    /// Calculate the total reward for this block, excluding the microblocks produced off of it.
+    /// This is the value reported by `get-block-info? block-reward`.
+    /// Note that this *undercounts* the true reward, which will not be known until the microblock
+    /// stream produced by this block gets confirmed.
+    pub fn block_reward_so_far(&self) -> u128 {
+        test_debug!(
+            "reward so far for {}/{}: {} + {} + {}",
+            &self.consensus_hash,
+            &self.block_hash,
+            self.coinbase,
+            self.tx_fees_anchored,
+            self.streamed_tx_fees_confirmed()
+        );
+        self.streamed_tx_fees_confirmed()
+            .checked_add(self.tx_fees_anchored)
+            .expect("reward overflow")
+            .checked_add(self.coinbase)
+            .expect("reward overflow")
     }
 }
 
@@ -474,6 +563,166 @@ impl StacksChainState {
         Ok(())
     }
 
+    /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
+    fn inner_insert_matured_miner_payment<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        reward: &MinerReward,
+    ) -> Result<(), Error> {
+        let sql = "INSERT INTO matured_rewards (
+            recipient,
+            vtxindex,
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed_confirmed,
+            tx_fees_streamed_produced,
+            parent_index_block_hash,
+            child_index_block_hash
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
+
+        let args: &[&dyn ToSql] = &[
+            &reward.address.to_string(),
+            &reward.vtxindex,
+            &format!("{}", &reward.coinbase),
+            &format!("{}", &reward.tx_fees_anchored),
+            &format!("{}", &reward.tx_fees_streamed_confirmed),
+            &format!("{}", &reward.tx_fees_streamed_produced),
+            parent_block_id,
+            child_block_id,
+        ];
+
+        tx.execute(sql, args)
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        Ok(())
+    }
+
+    /// Store a parent block's matured reward.  This is the share of the streamed tx fees produced
+    /// by the miner who mined this block, and nothing else.
+    pub fn insert_matured_parent_miner_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        parent_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        test_debug!(
+            "Insert matured parent miner reward for {}-{}: {:?}",
+            parent_block_id,
+            child_block_id,
+            parent_reward
+        );
+        assert!(
+            parent_reward.is_parent(),
+            "FATAL: tried to insert a non-parent reward as the parent reward"
+        );
+        assert_eq!(
+            parent_reward.vtxindex, 0,
+            "FATAL: tried to insert a user reward as a miner reward"
+        );
+        StacksChainState::inner_insert_matured_miner_payment(
+            tx,
+            parent_block_id,
+            child_block_id,
+            parent_reward,
+        )
+    }
+
+    /// Store a child block's matured miner reward.  This is the block's coinbase, anchored tx fees, and
+    /// share of the confirmed streamed tx fees
+    pub fn insert_matured_child_miner_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        child_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        test_debug!(
+            "Insert matured child miner reward for {}-{}: {:?}",
+            parent_block_id,
+            child_block_id,
+            child_reward
+        );
+        assert!(
+            child_reward.is_child(),
+            "FATAL: tried to insert a non-child reward as the child reward"
+        );
+        assert_eq!(
+            child_reward.vtxindex, 0,
+            "FATAL: tried to insert a user reward as a miner reward"
+        );
+        StacksChainState::inner_insert_matured_miner_payment(
+            tx,
+            parent_block_id,
+            child_block_id,
+            child_reward,
+        )
+    }
+
+    /// Store a child block's matured user burn-support reward.  This is the share of the
+    /// block's coinbase, anchored tx fees, and share of the confirmed streamed tx fees that go to
+    /// the user burn-support sender
+    pub fn insert_matured_child_user_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        child_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        assert!(
+            child_reward.is_child(),
+            "FATAL: tried to insert a non-child reward as the child reward"
+        );
+        assert!(
+            child_reward.vtxindex > 0,
+            "FATAL: tried to insert a miner reward as a user reward"
+        );
+        StacksChainState::inner_insert_matured_miner_payment(
+            tx,
+            parent_block_id,
+            child_block_id,
+            child_reward,
+        )
+    }
+
+    /// Get the matured miner reward for a block's miner.
+    /// You'd be querying for the `child_block_id`'s reward.
+    pub fn get_matured_miner_payment(
+        conn: &DBConn,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+    ) -> Result<Option<MinerReward>, Error> {
+        debug!(
+            "Get matured miner payment for {}-{}",
+            parent_block_id, child_block_id
+        );
+        let config = StacksChainState::load_db_config(conn)?;
+        let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
+        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
+        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
+        if ret.len() == 2 {
+            let reward = if ret[0].is_child() {
+                ret[0]
+                    .try_add_parent(&ret[1])
+                    .expect("FATAL: got two child rewards")
+            } else if ret[1].is_child() {
+                ret[1]
+                    .try_add_parent(&ret[0])
+                    .expect("FATAL: got two child rewards")
+            } else {
+                panic!("FATAL: got two parent rewards");
+            };
+            Ok(Some(reward))
+        } else if child_block_id
+            == &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            Ok(Some(MinerReward::genesis(config.mainnet)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Find the reported poison-microblock data for this block
     /// Returns None if there are no forks.
     pub fn get_poison_microblock_report<T: ClarityConnection>(
@@ -490,14 +739,15 @@ impl StacksChainState {
     }
 
     /// Get the scheduled miner rewards at a particular index hash
-    pub fn get_scheduled_block_rewards_at_block<'a>(
-        tx: &mut DBTx<'a>,
+    pub fn get_scheduled_block_rewards_at_block(
+        conn: &DBConn,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =
             "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
         let args: &[&dyn ToSql] = &[index_block_hash];
-        let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
+        let rows =
+            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         test_debug!("{} rewards in {}", rows.len(), index_block_hash);
         Ok(rows)
     }
@@ -681,6 +931,11 @@ impl StacksChainState {
                     } else {
                         0
                     },
+                    // TODO: this is wrong, per #3140.  It should be
+                    // `participant.streamed_tx_fees_produced()`, since
+                    // `participant.tx_fees_streamed` contains the sum of the microblock
+                    // transaction fees that `participant` confirmed (and thus `participant`'s
+                    // parent produced).
                     parent.streamed_tx_fees_produced(),
                     if !punished {
                         participant.streamed_tx_fees_confirmed()
@@ -752,6 +1007,8 @@ impl StacksChainState {
         let reward_info = MinerRewardInfo {
             from_stacks_block_hash: miner.block_hash.clone(),
             from_block_consensus_hash: miner.consensus_hash.clone(),
+            from_parent_stacks_block_hash: parent_miner.block_hash.clone(),
+            from_parent_block_consensus_hash: parent_miner.consensus_hash.clone(),
         };
 
         // was this block penalized for mining a forked microblock stream?
@@ -928,6 +1185,8 @@ mod test {
             new_tip.microblock_tail.clone(),
             &block_reward,
             &user_burns,
+            None,
+            None,
             &ExecutionCost::zero(),
             123,
             false,
