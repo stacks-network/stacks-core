@@ -33,6 +33,8 @@ use clarity::vm::types::*;
 
 use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
+use crate::core::StacksEpochId;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
     pub address: StacksAddress,
@@ -841,6 +843,7 @@ impl StacksChainState {
     /// not the miner, for reporting the microblock stream fork.
     fn calculate_miner_reward(
         mainnet: bool,
+        evaluated_epoch: StacksEpochId,
         participant: &MinerPaymentSchedule,
         miner: &MinerPaymentSchedule,
         users: &Vec<MinerPaymentSchedule>,
@@ -931,12 +934,16 @@ impl StacksChainState {
                     } else {
                         0
                     },
-                    // TODO: this is wrong, per #3140.  It should be
-                    // `participant.streamed_tx_fees_produced()`, since
-                    // `participant.tx_fees_streamed` contains the sum of the microblock
-                    // transaction fees that `participant` confirmed (and thus `participant`'s
-                    // parent produced).
-                    parent.streamed_tx_fees_produced(),
+                    if evaluated_epoch < StacksEpochId::Epoch21 {
+                        // this is wrong, per #3140.  It should be
+                        // `participant.streamed_tx_fees_produced()`, since
+                        // `participant.tx_fees_streamed` contains the sum of the microblock
+                        // transaction fees that `participant` confirmed (and thus `participant`'s
+                        // parent produced).  But we're stuck with it for earlier epochs.
+                        parent.streamed_tx_fees_produced()
+                    } else {
+                        participant.streamed_tx_fees_produced()
+                    },
                     if !punished {
                         participant.streamed_tx_fees_confirmed()
                     } else {
@@ -983,6 +990,7 @@ impl StacksChainState {
     /// Returns a list of payments to make to each address -- miners and user-support burners.
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
+        sortdb_conn: &Connection,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
@@ -1011,6 +1019,15 @@ impl StacksChainState {
             from_parent_block_consensus_hash: parent_miner.consensus_hash.clone(),
         };
 
+        // what epoch was the parent miner's block evaluated in?
+        let evaluated_snapshot =
+            SortitionDB::get_block_snapshot_consensus(sortdb_conn, &parent_miner.consensus_hash)?
+                .expect("FATAL: no snapshot for evaluated block");
+
+        let evaluated_epoch =
+            SortitionDB::get_stacks_epoch(sortdb_conn, evaluated_snapshot.block_height)?
+                .expect("FATAL: no epoch for evaluated block");
+
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
         let poison_recipient_opt =
@@ -1030,6 +1047,7 @@ impl StacksChainState {
         // calculate miner reward
         let (parent_miner_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             mainnet,
+            evaluated_epoch.epoch_id,
             &miner,
             &miner,
             &users,
@@ -1042,6 +1060,7 @@ impl StacksChainState {
         for user_reward in users.iter() {
             let (parent_reward, reward) = StacksChainState::calculate_miner_reward(
                 mainnet,
+                evaluated_epoch.epoch_id,
                 user_reward,
                 &miner,
                 &users,
@@ -1069,6 +1088,7 @@ mod test {
     use crate::chainstate::stacks::index::*;
     use crate::chainstate::stacks::Error;
     use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochId;
     use clarity::vm::costs::ExecutionCost;
     use stacks_common::util::hash::*;
 
@@ -1344,6 +1364,7 @@ mod test {
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &participant,
             &participant,
             &vec![],
@@ -1378,6 +1399,7 @@ mod test {
 
         let (parent_miner_1, reward_miner_1) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &miner,
             &miner,
             &vec![user.clone()],
@@ -1386,6 +1408,7 @@ mod test {
         );
         let (parent_user_1, reward_user_1) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &user,
             &miner,
             &vec![user.clone()],
@@ -1426,6 +1449,7 @@ mod test {
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &participant,
             &participant,
             &vec![],
