@@ -62,4 +62,10 @@ pub mod consts {
 
     pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
     pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+
+    #[cfg(any(test, feature = "testing"))]
+    pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub const MINER_REWARD_MATURITY: u64 = 100;
 }
