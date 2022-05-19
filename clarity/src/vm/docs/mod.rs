@@ -1459,21 +1459,35 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
-are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
+are as follows:
 
-The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds
+`burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
+Stacks block at the given Stacks chain height.
+
+`id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
+
+`header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
+
+`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.
+
+`time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
 which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
-The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer.
+New in Stacks 2.1:
 
-`header-hash` returns the header hash of a Stacks node, given a Stacks chain height.
+`block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
+the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may 
+be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
+published two or more microblock stream forks.
 
-`burnchain-header-hash` returns header hash of the burnchain (Bitcoin) node corresponding to the given Stacks chain height.
+`miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block.
 
-The `miner-address` property returns a `principal` corresponding to the miner of the given block.
-
-The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
+`miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same block height.
 ",
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
