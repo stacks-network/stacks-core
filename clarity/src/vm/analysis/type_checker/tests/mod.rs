@@ -59,11 +59,16 @@ fn test_clarity_versions_type_checker(#[case] version: ClarityVersion) {}
 
 /// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
 pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity2)
+    mem_run_analysis(exp, ClarityVersion::Clarity2)
 }
 
+/// NOTE: runs at Clarity2 version
 fn type_check_helper(exp: &str) -> TypeResult {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+}
+
+fn type_check_helper_v1(exp: &str) -> TypeResult {
+    mem_run_analysis(exp, ClarityVersion::Clarity1).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -84,6 +89,13 @@ fn test_get_block_info() {
         "(get-block-info? burnchain-header-hash u1)",
         "(get-block-info? miner-address u1)",
     ];
+
+    let good_v210 = [
+        "(get-block-info? miner-spend-winner u1)",
+        "(get-block-info? miner-spend-total u1)",
+        "(get-block-info? block-reward u1)",
+    ];
+
     let expected = [
         "(optional uint)",
         "(optional uint)",
@@ -92,6 +104,8 @@ fn test_get_block_info() {
         "(optional (buff 32))",
         "(optional principal)",
     ];
+
+    let expected_v210 = ["(optional uint)", "(optional uint)", "(optional uint)"];
 
     let bad = [
         "(get-block-info? none u1)",
@@ -112,9 +126,24 @@ fn test_get_block_info() {
             &format!("{}", type_check_helper(&good_test).unwrap())
         );
     }
+    for (good_test_v210, expected_v210) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected_v210,
+            &format!("{}", type_check_helper(&good_test_v210).unwrap())
+        );
+    }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+
+    for good_test in good_v210.iter() {
+        if let CheckErrors::NoSuchBlockInfoProperty(_) =
+            type_check_helper_v1(&good_test).unwrap_err().err
+        {
+        } else {
+            panic!("Failed to get a typecheck error when using a v2 property in a v1 context");
+        }
     }
 }
 
