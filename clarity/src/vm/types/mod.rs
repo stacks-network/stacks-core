@@ -43,6 +43,8 @@ pub use crate::vm::types::signatures::{
     BUFF_33, BUFF_64, BUFF_65,
 };
 
+use crate::vm::ClarityVersion;
+
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
 pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
@@ -618,13 +620,16 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 }
 
 // Properties for "get-block-info".
-define_named_enum!(BlockInfoProperty {
-    Time("time"),
-    VrfSeed("vrf-seed"),
-    HeaderHash("header-hash"),
-    IdentityHeaderHash("id-header-hash"),
-    BurnchainHeaderHash("burnchain-header-hash"),
-    MinerAddress("miner-address"),
+define_versioned_named_enum!(BlockInfoProperty(ClarityVersion) {
+    Time("time", ClarityVersion::Clarity1),
+    VrfSeed("vrf-seed", ClarityVersion::Clarity1),
+    HeaderHash("header-hash", ClarityVersion::Clarity1),
+    IdentityHeaderHash("id-header-hash", ClarityVersion::Clarity1),
+    BurnchainHeaderHash("burnchain-header-hash", ClarityVersion::Clarity1),
+    MinerAddress("miner-address", ClarityVersion::Clarity1),
+    MinerSpendWinner("miner-spend-winner", ClarityVersion::Clarity2),
+    MinerSpendTotal("miner-spend-total", ClarityVersion::Clarity2),
+    BlockReward("block-reward", ClarityVersion::Clarity2),
 });
 
 // Properties for "get-burn-block-info".
@@ -662,10 +667,23 @@ impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
         use self::BlockInfoProperty::*;
         match self {
-            Time => TypeSignature::UIntType,
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
             IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
             MinerAddress => TypeSignature::PrincipalType,
         }
+    }
+
+    pub fn lookup_by_name_at_version(
+        name: &str,
+        version: &ClarityVersion,
+    ) -> Option<BlockInfoProperty> {
+        BlockInfoProperty::lookup_by_name(name).and_then(|native_function| {
+            if &native_function.get_version() <= version {
+                Some(native_function)
+            } else {
+                None
+            }
+        })
     }
 }
 
