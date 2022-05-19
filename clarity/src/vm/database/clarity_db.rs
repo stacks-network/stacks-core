@@ -48,6 +48,7 @@ use crate::vm::types::byte_len_of_serialization;
 
 use crate::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
+use stacks_common::consts::MINER_REWARD_MATURITY;
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -99,6 +100,9 @@ pub trait HeadersDB {
     fn get_burn_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64>;
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32>;
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress>;
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128>;
 }
 
 pub trait BurnStateDB {
@@ -161,6 +165,15 @@ impl HeadersDB for &dyn HeadersDB {
     }
     fn get_miner_address(&self, bhh: &StacksBlockId) -> Option<StacksAddress> {
         (*self).get_miner_address(bhh)
+    }
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_burnchain_tokens_spent_for_block(id_bhh)
+    }
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_burnchain_tokens_spent_for_winning_block(id_bhh)
+    }
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        (*self).get_tokens_earned_for_block(id_bhh)
     }
 }
 
@@ -270,6 +283,18 @@ impl HeadersDB for NullHeadersDB {
         }
     }
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
+        None
+    }
+    fn get_burnchain_tokens_spent_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
+        None
+    }
+    fn get_burnchain_tokens_spent_for_winning_block(
+        &self,
+        _id_bhh: &StacksBlockId,
+    ) -> Option<u128> {
+        None
+    }
+    fn get_tokens_earned_for_block(&self, _id_bhh: &StacksBlockId) -> Option<u128> {
         None
     }
 }
@@ -800,6 +825,53 @@ impl<'a> ClarityDatabase<'a> {
             .get_miner_address(&id_bhh)
             .expect("Failed to get block data.")
             .into()
+    }
+
+    pub fn get_miner_spend_winner(&mut self, block_height: u32) -> u128 {
+        if block_height == 0 {
+            return 0;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db
+            .get_burnchain_tokens_spent_for_winning_block(&id_bhh)
+            .expect("FATAL: no winning burnchain token spend record for block")
+            .into()
+    }
+
+    pub fn get_miner_spend_total(&mut self, block_height: u32) -> u128 {
+        if block_height == 0 {
+            return 0;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        self.headers_db
+            .get_burnchain_tokens_spent_for_block(&id_bhh)
+            .expect("FATAL: no total burnchain token spend record for block")
+            .into()
+    }
+
+    pub fn get_block_reward(&mut self, block_height: u32) -> Option<u128> {
+        if block_height == 0 {
+            return None;
+        }
+
+        let cur_height: u64 = self.get_current_block_height().into();
+
+        // reward for the *child* of this block must have matured, since that determines the
+        // streamed tx fee reward portion
+        if ((block_height + 1) as u64) + MINER_REWARD_MATURITY >= cur_height {
+            return None;
+        }
+
+        let id_bhh = self.get_index_block_header_hash(block_height);
+        let reward: u128 = self
+            .headers_db
+            .get_tokens_earned_for_block(&id_bhh)
+            .map(|x| x.into())
+            .expect("FATAL: matured block has no recorded reward");
+
+        Some(reward)
     }
 
     pub fn get_stx_btc_ops_processed(&mut self) -> u64 {
