@@ -99,9 +99,9 @@
 ;; FOR NFT ASSET TRANSFERS
 
 
-(define-private (inner-deposit-nft-asset (id uint) (sender principal) (nft-contract <nft-trait>))
+(define-private (inner-transfer-nft-asset (id uint) (sender principal) (recipient principal) (nft-contract <nft-trait>))
     (let (
-            (call-result (contract-call? nft-contract transfer id sender CONTRACT_ADDRESS))
+            (call-result (contract-call? nft-contract transfer id sender recipient))
             (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
         )
         ;; Check that the transfer succeeded
@@ -121,7 +121,7 @@
         )
 
         ;; Try to transfer the NFT to this contract
-        (asserts! (unwrap! (inner-deposit-nft-asset id sender nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+        (asserts! (unwrap! (inner-transfer-nft-asset id sender CONTRACT_ADDRESS nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
         (print { event: "deposit-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id,
@@ -131,16 +131,20 @@
     )
 )
 
-;; Helper function for `withdraw-nft-asset`
-(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>))
-    (let (
-        (call-result (as-contract (contract-call? nft-contract transfer id CONTRACT_ADDRESS recipient)))
-        (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
-    )
-        ;; Check that the transfer succeeded
-        (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
-        (ok true)
+;; Helper function for `withdraw-nft-asset`
+(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let (
+            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
+         )
+
+        (asserts! (unwrap! hashes-are-valid (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+
+        ;; TODO: should check leaf validity
+
+        (asserts! (unwrap! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        (ok (finish-withdraw withdrawal-leaf-hash))
     )
 )
 
@@ -148,19 +152,15 @@
 ;; send it to a recipient.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (hc-contract-id principal))
-    (let (
-            ;; Check that the asset belongs to the allowed-contracts map
-            (hc-function-name (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET)))
-        )
-        ;; Verify that tx-sender is an authorized miner
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-
-        (asserts! (unwrap! (inner-withdraw-nft-asset id recipient nft-contract) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (begin
+        ;; Check that the asset belongs to the allowed-contracts map
+        (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
+        
+        (asserts! (unwrap! (inner-withdraw-nft-asset id recipient nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event - the node consumes this
-        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, hc-contract-id: hc-contract-id,
-                recipient: recipient, hc-function-name: hc-function-name })
+        (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
 
         (ok true)
     )
@@ -206,18 +206,18 @@
 )
 
 
-(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
-            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
+            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
 
-        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+        (asserts! (unwrap! hashes-are-valid (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
 
         ;; TODO: should check leaf validity
 
         (asserts! (unwrap! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
-        (finish-withdraw claim-hash)
+        (ok (finish-withdraw withdrawal-leaf-hash))
     )
 )
 
@@ -225,21 +225,18 @@
 ;; send it to a recipient.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
-        ;; Verify that tx-sender is an authorized miner
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
-        (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract withdrawal-root claim-hash sibling-hashes) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+        (asserts! (unwrap! (inner-withdraw-ft-asset amount recipient memo ft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
 
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
             )
             ;; Emit a print event - the node consumes this
-            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract,
-                    recipient: recipient, ft-name: ft-name })
+            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, recipient: recipient, ft-name: ft-name })
         )
 
         (ok true)
@@ -279,20 +276,25 @@
 )
 
 
-
-(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
-            (roots-match (check-withdrawal-root withdrawal-root claim-hash sibling-hashes))
+            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
 
-        (asserts! (unwrap! roots-match (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+        (asserts! (unwrap! hashes-are-valid (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+
+        ;; TODO: should check leaf validity
 
         (asserts! (unwrap! (as-contract (inner-transfer-stx amount tx-sender recipient)) (err ERR_TRANSFER_FAILED)) (err ERR_TRANSFER_FAILED))
+
+        (asserts! (finish-withdraw withdrawal-leaf-hash) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+
+        ;; Emit a print event - the node consumes this
+        (print { event: "withdraw-stx", recipient: recipient, amount: amount })
 
         (ok true)
     )
 )
-
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -323,28 +325,27 @@
     )
 )
 
-;; might need to pass in list describing left or right sibling - this affects concatenation order in hash-help
-(define-private (check-withdrawal-root (withdrawal-root (buff 32)) (claim-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool)) )))
+;; This function checks:
+;;  - That the provided withdrawal root matches a previously submitted one (passed to the function `commit-block`)
+;;  - That the computed withdrawal root matches a previous valid withdrawal root 
+;;  - That the given withdrawal leaf hash has not been previously processed
+(define-private (check-withdrawal-hashes (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool)) )))
     (begin
         ;; Check that the user submitted a valid withdrawal root
         (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
 
         ;; Check that this withdrawal leaf has not been processed before
-        (asserts! (is-none (map-get? processed-withdrawal-leaves-map claim-hash)) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        (asserts! (is-none (map-get? processed-withdrawal-leaves-map withdrawal-leaf-hash)) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
         (let (
-                (calculated-withdrawal-root (fold hash-help sibling-hashes claim-hash))
+                (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
                 (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
             )
-            (print { calculated-root: calculated-withdrawal-root, roots-match: roots-match, sibs: sibling-hashes, claim-hash: claim-hash, actual-root: withdrawal-root })
             (ok roots-match)
         )
     )
 )
 
-(define-private (finish-withdraw (claim-hash (buff 32)))
-    (begin
-        (asserts! (map-insert processed-withdrawal-leaves-map claim-hash true) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
-        (ok true)
-    )
+(define-private (finish-withdraw (withdrawal-leaf-hash (buff 32)))
+    (map-insert processed-withdrawal-leaves-map withdrawal-leaf-hash true)
 )
