@@ -702,8 +702,11 @@ pub fn special_get_block_info(
         .match_atom()
         .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-    let block_info_prop = BlockInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+    let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
+        property_name,
+        env.contract_context.get_clarity_version(),
+    )
+    .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
@@ -763,6 +766,28 @@ pub fn special_get_block_info(
         BlockInfoProperty::MinerAddress => {
             let miner_address = env.global_context.database.get_miner_address(height_value);
             Value::from(miner_address)
+        }
+        BlockInfoProperty::MinerSpendWinner => {
+            let winner_spend = env
+                .global_context
+                .database
+                .get_miner_spend_winner(height_value);
+            Value::UInt(winner_spend)
+        }
+        BlockInfoProperty::MinerSpendTotal => {
+            let total_spend = env
+                .global_context
+                .database
+                .get_miner_spend_total(height_value);
+            Value::UInt(total_spend)
+        }
+        BlockInfoProperty::BlockReward => {
+            // this is already an optional
+            let block_reward_opt = env.global_context.database.get_block_reward(height_value);
+            return Ok(match block_reward_opt {
+                Some(x) => Value::some(Value::UInt(x))?,
+                None => Value::none(),
+            });
         }
     };
 
