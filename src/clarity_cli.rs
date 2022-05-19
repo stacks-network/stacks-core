@@ -670,6 +670,21 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        get_cli_block_height(&self.conn(), id_bhh).map(|_| 3000)
+    }
 }
 
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
