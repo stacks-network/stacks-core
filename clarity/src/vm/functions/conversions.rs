@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::codec::StacksMessageCodec;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
@@ -208,4 +210,59 @@ pub fn native_int_to_ascii(value: Value) -> Result<Value> {
 pub fn native_int_to_utf8(value: Value) -> Result<Value> {
     // Given a string representing an integer, convert this to Clarity UTF8 value.
     native_int_to_string_generic(value, Value::string_utf8_from_bytes)
+}
+
+/// Returns `value` consensus serialized into a `(optional buff)` object.
+/// If the value cannot fit as serialized into the maximum buffer size,
+/// this returns `none`, otherwise, it will be `(some consensus-serialized-buffer)`
+pub fn to_consensus_buff(value: Value) -> Result<Value> {
+    let clar_buff_serialized = match Value::buff_from(value.serialize_to_vec()) {
+        Ok(x) => x,
+        Err(_) => return Ok(Value::none()),
+    };
+
+    match Value::some(clar_buff_serialized) {
+        Ok(x) => Ok(x),
+        Err(_) => Ok(Value::none()),
+    }
+}
+
+/// Deserialize a Clarity value from a consensus serialized buffer.
+/// If the supplied buffer either fails to deserialize or deserializes
+/// to an unexpected type, returns `none`. Otherwise, it will be `(some value)`
+pub fn from_consensus_buff(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let type_arg = TypeSignature::parse_type_repr(&args[0], env)?;
+    let value = eval(&args[1], env, context)?;
+
+    // get the buffer bytes from the supplied value. if not passed a buffer,
+    // this is a type error
+    let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value {
+        Ok(buff_data.data)
+    } else {
+        Err(CheckErrors::TypeValueError(
+            TypeSignature::max_buffer(),
+            value,
+        ))
+    }?;
+
+    runtime_cost(ClarityCostFunction::Unimplemented, env, input_bytes.len())?;
+
+    // Perform the deserialization and check that it deserialized to the expected
+    // type. A type mismatch at this point is an error that should be surfaced in
+    // Clarity (as a none return).
+    let result = match Value::try_deserialize_bytes_exact(&input_bytes, &type_arg) {
+        Ok(value) => value,
+        Err(_) => return Ok(Value::none()),
+    };
+    if !type_arg.admits(&result) {
+        return Ok(Value::none());
+    }
+
+    Value::some(result)
 }
