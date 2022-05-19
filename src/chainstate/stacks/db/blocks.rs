@@ -3785,9 +3785,8 @@ impl StacksChainState {
             }
         }
 
-        let sortition_burns =
-            SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
-                .expect("FATAL: have block commit but no total burns in its sortition");
+        let sortition_burns = SortitionDB::get_block_burn_amount(db_handle, &burn_chain_tip)
+            .expect("FATAL: have block commit but no total burns in its sortition");
 
         Ok(Some((block_commit.burn_fee, sortition_burns)))
     }
@@ -4735,9 +4734,10 @@ impl StacksChainState {
                     snapshot.credit(miner_reward_total);
 
                     debug!(
-                        "Balance available for {} is {} STX",
+                        "Balance available for {} is {} uSTX (earned {} uSTX)",
                         &miner_reward.address,
-                        snapshot.get_available_balance();
+                        snapshot.get_available_balance(),
+                        miner_reward_total
                     );
                     snapshot.save();
 
@@ -4824,13 +4824,13 @@ impl StacksChainState {
     /// Given the list of matured miners, find the miner reward schedule that produced the parent
     /// of the block whose coinbase just matured.
     pub fn get_parent_matured_miner(
-        stacks_tx: &mut StacksDBTx,
+        conn: &DBConn,
         mainnet: bool,
         latest_matured_miners: &Vec<MinerPaymentSchedule>,
     ) -> Result<MinerPaymentSchedule, Error> {
         let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
             StacksChainState::get_scheduled_block_rewards_at_block(
-                stacks_tx,
+                conn,
                 &StacksBlockHeader::make_index_block_hash(
                     &miner.parent_consensus_hash,
                     &miner.parent_block_hash,
@@ -5041,14 +5041,12 @@ impl StacksChainState {
     /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
-        miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward)>,
         block_height: u32,
         mblock_pubkey_hash: Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) =
-            miner_payouts.as_ref()
-        {
+        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) = miner_payouts {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -5244,6 +5242,7 @@ impl StacksChainState {
             block_execution_cost,
             matured_rewards,
             matured_rewards_info,
+            miner_payouts_opt,
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
@@ -5365,7 +5364,7 @@ impl StacksChainState {
 
             let mut lockup_events = match StacksChainState::finish_block(
                 &mut clarity_tx,
-                miner_payouts_opt,
+                miner_payouts_opt.as_ref(),
                 block.header.total_work.work as u32,
                 block.header.microblock_pubkey_hash,
             ) {
@@ -5452,6 +5451,7 @@ impl StacksChainState {
                 block_cost,
                 matured_rewards,
                 matured_rewards_info,
+                miner_payouts_opt,
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
@@ -5476,6 +5476,8 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
+            miner_payouts_opt,
+            matured_rewards_info.clone(),
             &block_execution_cost,
             block_size,
             applied_epoch_transition,
