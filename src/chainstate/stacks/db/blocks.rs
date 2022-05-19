@@ -80,6 +80,7 @@ use vm::types::{
 
 use crate::{types, util};
 use chainstate::stacks::address::StacksAddressExtensions;
+use chainstate::stacks::Error::NoSuchBlockError;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
 use monitoring::set_last_execution_cost_observed;
@@ -3791,19 +3792,12 @@ impl StacksChainState {
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(), Error> {
-        let parent_sn = {
-            let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
-            let sn = match db_handle
-                .get_block_snapshot(&snapshot.parent_burn_header_hash)
+        let conn = sort_ic.conn();
+        let stacks_tip_consensus_hash = snapshot.canonical_stacks_tip_consensus_hash;
+        let parent_sn =
+            SortitionDB::get_block_snapshot_consensus(&conn, &stacks_tip_consensus_hash)
                 .unwrap()
-            {
-                Some(sn) => sn,
-                None => {
-                    return Err(Error::NoSuchBlockError);
-                }
-            };
-            sn
-        };
+                .unwrap();
 
         self.preprocess_anchored_block(
             sort_ic,
@@ -4799,9 +4793,31 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let deposit_stx_ops = SortitionDB::get_deposit_stx_ops(conn, &burn_tip)?;
-        let deposit_ft_ops = SortitionDB::get_deposit_ft_ops(conn, &burn_tip)?;
-        let deposit_nft_ops = SortitionDB::get_deposit_nft_ops(conn, &burn_tip)?;
+        let parent_block_burn_block =
+            SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?
+                .ok_or(Error::InvalidStacksBlock(format!(
+                    "Failed to load parent block snapshot. parent_consensus_hash = {}",
+                    &parent_consensus_hash
+                )))?
+                .burn_header_hash;
+        let deposit_stx_ops = SortitionDB::get_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            SortitionDB::get_deposit_stx_ops,
+        )?;
+        let deposit_ft_ops = SortitionDB::get_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            SortitionDB::get_deposit_ft_ops,
+        )?;
+        let deposit_nft_ops = SortitionDB::get_ops_between(
+            conn,
+            &parent_block_burn_block,
+            &burn_tip,
+            SortitionDB::get_deposit_nft_ops,
+        )?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -6322,6 +6338,7 @@ pub mod test {
     use super::*;
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::types::StacksAddressExtensions;
     use serde_json;
 
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
@@ -10902,5 +10919,285 @@ pub mod test {
         let processed_ops = StacksChainState::process_deposit_nft_ops(&mut conn, ops);
 
         assert_eq!(processed_ops.len(), 1);
+    }
+
+    #[test]
+    fn test_process_deposit_stx_ops() {
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_process_deposit_stx_ops");
+
+        let privk_user = StacksPrivateKey::from_hex(
+            "027682d2f7b05c3801fe4467883ab4cff0568b5e36412b5289e83ea5b519de8a01",
+        )
+        .unwrap();
+        let auth_user = TransactionAuth::from_p2pkh(&privk_user).unwrap();
+        let addr_publisher = auth_user.origin().address_testnet();
+
+        let mut conn = chainstate.block_begin(
+            &TEST_BURN_STATE_DB,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let account = StacksChainState::get_account(&mut conn, &addr_publisher.into());
+        let orig_balance = account.stx_balance.amount_unlocked;
+
+        // create deposit stx ops
+        let ops = vec![
+            // this op is well formed
+            DepositStxOp {
+                txid: Txid([1; 32]),
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+                amount: 2,
+                sender: PrincipalData::from(addr_publisher),
+            },
+        ];
+
+        // process ops
+        let processed_ops = StacksChainState::process_deposit_stx_ops(&mut conn, ops);
+        assert_eq!(processed_ops.len(), 1);
+
+        // check that the account now has 2 more micro STX
+        let account = StacksChainState::get_account(&mut conn, &addr_publisher.into());
+        assert_eq!(orig_balance + 2, account.stx_balance.amount_unlocked);
+    }
+
+    #[cfg(test)]
+    fn make_deposit_stx_op(
+        addr: &StacksAddress,
+        recipient_addr: &StacksAddress,
+        burn_height: u64,
+        tenure_id: usize,
+    ) -> DepositStxOp {
+        let deposit_op = DepositStxOp {
+            sender: addr.clone().into(),
+            txid: Txid([tenure_id as u8; 32]),
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            amount: ((tenure_id + 1) * 1000) as u128,
+        };
+        deposit_op
+    }
+
+    #[test]
+    fn test_get_ops_between_curr_block_and_parent() {
+        let mut peer_config =
+            TestPeerConfig::new("test_get_ops_between_curr_block_and_parent", 21315, 21316);
+        let privk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let recipient_privk = StacksPrivateKey::new();
+        let recipient_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&recipient_privk)],
+        )
+        .unwrap();
+
+        let initial_balance = 1000000000;
+        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            sn.block_height
+        };
+
+        for tenure_id in 0..num_blocks {
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            assert_eq!(
+                tip.block_height,
+                first_stacks_block_height + (tenure_id as u64)
+            );
+
+            // For the first 5 burn blocks, sortition a Stacks block.
+            // For sortitions 6 and 8, don't sortition any Stacks block.
+            // For sortitions 7 and 9, do sortition a Stacks block, and verify that it includes all
+            // burnchain STX operations that got skipped by the missing sortition.
+            let process_stacks_block = tenure_id <= 5 || tenure_id % 2 != 0;
+
+            let (mut burn_ops, stacks_block_opt, microblocks_opt) = if process_stacks_block {
+                let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+                    |ref mut miner,
+                     ref mut sortdb,
+                     ref mut chainstate,
+                     vrf_proof,
+                     ref parent_opt,
+                     ref parent_microblock_header_opt| {
+                        let parent_tip = match parent_opt {
+                            None => {
+                                StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                            }
+                            Some(block) => {
+                                let ic = sortdb.index_conn();
+                                let snapshot =
+                                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                        &ic,
+                                        &tip.sortition_id,
+                                        &block.block_hash(),
+                                    )
+                                    .unwrap()
+                                    .unwrap(); // succeeds because we don't fork
+                                StacksChainState::get_anchored_block_header_info(
+                                    chainstate.db(),
+                                    &snapshot.consensus_hash,
+                                    &snapshot.winning_stacks_block_hash,
+                                )
+                                .unwrap()
+                                .unwrap()
+                            }
+                        };
+
+                        let mut mempool =
+                            MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                        let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                        let anchored_block = StacksBlockBuilder::build_anchored_block(
+                            chainstate,
+                            &sortdb.index_conn(),
+                            &mut mempool,
+                            &parent_tip,
+                            tip.total_burn,
+                            vrf_proof,
+                            Hash160([tenure_id as u8; 20]),
+                            &coinbase_tx,
+                            BlockBuilderSettings::max_value(),
+                            None,
+                        )
+                        .unwrap();
+
+                        (anchored_block.0, vec![])
+                    },
+                );
+                (burn_ops, Some(stacks_block), Some(microblocks))
+            } else {
+                (vec![], None, None)
+            };
+
+            let mut expected_deposit_ops = if tenure_id == 0 || tenure_id - 1 < 5 {
+                // all contiguous blocks up to now, so only expect this block's stx-transfer
+                vec![make_deposit_stx_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            } else if (tenure_id - 1) % 2 == 0 {
+                // no sortition in the last burn block, so only expect this block's stx-transfer
+                vec![make_deposit_stx_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            } else {
+                // last sortition had no block, so expect both the previous block's
+                // stx-transfer *and* this block's stx-transfer
+                vec![
+                    make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    make_deposit_stx_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                ]
+            };
+
+            // add one deposit stx burn op per block
+            let mut stx_deposit_ops = vec![BlockstackOperationType::DepositStx(
+                make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+            )];
+            burn_ops.append(&mut stx_deposit_ops);
+
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            match (stacks_block_opt, microblocks_opt) {
+                (Some(stacks_block), Some(microblocks)) => {
+                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                }
+                _ => {}
+            }
+
+            let burn_tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            let sortdb = peer.sortdb.take().unwrap();
+            {
+                let index_conn = sortdb.index_conn();
+                let conn = index_conn.conn();
+
+                let stacks_tip_consensus_hash = burn_tip.canonical_stacks_tip_consensus_hash;
+                let parent_block_burn_block =
+                    SortitionDB::get_block_snapshot_consensus(&conn, &stacks_tip_consensus_hash)
+                        .unwrap()
+                        .unwrap()
+                        .burn_header_hash;
+                let stacks_tip_height = burn_tip.canonical_stacks_tip_height;
+
+                let deposit_stx_ops = SortitionDB::get_ops_between(
+                    &conn,
+                    &parent_block_burn_block,
+                    &burn_tip.burn_header_hash,
+                    SortitionDB::get_deposit_stx_ops,
+                )
+                .unwrap();
+
+                assert_eq!(deposit_stx_ops.len(), expected_deposit_ops.len());
+
+                // burn header hash will be different, since it's set post-processing.
+                // everything else must be the same though.
+                for i in 0..expected_deposit_ops.len() {
+                    expected_deposit_ops[i].burn_header_hash =
+                        deposit_stx_ops[i].burn_header_hash.clone();
+                }
+                assert_eq!(deposit_stx_ops, expected_deposit_ops);
+            }
+            peer.sortdb.replace(sortdb);
+        }
+
+        // all burnchain transactions mined, even if there was no sortition in the burn block in
+        // which they were mined.
+        let sortdb = peer.sortdb.take().unwrap();
+
+        // definitely missing some blocks -- there are empty sortitions
+        let stacks_tip = peer
+            .chainstate()
+            .get_stacks_chain_tip(&sortdb)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stacks_tip.height, 8);
+
+        // but we did process all burnchain operations
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let account = peer
+            .chainstate()
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+                StacksChainState::get_account(conn, &addr.to_account_principal())
+            })
+            .unwrap();
+        peer.sortdb.replace(sortdb);
+
+        assert_eq!(
+            account.stx_balance.get_total_balance(),
+            1000000000 + (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
+        );
     }
 }
