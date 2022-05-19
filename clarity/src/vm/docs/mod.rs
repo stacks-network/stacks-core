@@ -2244,6 +2244,20 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
             None
         }
+        fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+            Some(12345)
+        }
+
+        fn get_burnchain_tokens_spent_for_winning_block(
+            &self,
+            id_bhh: &StacksBlockId,
+        ) -> Option<u128> {
+            Some(2345)
+        }
+
+        fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+            Some(12000)
+        }
     }
 
     struct DocBurnStateDB {}
