@@ -223,6 +223,10 @@ pub enum StacksHyperOpType {
         id: u128,
         sender: PrincipalData,
     },
+    WithdrawStx {
+        amount: u128,
+        recipient: PrincipalData,
+    },
     WithdrawFt {
         l1_contract_id: QualifiedContractIdentifier,
         name: String,
@@ -231,8 +235,6 @@ pub enum StacksHyperOpType {
     },
     WithdrawNft {
         l1_contract_id: QualifiedContractIdentifier,
-        hc_contract_id: QualifiedContractIdentifier,
-        hc_function_name: ClarityName,
         id: u128,
         recipient: PrincipalData,
     },

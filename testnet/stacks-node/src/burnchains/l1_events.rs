@@ -383,6 +383,10 @@ impl BurnchainController for L1Controller {
                 debug!("Submitting deposit nft operation to be implemented.");
                 true
             }
+            BlockstackOperationType::WithdrawStx(_op) => {
+                debug!("Submitting withdraw stx operation to be implemented.");
+                true
+            }
             BlockstackOperationType::WithdrawFt(_op) => {
                 debug!("Submitting withdraw ft operation to be implemented.");
                 true

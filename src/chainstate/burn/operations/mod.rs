@@ -57,6 +57,7 @@ pub mod deposit_stx;
 pub mod leader_block_commit;
 pub mod withdraw_ft;
 pub mod withdraw_nft;
+pub mod withdraw_stx;
 
 /// This module contains all burn-chain operations
 
@@ -276,6 +277,19 @@ pub struct DepositNftOp {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct WithdrawStxOp {
+    /// Transaction ID of this commit op
+    pub txid: Txid,
+    /// Hash of the base chain block that produced this commit op.
+    pub burn_header_hash: BurnchainHeaderHash,
+
+    // Amount of STX that was withdrawn
+    pub amount: u128,
+    // The principal that is the recipient of this withdrawal
+    pub recipient: PrincipalData,
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct WithdrawFtOp {
     /// Transaction ID of this commit op
     pub txid: Txid,
@@ -286,7 +300,7 @@ pub struct WithdrawFtOp {
     pub l1_contract_id: QualifiedContractIdentifier,
     // The name of the fungible token
     pub name: String,
-    // Amount of the fungible token that was deposited
+    // Amount of the fungible token that was withdrawn
     pub amount: u128,
     // The principal the contract is sending the fungible token to
     pub recipient: PrincipalData,
@@ -301,10 +315,6 @@ pub struct WithdrawNftOp {
 
     // Contract ID on L1 chain for this NFT
     pub l1_contract_id: QualifiedContractIdentifier,
-    // Contract ID on hyperchain for this NFT
-    pub hc_contract_id: QualifiedContractIdentifier,
-    // Name of the function to call in the hyperchains contract to execute withdrawal
-    pub hc_function_name: ClarityName,
     // The ID of the NFT being withdrawn
     pub id: u128,
     // The principal the contract is sending the NFT to
@@ -349,6 +359,7 @@ pub enum BlockstackOperationType {
     DepositStx(DepositStxOp),
     DepositFt(DepositFtOp),
     DepositNft(DepositNftOp),
+    WithdrawStx(WithdrawStxOp),
     WithdrawFt(WithdrawFtOp),
     WithdrawNft(WithdrawNftOp),
 }
@@ -377,6 +388,12 @@ impl From<DepositNftOp> for BlockstackOperationType {
     }
 }
 
+impl From<WithdrawStxOp> for BlockstackOperationType {
+    fn from(op: WithdrawStxOp) -> Self {
+        BlockstackOperationType::WithdrawStx(op)
+    }
+}
+
 impl From<WithdrawFtOp> for BlockstackOperationType {
     fn from(op: WithdrawFtOp) -> Self {
         BlockstackOperationType::WithdrawFt(op)
@@ -400,6 +417,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositStx(ref data) => &data.txid,
             BlockstackOperationType::DepositFt(ref data) => &data.txid,
             BlockstackOperationType::DepositNft(ref data) => &data.txid,
+            BlockstackOperationType::WithdrawStx(ref data) => &data.txid,
             BlockstackOperationType::WithdrawFt(ref data) => &data.txid,
             BlockstackOperationType::WithdrawNft(ref data) => &data.txid,
         }
@@ -419,6 +437,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DepositFt(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::DepositNft(ref data) => data.burn_header_hash.clone(),
+            BlockstackOperationType::WithdrawStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::WithdrawFt(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::WithdrawNft(ref data) => data.burn_header_hash.clone(),
         }
@@ -433,6 +452,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositStx(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::DepositFt(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::DepositNft(ref mut data) => data.set_burn_height(height),
+            BlockstackOperationType::WithdrawStx(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::WithdrawFt(ref mut data) => data.set_burn_height(height),
             BlockstackOperationType::WithdrawNft(ref mut data) => data.set_burn_height(height),
         };
@@ -447,6 +467,7 @@ impl BlockstackOperationType {
             BlockstackOperationType::DepositStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DepositFt(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::DepositNft(ref mut data) => data.burn_header_hash = hash,
+            BlockstackOperationType::WithdrawStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::WithdrawFt(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::WithdrawNft(ref mut data) => data.burn_header_hash = hash,
         };
@@ -460,6 +481,7 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::DepositStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DepositFt(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DepositNft(ref op) => write!(f, "{:?}", op),
+            BlockstackOperationType::WithdrawStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::WithdrawFt(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::WithdrawNft(ref op) => write!(f, "{:?}", op),
         }

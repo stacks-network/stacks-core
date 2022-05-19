@@ -179,6 +179,7 @@ impl StacksBlockHeader {
         proof: &VRFProof,
         tx_merkle_root: &Sha512Trunc256Sum,
         state_index_root: &TrieHash,
+        withdrawal_merkle_root: &Sha512Trunc256Sum,
         microblock_pubkey_hash: &Hash160,
         miner_signatures: &MessageSignatureList,
     ) -> StacksBlockHeader {
@@ -196,7 +197,7 @@ impl StacksBlockHeader {
             parent_microblock_sequence: parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
             state_index_root: state_index_root.clone(),
-            withdrawal_merkle_root: parent_header.withdrawal_merkle_root.clone(),
+            withdrawal_merkle_root: withdrawal_merkle_root.clone(),
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
             miner_signatures: miner_signatures.clone(),
         }
@@ -217,6 +218,7 @@ impl StacksBlockHeader {
             proof,
             &Sha512Trunc256Sum([0u8; 32]),
             &TrieHash([0u8; 32]),
+            &Sha512Trunc256Sum([0u8; 32]),
             microblock_pubkey_hash,
             miner_signatures,
         )
@@ -350,6 +352,7 @@ impl StacksMessageCodec for StacksBlock {
 }
 
 impl StacksBlock {
+    #[cfg(test)]
     pub fn from_parent(
         parent_header: &StacksBlockHeader,
         parent_microblock_header: &StacksMicroblockHeader,
@@ -373,6 +376,7 @@ impl StacksBlock {
             proof,
             &tx_merkle_root,
             state_index_root,
+            &Sha512Trunc256Sum([0u8; 32]),
             microblock_pubkey_hash,
             miner_signatures,
         );

@@ -48,7 +48,7 @@ use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHa
 use chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
     DepositStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
-    UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp,
+    UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp, WithdrawStxOp,
 };
 use chainstate::burn::{BlockSnapshot, Opcodes};
 use chainstate::coordinator::comm::CoordinatorChannels;
@@ -71,6 +71,7 @@ use util_lib::db::DBTx;
 use util_lib::db::Error as db_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
+use burnchains::StacksHyperOpType::WithdrawStx;
 use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransition {
@@ -105,6 +106,9 @@ impl BurnchainStateTransition {
                     accepted_ops.push(op.clone().into());
                 }
                 BlockstackOperationType::DepositNft(op) => {
+                    accepted_ops.push(op.clone().into());
+                }
+                BlockstackOperationType::WithdrawStx(op) => {
                     accepted_ops.push(op.clone().into());
                 }
                 BlockstackOperationType::WithdrawFt(op) => {
@@ -450,6 +454,17 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse deposit NFT operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                },
+                StacksHyperOpType::WithdrawStx { .. } => match WithdrawStxOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse withdraw STX operation";
                             "txid" => %burn_tx.txid(),
                             "error" => ?e,
                         );

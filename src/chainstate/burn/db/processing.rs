@@ -103,6 +103,19 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
+            BlockstackOperationType::WithdrawStx(ref op) => {
+                op.check(burnchain, self, reward_info).map_err(|e| {
+                    warn!(
+                        "REJECTED burnchain operation";
+                        "op" => "withdraw_stx",
+                        "l1_stacks_block_id" => %op.burn_header_hash,
+                        "txid" => %op.txid,
+                        "amount" => %op.amount,
+                        "recipient" => %op.recipient,
+                    );
+                    BurnchainError::OpError(e)
+                })
+            }
             BlockstackOperationType::WithdrawFt(ref op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
@@ -126,7 +139,6 @@ impl<'a> SortitionHandleTx<'a> {
                         "l1_stacks_block_id" => %op.burn_header_hash,
                         "txid" => %op.txid,
                         "l1_contract_id" => %op.l1_contract_id,
-                        "hc_contract_id" => %op.hc_contract_id,
                         "id" => %op.id,
                         "recipient" => %op.recipient,
                     );

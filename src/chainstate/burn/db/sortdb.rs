@@ -3074,6 +3074,18 @@ impl<'a> SortitionHandleTx<'a> {
 
                 self.insert_deposit_nft(op, sort_id)
             }
+            BlockstackOperationType::WithdrawStx(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_stx",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "amount" => %op.amount,
+                    "recipient" => %op.recipient,
+                );
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
             BlockstackOperationType::WithdrawFt(ref op) => {
                 info!(
                     "ACCEPTED burnchain operation";
@@ -3096,8 +3108,6 @@ impl<'a> SortitionHandleTx<'a> {
                     "l1_stacks_block_id" => %op.burn_header_hash,
                     "txid" => %op.txid,
                     "l1_contract_id" => %op.l1_contract_id,
-                    "hc_contract_id" => %op.hc_contract_id,
-                    "hc_function_name" => %op.hc_function_name,
                     "id" => %op.id,
                     "recipient" => %op.recipient,
                 );

@@ -6361,6 +6361,7 @@ pub mod test {
     use clarity::vm::types::StacksAddressExtensions;
     use serde_json;
 
+    #[cfg(test)]
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(
             "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",
@@ -6429,6 +6430,7 @@ pub mod test {
         block
     }
 
+    #[cfg(test)]
     pub fn make_16k_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(
             "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",

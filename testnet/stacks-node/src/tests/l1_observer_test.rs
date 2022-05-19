@@ -8,18 +8,34 @@ use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::get_epoch_time_secs;
+use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
 use clarity::vm::database::ClaritySerializable;
+use clarity::vm::events::NFTEventType::NFTWithdrawEvent;
+use clarity::vm::events::STXEventType::STXWithdrawEvent;
+use clarity::vm::events::STXWithdrawEventData;
 use clarity::vm::representations::ContractName;
-use clarity::vm::types::{PrincipalData, AssetIdentifier, TypeSignature};
+use clarity::vm::types::{AssetIdentifier, PrincipalData, TypeSignature};
 use clarity::vm::Value;
 use reqwest::Response;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload, TransactionVersion, CoinbasePayload, TransactionSpendingCondition, TransactionAuth};
+use stacks::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use stacks::chainstate::stacks::{
+    CoinbasePayload, StacksPrivateKey, StacksTransaction, TransactionAuth, TransactionPayload,
+    TransactionSpendingCondition, TransactionVersion,
+};
+use stacks::clarity::types::chainstate::StacksPublicKey;
+use stacks::clarity::vm::events::NFTWithdrawEventData;
+use stacks::clarity_vm::withdrawal::{
+    convert_withdrawal_key_to_bytes, create_withdrawal_merkle_tree, generate_key_from_event,
+};
 use stacks::codec::StacksMessageCodec;
 use stacks::net::CallReadOnlyRequestBody;
 use stacks::net::RPCPeerInfoData;
 use stacks::util::hash::hex_bytes;
+use stacks::vm::costs::ExecutionCost;
+use stacks::vm::events::FTEventType::FTWithdrawEvent;
+use stacks::vm::events::{FTWithdrawEventData, StacksTransactionEvent};
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
@@ -28,17 +44,6 @@ use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use stacks::clarity_vm::withdrawal::{create_withdrawal_merkle_tree, generate_key_from_event, convert_withdrawal_key_to_bytes};
-use stacks::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use stacks::vm::costs::ExecutionCost;
-use stacks::clarity::types::chainstate::StacksPublicKey;
-use stacks::vm::events::{StacksTransactionEvent, FTWithdrawEventData};
-use stacks::vm::events::FTEventType::FTWithdrawEvent;
-use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
-use clarity::vm::events::NFTEventType::NFTWithdrawEvent;
-use stacks::clarity::vm::events::NFTWithdrawEventData;
-use clarity::vm::events::STXEventType::STXWithdrawEvent;
-use clarity::vm::events::STXWithdrawEventData;
 
 #[derive(std::fmt::Debug)]
 pub enum SubprocessError {
@@ -69,7 +74,6 @@ lazy_static! {
     )
     .unwrap();
 }
-
 
 pub fn call_read_only(
     http_origin: &str,
@@ -426,7 +430,7 @@ fn l1_integration_test() {
 }
 
 #[test]
-fn l1_deposit_asset_integration_test() {
+fn l1_deposit_and_withdraw_asset_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_asset_integration_test
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
@@ -696,8 +700,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let addr = Value::deserialize(&result, &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
     assert_eq!(addr, Value::none());
 
     let l1_deposit_ft_tx = make_contract_call(
@@ -750,7 +762,12 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
     let amount = Value::deserialize(&result, &TypeSignature::UIntType);
     assert_eq!(amount, Value::UInt(1));
     // Check that the user owns the NFT on the hyperchain now
@@ -763,9 +780,20 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let addr = Value::deserialize(&result, &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)));
-    assert_eq!(addr,  Value::some(Value::Principal(user_addr.into())).unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
+    assert_eq!(
+        addr,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
 
     // Check that the user does not own the FT on the L1
     let res = call_read_only(
@@ -777,8 +805,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
     assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
     // Check that the user does not own the NFT on the L1 (the contract should own it)
     let res = call_read_only(
@@ -790,9 +826,23 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)), TypeSignature::UIntType))));
-    assert_ne!(amount, Value::some(Value::Principal(user_addr.into())).unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_ne!(
+        amount,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
 
     // Withdraw the ft on the L2
     let l2_withdraw_ft_tx = make_contract_call(
@@ -802,10 +852,7 @@ fn l1_deposit_asset_integration_test() {
         &user_addr,
         "simple-ft",
         "hyperchain-withdraw-ft-token",
-        &[
-            Value::UInt(1),
-            Value::Principal(user_addr.into()),
-        ],
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l2_nonce += 1;
     // Withdraw the nft on the L2
@@ -816,10 +863,7 @@ fn l1_deposit_asset_integration_test() {
         &user_addr,
         "simple-nft",
         "hyperchain-withdraw-nft-token",
-        &[
-            Value::UInt(1),
-            Value::Principal(user_addr.into()),
-        ],
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l2_nonce += 1;
     // Withdraw ft-token from hyperchains contract on L1
@@ -840,8 +884,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
     assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
     // Check that user no longer owns the nft on L2 chain
     let res = call_read_only(
@@ -853,8 +905,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let addr = Value::deserialize(&result, &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
     assert_eq!(addr, Value::none());
     // Check that the user does not *yet* own the FT on the L1
     let res = call_read_only(
@@ -866,8 +926,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
     assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
     // Check that the user does not *yet* own the NFT on the L1 (the contract should own it)
     let res = call_read_only(
@@ -879,39 +947,63 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)), TypeSignature::UIntType))));
-    assert_ne!(amount, Value::some(Value::Principal(user_addr.into())).unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_ne!(
+        amount,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
 
     // Create the withdrawal merkle tree by mocking the ft & nft withdraw event (if the root hash of
     // this constructed merkle tree is not identical to the root hash published by the HC node,
     // then the test will fail).
-    let mut spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1))
-            .expect("Failed to create p2pkh spending condition from public key.");
-    spending_condition.set_nonce(l2_nonce-1);
+    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+        StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1),
+    )
+    .expect("Failed to create p2pkh spending condition from public key.");
+    spending_condition.set_nonce(l2_nonce - 1);
     spending_condition.set_tx_fee(1000);
     let auth = TransactionAuth::Standard(spending_condition);
-    let ft_withdraw_event = StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData{
+    let ft_withdraw_event = StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
         asset_identifier: AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-ft")),
-            asset_name: ClarityName::from("ft-token")
+            contract_identifier: QualifiedContractIdentifier::new(
+                user_addr.into(),
+                ContractName::from("simple-ft"),
+            ),
+            asset_name: ClarityName::from("ft-token"),
         },
         sender: user_addr.into(),
-        amount: 1
+        amount: 1,
     }));
-    let nft_withdraw_event = StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData{
-        asset_identifier: AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-nft")),
-            asset_name: ClarityName::from("nft-token")
-        },
-        sender: user_addr.into(),
-        value: Value::UInt(1)
-    }));
+    let nft_withdraw_event =
+        StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData {
+            asset_identifier: AssetIdentifier {
+                contract_identifier: QualifiedContractIdentifier::new(
+                    user_addr.into(),
+                    ContractName::from("simple-nft"),
+                ),
+                asset_name: ClarityName::from("nft-token"),
+            },
+            sender: user_addr.into(),
+            value: Value::UInt(1),
+        }));
     let withdrawal_receipt = StacksTransactionReceipt {
-        transaction: TransactionOrigin::Stacks(StacksTransaction::new(TransactionVersion::Testnet,
-                                            auth.clone(),
-                                            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])))),
+        transaction: TransactionOrigin::Stacks(StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        )),
         events: vec![ft_withdraw_event.clone(), nft_withdraw_event.clone()],
         post_condition_aborted: false,
         result: Value::err_none(),
@@ -926,12 +1018,18 @@ fn l1_deposit_asset_integration_test() {
 
     let ft_withdrawal_key = generate_key_from_event(&ft_withdraw_event, 0).unwrap();
     let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
-    let ft_withdrawal_leaf_hash = MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice()).as_bytes().to_vec();
+    let ft_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
     let ft_path = withdrawal_tree.path(&ft_withdrawal_key_bytes).unwrap();
 
     let nft_withdrawal_key = generate_key_from_event(&nft_withdraw_event, 1).unwrap();
     let nft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&nft_withdrawal_key);
-    let nft_withdrawal_leaf_hash = MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice()).as_bytes().to_vec();
+    let nft_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
     let nft_path = withdrawal_tree.path(&nft_withdrawal_key_bytes).unwrap();
 
     let mut ft_sib_data = Vec::new();
@@ -939,9 +1037,10 @@ fn l1_deposit_asset_integration_test() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
-        let curr_sib_data = vec![(ClarityName::from("hash"), sib_hash),
-                                        (ClarityName::from("is-left-side"), sib_is_left)
-                            ];
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
+        ];
         let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
         ft_sib_data.push(sib_tuple);
     }
@@ -950,8 +1049,9 @@ fn l1_deposit_asset_integration_test() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
-        let curr_sib_data = vec![(ClarityName::from("hash"), sib_hash),
-                                 (ClarityName::from("is-left-side"), sib_is_left)
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
         ];
         let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
         nft_sib_data.push(sib_tuple);
@@ -1012,8 +1112,16 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))));
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
     assert_eq!(amount, Value::okay(Value::UInt(1)).unwrap());
     // Check that the user owns the NFT on the L1 chain now
     let res = call_read_only(
@@ -1025,9 +1133,23 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let result = res["result"].as_str().unwrap().strip_prefix("0x").unwrap().to_string();
-    let amount = Value::deserialize(&result, &TypeSignature::ResponseType(Box::new((TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)), TypeSignature::UIntType))));
-    assert_eq!(amount, Value::okay(Value::some(Value::Principal(user_addr.into())).unwrap()).unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_eq!(
+        amount,
+        Value::okay(Value::some(Value::Principal(user_addr.into())).unwrap()).unwrap()
+    );
 
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
@@ -1037,7 +1159,7 @@ fn l1_deposit_asset_integration_test() {
 /// This test calls the `deposit-stx` function in the hyperchains contract.
 /// We expect to see the stx balance for the user in question increase.
 #[test]
-fn l1_deposit_stx_integration_test() {
+fn l1_deposit_and_withdraw_stx_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_stx_integration_test
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
@@ -1180,7 +1302,6 @@ fn l1_deposit_stx_integration_test() {
     let hc_stx_contract_id =
         QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-stx"));
 
-
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
@@ -1200,10 +1321,16 @@ fn l1_deposit_stx_integration_test() {
 
     // Check that the user does not own any additional STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l2_starting_account_balance - default_fee*l2_nonce) as u128);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
     // Check the user's balance on the L1
     let account = get_account(&l1_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l1_starting_account_balance - default_fee*l1_nonce) as u128);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce) as u128
+    );
 
     let l1_deposit_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
@@ -1224,10 +1351,16 @@ fn l1_deposit_stx_integration_test() {
 
     // Check that the user owns additional STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l2_starting_account_balance - default_fee*l2_nonce + 1) as u128);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce + 1) as u128
+    );
     // Check that the user's balance decreased on the L1
     let account = get_account(&l1_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l1_starting_account_balance - default_fee*l1_nonce - 1) as u128);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce - 1) as u128
+    );
 
     // Call the withdraw stx function on the L2 from unauthorized user
     let l2_withdraw_stx_tx_unauth = make_contract_call(
@@ -1237,10 +1370,7 @@ fn l1_deposit_stx_integration_test() {
         &user_addr,
         "simple-stx",
         "hyperchain-withdraw-stx",
-        &[
-            Value::UInt(1),
-            Value::Principal(user_addr.into()),
-        ],
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     // withdraw stx from L2
     submit_tx(&l2_rpc_origin, &l2_withdraw_stx_tx_unauth);
@@ -1249,7 +1379,10 @@ fn l1_deposit_stx_integration_test() {
     thread::sleep(Duration::from_secs(25));
     // Check that the user still owns STX on the hyperchain now (withdraw attempt should fail)
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l2_starting_account_balance - default_fee*l2_nonce + 1) as u128);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce + 1) as u128
+    );
 
     // Call the withdraw stx function on the L2 from the correct user
     let l2_withdraw_stx_tx = make_contract_call(
@@ -1259,10 +1392,7 @@ fn l1_deposit_stx_integration_test() {
         &user_addr,
         "simple-stx",
         "hyperchain-withdraw-stx",
-        &[
-            Value::UInt(1),
-            Value::Principal(user_addr.into()),
-        ],
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l2_nonce += 1;
     // withdraw stx from L2
@@ -1272,30 +1402,39 @@ fn l1_deposit_stx_integration_test() {
     thread::sleep(Duration::from_secs(25));
     // Check that the user does not own any additional STX anymore on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l2_starting_account_balance - default_fee*l2_nonce) as u128);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
     // Check that the user's balance has not yet increased on the L1
     let account = get_account(&l1_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l1_starting_account_balance - default_fee*l1_nonce - 1) as u128);
-
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce - 1) as u128
+    );
 
     // Create the withdrawal merkle tree by mocking the stx withdraw event (if the root hash of
     // this constructed merkle tree is not identical to the root hash published by the HC node,
     // then the test will fail).
-    let mut spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1))
-            .expect("Failed to create p2pkh spending condition from public key.");
-    spending_condition.set_nonce(l2_nonce-1);
+    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+        StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1),
+    )
+    .expect("Failed to create p2pkh spending condition from public key.");
+    spending_condition.set_nonce(l2_nonce - 1);
     spending_condition.set_tx_fee(1000);
     let auth = TransactionAuth::Standard(spending_condition);
-    let stx_withdraw_event = StacksTransactionEvent::STXEvent(STXWithdrawEvent(STXWithdrawEventData{
-        sender: user_addr.into(),
-        amount: 1
-    }));
+    let stx_withdraw_event =
+        StacksTransactionEvent::STXEvent(STXWithdrawEvent(STXWithdrawEventData {
+            sender: user_addr.into(),
+            amount: 1,
+        }));
 
     let withdrawal_receipt = StacksTransactionReceipt {
-        transaction: TransactionOrigin::Stacks(StacksTransaction::new(TransactionVersion::Testnet,
-                                                                      auth.clone(),
-                                                                      TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])))),
+        transaction: TransactionOrigin::Stacks(StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        )),
         events: vec![stx_withdraw_event.clone()],
         post_condition_aborted: false,
         result: Value::err_none(),
@@ -1310,7 +1449,10 @@ fn l1_deposit_stx_integration_test() {
 
     let stx_withdrawal_key = generate_key_from_event(&stx_withdraw_event, 0).unwrap();
     let stx_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&stx_withdrawal_key);
-    let stx_withdrawal_leaf_hash = MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice()).as_bytes().to_vec();
+    let stx_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
     let stx_path = withdrawal_tree.path(&stx_withdrawal_key_bytes).unwrap();
 
     let mut stx_sib_data = Vec::new();
@@ -1318,8 +1460,9 @@ fn l1_deposit_stx_integration_test() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
-        let curr_sib_data = vec![(ClarityName::from("hash"), sib_hash),
-                                 (ClarityName::from("is-left-side"), sib_is_left)
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
         ];
         let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
         stx_sib_data.push(sib_tuple);
@@ -1350,10 +1493,16 @@ fn l1_deposit_stx_integration_test() {
 
     // Check that the user still does not own any additional STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l2_starting_account_balance - default_fee*l2_nonce) as u128);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
     // Check that the user's STX was transferred back to the L1
     let account = get_account(&l1_rpc_origin, &user_addr);
-    assert_eq!(account.balance, (l1_starting_account_balance - default_fee*l1_nonce) as u128);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce) as u128
+    );
 
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();

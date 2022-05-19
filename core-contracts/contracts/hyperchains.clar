@@ -12,6 +12,7 @@
 (define-constant ERR_MERKLE_ROOT_DOES_NOT_MATCH 7)
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
+(define-constant ERR_VALIDATION_FAILED 10)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -36,6 +37,7 @@
 
 ;; This function adds contracts to the allowed-contracts map.
 ;; Once in this map, asset transfers from that contract will be allowed in the deposit and withdraw operations.
+;; Returns response<bool, int>
 (define-public (setup-allowed-contracts)
     (begin
         ;; Verify that tx-sender is an authorized miner
@@ -49,6 +51,7 @@
 )
 
 ;; Helper function for fold: if a == b, return none; else return b
+;; Returns (optional principal)
 (define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
     (if (is-eq (some miner-a) search-for)
         none
@@ -56,12 +59,14 @@
     )
 )
 ;; Helper function: returns a boolean indicating whether the given principal is in the list of miners
+;; Returns bool
 (define-private (is-miner (miner principal))
    (let ((fold-result (fold is-principal-eq miners (some miner))))
         (is-none fold-result)
    ))
 
 ;; Helper function: determines whether the commit-block operation can be carried out
+;; Returns response<bool, int>
 (define-private (can-commit-block? (commit-block-height uint))
     (begin
         ;; check no block has been committed at this height
@@ -75,7 +80,7 @@
 )
 
 ;; Helper function: modifies the block-commits map with a new commit and prints related info
-;; TODO(60) store withdrawal-root in contract state
+;; Returns response<(buff 32), ?>
 (define-private (inner-commit-block (block (buff 32)) (commit-block-height uint) (withdrawal-root (buff 32)))
     (begin
         (map-set block-commits commit-block-height block)
@@ -86,6 +91,7 @@
 )
 
 ;; Subnets miners call this to commit a block at a particular height
+;; Returns response<(buff 32), int>
 (define-public (commit-block (block (buff 32)) (withdrawal-root (buff 32)))
     (let ((commit-block-height block-height))
         (try! (can-commit-block? commit-block-height))
@@ -98,6 +104,7 @@
 ;; FOR NFT ASSET TRANSFERS
 
 ;; Helper function that transfers the specified NFT from the given sender to the given recipient. 
+;; Returns response<bool, int>
 (define-private (inner-transfer-nft-asset (id uint) (sender principal) (recipient principal) (nft-contract <nft-trait>))
     (let (
             (call-result (contract-call? nft-contract transfer id sender recipient))
@@ -132,12 +139,13 @@
 
 
 ;; Helper function for `withdraw-nft-asset`
+;; Returns response<bool, int>
 (define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
             (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
 
-        (asserts! (try! hashes-are-valid) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+        (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
         ;; TODO: should check leaf validity
 
@@ -148,7 +156,7 @@
 )
 
 ;; A user calls this function to withdraw the specified NFT from this contract. 
-;; In order for this withdrawal to go through, the given withdrawal must have been encoded 
+;; In order for this withdrawal to go through, the given withdrawal must have been included 
 ;; in a withdrawal Merkle tree a hyperchain miner submitted. The user must provide the leaf 
 ;; hash of their withdrawal and the root hash of the specific Merkle tree their withdrawal 
 ;; is included in. They must also provide a list of sibling hashes. The withdraw function 
@@ -162,7 +170,7 @@
         
         (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
-        ;; Emit a print event - the node consumes this
+        ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
 
         (ok true)
@@ -172,7 +180,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR FUNGIBLE TOKEN ASSET TRANSFERS
 
-
+;; Helper function that transfers a specified amount of the fungible token from the given sender to the given recipient. 
+;; Returns response<bool, int>
 (define-private (inner-transfer-ft-asset (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (let (
             (call-result (contract-call? ft-contract transfer amount sender recipient memo))
@@ -209,12 +218,13 @@
 )
 
 ;; This function performs validity checks related to the withdrawal and performs the withdrawal as well. 
+;; Returns response<bool, int>
 (define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
             (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
 
-        (asserts! (try! hashes-are-valid) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+        (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
         ;; TODO: should check leaf validity
 
@@ -226,7 +236,7 @@
 
 ;; A user can call this function to withdraw some amount of a fungible token asset from the 
 ;; contract and send it to a recipient. 
-;; In order for this withdrawal to go through, the given withdrawal must have been encoded 
+;; In order for this withdrawal to go through, the given withdrawal must have been included 
 ;; in a withdrawal Merkle tree a hyperchain miner submitted. The user must provide the leaf 
 ;; hash of their withdrawal and the root hash of the specific Merkle tree their withdrawal 
 ;; is included in. They must also provide a list of sibling hashes. The withdraw function 
@@ -243,7 +253,7 @@
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
             )
-            ;; Emit a print event - the node consumes this
+            ;; Emit a print event 
             (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, recipient: recipient, ft-name: ft-name })
         )
 
@@ -257,6 +267,7 @@
 
 
 ;; Helper function that transfers the given amount from the specified fungible token from the given sender to the given recipient. 
+;; Returns response<bool, int>
 (define-private (inner-transfer-stx (amount uint) (sender principal) (recipient principal))
     (let (
             (call-result (stx-transfer? amount sender recipient))
@@ -285,7 +296,7 @@
 )
 
 ;; A user calls this function to withdraw STX from this contract. 
-;; In order for this withdrawal to go through, the given withdrawal must have been encoded 
+;; In order for this withdrawal to go through, the given withdrawal must have been included 
 ;; in a withdrawal Merkle tree a hyperchain miner submitted. The user must provide the leaf 
 ;; hash of their withdrawal and the root hash of the specific Merkle tree their withdrawal 
 ;; is included in. They must also provide a list of sibling hashes. The withdraw function 
@@ -297,7 +308,7 @@
             (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
 
-        (asserts! (try! hashes-are-valid) (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
+        (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
         ;; TODO: should check leaf validity
 
@@ -305,7 +316,7 @@
 
         (asserts! (finish-withdraw withdrawal-leaf-hash) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
-        ;; Emit a print event - the node consumes this
+        ;; Emit a print event 
         (print { event: "withdraw-stx", recipient: recipient, amount: amount })
 
         (ok true)
@@ -318,6 +329,7 @@
 
 ;; This function concats the two given hashes in the correct order. It also prepends the buff `0x01`, which is 
 ;; a tag denoting a node (versus a leaf). 
+;; Returns a buff
 (define-private (create-node-hash (curr-hash (buff 32)) (sibling-hash (buff 32)) (is-sibling-left-side bool))
     (let (
             (concatted-hash (if is-sibling-left-side
@@ -333,6 +345,7 @@
 )
 
 ;; This function hashes the curr hash with its sibling hash.
+;; Returns (buff 32)
 (define-private (hash-help (sibling (tuple (hash (buff 32)) (is-left-side bool))) (curr-node-hash (buff 32)))
     (let (
             (sibling-hash (get hash sibling))
@@ -347,6 +360,7 @@
 ;;  - That the provided withdrawal root matches a previously submitted one (passed to the function `commit-block`)
 ;;  - That the computed withdrawal root matches a previous valid withdrawal root 
 ;;  - That the given withdrawal leaf hash has not been previously processed
+;; Returns response<bool, int>
 (define-private (check-withdrawal-hashes (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool)) )))
     (begin
         ;; Check that the user submitted a valid withdrawal root
@@ -359,7 +373,10 @@
                 (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
                 (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
             )
-            (ok roots-match)
+            (if roots-match
+                (ok true)
+                (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)
+            )
         )
     )
 )
@@ -367,6 +384,7 @@
 ;; This function should be called after the asset in question has been transferred. 
 ;; It adds the withdrawal leaf hash to a map of processed leaves. This ensures that 
 ;; this withdrawal leaf can't be used again to withdraw additional funds. 
+;; Returns bool
 (define-private (finish-withdraw (withdrawal-leaf-hash (buff 32)))
     (map-insert processed-withdrawal-leaves-map withdrawal-leaf-hash true)
 )

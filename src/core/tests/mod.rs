@@ -96,6 +96,7 @@ fn mempool_db_init() {
     let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 }
 
+#[cfg(test)]
 fn make_block(
     chainstate: &mut StacksChainState,
     block_consensus: ConsensusHash,

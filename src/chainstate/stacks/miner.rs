@@ -1357,7 +1357,7 @@ impl StacksBlockBuilder {
     }
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
-        // done!  Calculate state root and tx merkle root
+        // done!  Calculate state root, tx merkle root, and withdrawal merkle root
         let txid_vecs = self
             .txs
             .iter()
