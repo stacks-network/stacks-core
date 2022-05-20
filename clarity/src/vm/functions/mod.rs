@@ -170,6 +170,8 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
     Slice("slice", ClarityVersion::Clarity2),
+    ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2),
+    FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -505,6 +507,14 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
             StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
+            ToConsensusBuff => NativeFunction(
+                "to_consensus_buff",
+                NativeHandle::SingleArg(&conversions::to_consensus_buff),
+                ClarityCostFunction::Unimplemented,
+            ),
+            FromConsensusBuff => {
+                SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
+            }
         };
         Some(callable)
     } else {
