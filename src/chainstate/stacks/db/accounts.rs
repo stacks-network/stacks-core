@@ -570,6 +570,29 @@ impl StacksChainState {
         child_block_id: &StacksBlockId,
         reward: &MinerReward,
     ) -> Result<(), Error> {
+        // the only time it's okay to re-insert the same reward is if there are two Stacks forks
+        // trying to store the same matured rewards for a common ancestor block.
+        let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
+            tx,
+            parent_block_id,
+            child_block_id,
+        )?;
+        if cur_rewards.len() > 0 {
+            let mut present = false;
+            for rw in cur_rewards.iter() {
+                if (rw.is_parent() && reward.is_parent()) || (rw.is_child() && reward.is_child()) {
+                    // must insert a parent or a child at most once
+                    assert_eq!(rw, reward, "FATAL: tried to insert multiple distinct matured parent block reward records");
+                    present = true;
+                }
+            }
+
+            if present {
+                return Ok(());
+            }
+        }
+
+        // not present
         let sql = "INSERT INTO matured_rewards (
             recipient,
             vtxindex,
@@ -683,6 +706,17 @@ impl StacksChainState {
         )
     }
 
+    fn inner_get_matured_miner_payments(
+        conn: &DBConn,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+    ) -> Result<Vec<MinerReward>, Error> {
+        let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
+        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
+        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
+        Ok(ret)
+    }
+
     /// Get the matured miner reward for a block's miner.
     /// You'd be querying for the `child_block_id`'s reward.
     pub fn get_matured_miner_payment(
@@ -690,14 +724,12 @@ impl StacksChainState {
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
     ) -> Result<Option<MinerReward>, Error> {
-        debug!(
-            "Get matured miner payment for {}-{}",
-            parent_block_id, child_block_id
-        );
         let config = StacksChainState::load_db_config(conn)?;
-        let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
-        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
-        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
+        let ret = StacksChainState::inner_get_matured_miner_payments(
+            conn,
+            parent_block_id,
+            child_block_id,
+        )?;
         if ret.len() == 2 {
             let reward = if ret[0].is_child() {
                 ret[0]
