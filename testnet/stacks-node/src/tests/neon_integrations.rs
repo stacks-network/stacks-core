@@ -1445,7 +1445,9 @@ fn bitcoind_forking_test() {
     eprintln!("Miner account: {}", miner_account);
 
     let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
+
+    // N.B. rewards mature after 2 confirmations...
+    assert_eq!(account.balance, 4 * (1_000_000_000 + 20_400_000));
     assert_eq!(account.nonce, 7);
 
     // okay, let's figure out the burn block we want to fork away.
@@ -1458,12 +1460,16 @@ fn bitcoind_forking_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 2);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
     assert_eq!(account.nonce, 3);
@@ -1478,13 +1484,15 @@ fn bitcoind_forking_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 3);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
+
     // but we're able to keep on mining
     assert!(account.nonce >= 3);
 
