@@ -156,11 +156,12 @@ fn test_get_burn_block_info_eval() {
 #[test]
 fn test_get_block_info_eval_v210() {
     let mut sim = ClarityTestSim::new();
-    sim.epoch_bounds = vec![0, 2, 4];
+    sim.epoch_bounds = vec![0, 3, 5];
 
     // Advance at least one block because 'get-block-info' only works after the first block.
     sim.execute_next_block(|_env| {});
     // Advance another block so we get to Stacks 2.05.
+    sim.execute_next_block(|_env| {});
     sim.execute_next_block_as_conn(|conn| {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-1").unwrap();
         let contract =
@@ -212,19 +213,36 @@ fn test_get_block_info_eval_v210() {
                 .unwrap();
         });
         let mut tx = conn.start_transaction_processing();
+        // no values for the genesis block
         assert_eq!(
-            Value::some(Value::UInt(3000)).unwrap(),
+            Value::none(),
             tx.eval_read_only(&contract_identifier, "(test-func-1 u0)")
                 .unwrap()
         );
         assert_eq!(
-            Value::some(Value::UInt(1000)).unwrap(),
+            Value::some(Value::UInt(0)).unwrap(),
             tx.eval_read_only(&contract_identifier, "(test-func-2 u0)")
                 .unwrap()
         );
         assert_eq!(
-            Value::some(Value::UInt(2000)).unwrap(),
+            Value::some(Value::UInt(0)).unwrap(),
             tx.eval_read_only(&contract_identifier, "(test-func-3 u0)")
+                .unwrap()
+        );
+        // only works at the first block 
+        assert_eq!(
+            Value::some(Value::UInt(3000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-1 u1)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(1000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-2 u1)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(2000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-3 u1)")
                 .unwrap()
         );
         assert_eq!(
