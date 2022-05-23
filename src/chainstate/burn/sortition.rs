@@ -48,15 +48,11 @@ use stacks_common::types::chainstate::TrieHash;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
-    pub fn initial(
-        first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
-    ) -> BlockSnapshot {
+    pub fn initial(first_block_height: u64) -> BlockSnapshot {
         BlockSnapshot {
             block_height: first_block_height,
-            burn_header_hash: first_burn_header_hash.clone(),
-            burn_header_timestamp: first_burn_header_timestamp,
+            burn_header_hash: BurnchainHeaderHash::sentinel(),
+            burn_header_timestamp: 0,
             parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
@@ -73,8 +69,8 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            sortition_id: SortitionId::new(first_burn_header_hash),
-            parent_sortition_id: SortitionId::new(first_burn_header_hash),
+            sortition_id: SortitionId::sentinel(),
+            parent_sortition_id: SortitionId::sentinel(),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
         }

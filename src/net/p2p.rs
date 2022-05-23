@@ -384,11 +384,7 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            burnchain_tip: BlockSnapshot::initial(
-                first_block_height,
-                &first_burn_header_hash,
-                first_burn_header_ts as u64,
-            ),
+            burnchain_tip: BlockSnapshot::initial(first_block_height),
 
             peerdb: peerdb,
             atlasdb: atlasdb,

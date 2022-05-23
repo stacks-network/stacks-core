@@ -2336,8 +2336,6 @@ mod test {
         let sortdb = SortitionDB::connect(
             &sortdb_path,
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             true,
         )
