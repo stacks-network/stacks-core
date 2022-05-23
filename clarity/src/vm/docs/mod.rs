@@ -1992,6 +1992,55 @@ one of the following error codes:
 "
 };
 
+const TO_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
+    input_type: "any",
+    output_type: "(optional buff)",
+    signature: "(to-consensus-buff value)",
+    description: "`to-consensus-buff` is a special function that will serialize any
+Clarity value into a buffer, using the SIP-005 serialization of the
+Clarity value. Not all values can be serialized: some value's
+consensus serialization is too large to fit in a Clarity buffer (this
+is because of the type prefix in the consensus serialization).
+
+If the value cannot fit as serialized into the maximum buffer size,
+this returns `none`, otherwise, it will be
+`(some consensus-serialized-buffer)`. During type checking, the
+analyzed type of the result of this method will be the maximum possible
+consensus buffer length based on the inferred type of the supplied value.
+",
+    example: r#"
+(to-consensus-buff 1) ;; Returns (some 0x0000000000000000000000000000000001)
+(to-consensus-buff u1) ;; Returns (some 0x0100000000000000000000000000000001)
+(to-consensus-buff true) ;; Returns (some 0x03)
+(to-consensus-buff false) ;; Returns (some 0x04)
+(to-consensus-buff none) ;; Returns (some 0x09)
+(to-consensus-buff 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
+(to-consensus-buff { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
+"#,
+};
+
+const FROM_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
+    input_type: "type-signature(t), buff",
+    output_type: "(optional t)",
+    signature: "(from-consensus-buff type-signature buffer)",
+    description: "`from-consensus-buff` is a special function that will deserialize a
+buffer into a Clarity value, using the SIP-005 serialization of the
+Clarity value. The type that `from-consensus-buff` tries to deserialize
+into is provided by the first parameter to the function. If it fails
+to deserialize the type, the method returns `none`.
+",
+    example: r#"
+(from-consensus-buff int 0x0000000000000000000000000000000001) ;; Returns (some 1)
+(from-consensus-buff uint 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
+(from-consensus-buff bool 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff bool 0x03) ;; Returns (some true)
+(from-consensus-buff bool 0x04) ;; Returns (some false)
+(from-consensus-buff principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(from-consensus-buff { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
+"#,
+};
+
 fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2093,6 +2142,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         StxTransfer => make_for_special(&STX_TRANSFER, name),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, name),
+        FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, name),
     }
 }
 
