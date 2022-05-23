@@ -19,8 +19,9 @@ use stacks::{
     net::RPCPoxInfoData,
 };
 
-use crate::burnchains::mock_events::MockController;
+use crate::burnchains::mock_events::{reset_static_burnblock_simulator_channel, MockController};
 use crate::neon;
+use crate::tests::l1_observer_test::MOCKNET_PRIVATE_KEY_1;
 use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
@@ -295,24 +296,44 @@ pub mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 600;
-/// Returns `false` on a timeout, true otherwise.
+const PANIC_TIMEOUT_SECS: u64 = 60;
+/// Create a `btc_controller` block, specifying parent as `specify_parent`.
+/// Wait for `blocks_processed` to be incremented, AND wait for the number of snapshots
+/// in `sortition_db` to be incremented.
+/// Panic on timeout.
 pub fn next_block_and_wait(
     btc_controller: &mut MockController,
+    specify_parent: Option<u64>,
     blocks_processed: &Arc<AtomicU64>,
-) -> bool {
-    let current = blocks_processed.load(Ordering::SeqCst);
+    sortition_db: &SortitionDB,
+) -> u64 {
+    let initial_blocks_processed = blocks_processed.load(Ordering::SeqCst);
+    let initial_all_snapshots = sortition_db
+        .count_snapshots()
+        .expect("")
+        .expect("Couldn't count snap shots.");
     info!(
         "next_block_and_wait: Issuing block at {}, waiting for bump ({})",
         get_epoch_time_secs(),
-        current
+        initial_blocks_processed
     );
-    btc_controller.next_block();
+    let created_block = btc_controller.next_block(specify_parent);
     let start = Instant::now();
-    while blocks_processed.load(Ordering::SeqCst) <= current {
+    while blocks_processed.load(Ordering::SeqCst) <= initial_blocks_processed {
         if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
-            error!("Timed out waiting for block to process, trying to continue test");
-            return false;
+            panic!("Timed out waiting for block to process, trying to continue test");
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    while sortition_db
+        .count_snapshots()
+        .expect("")
+        .expect("Couldn't count snap shots.")
+        <= initial_all_snapshots
+    {
+        info!("next_block_and_wait: Waiting for SNAPSHOTS!");
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            panic!("Timed out waiting for snapshots.");
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -321,7 +342,16 @@ pub fn next_block_and_wait(
         get_epoch_time_secs(),
         blocks_processed.load(Ordering::SeqCst)
     );
-    true
+    let final_all_snapshots = sortition_db
+        .count_snapshots()
+        .expect("")
+        .expect("Couldn't count snap shots.");
+    info!(
+        "next_block_and_wait: final_all_snapshots {} ({})",
+        get_epoch_time_secs(),
+        final_all_snapshots
+    );
+    created_block
 }
 
 pub fn wait_for_runloop(blocks_processed: &Arc<AtomicU64>) {
@@ -461,6 +491,7 @@ fn is_close_f64(a: f64, b: f64) -> bool {
 /// Simple test for the mock backend: test that the hyperchain miner
 /// is capable of producing blocks
 fn mockstack_integration_test() {
+    reset_static_burnblock_simulator_channel();
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -474,23 +505,47 @@ fn mockstack_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
+    let burnchain = Burnchain::new(
+        &conf.get_burn_db_path(),
+        &conf.burnchain.chain,
+        &conf.burnchain.mode,
+    )
+    .unwrap();
+
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
     thread::spawn(move || run_loop.start(None, 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
-    btc_regtest_controller.next_block();
-    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block(None);
+    // btc_regtest_controller.next_block(None);
+
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // let's query the miner's account nonce:
 
@@ -526,6 +581,7 @@ fn mockstack_integration_test() {
 #[test]
 #[ignore]
 fn mockstack_wait_for_first_block() {
+    reset_static_burnblock_simulator_channel();
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
@@ -539,20 +595,32 @@ fn mockstack_wait_for_first_block() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
-
+    let burnchain = Burnchain::new(
+        &conf.get_burn_db_path(),
+        &conf.burnchain.chain,
+        &conf.burnchain.mode,
+    )
+    .unwrap();
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
     thread::spawn(move || run_loop.start(None, 0));
 
     wait_for_runloop(&blocks_processed);
 
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
+
     // Walk up 16 + 1 blocks.
-    btc_regtest_controller.next_block();
+    btc_regtest_controller.next_block(None);
     for i in 0..16 {
-        btc_regtest_controller.next_block();
+        btc_regtest_controller.next_block(None);
     }
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     channel.stop_chains_coordinator();
 }
@@ -665,7 +733,9 @@ const FAUCET_CONTRACT: &'static str = "
 /// several transfers and contract calls, and check that the RPC interface
 /// processes the blocks
 #[test]
+#[ignore]
 fn faucet_test() {
+    reset_static_burnblock_simulator_channel();
     let (mut conf, miner_account) = mockstack_test_conf();
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -683,8 +753,12 @@ fn faucet_test() {
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    eprintln!("Chain bootstrapped...");
-
+    let burnchain = Burnchain::new(
+        &conf.get_burn_db_path(),
+        &conf.burnchain.chain,
+        &conf.burnchain.mode,
+    )
+    .unwrap();
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -697,17 +771,34 @@ fn faucet_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    btc_regtest_controller.next_block();
-    btc_regtest_controller.next_block();
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
+
+    btc_regtest_controller.next_block(None);
+    btc_regtest_controller.next_block(None);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     // let's query the miner's account nonce:
 
@@ -715,7 +806,7 @@ fn faucet_test() {
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
+    assert!(account.nonce >= 1);
 
     eprintln!("Tenure in 1 started!");
 
@@ -730,13 +821,28 @@ fn faucet_test() {
         make_stacks_transfer(&sk_3, 0, 1000, &contract_identifier.clone().into(), 1000);
     let _xfer_to_faucet_txid = submit_tx(&http_origin, &xfer_to_faucet_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     let publish_tx = make_contract_publish(&contract_sk, 0, 1000, "faucet", FAUCET_CONTRACT);
     let _publish_txid = submit_tx(&http_origin, &publish_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     let publish_dup_tx = make_contract_publish(&contract_sk, 1, 1000, "faucet", FAUCET_CONTRACT);
     assert!(
@@ -755,8 +861,18 @@ fn faucet_test() {
     );
     let _contract_call_txid = submit_tx(&http_origin, &contract_call_tx);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
 
     assert_eq!(
         get_balance(&http_origin, &addr_3) as u64,
@@ -773,4 +889,114 @@ fn faucet_test() {
     );
 
     channel.stop_chains_coordinator();
+}
+
+/// Create burnchain fork, and see that the hyper-chain miner can continue to call.
+/// Does not exercise contract calls.
+#[test]
+#[ignore]
+fn no_contract_calls_forking_integration_test() {
+    reset_static_burnblock_simulator_channel();
+
+    let (mut conf, miner_account) = mockstack_test_conf();
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    conf.node.prometheus_bind = Some(prom_bind.clone());
+    conf.node.miner = true;
+
+    let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
+    conf.add_initial_balance(user_addr.to_string(), 10000000);
+
+    test_observer::spawn();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let burnchain = Burnchain::new(
+        &conf.get_burn_db_path(),
+        &conf.burnchain.chain,
+        &conf.burnchain.mode,
+    )
+    .unwrap();
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+    let l2_rpc_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+
+    test_observer::spawn();
+    let termination_switch = run_loop.get_termination_switch();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+
+    // btc_regtest_controller.next_block(None);
+    wait_for_runloop(&blocks_processed);
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
+
+    btc_regtest_controller.next_block(None);
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 0, 2);
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 0, 3);
+
+    let common_ancestor = next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 1, 4);
+
+    for i in 0..2 {
+        next_block_and_wait(
+            &mut btc_regtest_controller,
+            None,
+            &blocks_processed,
+            &sortition_db,
+        );
+        assert_l2_l1_tip_heights(&sortition_db, 2 + i, 5 + i);
+    }
+
+    let mut cursor = common_ancestor;
+    for i in 0..3 {
+        cursor = btc_regtest_controller.next_block(Some(cursor));
+    }
+
+    cursor = next_block_and_wait(
+        &mut btc_regtest_controller,
+        Some(cursor),
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 1, 8);
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        Some(cursor),
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 2, 9);
+
+    termination_switch.store(false, Ordering::SeqCst);
+    run_loop_thread.join().expect("Failed to join run loop.");
+}
+
+/// Look up the chain tip, and assert the L2 and L1 tip heights.
+fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_height: u64) {
+    let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
+        .expect("Could not read from SortitionDB.");
+    assert_eq!(l2_height, tip_snapshot.canonical_stacks_tip_height);
+    assert_eq!(l1_height, tip_snapshot.block_height);
 }

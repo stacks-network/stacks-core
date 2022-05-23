@@ -1,5 +1,5 @@
+use crate::burnchains::burnchain_from_config;
 use crate::burnchains::db_indexer::DBBurnchainIndexer;
-use crate::burnchains::l1_events::burnchain_from_config;
 use crate::burnchains::tests::{make_test_new_block, random_sortdb_test_dir};
 use crate::config::BurnchainConfig;
 use stacks::burnchains::indexer::BurnchainIndexer;

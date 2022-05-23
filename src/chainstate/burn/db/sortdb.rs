@@ -1904,6 +1904,11 @@ impl SortitionDB {
         query_rows(self.conn(), qry, NO_PARAMS)
     }
 
+    /// Return the size of the snapshots table, for test.
+    pub fn count_snapshots(&self) -> Result<Option<u64>, db_error> {
+        let qry = "SELECT count(*) FROM snapshots";
+        query_row(self.conn(), qry, NO_PARAMS)
+    }
     /// Get the schema version of a sortition DB, given the path to it.
     /// Returns the version string, if it exists
     pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
@@ -2541,6 +2546,32 @@ impl SortitionDB {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
         }
+    }
+
+    pub fn get_ops_between<F, Op>(
+        conn: &Connection,
+        parent_l1_block_id: &BurnchainHeaderHash,
+        l1_block_id: &BurnchainHeaderHash,
+        get_ops_in_block: F,
+    ) -> Result<Vec<Op>, db_error>
+    where
+        F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>,
+    {
+        let mut curr_block_id = l1_block_id.clone();
+        let mut ops = get_ops_in_block(conn, &curr_block_id)?;
+        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
+
+        while curr_block_id != *parent_l1_block_id {
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
+                .ok_or(db_error::NotFoundError)?;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
+            let curr_ops = get_ops_in_block(conn, &curr_block_id)?;
+            ops.extend(curr_ops.into_iter());
+
+            curr_sortition_id = curr_snapshot.parent_sortition_id;
+        }
+
+        Ok(ops)
     }
 
     pub fn get_deposit_stx_ops(

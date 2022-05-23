@@ -28,7 +28,7 @@ use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 
 use super::db_indexer::DBBurnchainIndexer;
-use super::{BurnchainChannel, Error};
+use super::{burnchain_from_config, BurnchainChannel, Error};
 use crate::config::BurnchainConfig;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -96,24 +96,6 @@ impl BurnchainChannel for L1Channel {
         blocks.push(new_block);
         Ok(())
     }
-}
-
-/// Build a `Burnchain` from values in `config`. Call `Burnchain::new`, which sets defaults
-/// and then override the "first block" information using `config`.
-pub fn burnchain_from_config(
-    burn_db_path: &str,
-    config: &BurnchainConfig,
-) -> Result<Burnchain, BurnchainError> {
-    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
-    burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&config.first_burn_header_hash)
-        .expect(&format!(
-            "Could not parse BurnchainHeaderHash: {}",
-            &config.first_burn_header_hash
-        ));
-    burnchain.first_block_height = config.first_burn_header_height;
-    burnchain.first_block_timestamp = config.first_burn_header_timestamp as u32;
-
-    Ok(burnchain)
 }
 
 impl L1Controller {

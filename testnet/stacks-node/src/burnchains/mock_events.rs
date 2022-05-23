@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -25,12 +26,11 @@ use stacks::util::sleep_ms;
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::Value as ClarityValue;
 
-use crate::burnchains::l1_events::burnchain_from_config;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
 use super::db_indexer::DBBurnchainIndexer;
-use super::{BurnchainChannel, Error};
+use super::{burnchain_from_config, BurnchainChannel, Error};
 
 #[derive(Clone)]
 pub struct MockChannel {
@@ -56,6 +56,8 @@ pub struct MockController {
     /// This will be a unique number for the next burn block. Starts at 1
     next_burn_block: Arc<Mutex<u64>>,
     next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
+    burn_block_to_height: HashMap<u64, u64>,
+    burn_block_to_parent: HashMap<u64, u64>,
 }
 
 pub struct MockIndexer {
@@ -84,7 +86,7 @@ lazy_static! {
         }])),
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     });
-    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
+    static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
     static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
 }
 
@@ -92,6 +94,13 @@ fn make_mock_byte_string(from: i64) -> [u8; 32] {
     let mut output = [0; 32];
     output[24..32].copy_from_slice(&from.to_be_bytes());
     output
+}
+
+/// Resets the global static variables used for `MockController`-based tests. Call
+/// this at the beginning of the test, and mark as `ignore` to run with `test-threads=1`.
+pub fn reset_static_burnblock_simulator_channel() {
+    *NEXT_BURN_BLOCK.lock().unwrap() = 1;
+    *NEXT_COMMIT.lock().unwrap() = None;
 }
 
 impl BurnchainChannel for MockChannel {
@@ -190,13 +199,20 @@ impl MockController {
             chain_tip: None,
             next_burn_block: NEXT_BURN_BLOCK.clone(),
             next_commit: NEXT_COMMIT.clone(),
+            burn_block_to_height: HashMap::new(),
+            burn_block_to_parent: HashMap::new(),
         }
     }
 
     /// Produce the next mocked layer-1 block. If `next_commit` is staged,
     /// this mocked block will contain that commitment.
-    pub fn next_block(&mut self) {
-        let mut next_burn_block = self.next_burn_block.lock().unwrap();
+    ///
+    /// If `specify_parent` is set, use it as the parent, otherwise use `self.next_burn_block - 1`.
+    ///
+    /// Returns the index of the block created.
+    pub fn next_block(&mut self, specify_parent: Option<u64>) -> u64 {
+        let mut acquired_next_burn_block = self.next_burn_block.lock().unwrap(); // acquire the lock on "next burn block"
+        let this_burn_block = *acquired_next_burn_block; // const view on the index of the block we are adding now
         let mut next_commit = self.next_commit.lock().unwrap();
 
         let tx_event = next_commit.take().map(|next_commit| {
@@ -232,20 +248,39 @@ impl MockController {
             }
         });
 
+        let effective_parent = match specify_parent {
+            Some(parent) => parent,
+            None => this_burn_block - 1,
+        };
         let parent_index_block_hash =
-            StacksBlockId(make_mock_byte_string(*next_burn_block as i64 - 1));
+            { StacksBlockId(make_mock_byte_string(effective_parent.try_into().unwrap())) };
 
-        let index_block_hash = StacksBlockId(make_mock_byte_string(*next_burn_block as i64));
+        let parent_result = self.burn_block_to_height.get(&effective_parent);
+        let parent_block_height = match parent_result {
+            Some(parent_height) => *parent_height,
+            None => {
+                // The only node whose height has a default is 0.
+                assert_eq!(0, effective_parent);
+                0
+            }
+        };
+        let block_height = parent_block_height + 1;
+
+        let index_block_hash =
+            StacksBlockId(make_mock_byte_string(this_burn_block.try_into().unwrap()));
 
         let new_block = NewBlock {
-            block_height: *next_burn_block,
-            burn_block_time: *next_burn_block,
+            block_height,
+            burn_block_time: this_burn_block,
             index_block_hash,
             parent_index_block_hash,
             events: tx_event.into_iter().collect(),
         };
 
-        *next_burn_block += 1;
+        self.burn_block_to_height
+            .insert(this_burn_block, block_height);
+        self.burn_block_to_parent
+            .insert(this_burn_block, effective_parent);
 
         info!("Layer 1 block mined";
             "block_height" => new_block.block_height,
@@ -256,6 +291,9 @@ impl MockController {
             .get_channel()
             .push_block(new_block)
             .expect("`push_block` has failed.");
+
+        *acquired_next_burn_block += 1;
+        this_burn_block
     }
 
     fn receive_blocks(
@@ -355,7 +393,7 @@ impl BurnchainController for MockController {
         )
     }
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
-        MOCK_EVENTS_STREAM.clone()
+        self.indexer.get_channel()
     }
     fn submit_operation(
         &mut self,
