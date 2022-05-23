@@ -229,7 +229,7 @@ fn test_get_block_info_eval_v210() {
             tx.eval_read_only(&contract_identifier, "(test-func-3 u0)")
                 .unwrap()
         );
-        // only works at the first block 
+        // only works at the first block and later (not the 0th block) 
         assert_eq!(
             Value::some(Value::UInt(3000)).unwrap(),
             tx.eval_read_only(&contract_identifier, "(test-func-1 u1)")
@@ -260,7 +260,7 @@ fn test_get_block_info_eval_v210() {
             tx.eval_read_only(&contract_identifier, "(test-func-3 u103)")
                 .unwrap()
         );
-        // only works on parent blocks and earlier
+        // only works on ancestor blocks, not the current block
         assert_eq!(
             Value::none(),
             tx.eval_read_only(&contract_identifier, "(test-func-1 block-height)")
