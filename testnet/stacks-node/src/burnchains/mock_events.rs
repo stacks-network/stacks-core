@@ -229,6 +229,10 @@ impl MockController {
                     "block-commit".into(),
                     ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
                 ),
+                (
+                    "withdrawal-root".into(),
+                    ClarityValue::buff_from(vec![1; 32]).unwrap(),
+                ),
             ])
             .expect("Should be a legal Clarity tuple")
             .into();
