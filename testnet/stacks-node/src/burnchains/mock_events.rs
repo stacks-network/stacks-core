@@ -31,6 +31,7 @@ use crate::{BurnchainController, BurnchainTip, Config};
 
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
+use clarity::util::hash::Sha512Trunc256Sum;
 
 #[derive(Clone)]
 pub struct MockChannel {
@@ -55,7 +56,7 @@ pub struct MockController {
 
     /// This will be a unique number for the next burn block. Starts at 1
     next_burn_block: Arc<Mutex<u64>>,
-    next_commit: Arc<Mutex<Option<BlockHeaderHash>>>,
+    next_commit_and_withdrawal_root: Arc<Mutex<Option<(BlockHeaderHash, Sha512Trunc256Sum)>>>,
     burn_block_to_height: HashMap<u64, u64>,
     burn_block_to_parent: HashMap<u64, u64>,
 }
@@ -87,7 +88,7 @@ lazy_static! {
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     });
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
-    static ref NEXT_COMMIT: Arc<Mutex<Option<BlockHeaderHash>>> = Arc::new(Mutex::new(None));
+    static ref NEXT_COMMIT_AND_WTIHDRAWAL_ROOT: Arc<Mutex<Option<(BlockHeaderHash, Sha512Trunc256Sum)>>> = Arc::new(Mutex::new(None));
 }
 
 fn make_mock_byte_string(from: i64) -> [u8; 32] {
@@ -100,7 +101,7 @@ fn make_mock_byte_string(from: i64) -> [u8; 32] {
 /// this at the beginning of the test, and mark as `ignore` to run with `test-threads=1`.
 pub fn reset_static_burnblock_simulator_channel() {
     *NEXT_BURN_BLOCK.lock().unwrap() = 1;
-    *NEXT_COMMIT.lock().unwrap() = None;
+    *NEXT_COMMIT_AND_WTIHDRAWAL_ROOT.lock().unwrap() = None;
 }
 
 impl BurnchainChannel for MockChannel {
@@ -198,7 +199,7 @@ impl MockController {
             coordinator,
             chain_tip: None,
             next_burn_block: NEXT_BURN_BLOCK.clone(),
-            next_commit: NEXT_COMMIT.clone(),
+            next_commit_and_withdrawal_root: NEXT_COMMIT_AND_WTIHDRAWAL_ROOT.clone(),
             burn_block_to_height: HashMap::new(),
             burn_block_to_parent: HashMap::new(),
         }
@@ -213,9 +214,9 @@ impl MockController {
     pub fn next_block(&mut self, specify_parent: Option<u64>) -> u64 {
         let mut acquired_next_burn_block = self.next_burn_block.lock().unwrap(); // acquire the lock on "next burn block"
         let this_burn_block = *acquired_next_burn_block; // const view on the index of the block we are adding now
-        let mut next_commit = self.next_commit.lock().unwrap();
+        let mut next_commit_and_withdrawal_root = self.next_commit_and_withdrawal_root.lock().unwrap();
 
-        let tx_event = next_commit.take().map(|next_commit| {
+        let tx_event = next_commit_and_withdrawal_root.take().map(|(next_commit, next_withdrawal_root)| {
             let mocked_txid = Txid(next_commit.0.clone());
             let topic = "print".into();
             let contract_identifier = self.contract_identifier.clone();
@@ -231,7 +232,7 @@ impl MockController {
                 ),
                 (
                     "withdrawal-root".into(),
-                    ClarityValue::buff_from(vec![1; 32]).unwrap(),
+                    ClarityValue::buff_from(next_withdrawal_root.as_bytes().to_vec()).unwrap(),
                 ),
             ])
             .expect("Should be a legal Clarity tuple")
@@ -408,11 +409,14 @@ impl BurnchainController for MockController {
         match operation {
             BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                 block_header_hash,
+                withdrawal_merkle_root,
                 ..
             }) => {
-                let mut next_commit = self.next_commit.lock().unwrap();
-                if let Some(prior_commit) = next_commit.replace(block_header_hash) {
-                    warn!("Mocknet controller replaced a staged commit"; "prior_commit" => %prior_commit);
+                let mut next_commit_and_withdrawal_root = self.next_commit_and_withdrawal_root.lock().unwrap();
+                if let Some((prior_commit, prior_withdrawal_root)) = next_commit_and_withdrawal_root.replace((block_header_hash, withdrawal_merkle_root)) {
+                    warn!("Mocknet controller replaced a staged commit";
+                        "prior_commit" => %prior_commit,
+                        "prior_withdrawal_root" => %prior_withdrawal_root);
                 }
 
                 true
