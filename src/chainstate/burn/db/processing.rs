@@ -339,10 +339,17 @@ impl<'a> SortitionHandleTx<'a> {
             parent_snapshot.block_height + 1,
             this_block_header.block_height
         );
-        assert_eq!(
-            parent_snapshot.burn_header_hash,
-            this_block_header.parent_block_hash
-        );
+        if parent_snapshot.block_height == self.context.first_block_height {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                BurnchainHeaderHash([0; 32])
+            );
+        } else {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                this_block_header.parent_block_hash
+            );
+        }
 
         let new_snapshot = self.process_block_ops(
             burnchain,
@@ -391,7 +398,7 @@ mod tests {
 
         let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);
         burnchain.initial_reward_start_block = 90;
-        let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(100).unwrap();
 
         let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]), &vec![]);
 

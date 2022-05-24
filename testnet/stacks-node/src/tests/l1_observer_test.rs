@@ -331,7 +331,7 @@ fn l1_integration_test() {
     .unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");

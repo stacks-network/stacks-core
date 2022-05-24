@@ -235,22 +235,22 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 
         // In order to record this block, we either: 1) have already started recording, or 2) this
         // block has the "first hash" we're looking for.
-        if current_canonical_tip_opt.is_none() {
-            info!(
-                "BurnchainChannel: have not written any blocks yet";
-                "header_hash" => %header.header_hash
-            );
-            if header.header_hash != self.first_burn_header_hash {
-                info!("BurnchainChannel: not the first block we are looking for";
-                "header_hash"=> %self.first_burn_header_hash, "self.first_burn_header_hash" => %self.first_burn_header_hash);
-                return Ok(());
-            } else {
-                info!(
-                    "BurnchainChannel: wakes up after finding first header";
-                    "header_hash" => %header.header_hash
-                );
-            }
-        }
+        // if current_canonical_tip_opt.is_none() {
+        //     info!(
+        //         "BurnchainChannel: have not written any blocks yet";
+        //         "header_hash" => %header.header_hash
+        //     );
+        //     if header.header_hash != self.first_burn_header_hash {
+        //         info!("BurnchainChannel: not the first block we are looking for";
+        //         "header_hash"=> %self.first_burn_header_hash, "self.first_burn_header_hash" => %self.first_burn_header_hash);
+        //         return Ok(());
+        //     } else {
+        //         info!(
+        //             "BurnchainChannel: wakes up after finding first header";
+        //             "header_hash" => %header.header_hash
+        //         );
+        //     }
+        // }
 
         // Decide if this new node is part of the canonical chain.
         let (is_canonical, needs_reorg) = match &current_canonical_tip_opt {

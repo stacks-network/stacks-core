@@ -622,7 +622,7 @@ impl TestBurnchainNode {
     pub fn new() -> TestBurnchainNode {
         let first_block_height = 100;
         let first_block_hash = BurnchainHeaderHash([0u8; 32]);
-        let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
+        let db = SortitionDB::connect_test(first_block_height).unwrap();
         TestBurnchainNode {
             sortdb: db,
             dirty: false,

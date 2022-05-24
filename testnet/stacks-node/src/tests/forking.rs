@@ -82,8 +82,6 @@ fn make_sortition_db_for_fork_tests() -> SortitionDB {
     let mut db = SortitionDB::connect(
         &random_sortdb_test_dir(),
         1,
-        &BurnchainHeaderHash([5; 32]),
-        get_epoch_time_secs(),
         &[StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,

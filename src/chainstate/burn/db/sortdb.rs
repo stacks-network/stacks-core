@@ -1663,14 +1663,8 @@ impl SortitionDB {
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
         // create first (sentinel) snapshot
-        debug!("Make first snapshot");
         let mut first_snapshot = BlockSnapshot::initial(first_block_height);
-
-        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
-        assert_eq!(
-            first_snapshot.parent_burn_header_hash,
-            BurnchainHeaderHash::sentinel()
-        );
+        info!("Make first snapshot"; "sortition_id" => %first_snapshot.sortition_id, "burn_header_hash" => %first_snapshot.burn_header_hash, "height" => %first_snapshot.block_height);
 
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
@@ -2185,20 +2179,29 @@ impl SortitionDB {
         next_pox_info: Option<RewardCycleInfo>,
         announce_to: F,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
-        let parent_sort_id = self
-            .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
-            .ok_or_else(|| {
-                warn!("Unknown block {:?}", burn_header.parent_block_hash);
-                BurnchainError::MissingParentBlock
-            })?;
+        let is_parent_first_block = burn_header.block_height == self.first_block_height + 1;
+
+        let parent_sort_id = if is_parent_first_block {
+            SortitionDB::get_first_block_snapshot(self.conn())?.sortition_id
+        } else {
+            self.get_sortition_id(&burn_header.parent_block_hash, from_tip)?
+                .ok_or_else(|| {
+                    warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                    BurnchainError::MissingParentBlock
+                })?
+        };
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
-        let parent_snapshot = sortition_db_handle
-            .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
-            .ok_or_else(|| {
-                warn!("Missing block snapshot in sortition"; "burn_hash" => %burn_header.parent_block_hash, "sortition_id" => %parent_sort_id);
-                BurnchainError::MissingParentBlock
-            })?;
+        let parent_snapshot = if is_parent_first_block {
+            SortitionDB::get_first_block_snapshot(&sortition_db_handle)?
+        } else {
+            sortition_db_handle
+                .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
+                .ok_or_else(|| {
+                    warn!("Missing block snapshot in sortition"; "burn_hash" => %burn_header.parent_block_hash, "sortition_id" => %parent_sort_id);
+                    BurnchainError::MissingParentBlock
+                })?
+        };
 
         let reward_set_info = None;
 
@@ -2413,6 +2416,11 @@ impl SortitionDB {
     where
         F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>,
     {
+        if parent_l1_block_id == &BurnchainHeaderHash([0; 32]) {
+            debug!("Parent block is at `first_burn_height`, no ops are recorded at that height");
+            return Ok(vec![]);
+        }
+
         let mut curr_block_id = l1_block_id.clone();
         let mut ops = get_ops_in_block(conn, &curr_block_id)?;
         let mut curr_sortition_id = SortitionId::new(&curr_block_id);
@@ -2876,10 +2884,17 @@ impl<'a> SortitionHandleTx<'a> {
         _reward_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
-        assert_eq!(
-            snapshot.parent_burn_header_hash,
-            parent_snapshot.burn_header_hash
-        );
+        if parent_snapshot.block_height == self.context.first_block_height {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                BurnchainHeaderHash([0; 32])
+            );
+        } else {
+            assert_eq!(
+                snapshot.parent_burn_header_hash,
+                parent_snapshot.burn_header_hash
+            );
+        }
         assert_eq!(snapshot.parent_sortition_id, parent_snapshot.sortition_id);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
         if snapshot.sortition {
@@ -3209,10 +3224,17 @@ impl<'a> SortitionHandleTx<'a> {
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
-            assert_eq!(
-                snapshot.parent_burn_header_hash,
-                parent_snapshot.burn_header_hash
-            );
+            if parent_snapshot.block_height == self.context.first_block_height {
+                assert_eq!(
+                    parent_snapshot.burn_header_hash,
+                    BurnchainHeaderHash([0; 32])
+                );
+            } else {
+                assert_eq!(
+                    snapshot.parent_burn_header_hash,
+                    parent_snapshot.burn_header_hash
+                );
+            }
             assert_eq!(&parent_snapshot.sortition_id, &self.context.chain_tip);
         }
 

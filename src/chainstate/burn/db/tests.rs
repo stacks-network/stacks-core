@@ -31,7 +31,7 @@ fn test_instantiate() {
         "0000000000000000000000000000000000000000000000000000000000000000",
     )
     .unwrap();
-    let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    let _db = SortitionDB::connect_test(123).unwrap();
 }
 
 fn random_sortdb_test_dir() -> String {
@@ -42,55 +42,12 @@ fn random_sortdb_test_dir() -> String {
 }
 
 #[test]
-fn test_v1_to_v2_migration() {
-    let db_path_dir = random_sortdb_test_dir();
-    let first_block_height = 123;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
-
-    // create a v1 sortition DB
-    let db = SortitionDB::connect_v1(
-        &db_path_dir,
-        first_block_height,
-        &first_burn_hash,
-        get_epoch_time_secs(),
-        true,
-    )
-    .unwrap();
-    let res = SortitionDB::get_stacks_epoch(db.conn(), first_block_height);
-    assert!(res.is_err());
-    assert!(format!("{:?}", res).contains("no such table: epochs"));
-
-    assert!(SortitionDB::open(&db_path_dir, true).is_err());
-
-    // create a v2 sortition DB at the same path as the v1 DB.
-    // the schema migration should be successfully applied, and the epochs table should exist.
-    let db = SortitionDB::connect(
-        &db_path_dir,
-        first_block_height,
-        &first_burn_hash,
-        get_epoch_time_secs(),
-        &StacksEpoch::unit_test_2_05(first_block_height),
-        true,
-    )
-    .unwrap();
-    // assert that an epoch is returned
-    SortitionDB::get_stacks_epoch(db.conn(), first_block_height)
-        .expect("Database should not error querying epochs")
-        .expect("Database should have an epoch entry");
-
-    assert!(SortitionDB::open(&db_path_dir, true).is_ok());
-}
-
-#[test]
 fn test_tx_begin_end() {
     let first_burn_hash = BurnchainHeaderHash::from_hex(
         "0000000000000000000000000000000000000000000000000000000000000000",
     )
     .unwrap();
-    let mut db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(123).unwrap();
     let tx = db.tx_begin().unwrap();
     tx.commit().unwrap();
 }
@@ -141,7 +98,7 @@ fn test_insert_block_commit() {
         burn_header_hash: BurnchainHeaderHash([0x03; 32]),
     };
 
-    let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(block_height).unwrap();
 
     let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]), &vec![]);
 
@@ -233,7 +190,7 @@ fn is_fresh_consensus_hash() {
         "10000000000000000000000000000000000000000000000000000000000000ff",
     )
     .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         for i in 0..255 {
@@ -472,7 +429,7 @@ fn get_consensus_at() {
         "10000000000000000000000000000000000000000000000000000000000000ff",
     )
     .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         for i in 0..256u64 {
@@ -794,7 +751,7 @@ fn get_last_snapshot_with_sortition() {
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
     };
 
-    let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(block_height - 2).unwrap();
 
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
@@ -917,7 +874,7 @@ fn test_chain_reorg() {
     let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
     let first_block_height = 100;
 
-    let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(first_block_height).unwrap();
 
     // make an initial fork
     let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -1296,7 +1253,7 @@ fn test_get_stacks_header_hashes() {
         "10000000000000000000000000000000000000000000000000000000000000ff",
     )
     .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         let mut total_burn = 0;
@@ -1714,7 +1671,7 @@ fn test_set_stacks_block_accepted() {
         "10000000000000000000000000000000000000000000000000000000000000ff",
     )
     .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
 
     let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
@@ -2228,8 +2185,6 @@ fn test_epoch_switch() {
     let mut db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2286,8 +2241,6 @@ fn test_bad_epochs_discontinuous() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2324,8 +2277,6 @@ fn test_bad_epochs_overlapping() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2362,8 +2313,6 @@ fn test_bad_epochs_missing_past() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2400,8 +2349,6 @@ fn test_bad_epochs_missing_future() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2438,8 +2385,6 @@ fn test_bad_epochs_invalid() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,

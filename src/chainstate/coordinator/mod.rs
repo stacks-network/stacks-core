@@ -284,7 +284,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
-                    debug!("Received new burn block notice");
+                    info!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
@@ -459,9 +459,9 @@ impl<
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
-        debug!("Handle new canonical burnchain tip";
-               "height" => %canonical_burnchain_tip.block_height,
-               "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
+        info!("Handle new canonical burnchain tip";
+              "height" => %canonical_burnchain_tip.block_height,
+              "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
@@ -485,6 +485,18 @@ impl<
                 })?;
 
             let parent = current_block.header.parent_block_hash.clone();
+            if current_block.header.block_height <= self.sortition_db.first_block_height {
+                break SortitionDB::get_first_block_snapshot(self.sortition_db.conn())?
+                    .sortition_id;
+            }
+
+            // if parent is sentinel, fast return
+            if current_block.header.block_height == self.sortition_db.first_block_height + 1 {
+                sortitions_to_process.push_front(current_block);
+                break SortitionDB::get_first_block_snapshot(self.sortition_db.conn())?
+                    .sortition_id;
+            }
+
             sortitions_to_process.push_front(current_block);
             cursor = parent;
         };
@@ -494,7 +506,7 @@ impl<
             .map(|block| block.header.block_hash.to_string())
             .collect();
 
-        debug!(
+        info!(
             "Unprocessed burn chain blocks [{}]",
             burn_header_hashes.join(", ")
         );
@@ -546,7 +558,7 @@ impl<
 
             self.notifier.notify_sortition_processed();
 
-            debug!(
+            info!(
                 "Sortition processed";
                 "sortition_id" => &sortition_id.to_string(),
                 "burn_header_hash" => &next_snapshot.burn_header_hash.to_string(),

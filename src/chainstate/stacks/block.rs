@@ -1291,9 +1291,9 @@ mod test {
             miner_signatures: MessageSignatureList::empty(),
         };
 
-        let mut burn_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 0);
-        let mut stacks_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 1);
-        let sortition_chain_tip = BlockSnapshot::initial(122, &BurnchainHeaderHash([3u8; 32]), 2);
+        let mut burn_chain_tip = BlockSnapshot::initial(122);
+        let mut stacks_chain_tip = BlockSnapshot::initial(122);
+        let sortition_chain_tip = BlockSnapshot::initial(122);
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: header.block_hash(),
