@@ -2018,14 +2018,16 @@ impl StacksBlockBuilder {
 
                         if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                             if *nonce >= txinfo.tx.get_origin_nonce() {
-                                let message = format!(
-                                    "Bad origin nonce, tx nonce {} versus {}.",
-                                    txinfo.tx.get_origin_nonce(),
-                                    *nonce
-                                );
                                 return Ok(Some(
-                                    TransactionResult::skipped(&txinfo.tx, message)
-                                        .convert_to_event(),
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        format!(
+                                            "Bad origin nonce, tx nonce {} versus {}.",
+                                            txinfo.tx.get_origin_nonce(),
+                                            *nonce
+                                        ),
+                                    )
+                                    .convert_to_event(),
                                 ));
                             }
                         }
@@ -2033,13 +2035,15 @@ impl StacksBlockBuilder {
                             if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
                                 if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                                     if *nonce >= sponsor_nonce {
-                                        let message = format!(
-                                            "Bad sponsor nonce, tx nonce {} versus {}.",
-                                            sponsor_nonce, *nonce
-                                        );
                                         return Ok(Some(
-                                            TransactionResult::skipped(&txinfo.tx, message)
-                                                .convert_to_event(),
+                                            TransactionResult::skipped(
+                                                &txinfo.tx,
+                                                format!(
+                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
+                                                    sponsor_nonce, *nonce
+                                                ),
+                                            )
+                                            .convert_to_event(),
                                         ));
                                     }
                                 }
@@ -2103,7 +2107,7 @@ impl StacksBlockBuilder {
                                                 "Stop mining anchored block due to limit exceeded"
                                             );
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(Some(result_event));
+                                            return Ok(None);
                                         }
                                     }
                                     Error::TransactionTooBigError => {
