@@ -21,12 +21,17 @@ use std::fmt;
 /// of diagnostics, such as warnings, hints, best practices, etc.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum Level {
+    Note,
+    Warning,
     Error,
 }
 
 pub trait DiagnosableError {
     fn message(&self) -> String;
     fn suggestion(&self) -> Option<String>;
+    fn level(&self) -> Level {
+        Level::Error
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]

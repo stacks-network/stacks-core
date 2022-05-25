@@ -19,6 +19,7 @@ use crate::vm::ClarityVersion;
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::{
@@ -34,16 +35,25 @@ use crate::vm::variables::NativeVariables;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_arith_checker(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_arith_checker(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).
 /// This check is useful in determining the validity of new potential cost functions.
-fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error> {
+fn arithmetic_check(
+    contract: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<(), Error> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let expressions = parse(&contract_identifier, contract, version).unwrap();
+    let expressions = parse(&contract_identifier, contract, version, epoch).unwrap();
 
     let analysis = ContractAnalysis::new(
         contract_identifier,
@@ -55,13 +65,13 @@ fn arithmetic_check(contract: &str, version: ClarityVersion) -> Result<(), Error
     ArithmeticOnlyChecker::run(&analysis)
 }
 
-fn check_good(contract: &str, version: ClarityVersion) {
-    let analysis = mem_type_check(contract, version).unwrap().1;
+fn check_good(contract: &str, version: ClarityVersion, epoch: StacksEpochId) {
+    let analysis = mem_type_check(contract, version, epoch).unwrap().1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
 #[apply(test_clarity_versions_arith_checker)]
-fn test_bad_defines(#[case] version: ClarityVersion) {
+fn test_bad_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
         ("(define-public (foo) (ok 1))", DefineTypeForbidden(DefineFunctions::PublicFunction)),
         ("(define-map foo-map ((a uint)) ((b uint))) (define-private (foo) (map-get? foo-map {a: u1}))", DefineTypeForbidden(DefineFunctions::Map)),
@@ -75,7 +85,7 @@ fn test_bad_defines(#[case] version: ClarityVersion) {
     // Check bad defines for each clarity version
     for (contract, error) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, version),
+            arithmetic_check(contract, version, epoch),
             Err(error.clone()),
             "Check contract:\n {}",
             contract
@@ -118,7 +128,13 @@ fn test_variables_fail_arithmetic_check_clarity1() {
 
     for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity1),
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21),
             result.clone(),
             "Check contract:\n {}",
             contract
@@ -131,7 +147,8 @@ fn test_variables_fail_arithmetic_check_clarity1() {
     ];
 
     for contract in tests.iter() {
-        check_good(contract, ClarityVersion::Clarity1);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21);
     }
 }
 
@@ -179,7 +196,7 @@ fn test_variables_fail_arithmetic_check_clarity2() {
 
     for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity2),
+            arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21),
             result.clone(),
             "Check contract:\n {}",
             contract
@@ -277,7 +294,13 @@ fn test_functions_clarity1() {
 
     for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity1),
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21),
             result.clone(),
             "Check contract:\n {}",
             contract
@@ -375,7 +398,7 @@ fn test_functions_clarity2() {
 
     for (contract, result) in tests.iter() {
         assert_eq!(
-            arithmetic_check(contract, ClarityVersion::Clarity2),
+            arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21),
             result.clone(),
             "Check contract:\n {}",
             contract
@@ -419,7 +442,8 @@ fn test_functions_contract() {
     ];
 
     for contract in good_tests.iter() {
-        check_good(contract, ClarityVersion::Clarity1);
-        check_good(contract, ClarityVersion::Clarity2);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21);
+        check_good(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21);
     }
 }

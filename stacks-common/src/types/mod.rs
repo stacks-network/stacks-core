@@ -74,6 +74,12 @@ pub enum StacksEpochId {
     Epoch21 = 0x0200a,
 }
 
+impl StacksEpochId {
+    pub fn latest() -> StacksEpochId {
+        StacksEpochId::Epoch21
+    }
+}
+
 impl std::fmt::Display for StacksEpochId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
