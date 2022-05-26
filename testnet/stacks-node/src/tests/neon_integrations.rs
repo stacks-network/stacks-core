@@ -25,8 +25,7 @@ use crate::tests::l1_observer_test::MOCKNET_PRIVATE_KEY_1;
 use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
-use crate::{Config, ConfigFile, Keychain};
-use std::convert::TryInto;
+use crate::{Config, Keychain};
 
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -53,8 +52,6 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
     conf.burnchain.first_burn_header_height = 1;
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
@@ -585,8 +582,6 @@ fn mockstack_wait_for_first_block() {
     let (mut conf, miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000010".to_string();
     conf.burnchain.first_burn_header_height = 16;
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);

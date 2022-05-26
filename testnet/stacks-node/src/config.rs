@@ -522,9 +522,6 @@ impl Config {
                             .expect("Hyperchain nodes must configure L1 contract identifier"),
                     )
                     .expect("Invalid contract identifier configured with hyperchain node"),
-                    first_burn_header_hash: burnchain
-                        .first_burn_header_hash
-                        .unwrap_or(default_burnchain_config.first_burn_header_hash),
                     first_burn_header_height: burnchain
                         .first_burn_header_height
                         .unwrap_or(default_burnchain_config.first_burn_header_height),
@@ -984,11 +981,6 @@ pub struct BurnchainConfig {
     pub epochs: Option<Vec<StacksEpoch>>,
     /// The layer 1 contract that the hyperchain will watch for Stacks events.
     pub contract_identifier: QualifiedContractIdentifier,
-    /// Hash of the first L1 Stacks block that we are going to index. The L2 indexer
-    /// will follow all decendents of this.
-    pub first_burn_header_hash: String,
-    /// Time stamp for the first header we are looking for.
-    pub first_burn_header_timestamp: u64,
     /// Block height for the first header.
     pub first_burn_header_height: u64,
     /// The anchor mode for any transactions submitted to L1
@@ -1023,9 +1015,7 @@ impl Default for BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             contract_identifier: QualifiedContractIdentifier::transient(),
-            first_burn_header_hash: "".to_string(),
             first_burn_header_height: 0u64,
-            first_burn_header_timestamp: 0u64,
             anchor_mode: TransactionAnchorMode::Any,
         }
     }
@@ -1084,7 +1074,6 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpoch>>,
     pub contract_identifier: Option<String>,
-    pub first_burn_header_hash: Option<String>,
     pub first_burn_header_height: Option<u64>,
 }
 

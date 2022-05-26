@@ -4,6 +4,7 @@ use std::{fs, io};
 
 use rusqlite::{OpenFlags, Row, ToSql, Transaction, NO_PARAMS};
 use stacks::burnchains::events::NewBlock;
+use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::vm::types::QualifiedContractIdentifier;
 
 use super::mock_events::{BlockIPC, MockHeader};
@@ -216,14 +217,10 @@ fn find_first_canonical_ancestor(
 struct DBBurnBlockInputChannel {
     /// Path to the db file underlying this logic.
     output_db_path: String,
-    /// The hash of the first block that the system will store.
-    first_burn_header_hash: BurnchainHeaderHash,
 }
 
 impl BurnchainChannel for DBBurnBlockInputChannel {
-    /// Add `new_block` to the `block_index` database. We will only start adding blocks to the DB once either:
-    ///   1) we have already added a block
-    ///   2) the new block's header hash is `self.first_burn_header_hash`
+    /// Add `new_block` to the `block_index` database.
     fn push_block(&self, new_block: NewBlock) -> Result<(), BurnchainError> {
         debug!("BurnchainChannel: try pushing; new_block {:?}", &new_block);
         // Re-open the connection.
@@ -232,25 +229,6 @@ impl BurnchainChannel for DBBurnBlockInputChannel {
 
         let current_canonical_tip_opt = get_canonical_chain_tip(&connection)?;
         let header = BurnBlockIndexRow::from(&new_block);
-
-        // In order to record this block, we either: 1) have already started recording, or 2) this
-        // block has the "first hash" we're looking for.
-        // if current_canonical_tip_opt.is_none() {
-        //     info!(
-        //         "BurnchainChannel: have not written any blocks yet";
-        //         "header_hash" => %header.header_hash
-        //     );
-        //     if header.header_hash != self.first_burn_header_hash {
-        //         info!("BurnchainChannel: not the first block we are looking for";
-        //         "header_hash"=> %self.first_burn_header_hash, "self.first_burn_header_hash" => %self.first_burn_header_hash);
-        //         return Ok(());
-        //     } else {
-        //         info!(
-        //             "BurnchainChannel: wakes up after finding first header";
-        //             "header_hash" => %header.header_hash
-        //         );
-        //     }
-        // }
 
         // Decide if this new node is part of the canonical chain.
         let (is_canonical, needs_reorg) = match &current_canonical_tip_opt {
@@ -426,8 +404,6 @@ pub struct DBBurnchainIndexer {
     config: BurnchainConfig,
     /// Database connection. This will be None until connected.
     connection: DBConn,
-    /// The hash of the first block that the system will store.
-    first_burn_header_hash: BurnchainHeaderHash,
 }
 
 /// Creates a path for the indexer based on the base chainstate directory by adding "db_indexer".
@@ -446,11 +422,6 @@ impl DBBurnchainIndexer {
         readwrite: bool,
     ) -> Result<DBBurnchainIndexer, Error> {
         debug!("Creating DBBurnchainIndexer with config: {:?}", &config);
-        let first_burn_header_hash = BurnchainHeaderHash(
-            StacksBlockId::from_hex(&config.first_burn_header_hash)
-                .expect("Could not parse `first_burn_header_hash`.")
-                .0,
-        );
 
         let indexer_base_db_path = create_indexer_base_db_path(burnstate_db_path);
         let connection = connect_db_and_maybe_instantiate(&indexer_base_db_path, readwrite)?;
@@ -459,7 +430,6 @@ impl DBBurnchainIndexer {
             indexer_base_db_path,
             config,
             connection,
-            first_burn_header_hash,
         })
     }
 }
@@ -548,7 +518,6 @@ impl BurnchainIndexer for DBBurnchainIndexer {
     fn get_channel(&self) -> Arc<(dyn BurnchainChannel + 'static)> {
         Arc::new(DBBurnBlockInputChannel {
             output_db_path: self.get_headers_path(),
-            first_burn_header_hash: self.first_burn_header_hash.clone(),
         })
     }
 
@@ -557,11 +526,11 @@ impl BurnchainIndexer for DBBurnchainIndexer {
     }
 
     fn get_first_block_header_hash(&self) -> Result<BurnchainHeaderHash, BurnchainError> {
-        Ok(self.first_burn_header_hash)
+        Ok(BurnchainHeaderHash::sentinel())
     }
 
     fn get_first_block_header_timestamp(&self) -> Result<u64, BurnchainError> {
-        Ok(self.config.first_burn_header_timestamp)
+        Ok(0)
     }
 
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {

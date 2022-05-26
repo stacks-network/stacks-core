@@ -232,8 +232,6 @@ fn l1_basic_listener_test() {
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -296,8 +294,6 @@ fn l1_integration_test() {
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -431,8 +427,6 @@ fn l1_deposit_asset_integration_test() {
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -773,8 +767,6 @@ fn l1_deposit_stx_integration_test() {
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -939,8 +931,6 @@ fn l2_simple_contract_calls() {
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();

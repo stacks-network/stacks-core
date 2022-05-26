@@ -4,7 +4,6 @@ use crate::burnchains::tests::{make_test_new_block, random_sortdb_test_dir};
 use crate::config::BurnchainConfig;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
-use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
@@ -12,9 +11,6 @@ fn make_test_config() -> BurnchainConfig {
     config.chain = "stacks_layer_1".to_string();
     config.mode = "hyperchain".to_string();
     config.first_burn_header_height = 1;
-    config.first_burn_header_hash =
-        "0101010101010101010101010101010101010101010101010101010101010101".to_string();
-    config.first_burn_header_timestamp = 0u64;
     config
 }
 
@@ -202,8 +198,6 @@ fn test_drop_headers() {
 fn test_first_header_hash_requires_waiting() {
     let mut config = make_test_config();
 
-    config.first_burn_header_hash =
-        "0303030303030303030303030303030303030303030303030303030303030303".to_string();
     let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), config, true)
         .expect("Couldn't create indexer.");
 

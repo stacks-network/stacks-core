@@ -374,8 +374,6 @@ impl PeerNetwork {
         }
 
         let first_block_height = burnchain.first_block_height;
-        let first_burn_header_hash = burnchain.first_block_hash.clone();
-        let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut network = PeerNetwork {
             peer_version: peer_version,
