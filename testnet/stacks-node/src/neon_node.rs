@@ -1419,6 +1419,49 @@ impl StacksNode {
                 "received_at_burn_hash" => %burnchain_tip.burn_header_hash,
                 "received_at_burn_height" => %burnchain_tip.block_height,
             );
+            if start_new_thread {
+                let next_run_tenure_data = self.next_run_tenure_data.clone();
+                thread::spawn(move || {
+                    debug!(
+                            "relayer_issue_tenure: Spawning a thread to wait {} ms and then build off of then-leading tip.",
+                            wait_before_first_anchored_block,
+                        );
+
+                    thread::sleep(time::Duration::from_millis(
+                        wait_before_first_anchored_block,
+                    ));
+
+                    let mut tenure_data_view = next_run_tenure_data.lock().unwrap();
+                    match &*tenure_data_view {
+                        Some(relay_tenure_data) => {
+                            debug!(
+                                "relayer_issue_tenure: Have waited {} ms and now will build off of {:?}",
+                                wait_before_first_anchored_block, &relay_tenure_data.0
+                            );
+
+                            // Send the signal.
+                            let result = relay_channel
+                                .send(RelayerDirective::RunTenure(
+                                    relay_tenure_data.0.clone(),
+                                    relay_tenure_data.1,
+                                ))
+                                .is_ok();
+
+                            // Reset the mutex.
+                            *tenure_data_view = None;
+
+                            result
+                        }
+                        None => {
+                            debug!(
+                                "relayer_issue_tenure: Have waited {} but there is nothing to build off of any more.",
+                                wait_before_first_anchored_block,
+                            );
+                            true
+                        }
+                    }
+                });
+            }
 
             if start_new_thread {
                 let tenure_timer_mutex = self.is_tenure_timer_running.clone();
