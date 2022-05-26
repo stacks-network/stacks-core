@@ -1009,6 +1009,9 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
     assert_eq!(l1_height, tip_snapshot.block_height);
 }
 
+/// Test that we can make micro-blocks. The L2 chain is set to wait M seconds before
+/// making an anchored block. Send a transaction before this time is up and then sleep
+/// to see that this transaction went into a micro-block.
 #[test]
 #[ignore]
 fn micro_test() {
@@ -1214,6 +1217,7 @@ fn select_transactions_where(
     return result;
 }
 
+/// Sleep for `sleep_duration`, and log `reason` at beginning and end of sleep.
 fn sleep_for_reason(sleep_duration: Duration, reason: &str) {
     info!(
         "sleep_for_reason: START sleep {:?} for reason: {}",
@@ -1228,6 +1232,8 @@ fn sleep_for_reason(sleep_duration: Duration, reason: &str) {
     );
 }
 
+/// Submit a transaction, and wait for it to show up in the mempool events of the
+/// test observer.
 pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
     let start = Instant::now();
     let original_tx_count = test_observer::get_memtxs().len();

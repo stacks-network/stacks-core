@@ -1418,6 +1418,7 @@ impl StacksNode {
             let wait_before_first_anchored_block =
                 self.config.node.wait_before_first_anchored_block;
 
+            // Check if a thread to send the `RunTenure` directive is already running, and if not we should start one.
             let start_new_thread = {
                 let mut next_run_tenure_data_mutex = self.next_run_tenure_data.lock().unwrap();
 
@@ -1425,11 +1426,11 @@ impl StacksNode {
                     Some(_) => false,
                     None => true,
                 };
+                // Update the shared data for the `RunTenure` directive.
                 *next_run_tenure_data_mutex = Some((burnchain_tip, get_epoch_time_ms()));
 
                 result
             };
-
             info!(
                 "relayer_issue_tenure: start_new_thread: {:?}",
                 &start_new_thread
@@ -1446,8 +1447,8 @@ impl StacksNode {
                         wait_before_first_anchored_block,
                     ));
 
-                    let mut tenure_data_copy = next_run_tenure_data.lock().unwrap();
-                    match &*tenure_data_copy {
+                    let mut tenure_data_view = next_run_tenure_data.lock().unwrap();
+                    match &*tenure_data_view {
                         Some(relay_tenure_data) => {
                             debug!(
                                 "relayer_issue_tenure: Have waited {} ms and now will build off of {:?}",
@@ -1463,7 +1464,7 @@ impl StacksNode {
                                 .is_ok();
 
                             // Reset the mutex.
-                            *tenure_data_copy = None;
+                            *tenure_data_view = None;
 
                             result
                         }
