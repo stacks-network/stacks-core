@@ -19,6 +19,7 @@
 //! Implementation of a various large-but-fixed sized unsigned integer types.
 //! The functions here are designed to be fast.
 //!
+use crate::util::hash::{hex_bytes, to_hex};
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 use std::fmt;
 
@@ -140,6 +141,31 @@ macro_rules! construct_uint {
                     }
                 }
                 ret
+            }
+
+            /// from a little-endian hex string
+            /// padding is expected
+            pub fn from_hex_le(hex: &str) -> Option<$name> {
+                let bytes = hex_bytes(hex).ok()?;
+                if bytes.len() % 8 != 0 {
+                    return None;
+                }
+                if bytes.len() / 8 != $n_words {
+                    return None;
+                }
+                let mut ret = [0u64; $n_words];
+                for i in 0..(bytes.len() / 8) {
+                    let mut next_bytes = [0u8; 8];
+                    next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+                    let next = u64::from_le_bytes(next_bytes);
+                    ret[i] = next;
+                }
+                Some($name(ret))
+            }
+
+            /// to a little-endian hex string
+            pub fn to_hex_le(&self) -> String {
+                to_hex(&self.to_u8_slice())
             }
         }
 
@@ -670,5 +696,15 @@ mod tests {
             add << 64,
             Uint256([0, 0xDEADBEEFDEADBEEF, 0xDEADBEEFDEADBEEF, 0])
         );
+    }
+
+    #[test]
+    pub fn hex_codec() {
+        let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        // little-endian representation
+        let hex_init = "efbeaddeefbeadde000000000000000000000000000000000000000000000000";
+        assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
+        assert_eq!(&init.to_hex_le(), hex_init);
+        assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
     }
 }
