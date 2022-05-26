@@ -131,13 +131,25 @@ macro_rules! construct_uint {
                 $name(ret)
             }
 
-            /// as byte array
+            /// as litte-endian byte array
             pub fn to_u8_slice(&self) -> [u8; $n_words * 8] {
                 let mut ret = [0u8; $n_words * 8];
                 for i in 0..$n_words {
                     let bytes = self.0[i].to_le_bytes();
                     for j in 0..bytes.len() {
                         ret[i * 8 + j] = bytes[j];
+                    }
+                }
+                ret
+            }
+
+            /// as big-endian byte array
+            pub fn to_u8_slice_be(&self) -> [u8; $n_words * 8] {
+                let mut ret = [0u8; $n_words * 8];
+                for i in 0..$n_words {
+                    let bytes = self.0[i].to_le_bytes();
+                    for j in 0..bytes.len() {
+                        ret[$n_words * 8 - 1 - (i * 8 + j)] = bytes[j];
                     }
                 }
                 ret
@@ -166,6 +178,31 @@ macro_rules! construct_uint {
             /// to a little-endian hex string
             pub fn to_hex_le(&self) -> String {
                 to_hex(&self.to_u8_slice())
+            }
+
+            /// from a big-endian hex string
+            /// padding is expected
+            pub fn from_hex_be(hex: &str) -> Option<$name> {
+                let bytes = hex_bytes(hex).ok()?;
+                if bytes.len() % 8 != 0 {
+                    return None;
+                }
+                if bytes.len() / 8 != $n_words {
+                    return None;
+                }
+                let mut ret = [0u64; $n_words];
+                for i in 0..(bytes.len() / 8) {
+                    let mut next_bytes = [0u8; 8];
+                    next_bytes.copy_from_slice(&bytes[8 * i..(8 * (i + 1))]);
+                    let next = u64::from_be_bytes(next_bytes);
+                    ret[(bytes.len() / 8) - 1 - i] = next;
+                }
+                Some($name(ret))
+            }
+
+            /// to a big-endian hex string
+            pub fn to_hex_be(&self) -> String {
+                to_hex(&self.to_u8_slice_be())
             }
         }
 
@@ -701,10 +738,17 @@ mod tests {
     #[test]
     pub fn hex_codec() {
         let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+
         // little-endian representation
         let hex_init = "efbeaddeefbeadde000000000000000000000000000000000000000000000000";
         assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
         assert_eq!(&init.to_hex_le(), hex_init);
         assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
+
+        // big-endian representation
+        let hex_init = "000000000000000000000000000000000000000000000000deadbeefdeadbeef";
+        assert_eq!(Uint256::from_hex_be(&hex_init).unwrap(), init);
+        assert_eq!(&init.to_hex_be(), hex_init);
+        assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);
     }
 }
