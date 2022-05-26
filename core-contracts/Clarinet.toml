@@ -6,9 +6,13 @@ name = "core-contracts"
 path = "contracts/helper/nft-trait-standard.clar"
 depends_on = []
 
+[contracts.mint-from-hyperchain-trait-standard]
+path = "contracts/helper/mint-from-hyperchain-trait-standard.clar"
+depends_on = []
+
 [contracts.simple-nft]
 path = "contracts/helper/simple-nft.clar"
-depends_on = ["nft-trait-standard"]
+depends_on = ["nft-trait-standard", "mint-from-hyperchain-trait-standard"]
 
 [contracts.ft-trait-standard]
 path = "contracts/helper/ft-trait-standard.clar"
@@ -20,4 +24,4 @@ depends_on = ["ft-trait-standard"]
 
 [contracts.hyperchains]
 path = "contracts/hyperchains.clar"
-depends_on = ["nft-trait-standard", "ft-trait-standard"]
+depends_on = ["nft-trait-standard", "ft-trait-standard", "mint-from-hyperchain-trait-standard"]

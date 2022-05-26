@@ -28,7 +28,7 @@ pub fn make_key_for_ft_withdrawal(data: &FTWithdrawEventData, withdrawal_id: u32
 }
 
 pub fn make_key_for_nft_withdrawal(data: &NFTWithdrawEventData, withdrawal_id: u32) -> String {
-    let str_data = format!("nft::{}", data.asset_identifier);
+    let str_data = format!("nft::{}::{}", data.asset_identifier, data.value);
     make_key_for_withdrawal(str_data, &data.sender, withdrawal_id)
 }
 
