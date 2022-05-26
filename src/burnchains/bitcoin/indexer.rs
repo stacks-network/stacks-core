@@ -46,6 +46,7 @@ use stacks_common::deps_common::bitcoin::blockdata::block::LoneBlockHeader;
 use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialization_err;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::log;
 
 use crate::core::{
@@ -762,6 +763,35 @@ impl BitcoinIndexer {
 
         Ok(new_tip)
     }
+
+    /// Verify that the last block header we have is within 2 hours of now.
+    /// Return burnchain_error::TrySyncAgain if not, and delete the offending header
+    pub fn check_chain_tip_timestamp(&mut self) -> Result<(), burnchain_error> {
+        // if there was no target block height, then verify that the highest header fetched is within
+        // 2 hours of now.  Remove headers that don't meet this criterion.
+        let highest_header_height = self.get_highest_header_height()?;
+        if highest_header_height == 0 {
+            return Err(burnchain_error::TrySyncAgain);
+        }
+
+        let highest_header = self
+            .read_headers(highest_header_height, highest_header_height + 1)?
+            .pop()
+            .expect("FATAL: no header at highest known height");
+        let now = get_epoch_time_secs();
+        if now - 2 * 60 * 60 <= (highest_header.block_header.header.time as u64)
+            && (highest_header.block_header.header.time as u64) <= now + 2 * 60 * 60
+        {
+            // we're good
+            return Ok(());
+        }
+        warn!(
+            "Header at height {} is not wihtin 2 hours of now (is at {})",
+            highest_header_height, highest_header.block_header.header.time
+        );
+        self.drop_headers(highest_header_height.saturating_sub(1))?;
+        return Err(burnchain_error::TrySyncAgain);
+    }
 }
 
 impl Drop for BitcoinIndexer {
@@ -942,11 +972,18 @@ impl BurnchainIndexer for BitcoinIndexer {
             return Ok(end_height.unwrap());
         }
 
-        self.sync_last_headers(start_height, end_height)
+        let new_height = self
+            .sync_last_headers(start_height, end_height)
             .map_err(|e| match e {
                 btc_error::TimedOut => burnchain_error::TrySyncAgain,
                 x => burnchain_error::Bitcoin(x),
-            })
+            })?;
+
+        // make sure the headers are up-to-date if we have no target height
+        if end_height.is_none() {
+            self.check_chain_tip_timestamp()?;
+        }
+        Ok(new_height)
     }
 
     /// Drop headers after a given height -- i.e. to accomodate a reorg
@@ -988,6 +1025,7 @@ mod test {
         deserialize, serialize, BitcoinHash,
     };
     use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::uint::Uint256;
 
     use std::env;
@@ -3185,5 +3223,99 @@ mod test {
         // total work increased
         let total_work_after = spv_client.update_chain_work().unwrap();
         assert!(total_work_after > total_work_before);
+    }
+
+    #[test]
+    fn test_check_header_timestamp() {
+        let db_path = "/tmp/test-indexer-check-header-timestamp.dat";
+
+        if fs::metadata(db_path).is_ok() {
+            fs::remove_file(db_path).unwrap();
+        }
+
+        let headers = vec![
+            LoneBlockHeader {
+                header: BlockHeader {
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "20bee96458517fc5082a9720ce6207b5742f2b18e4e0a7e7373342725d80f88c",
+                    )
+                    .unwrap(),
+                    nonce: 2,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206",
+                    )
+                    .unwrap(),
+                    time: (get_epoch_time_secs() - 1) as u32,
+                    version: 0x20000000,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "39d1a6f1ee7a5903797f92ec89e4c58549013f38114186fc2eb6e5218cb2d0ac",
+                    )
+                    .unwrap(),
+                    nonce: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "606d31daaaa5919f3720d8440dd99d31f2a4e4189c65879f19ae43268425e74b",
+                    )
+                    .unwrap(),
+                    time: (get_epoch_time_secs() - 1) as u32,
+                    version: 0x20000000,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    bits: 545259519,
+                    merkle_root: Sha256dHash::from_hex(
+                        "a7e04ed25f589938eb5627abb7b5913dd77b8955bcdf72d7f111d0a71e346e47",
+                    )
+                    .unwrap(),
+                    nonce: 4,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2fa2f451ac27f0e5cd3760ba6cdf34ef46adb76a44d96bc0f3bf3e713dd955f0",
+                    )
+                    .unwrap(),
+                    time: 1587626882,
+                    version: 0x20000000,
+                },
+                tx_count: VarInt(0),
+            },
+        ];
+
+        // set up SPV client so we don't have chain work at first
+        let mut spv_client = SpvClient::new_without_migration(
+            &db_path,
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap();
+
+        spv_client
+            .test_write_block_headers(0, headers.clone())
+            .unwrap();
+        assert_eq!(spv_client.get_highest_header_height().unwrap(), 2);
+
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest),
+        );
+
+        if let Err(burnchain_error::TrySyncAgain) = indexer.check_chain_tip_timestamp() {
+        } else {
+            panic!("stale tip not detected");
+        }
+
+        // peeled
+        assert_eq!(spv_client.get_highest_header_height().unwrap(), 1);
+        assert!(indexer.check_chain_tip_timestamp().is_ok());
+        assert_eq!(spv_client.get_highest_header_height().unwrap(), 1);
     }
 }
