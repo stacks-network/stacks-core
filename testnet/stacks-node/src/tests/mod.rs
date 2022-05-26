@@ -253,6 +253,9 @@ pub fn new_test_conf() -> Config {
     conf.node.p2p_bind = format!("{}:{}", localhost, p2p_port);
     conf.node.data_url = format!("https://{}:{}", localhost, rpc_port);
     conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
+
+    conf.node.wait_before_first_anchored_block = 1_000;
+
     conf
 }
 
