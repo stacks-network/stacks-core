@@ -1014,7 +1014,7 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
 /// to see that this transaction went into a micro-block.
 #[test]
 #[ignore]
-fn micro_test() {
+fn transactions_in_block_and_microblock() {
     reset_static_burnblock_simulator_channel();
     let (mut conf, miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
@@ -1067,40 +1067,27 @@ fn micro_test() {
     btc_regtest_controller.next_block(None);
     btc_regtest_controller.next_block(None);
 
-    // first block wakes up the run loop
     next_block_and_wait(
         &mut btc_regtest_controller,
         None,
         &blocks_processed,
         &sortition_db,
     );
-
-    // first block will hold our VRF registration
     next_block_and_wait(
         &mut btc_regtest_controller,
         None,
         &blocks_processed,
         &sortition_db,
     );
-
-    // second block will be the first mined Stacks block
     next_block_and_wait(
         &mut btc_regtest_controller,
         None,
         &blocks_processed,
         &sortition_db,
     );
-
-    let small_contract = "(define-public (return-one) (ok 1))";
-
-    let contract_identifier = QualifiedContractIdentifier::parse(&format!(
-        "{}.{}",
-        to_addr(&contract_sk).to_string(),
-        "faucet"
-    ))
-    .unwrap();
 
     {
+        let small_contract = "(define-public (return-one) (ok 1))";
         let publish_tx =
             make_contract_publish(&contract_sk, 0, 1000, "small-contract", small_contract);
         submit_tx_and_wait(&http_origin, &publish_tx);
@@ -1159,6 +1146,8 @@ fn micro_test() {
         &sortition_db,
     );
 
+    // We should have 1 anchored block with a "return-one" transaction, and one micro-block with
+    // a "return-one" transaction.
     {
         let small_contract_calls = select_transactions_where(
             &test_observer::get_blocks(),
@@ -1170,10 +1159,8 @@ fn micro_test() {
                 _ => false,
             },
         );
-        info!("small_contract_calls: {:?}", &small_contract_calls);
         assert_eq!(1, small_contract_calls.len());
     }
-
     {
         let small_contract_calls =
             select_transactions_where(&test_observer::get_microblocks(), |transaction| {
@@ -1186,7 +1173,6 @@ fn micro_test() {
                     _ => false,
                 }
             });
-        info!("small_contract_calls: {:?}", &small_contract_calls);
         assert_eq!(1, small_contract_calls.len());
     }
 
