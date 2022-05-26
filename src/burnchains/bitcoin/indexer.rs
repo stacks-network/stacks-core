@@ -385,41 +385,111 @@ impl BitcoinIndexer {
             .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
     }
 
+    #[cfg(test)]
+    fn new_reorg_spv_client(
+        reorg_headers_path: &str,
+        start_block: u64,
+        end_block: Option<u64>,
+        network_id: BitcoinNetworkType,
+    ) -> Result<SpvClient, btc_error> {
+        SpvClient::new_without_migration(
+            &reorg_headers_path,
+            start_block,
+            end_block,
+            network_id,
+            true,
+            true,
+        )
+    }
+
+    #[cfg(not(test))]
+    fn new_reorg_spv_client(
+        reorg_headers_path: &str,
+        start_block: u64,
+        end_block: Option<u64>,
+        network_id: BitcoinNetworkType,
+    ) -> Result<SpvClient, btc_error> {
+        SpvClient::new(
+            &reorg_headers_path,
+            start_block,
+            end_block,
+            network_id,
+            true,
+            true,
+        )
+    }
+
     /// Create a SPV client for starting reorg processing
     fn setup_reorg_headers(
         &mut self,
         canonical_spv_client: &SpvClient,
         reorg_headers_path: &str,
         start_block: u64,
+        remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
-        if PathBuf::from(&reorg_headers_path).exists() {
-            fs::remove_file(&reorg_headers_path).map_err(|e| {
-                error!("Failed to remove {}", reorg_headers_path);
-                btc_error::Io(e)
-            })?;
+        if remove_old {
+            if PathBuf::from(&reorg_headers_path).exists() {
+                fs::remove_file(&reorg_headers_path).map_err(|e| {
+                    error!("Failed to remove {}", reorg_headers_path);
+                    btc_error::Io(e)
+                })?;
+            }
         }
 
         // bootstrap reorg client
-        let mut reorg_spv_client = SpvClient::new(
-            &reorg_headers_path,
+        let mut reorg_spv_client = BitcoinIndexer::new_reorg_spv_client(
+            reorg_headers_path,
             start_block,
             Some(start_block + REORG_BATCH_SIZE),
             self.runtime.network_id,
-            true,
-            true,
         )?;
+
         if start_block > 0 {
-            let start_header = canonical_spv_client
-                .read_block_header(start_block)?
-                .expect(&format!("BUG: missing block header for {}", start_block));
-            reorg_spv_client.insert_block_headers_before(start_block - 1, vec![start_header])?;
+            if start_block > BLOCK_DIFFICULTY_CHUNK_SIZE {
+                if remove_old {
+                    let interval_start_block = start_block / BLOCK_DIFFICULTY_CHUNK_SIZE - 2;
+                    let base_block = interval_start_block * BLOCK_DIFFICULTY_CHUNK_SIZE;
+                    let interval_headers =
+                        canonical_spv_client.read_block_headers(base_block, start_block)?;
+                    assert!(
+                        interval_headers.len() == (start_block - base_block) as usize,
+                        "BUG: missing headers for {}-{}",
+                        base_block,
+                        start_block
+                    );
+
+                    test_debug!(
+                        "Copy headers {}-{}",
+                        base_block,
+                        base_block + interval_headers.len() as u64
+                    );
+                    reorg_spv_client
+                        .insert_block_headers_before(base_block - 1, interval_headers)?;
+
+                    let last_interval = canonical_spv_client.find_highest_work_score_interval()?;
+
+                    // copy over the relevant difficulty intervals as well
+                    for interval in interval_start_block..(last_interval + 1) {
+                        test_debug!("Copy interval {} to {}", interval, &reorg_headers_path);
+                        let work_score = canonical_spv_client
+                            .find_interval_work(interval)?
+                            .expect(&format!("FATAL: no work score for interval {}", interval));
+                        reorg_spv_client.store_interval_work(interval, work_score)?;
+                    }
+                }
+            } else {
+                // no full difficulty intervals yet
+                let interval_headers = canonical_spv_client.read_block_headers(1, start_block)?;
+
+                reorg_spv_client.insert_block_headers_before(0, interval_headers)?;
+            }
         }
 
         Ok(reorg_spv_client)
     }
 
     /// Search for a bitcoin reorg.  Return the offset into the canonical bitcoin headers where
-    /// the reorg starts.  Returns the hight of the highest common ancestor, and its block hash.
+    /// the reorg starts.  Returns the hight of the highest common ancestor.
     /// Note that under certain testnet settings, the bitcoin chain itself can shrink.
     pub fn find_bitcoin_reorg<F>(
         &mut self,
@@ -454,7 +524,7 @@ impl BitcoinIndexer {
         // bootstrap reorg client
         let mut start_block = canonical_end_block.saturating_sub(REORG_BATCH_SIZE);
         let mut reorg_spv_client =
-            self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
+            self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block, true)?;
         let mut discontiguous_header_error_count = 0;
 
         while !found_common_ancestor {
@@ -493,6 +563,7 @@ impl BitcoinIndexer {
                         &orig_spv_client,
                         reorg_headers_path,
                         start_block,
+                        false,
                     )?;
                     continue;
                 }
@@ -600,10 +671,27 @@ impl BitcoinIndexer {
             // try again
             start_block = start_block.saturating_sub(REORG_BATCH_SIZE);
             reorg_spv_client =
-                self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block)?;
+                self.setup_reorg_headers(&orig_spv_client, reorg_headers_path, start_block, false)?;
         }
 
-        debug!("Bitcoin headers history is consistent up to {}", new_tip);
+        let reorg_total_work = reorg_spv_client.update_chain_work()?;
+        let orig_total_work = orig_spv_client.get_chain_work()?;
+
+        debug!("Bitcoin headers history is consistent up to {}. Orig chainwork: {}, reorg chainwork: {}", new_tip, orig_total_work, reorg_total_work);
+        if orig_total_work < reorg_total_work {
+            let reorg_tip = reorg_spv_client.get_headers_height()?;
+            let hdr_reorg = reorg_spv_client
+                .read_block_header(reorg_tip - 1)?
+                .expect("FATAL: no tip hash for existing chain tip");
+            info!(
+                "New canonical Bitcoin chain found! New tip is {}",
+                &hdr_reorg.header.bitcoin_hash()
+            );
+        } else {
+            // ignore the reorg
+            test_debug!("Reorg chain does not overtake original Bitcoin chain");
+            new_tip = orig_spv_client.get_headers_height()?;
+        }
 
         let hdr_reorg = reorg_spv_client.read_block_header(new_tip)?;
         let hdr_canonical = orig_spv_client.read_block_header(new_tip)?;
@@ -1224,8 +1312,8 @@ mod test {
             peer_port: port,
             rpc_port: port + 1, // ignored
             rpc_ssl: false,
-            username: None,
-            password: None,
+            username: Some("blockstack".to_string()),
+            password: Some("blockstacksystem".to_string()),
             timeout: 30,
             spv_headers_path: "/tmp/test_indexer_sync_headers.sqlite".to_string(),
             first_block: 0,
@@ -1240,5 +1328,314 @@ mod test {
         let mut indexer = BitcoinIndexer::new(indexer_conf, BitcoinIndexerRuntime::new(mode));
         let last_block = indexer.sync_headers(0, None).unwrap();
         eprintln!("sync'ed to block {}", last_block);
+    }
+
+    #[test]
+    fn test_spv_check_work_reorg_ignored() {
+        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+            eprintln!("Skipping test_spv_check_work_reorg_ignored -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
+            return;
+        }
+        let db_path_source = env::var("BLOCKSTACK_SPV_HEADERS_DB").unwrap();
+        let db_path = "/tmp/test_spv_check_work_reorg_ignored.dat".to_string();
+        let reorg_db_path = "/tmp/test_spv_check_work_ignored.dat.reorg".to_string();
+
+        if fs::metadata(&db_path).is_ok() {
+            fs::remove_file(&db_path).unwrap();
+        }
+
+        if fs::metadata(&reorg_db_path).is_ok() {
+            fs::remove_file(&reorg_db_path).unwrap();
+        }
+
+        fs::copy(&db_path_source, &db_path).unwrap();
+
+        {
+            // set up SPV client so we don't have chain work at first
+            let mut spv_client = SpvClient::new_without_migration(
+                &db_path,
+                0,
+                None,
+                BitcoinNetworkType::Mainnet,
+                true,
+                false,
+            )
+            .unwrap();
+
+            assert!(
+                spv_client.get_headers_height().unwrap() >= 40322,
+                "This test needs headers up to 40320"
+            );
+            spv_client.drop_headers(40320).unwrap();
+        }
+
+        let mut spv_client =
+            SpvClient::new(&db_path, 0, None, BitcoinNetworkType::Mainnet, true, false).unwrap();
+
+        assert_eq!(spv_client.get_headers_height().unwrap(), 40321);
+        let total_work_before = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_before, spv_client.get_chain_work().unwrap());
+
+        let total_work_before_idempotent = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_before, total_work_before_idempotent);
+
+        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        let bad_headers = vec![
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000000683a474ef810000fd22f0edde4cf33ae76ae506b220e57aeeafeaa4",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "b4d736ca74838036ebd19b085c3eeb9ffec2307f6452347cdd8ddaa249686f39",
+                    )
+                    .unwrap(),
+                    time: 1716199659,
+                    bits: 486575299,
+                    nonce: 201337507,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000006f403731d720174cd6875e331ac079b438cf53aa685f9cd068fd4ca8",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a86b3c149f204d4cb47c67bf9bfeea2719df101dd6e6fc3f0e60d86efeba22a8",
+                    )
+                    .unwrap(),
+                    time: 1716161259,
+                    bits: 486604799,
+                    nonce: 144574511,
+                },
+                tx_count: VarInt(0),
+            },
+        ];
+
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+        );
+
+        let mut inserted_bad_header = false;
+
+        let new_tip = indexer
+            .find_bitcoin_reorg(
+                &db_path,
+                &reorg_db_path,
+                |ref mut indexer, ref mut reorg_spv_client, start_block, end_block_opt| {
+                    let end_block =
+                        end_block_opt.unwrap_or(start_block + BLOCK_DIFFICULTY_CHUNK_SIZE);
+
+                    let mut ret = vec![];
+                    for block_height in start_block..end_block {
+                        if block_height > 40320 {
+                            break;
+                        }
+                        if block_height >= 40319 && block_height <= 40320 {
+                            test_debug!("insert bad header {}", block_height);
+                            ret.push(bad_headers[(block_height - 40319) as usize].clone());
+                            inserted_bad_header = true;
+                        } else {
+                            let orig_spv_client = SpvClient::new_without_migration(
+                                &db_path,
+                                0,
+                                None,
+                                BitcoinNetworkType::Mainnet,
+                                true,
+                                false,
+                            )
+                            .unwrap();
+                            let hdr = orig_spv_client.read_block_header(block_height)?.unwrap();
+                            ret.push(hdr);
+                        }
+                    }
+
+                    test_debug!(
+                        "add headers after {} (bad header: {})",
+                        start_block,
+                        inserted_bad_header
+                    );
+                    reorg_spv_client
+                        .insert_block_headers_after(start_block - 1, ret)
+                        .unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert!(inserted_bad_header);
+
+        // reorg is ignored
+        assert_eq!(new_tip, 40321);
+        let hdr = spv_client.read_block_header(new_tip - 1).unwrap().unwrap();
+        eprintln!("{}", &hdr.header.bitcoin_hash());
+        let total_work_after = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_after, total_work_before);
+    }
+
+    #[test]
+    fn test_spv_check_work_reorg_accepted() {
+        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+            eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
+            return;
+        }
+        let db_path_source = env::var("BLOCKSTACK_SPV_HEADERS_DB").unwrap();
+        let db_path = "/tmp/test_spv_check_work_reorg_accepted.dat".to_string();
+        let reorg_db_path = "/tmp/test_spv_check_work_reorg_accepted.dat.reorg".to_string();
+
+        if fs::metadata(&db_path).is_ok() {
+            fs::remove_file(&db_path).unwrap();
+        }
+
+        if fs::metadata(&reorg_db_path).is_ok() {
+            fs::remove_file(&reorg_db_path).unwrap();
+        }
+
+        fs::copy(&db_path_source, &db_path).unwrap();
+
+        // set up SPV client so we don't have chain work at first
+        let mut spv_client = SpvClient::new_without_migration(
+            &db_path,
+            0,
+            None,
+            BitcoinNetworkType::Mainnet,
+            true,
+            false,
+        )
+        .unwrap();
+
+        assert!(
+            spv_client.get_headers_height().unwrap() >= 40322,
+            "This test needs headers up to 40320"
+        );
+        spv_client.drop_headers(40320).unwrap();
+
+        assert_eq!(spv_client.get_headers_height().unwrap(), 40321);
+
+        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        let bad_headers = vec![
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000000683a474ef810000fd22f0edde4cf33ae76ae506b220e57aeeafeaa4",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "b4d736ca74838036ebd19b085c3eeb9ffec2307f6452347cdd8ddaa249686f39",
+                    )
+                    .unwrap(),
+                    time: 1716199659,
+                    bits: 486575299,
+                    nonce: 201337507,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000006f403731d720174cd6875e331ac079b438cf53aa685f9cd068fd4ca8",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "a86b3c149f204d4cb47c67bf9bfeea2719df101dd6e6fc3f0e60d86efeba22a8",
+                    )
+                    .unwrap(),
+                    time: 1716161259,
+                    bits: 486604799,
+                    nonce: 144574511,
+                },
+                tx_count: VarInt(0),
+            },
+        ];
+
+        // get the canonical chain's headers for this range
+        let good_headers = spv_client.read_block_headers(40319, 40321).unwrap();
+        assert_eq!(good_headers.len(), 2);
+        assert_eq!(
+            good_headers[0].header.prev_blockhash,
+            bad_headers[0].header.prev_blockhash
+        );
+        assert!(good_headers[0].header != bad_headers[0].header);
+        assert!(good_headers[1].header != bad_headers[1].header);
+
+        // put these bad headers into the "main" chain
+        spv_client
+            .insert_block_headers_after(40318, bad_headers.clone())
+            .unwrap();
+
+        // *now* calculate main chain work
+        SpvClient::test_db_migrate(spv_client.conn_mut()).unwrap();
+        let total_work_before = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_before, spv_client.get_chain_work().unwrap());
+
+        let total_work_before_idempotent = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_before, total_work_before_idempotent);
+
+        let mut indexer = BitcoinIndexer::new(
+            BitcoinIndexerConfig::test_default(db_path.to_string()),
+            BitcoinIndexerRuntime::new(BitcoinNetworkType::Mainnet),
+        );
+
+        let mut inserted_good_header = false;
+
+        let new_tip = indexer
+            .find_bitcoin_reorg(
+                &db_path,
+                &reorg_db_path,
+                |ref mut indexer, ref mut reorg_spv_client, start_block, end_block_opt| {
+                    let end_block =
+                        end_block_opt.unwrap_or(start_block + BLOCK_DIFFICULTY_CHUNK_SIZE);
+
+                    let mut ret = vec![];
+                    for block_height in start_block..end_block {
+                        if block_height > 40320 {
+                            break;
+                        }
+                        if block_height >= 40319 && block_height <= 40320 {
+                            test_debug!("insert good header {}", block_height);
+                            ret.push(good_headers[(block_height - 40319) as usize].clone());
+                            inserted_good_header = true;
+                        } else {
+                            let orig_spv_client = SpvClient::new_without_migration(
+                                &db_path,
+                                0,
+                                None,
+                                BitcoinNetworkType::Mainnet,
+                                true,
+                                false,
+                            )
+                            .unwrap();
+                            let hdr = orig_spv_client.read_block_header(block_height)?.unwrap();
+                            ret.push(hdr);
+                        }
+                    }
+
+                    test_debug!(
+                        "add headers after {} (good header: {})",
+                        start_block,
+                        inserted_good_header
+                    );
+                    reorg_spv_client
+                        .insert_block_headers_after(start_block - 1, ret)
+                        .unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert!(inserted_good_header);
+
+        // chain reorg detected!
+        assert_eq!(new_tip, 40318);
+        let total_work_after = spv_client.update_chain_work().unwrap();
+        assert_eq!(total_work_after, total_work_before);
     }
 }
