@@ -349,8 +349,6 @@ impl Burnchain {
         &self,
         indexer: &I,
         readwrite: bool,
-        first_block_header_hash: BurnchainHeaderHash,
-        first_block_header_timestamp: u64,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
@@ -361,13 +359,8 @@ impl Burnchain {
 
         let sortitiondb =
             SortitionDB::connect(&db_path, self.first_block_height, &epochs, readwrite)?;
-        let burnchaindb = BurnchainDB::connect(
-            &burnchain_db_path,
-            self.first_block_height,
-            &first_block_header_hash,
-            first_block_header_timestamp,
-            readwrite,
-        )?;
+        let burnchaindb =
+            BurnchainDB::connect(&burnchain_db_path, self.first_block_height, readwrite)?;
 
         Ok((sortitiondb, burnchaindb))
     }
@@ -609,12 +602,7 @@ impl Burnchain {
         I: BurnchainIndexer + 'static,
     {
         self.setup_chainstate(indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(
-            indexer,
-            true,
-            indexer.get_first_block_header_hash()?,
-            indexer.get_first_block_header_timestamp()?,
-        )?;
+        let (_, mut burnchain_db) = self.connect_db(indexer, true)?;
 
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);

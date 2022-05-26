@@ -469,12 +469,7 @@ impl BurnchainController for MockController {
 
     fn connect_dbs(&mut self) -> Result<(), Error> {
         let burnchain = self.get_burnchain();
-        burnchain.connect_db(
-            &self.indexer,
-            true,
-            self.indexer.get_first_block_header_hash()?,
-            self.indexer.get_first_block_header_timestamp()?,
-        )?;
+        burnchain.connect_db(&self.indexer, true)?;
         Ok(())
     }
 

@@ -2652,8 +2652,6 @@ pub mod test {
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
                 first_burnchain_block_height,
-                &first_burnchain_block_hash,
-                0,
                 true,
             )
             .unwrap();

@@ -424,12 +424,7 @@ impl BurnchainController for L1Controller {
         let burnchain = self.get_burnchain();
 
         self.indexer.connect(true)?;
-        burnchain.connect_db(
-            &self.indexer,
-            true,
-            self.indexer.get_first_block_header_hash()?,
-            self.indexer.get_first_block_header_timestamp()?,
-        )?;
+        burnchain.connect_db(&self.indexer, true)?;
         Ok(())
     }
 

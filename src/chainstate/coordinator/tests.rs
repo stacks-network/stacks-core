@@ -186,8 +186,6 @@ pub fn setup_states(
         let burnchain_blocks_db = BurnchainDB::connect(
             &burnchain.get_burnchaindb_path(),
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            burnchain.first_block_timestamp as u64,
             true,
         )
         .unwrap();
