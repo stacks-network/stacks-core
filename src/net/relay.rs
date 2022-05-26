@@ -27,36 +27,36 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rand::Rng;
 
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::core::mempool::MemPoolDB;
+use crate::core::mempool::*;
+use crate::net::chat::*;
+use crate::net::connection::*;
+use crate::net::db::*;
+use crate::net::http::*;
+use crate::net::p2p::*;
+use crate::net::poll::*;
+use crate::net::rpc::*;
+use crate::net::Error as net_error;
+use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
-use chainstate::burn::ConsensusHash;
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use chainstate::stacks::StacksBlockHeader;
-use core::mempool::MemPoolDB;
-use core::mempool::*;
-use net::chat::*;
-use net::connection::*;
-use net::db::*;
-use net::http::*;
-use net::p2p::*;
-use net::poll::*;
-use net::rpc::*;
-use net::Error as net_error;
-use net::*;
-use util::get_epoch_time_secs;
-use util::hash::Sha512Trunc256Sum;
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use crate::monitoring::update_stacks_tip_height;
 use crate::types::chainstate::SortitionId;
-use chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use codec::MAX_PAYLOAD_LEN;
-use monitoring::update_stacks_tip_height;
-use types::chainstate::BurnchainHeaderHash;
+use stacks_common::codec::MAX_PAYLOAD_LEN;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -1236,33 +1236,26 @@ impl Relayer {
                     }
                 }
 
-                // have the p2p thread tell our neighbors about newly-discovered blocks
-                let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
-                let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)?;
-                if available.len() > 0 {
-                    if !ibd {
+                // only relay if not ibd
+                if !ibd {
+                    // have the p2p thread tell our neighbors about newly-discovered blocks
+                    let new_block_chs = new_blocks.iter().map(|(ch, _)| ch.clone()).collect();
+                    let available = Relayer::load_blocks_available_data(sortdb, new_block_chs)?;
+                    if available.len() > 0 {
                         debug!("{:?}: Blocks available: {}", &_local_peer, available.len());
                         if let Err(e) = self.p2p.advertize_blocks(available, new_blocks) {
                             warn!("Failed to advertize new blocks: {:?}", &e);
                         }
-                    } else {
-                        debug!(
-                            "{:?}: Blocks available, but will not advertize since in IBD: {}",
-                            &_local_peer,
-                            available.len()
-                        );
                     }
-                }
 
-                // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
-                let new_mblock_chs = new_confirmed_microblocks
-                    .iter()
-                    .map(|(ch, _)| ch.clone())
-                    .collect();
-                let mblocks_available =
-                    Relayer::load_blocks_available_data(sortdb, new_mblock_chs)?;
-                if mblocks_available.len() > 0 {
-                    if !ibd {
+                    // have the p2p thread tell our neighbors about newly-discovered confirmed microblock streams
+                    let new_mblock_chs = new_confirmed_microblocks
+                        .iter()
+                        .map(|(ch, _)| ch.clone())
+                        .collect();
+                    let mblocks_available =
+                        Relayer::load_blocks_available_data(sortdb, new_mblock_chs)?;
+                    if mblocks_available.len() > 0 {
                         debug!(
                             "{:?}: Confirmed microblock streams available: {}",
                             &_local_peer,
@@ -1274,32 +1267,26 @@ impl Relayer {
                         {
                             warn!("Failed to advertize new confirmed microblocks: {:?}", &e);
                         }
-                    } else {
-                        debug!(
-                            "{:?}: Confirmed microblock streams available, but will not advertize since in IBD: {}",
-                            &_local_peer,
-                            mblocks_available.len()
-                        );
                     }
-                }
 
-                // have the p2p thread forward all new unconfirmed microblocks
-                if new_microblocks.len() > 0 {
-                    debug!(
-                        "{:?}: Unconfirmed microblocks: {}",
-                        &_local_peer,
-                        new_microblocks.len()
-                    );
-                    for (relayers, mblocks_msg) in new_microblocks.into_iter() {
+                    // have the p2p thread forward all new unconfirmed microblocks
+                    if new_microblocks.len() > 0 {
                         debug!(
-                            "{:?}: Send {} microblocks for {}",
+                            "{:?}: Unconfirmed microblocks: {}",
                             &_local_peer,
-                            mblocks_msg.microblocks.len(),
-                            &mblocks_msg.index_anchor_block
+                            new_microblocks.len()
                         );
-                        let msg = StacksMessageType::Microblocks(mblocks_msg);
-                        if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                            warn!("Failed to broadcast microblock: {:?}", &e);
+                        for (relayers, mblocks_msg) in new_microblocks.into_iter() {
+                            debug!(
+                                "{:?}: Send {} microblocks for {}",
+                                &_local_peer,
+                                mblocks_msg.microblocks.len(),
+                                &mblocks_msg.index_anchor_block
+                            );
+                            let msg = StacksMessageType::Microblocks(mblocks_msg);
+                            if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                                warn!("Failed to broadcast microblock: {:?}", &e);
+                            }
                         }
                     }
                 }
@@ -1309,42 +1296,47 @@ impl Relayer {
             }
         };
 
-        // store all transactions, and forward the novel ones to neighbors
-        test_debug!(
-            "{:?}: Process {} transaction(s)",
-            &_local_peer,
-            network_result.pushed_transactions.len()
-        );
-        let new_txs = Relayer::process_transactions(
-            network_result,
-            sortdb,
-            chainstate,
-            mempool,
-            event_observer,
-        )?;
-
-        if new_txs.len() > 0 {
-            debug!(
-                "{:?}: Send {} transactions to neighbors",
-                &_local_peer,
-                new_txs.len()
-            );
-        }
-
         let mut mempool_txs_added = vec![];
-        for (relayers, tx) in new_txs.into_iter() {
-            debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
-            mempool_txs_added.push(tx.clone());
-            let msg = StacksMessageType::Transaction(tx);
-            if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
-                warn!("Failed to broadcast transaction: {:?}", &e);
+
+        // only care about transaction forwarding if not IBD
+        if !ibd {
+            // store all transactions, and forward the novel ones to neighbors
+            test_debug!(
+                "{:?}: Process {} transaction(s)",
+                &_local_peer,
+                network_result.pushed_transactions.len()
+            );
+            let new_txs = Relayer::process_transactions(
+                network_result,
+                sortdb,
+                chainstate,
+                mempool,
+                event_observer,
+            )?;
+
+            if new_txs.len() > 0 {
+                debug!(
+                    "{:?}: Send {} transactions to neighbors",
+                    &_local_peer,
+                    new_txs.len()
+                );
+            }
+
+            for (relayers, tx) in new_txs.into_iter() {
+                debug!("{:?}: Broadcast tx {}", &_local_peer, &tx.txid());
+                mempool_txs_added.push(tx.clone());
+                let msg = StacksMessageType::Transaction(tx);
+                if let Err(e) = self.p2p.broadcast_message(relayers, msg) {
+                    warn!("Failed to broadcast transaction: {:?}", &e);
+                }
             }
         }
 
         let mut processed_unconfirmed_state = Default::default();
 
-        // finally, refresh the unconfirmed chainstate, if need be
-        if network_result.has_microblocks() {
+        // finally, refresh the unconfirmed chainstate, if need be.
+        // only bother if we're not in IBD; otherwise this is a waste of time
+        if network_result.has_microblocks() && !ibd {
             processed_unconfirmed_state = Relayer::refresh_unconfirmed(chainstate, sortdb);
         }
 
@@ -1782,29 +1774,29 @@ mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
-    use chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
-    use chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use chainstate::stacks::*;
-    use net::asn::*;
-    use net::chat::*;
-    use net::codec::*;
-    use net::download::test::run_get_blocks_and_microblocks;
-    use net::download::*;
-    use net::http::*;
-    use net::inv::*;
-    use net::test::*;
-    use net::*;
-    use util::sleep_ms;
-    use util_lib::test::*;
-    use vm::costs::LimitedCostTracker;
-    use vm::database::ClarityDatabase;
+    use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
+    use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::*;
+    use crate::net::asn::*;
+    use crate::net::chat::*;
+    use crate::net::codec::*;
+    use crate::net::download::test::run_get_blocks_and_microblocks;
+    use crate::net::download::*;
+    use crate::net::http::*;
+    use crate::net::inv::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
+    use clarity::vm::costs::LimitedCostTracker;
+    use clarity::vm::database::ClarityDatabase;
+    use stacks_common::util::sleep_ms;
 
     use super::*;
-    use clarity_vm::clarity::ClarityConnection;
-    use core::StacksEpochExtension;
-    use types::chainstate::BlockHeaderHash;
+    use crate::clarity_vm::clarity::ClarityConnection;
+    use crate::core::StacksEpochExtension;
+    use stacks_common::types::chainstate::BlockHeaderHash;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {
@@ -2634,7 +2626,7 @@ mod test {
     }
 
     fn http_get_info(http_port: u16) -> RPCPeerInfoData {
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let getinfo = HttpRequestType::GetInfo(request);
         let response = http_rpc(http_port, getinfo).unwrap();
@@ -2656,7 +2648,7 @@ mod test {
             block.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let post_block = HttpRequestType::PostBlock(request, consensus_hash.clone(), block.clone());
         let response = http_rpc(http_port, post_block).unwrap();
@@ -2680,7 +2672,7 @@ mod test {
             mblock.block_hash(),
             http_port
         );
-        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port);
+        let mut request = HttpRequestMetadata::new("127.0.0.1".to_string(), http_port, None);
         request.keep_alive = false;
         let tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
         let post_microblock =

@@ -19,10 +19,13 @@ use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    check_chainstate_db_versions, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
+    Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::net::atlas::ATTACHMENTS_CHANNEL_SIZE;
 use stacks::net::atlas::{AtlasConfig, AttachmentInstance};
+use stacks::util_lib::db::Error as db_error;
 use tokio::sync::oneshot::Sender;
 
 use crate::run_loop::l1_observer;
@@ -154,7 +157,7 @@ impl RunLoop {
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer, should_keep_running.clone());
+            event_dispatcher.register_observer(observer);
         }
 
         Self {
@@ -300,23 +303,29 @@ impl RunLoop {
             None
         };
 
-        let burnchain_config = burnchain_controller.get_burnchain();
+        // Upgrade chainstate databases if they exist already
         let epochs = burnchain_controller.get_stacks_epochs();
-        if !check_chainstate_db_versions(
+        match migrate_chainstate_dbs(
             &epochs,
             &self.config.get_burn_db_file_path(),
             &self.config.get_chainstate_path_str(),
-        )
-        .expect("FATAL: unable to query filesystem or databases for version information")
-        {
-            error!(
-                "FATAL: chainstate database(s) are not compatible with the current system epoch"
-            );
-            panic!();
+            Some(self.config.node.get_marf_opts()),
+        ) {
+            Ok(_) => {}
+            Err(coord_error::DBError(db_error::TooOldForEpoch)) => {
+                error!(
+                    "FATAL: chainstate database(s) are not compatible with the current system epoch"
+                );
+                panic!();
+            }
+            Err(e) => {
+                panic!("FATAL: unable to query filesystem or databases: {:?}", &e);
+            }
         }
 
         info!("Start syncing STACKS L1 HEADERS, feel free to grab a cup of coffee, this can take a while");
 
+        let burnchain_config = burnchain_controller.get_burnchain();
         let target_burnchain_block_height = match burnchain_config
             .get_highest_burnchain_block()
             .expect("FATAL: failed to access burnchain database")
@@ -343,7 +352,7 @@ impl RunLoop {
             }
         };
 
-        // Invoke connect() to perform any db instantiation early
+        // if the chainstate DBs don't exist, this will instantiate them
         if let Err(e) = burnchain_controller.connect_dbs() {
             error!("Failed to connect to burnchain databases: {}", e);
             panic!();
@@ -393,6 +402,7 @@ impl RunLoop {
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
             Some(&mut boot_data),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
         self.event_dispatcher.dispatch_boot_receipts(receipts);
@@ -402,7 +412,7 @@ impl RunLoop {
         let moved_config = self.config.clone();
         let moved_burnchain_config = burnchain_config.clone();
         let mut coordinator_dispatcher = self.event_dispatcher.clone();
-        let (attachments_tx, attachments_rx) = sync_channel(1);
+        let (attachments_tx, attachments_rx) = sync_channel(ATTACHMENTS_CHANNEL_SIZE);
 
         let coordinator_thread_handle = thread::Builder::new()
             .name("chains-coordinator".to_string())
@@ -428,17 +438,8 @@ impl RunLoop {
 
     /// Instantiate the PoX watchdog
     fn instantiate_pox_watchdog(&mut self) {
-        let pox_watchdog = PoxSyncWatchdog::new(
-            self.config.is_mainnet(),
-            self.config.burnchain.chain_id,
-            self.config.get_chainstate_path_str(),
-            self.config.burnchain.poll_time_secs,
-            self.config.connection_options.timeout,
-            self.config.node.pox_sync_sample_secs,
-            self.config.node.pox_sync_sample_secs == 0,
-            self.should_keep_running.clone(),
-        )
-        .expect("FATAL: failed to instantiate PoX sync watchdog");
+        let pox_watchdog = PoxSyncWatchdog::new(&self.config, self.should_keep_running.clone())
+            .expect("FATAL: failed to instantiate PoX sync watchdog");
         self.pox_watchdog = Some(pox_watchdog);
     }
 

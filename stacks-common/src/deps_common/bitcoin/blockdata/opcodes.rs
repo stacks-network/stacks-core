@@ -26,8 +26,8 @@ use serde;
 // Heavy stick to translate between opcode types
 use std::mem::transmute;
 
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 // Note: I am deliberately not implementing PartialOrd or Ord on the
 //       opcode enum. If you want to check ranges of opcodes, etc.,

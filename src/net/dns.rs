@@ -28,17 +28,17 @@ use std::sync::mpsc::TrySendError;
 use std::hash::{Hash, Hasher};
 use std::net::ToSocketAddrs;
 
-use net::asn::ASEntry4;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use crate::net::asn::ASEntry4;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
 
-use net::codec::*;
-use net::*;
+use crate::net::codec::*;
+use crate::net::*;
 
-use util::sleep_ms;
-use util_lib::db::Error as db_error;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::sleep_ms;
 
 use std::net::SocketAddr;
 
@@ -46,10 +46,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
 
 /// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in
 /// a separate thread, and implement a way for the block downloader to periodically poll for
@@ -111,6 +111,8 @@ impl DNSResponse {
     }
 }
 
+/// The DNSResolver runs as a background thread in the node. In a loop, it collects inbound requests,
+/// then tries to resolve the valid requests.
 #[derive(Debug)]
 pub struct DNSResolver {
     queries: VecDeque<DNSRequest>,
@@ -122,6 +124,8 @@ pub struct DNSResolver {
     hardcoded: HashMap<(String, u16), Vec<SocketAddr>>,
 }
 
+/// The DNSClient provides an API to send DNS requests and poll DNS results. The client forwards
+/// requests and receives results through "channels" to the DNSResolver.  
 #[derive(Debug)]
 pub struct DNSClient {
     requests: HashMap<DNSRequest, Option<DNSResponse>>,
@@ -177,8 +181,9 @@ impl DNSResolver {
         DNSResponse::new(req, Ok(addrs))
     }
 
+    /// Drain inbound DNS requests.
+    /// Handles overflows (too many requests) and timeouts.
     fn drain_inbox(&mut self) -> Result<usize, net_error> {
-        // drain inbound and handle overflows and timeouts
         let mut received = 0;
         for _ in 0..self.max_inflight {
             match self.inbound.try_recv() {
@@ -373,10 +378,10 @@ impl DNSClient {
 
 #[cfg(test)]
 mod test {
-    use net::test::*;
+    use crate::net::test::*;
+    use stacks_common::util::*;
     use std::collections::HashMap;
     use std::error::Error;
-    use util::*;
 
     #[test]
     fn dns_start_stop() {

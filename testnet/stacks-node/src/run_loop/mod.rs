@@ -101,7 +101,7 @@ impl RunLoopCallbacks {
     ) {
         info_green!(
             "Hyper-Chain: Stacks block #{} ({}) successfully produced, including {} transactions",
-            chain_tip.metadata.block_height,
+            chain_tip.metadata.stacks_block_height,
             chain_tip.metadata.index_block_hash(),
             chain_tip.block.txs.len()
         );

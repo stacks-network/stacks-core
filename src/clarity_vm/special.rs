@@ -14,27 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{CostTracker, MemoryConsumer};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{CostTracker, MemoryConsumer};
 
-use vm::contexts::{Environment, GlobalContext};
-use vm::errors::Error;
-use vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use vm::types::{
+use clarity::vm::contexts::{Environment, GlobalContext};
+use clarity::vm::errors::Error;
+use clarity::vm::errors::{
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+};
+use clarity::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData, TypeSignature,
     Value,
 };
 
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::util_lib::boot::boot_code_id;
-use chainstate::stacks::db::StacksChainState;
 
-use vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 
-use util::hash::Hash160;
+use stacks_common::util::hash::Hash160;
 
 use crate::vm::costs::runtime_cost;
 

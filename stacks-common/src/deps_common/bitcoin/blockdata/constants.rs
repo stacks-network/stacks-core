@@ -21,14 +21,14 @@
 
 use std::default::Default;
 
-use deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
-use deps_common::bitcoin::blockdata::opcodes;
-use deps_common::bitcoin::blockdata::script;
-use deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
-use deps_common::bitcoin::network::constants::Network;
-use deps_common::bitcoin::util::hash::MerkleRoot;
-use util::hash::hex_bytes;
-use util::uint::Uint256;
+use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
+use crate::deps_common::bitcoin::blockdata::opcodes;
+use crate::deps_common::bitcoin::blockdata::script;
+use crate::deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
+use crate::deps_common::bitcoin::network::constants::Network;
+use crate::deps_common::bitcoin::util::hash::MerkleRoot;
+use crate::util::hash::hex_bytes;
+use crate::util::uint::Uint256;
 
 /// The maximum allowable sequence number
 pub static MAX_SEQUENCE: u32 = 0xFFFFFFFF;
@@ -140,13 +140,13 @@ pub fn genesis_block(network: Network) -> Block {
 
 #[cfg(test)]
 mod test {
+    use crate::util::hash::hex_bytes as hex_decode;
     use std::default::Default;
-    use util::hash::hex_bytes as hex_decode;
 
-    use deps_common::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
-    use deps_common::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
-    use deps_common::bitcoin::network::constants::Network;
-    use deps_common::bitcoin::network::serialize::{serialize, BitcoinHash};
+    use crate::deps_common::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
+    use crate::deps_common::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
+    use crate::deps_common::bitcoin::network::constants::Network;
+    use crate::deps_common::bitcoin::network::serialize::{serialize, BitcoinHash};
 
     #[test]
     fn bitcoin_genesis_first_transaction() {

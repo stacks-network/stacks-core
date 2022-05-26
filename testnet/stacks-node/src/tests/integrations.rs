@@ -335,7 +335,7 @@ fn integration_test_get_info() {
             1 => {
                 // - Chain length should be 2.
                 let blocks = StacksChainState::list_blocks(&chain_state.db()).unwrap();
-                assert!(chain_tip.metadata.block_height == 2);
+                assert!(chain_tip.metadata.stacks_block_height == 2);
 
                 // Block #1 should have 5 txs
                 assert_eq!(chain_tip.block.txs.len(), 5);
@@ -1208,7 +1208,7 @@ fn contract_stx_transfer() {
 
             match round {
                 1 => {
-                    assert!(chain_tip.metadata.block_height == 2);
+                    assert!(chain_tip.metadata.stacks_block_height == 2);
                     // Block #1 should have 2 txs -- coinbase + transfer
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
@@ -1253,12 +1253,12 @@ fn contract_stx_transfer() {
                     );
                 }
                 2 => {
-                    assert!(chain_tip.metadata.block_height == 3);
+                    assert!(chain_tip.metadata.stacks_block_height == 3);
                     // Block #2 should have 2 txs -- coinbase + publish
                     assert_eq!(chain_tip.block.txs.len(), 2);
                 }
                 3 => {
-                    assert!(chain_tip.metadata.block_height == 4);
+                    assert!(chain_tip.metadata.stacks_block_height == 4);
                     // Block #3 should have 2 txs -- coinbase + contract-call,
                     //   the second publish _should have been rejected_
                     assert_eq!(chain_tip.block.txs.len(), 2);
@@ -1305,7 +1305,7 @@ fn contract_stx_transfer() {
                     );
                 }
                 4 => {
-                    assert!(chain_tip.metadata.block_height == 5);
+                    assert!(chain_tip.metadata.stacks_block_height == 5);
                     assert_eq!(
                         chain_tip.block.txs.len() as u64,
                         MAXIMUM_MEMPOOL_TX_CHAINING + 1,
@@ -1463,19 +1463,19 @@ fn mine_transactions_out_of_order() {
 
             match round {
                 1 => {
-                    assert_eq!(chain_tip.metadata.block_height, 2);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 2);
                     assert_eq!(chain_tip.block.txs.len(), 1);
                 }
                 2 => {
-                    assert_eq!(chain_tip.metadata.block_height, 3);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 3);
                     assert_eq!(chain_tip.block.txs.len(), 1);
                 }
                 3 => {
-                    assert_eq!(chain_tip.metadata.block_height, 4);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 4);
                     assert_eq!(chain_tip.block.txs.len(), 1);
                 }
                 4 => {
-                    assert_eq!(chain_tip.metadata.block_height, 5);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 5);
                     assert_eq!(chain_tip.block.txs.len(), 5);
 
                     // check that 1000 stx _was_ transfered to the contract principal
@@ -1722,7 +1722,7 @@ fn bad_contract_tx_rollback() {
 
             match round {
                 1 => {
-                    assert!(chain_tip.metadata.block_height == 2);
+                    assert!(chain_tip.metadata.stacks_block_height == 2);
                     // Block #1 should have 2 txs -- coinbase + transfer
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
@@ -1767,12 +1767,12 @@ fn bad_contract_tx_rollback() {
                     );
                 }
                 2 => {
-                    assert_eq!(chain_tip.metadata.block_height, 3);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 3);
                     // Block #2 should have 4 txs -- coinbase + 2 transfer + 1 publish
                     assert_eq!(chain_tip.block.txs.len(), 4);
                 }
                 3 => {
-                    assert_eq!(chain_tip.metadata.block_height, 4);
+                    assert_eq!(chain_tip.metadata.stacks_block_height, 4);
                     // Block #2 should have 1 txs -- coinbase
                     assert_eq!(chain_tip.block.txs.len(), 1);
                 }

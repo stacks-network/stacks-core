@@ -878,6 +878,7 @@ fn faucet_test() {
         get_balance(&http_origin, &addr_3) as u64,
         addr_3_init_balance - 1000 - 1000
     );
+
     assert_eq!(
         get_balance(&http_origin, &addr_2) as u64,
         addr_2_init_balance - 1000 + 1

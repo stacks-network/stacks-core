@@ -25,28 +25,26 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use address::AddressHashMode;
-use chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::LeaderKeyRegisterOp;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksPublicKey;
-use core::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
-use util_lib::db::Error as db_error;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
 
-use core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
+use crate::core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
 use clarity::vm::types::PrincipalData;
-pub use types::{Address, PrivateKey, PublicKey};
-use vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
-use vm::ClarityName;
+use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ClarityName;
+pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 
 pub mod burnchain;
 pub mod db;
@@ -486,8 +484,8 @@ impl BurnchainView {
                     use sha2::Digest;
                     use sha2::Sha256;
                     let mut hasher = Sha256::new();
-                    hasher.input(&i.to_le_bytes());
-                    hasher.result()
+                    hasher.update(&i.to_le_bytes());
+                    hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];
                 data_32.copy_from_slice(&data[0..32]);

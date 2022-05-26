@@ -22,8 +22,8 @@ use std::{error, fmt};
 
 use secp256k1;
 
-use deps_common::bitcoin::network;
-use deps_common::bitcoin::network::serialize;
+use crate::deps_common::bitcoin::network;
+use crate::deps_common::bitcoin::network::serialize;
 
 /// A trait which allows numbers to act as fixed-size bit arrays
 pub trait BitArray {

@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm;
-use vm::contexts::{Environment, LocalContext};
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
-use vm::errors::{
+use crate::vm;
+use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
-use vm::types::{OptionalData, ResponseData, TypeSignature, Value};
-use vm::{ClarityName, SymbolicExpression};
+use crate::vm::types::{OptionalData, ResponseData, TypeSignature, Value};
+use crate::vm::{ClarityName, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {

@@ -21,19 +21,19 @@ use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::time::Duration;
 
-use burnchains::{
+use crate::burnchains::{
     db::{BurnchainBlockData, BurnchainDB},
     Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
-use chainstate::burn::{
+use crate::chainstate::burn::{
     db::sortdb::SortitionDB, operations::leader_block_commit::RewardSetInfo,
     operations::BlockstackOperationType, BlockSnapshot, ConsensusHash,
 };
-use chainstate::coordinator::comm::{
+use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::{
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::{
     db::{
         accounts::MinerReward, ChainStateBootData, ClarityTx, MinerRewardInfo, StacksChainState,
         StacksHeaderInfo,
@@ -41,11 +41,13 @@ use chainstate::stacks::{
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
-use core::StacksEpoch;
-use monitoring::{increment_contract_calls_processed, increment_stx_blocks_processed_counter};
-use net::atlas::{AtlasConfig, AttachmentInstance};
-use util_lib::db::Error as DBError;
-use vm::{
+use crate::core::StacksEpoch;
+use crate::monitoring::{
+    increment_contract_calls_processed, increment_stx_blocks_processed_counter,
+};
+use crate::net::atlas::{AtlasConfig, AttachmentInstance};
+use crate::util_lib::db::Error as DBError;
+use clarity::vm::{
     costs::ExecutionCost,
     types::{PrincipalData, QualifiedContractIdentifier},
     Value,
@@ -55,7 +57,9 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
 };
-use vm::database::BurnStateDB;
+use clarity::vm::database::BurnStateDB;
+
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 
 pub use self::comm::CoordinatorCommunication;
 
@@ -113,13 +117,13 @@ impl RewardCycleInfo {
 pub trait BlockEventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlock,
-        metadata: StacksHeaderInfo,
-        receipts: Vec<StacksTransactionReceipt>,
+        block: &StacksBlock,
+        metadata: &StacksHeaderInfo,
+        receipts: &Vec<StacksTransactionReceipt>,
         parent: &StacksBlockId,
         winner_txid: Txid,
-        matured_rewards: Vec<MinerReward>,
-        matured_rewards_info: Option<MinerRewardInfo>,
+        matured_rewards: &Vec<MinerReward>,
+        matured_rewards_info: Option<&MinerRewardInfo>,
         parent_burn_block_hash: BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
@@ -335,6 +339,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             chain_id,
             &format!("{}/chainstate/", path),
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
         let canonical_sortition_tip =
@@ -511,7 +516,9 @@ impl<
             // at this point, we need to figure out if the sortition we are
             //  about to process is the first block in reward cycle.
             let reward_cycle_info = self.get_reward_cycle_info(&header)?;
-            let (next_snapshot, _, reward_set_info) = self
+            // bind a reference here to avoid tripping up the borrow-checker
+            let dispatcher_ref = &self.dispatcher;
+            let (next_snapshot, _) = self
                 .sortition_db
                 .evaluate_sortition(
                     &header,
@@ -519,15 +526,21 @@ impl<
                     &self.burnchain,
                     &last_processed_ancestor,
                     reward_cycle_info,
+                    |reward_set_info| {
+                        if let Some(dispatcher) = dispatcher_ref {
+                            dispatcher_announce_burn_ops(
+                                *dispatcher,
+                                &header,
+                                paid_rewards,
+                                reward_set_info,
+                            );
+                        }
+                    },
                 )
                 .map_err(|e| {
                     error!("ChainsCoordinator: unable to evaluate sortition {:?}", e);
                     Error::FailedToProcessSortition(e)
                 })?;
-
-            if let Some(dispatcher) = self.dispatcher {
-                dispatcher_announce_burn_ops(dispatcher, &header, paid_rewards, reward_set_info);
-            }
 
             let sortition_id = next_snapshot.sortition_id;
 
@@ -593,7 +606,9 @@ impl<
         );
 
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-        let mut processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+        let mut processed_blocks =
+            self.chain_state_db
+                .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
@@ -641,8 +656,12 @@ impl<
                                                 &event_data.value,
                                                 &contract_id,
                                                 block_receipt.header.index_block_hash(),
-                                                block_receipt.header.block_height,
+                                                block_receipt.header.stacks_block_height,
                                                 receipt.transaction.txid(),
+                                                Some(
+                                                    new_canonical_block_snapshot
+                                                        .canonical_stacks_tip_height,
+                                                ),
                                             );
                                             if let Some(attachment_instance) = res {
                                                 attachments_instances.insert(attachment_instance);
@@ -690,53 +709,9 @@ impl<
                         {
                             warn!("FeeEstimator failed to process block receipt";
                                   "stacks_block" => %block_hash,
-                                  "stacks_height" => %block_receipt.header.block_height,
+                                  "stacks_height" => %block_receipt.header.stacks_block_height,
                                   "error" => %e);
                         }
-                    }
-
-                    if let Some(dispatcher) = self.dispatcher {
-                        let metadata = &block_receipt.header;
-                        let winner_txid = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &self.sortition_db.index_conn(),
-                            canonical_sortition_tip,
-                            &block_hash,
-                        )
-                        .expect("FAIL: could not find block snapshot for winning block hash")
-                        .expect("FAIL: could not find block snapshot for winning block hash")
-                        .winning_block_txid;
-
-                        let block: StacksBlock = {
-                            let block_path = StacksChainState::get_block_path(
-                                &self.chain_state_db.blocks_path,
-                                &metadata.consensus_hash,
-                                &block_hash,
-                            )
-                            .unwrap();
-                            StacksChainState::consensus_load(&block_path).unwrap()
-                        };
-                        let stacks_block =
-                            StacksBlockId::new(&metadata.consensus_hash, &block_hash);
-
-                        let parent = self
-                            .chain_state_db
-                            .get_parent(&stacks_block)
-                            .expect("BUG: failed to get parent for processed block");
-
-                        dispatcher.announce_block(
-                            block,
-                            block_receipt.header,
-                            block_receipt.tx_receipts,
-                            &parent,
-                            winner_txid,
-                            block_receipt.matured_rewards,
-                            block_receipt.matured_rewards_info,
-                            block_receipt.parent_burn_block_hash,
-                            block_receipt.parent_burn_block_height,
-                            block_receipt.parent_burn_block_timestamp,
-                            &block_receipt.anchored_block_cost,
-                            &block_receipt.parent_microblocks_cost,
-                        );
                     }
 
                     // if, just after processing the block, we _know_ that this block is a pox anchor, that means
@@ -754,7 +729,10 @@ impl<
             // TODO: do something with a poison result
 
             let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
-            processed_blocks = self.chain_state_db.process_blocks(sortdb_handle, 1)?;
+            // Right before a block is set to processed, the event dispatcher will emit a new block event
+            processed_blocks =
+                self.chain_state_db
+                    .process_blocks(sortdb_handle, 1, self.dispatcher)?;
         }
 
         Ok(None)
@@ -857,4 +835,36 @@ pub fn check_chainstate_db_versions(
     }
 
     Ok(true)
+}
+
+/// Migrate all databases to their latest schemas.
+/// Verifies that this is possible as well
+pub fn migrate_chainstate_dbs(
+    epochs: &[StacksEpoch],
+    sortdb_path: &str,
+    chainstate_path: &str,
+    chainstate_marf_opts: Option<MARFOpenOpts>,
+) -> Result<(), Error> {
+    if !check_chainstate_db_versions(epochs, sortdb_path, chainstate_path)? {
+        warn!("Unable to migrate chainstate DBs to the latest schemas in the current epoch");
+        return Err(DBError::TooOldForEpoch.into());
+    }
+
+    if fs::metadata(&sortdb_path).is_ok() {
+        info!("Migrating sortition DB to the latest schema version");
+        SortitionDB::migrate_if_exists(&sortdb_path, epochs)?;
+    }
+    if fs::metadata(&chainstate_path).is_ok() {
+        info!("Migrating chainstate DB to the latest schema version");
+        let db_config = StacksChainState::get_db_config_from_path(&chainstate_path)?;
+
+        // this does the migration internally
+        let _ = StacksChainState::open(
+            db_config.mainnet,
+            db_config.chain_id,
+            chainstate_path,
+            chainstate_marf_opts,
+        )?;
+    }
+    Ok(())
 }

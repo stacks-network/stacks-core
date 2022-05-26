@@ -19,36 +19,36 @@ use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use address::AddressHashMode;
-use burnchains::Burnchain;
-use burnchains::{Address, PoxConstants};
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::Error;
-use clarity_vm::clarity::ClarityConnection;
-use core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
-use util::hash::Hash160;
-use vm::contexts::ContractContext;
-use vm::costs::{
+use crate::burnchains::Burnchain;
+use crate::burnchains::{Address, PoxConstants};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::Error;
+use crate::clarity_vm::clarity::ClarityConnection;
+use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use clarity::vm::contexts::ContractContext;
+use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
 };
-use vm::database::ClarityDatabase;
-use vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use vm::representations::ClarityName;
-use vm::representations::ContractName;
-use vm::types::{
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::representations::ClarityName;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::Hash160;
 
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::types;
 use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
-use chainstate::stacks::address::StacksAddressExtensions;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -367,27 +367,27 @@ pub mod test {
     use std::convert::From;
     use std::fs;
 
-    use burnchains::Address;
-    use burnchains::PublicKey;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::operations::BlockstackOperationType;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::db::*;
-    use chainstate::stacks::miner::test::*;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::Error as chainstate_error;
-    use chainstate::stacks::*;
-    use core::*;
-    use net::test::*;
-    use util::hash::to_hex;
-    use util::*;
-    use vm::contracts::Contract;
-    use vm::types::*;
+    use crate::burnchains::Address;
+    use crate::burnchains::PublicKey;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::db::*;
+    use crate::chainstate::burn::operations::BlockstackOperationType;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::miner::test::*;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::Error as chainstate_error;
+    use crate::chainstate::stacks::*;
+    use crate::core::*;
+    use crate::net::test::*;
+    use clarity::vm::contracts::Contract;
+    use clarity::vm::types::*;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::*;
 
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     use super::*;
 

@@ -16,7 +16,7 @@ RUN cp target/release/hyperchain-node /out
 
 FROM debian:stretch-slim
 
-RUN apt update && apt install -y netcat
+RUN apt update && apt install -y netcat openssl
 COPY --from=build /out/ /bin/
 
 CMD ["hyperchain-node", "mainnet"]

@@ -1,27 +1,27 @@
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
-use address::AddressHashMode;
-use burnchains::*;
-use chainstate::burn::db::sortdb::db_keys;
-use chainstate::burn::operations::{
+use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::db_keys;
+use crate::chainstate::burn::operations::{
     leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::StacksPublicKey;
-use core::*;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::*;
+use crate::util_lib::db::Error as db_error;
 use rand::RngCore;
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, Hash160};
-use util::vrf::*;
-use util_lib::db::Error as db_error;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::burn::*;
 use crate::util::hash::to_hex;
 use crate::vm::costs::ExecutionCost;
-use chainstate::burn::*;
-use types::chainstate::*;
+use stacks_common::types::chainstate::*;
 
 use super::sortdb::*;
 

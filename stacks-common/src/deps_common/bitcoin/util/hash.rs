@@ -25,14 +25,16 @@ use std::fmt;
 use std::io::{Cursor, Write};
 use std::mem;
 
-use ripemd160::Ripemd160;
+use ripemd::Ripemd160;
 use sha2::Digest;
 use sha2::Sha256;
 
-use deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps_common::bitcoin::network::serialize::{self, BitcoinHash, RawEncoder, SimpleEncoder};
-use util::uint::Uint256;
-use util::HexError;
+use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use crate::deps_common::bitcoin::network::serialize::{
+    self, BitcoinHash, RawEncoder, SimpleEncoder,
+};
+use crate::util::uint::Uint256;
+use crate::util::HexError;
 
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
 pub struct Sha256dHash(pub [u8; 32]);
@@ -59,9 +61,9 @@ impl Sha256dEncoder {
     pub fn into_hash(self) -> Sha256dHash {
         let mut second_sha = Sha256::new();
         let mut tmp = [0; 32];
-        tmp.copy_from_slice(self.0.result().as_slice());
-        second_sha.input(&tmp);
-        tmp.copy_from_slice(second_sha.result().as_slice());
+        tmp.copy_from_slice(self.0.finalize().as_slice());
+        second_sha.update(&tmp);
+        tmp.copy_from_slice(second_sha.finalize().as_slice());
         Sha256dHash(tmp)
     }
 }
@@ -70,57 +72,57 @@ impl SimpleEncoder for Sha256dEncoder {
     fn emit_u64(&mut self, v: u64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_u32(&mut self, v: u32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_u16(&mut self, v: u16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_i64(&mut self, v: i64) -> Result<(), serialize::Error> {
         let mut data = [0; 8];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_i32(&mut self, v: i32) -> Result<(), serialize::Error> {
         let mut data = [0; 4];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_i16(&mut self, v: i16) -> Result<(), serialize::Error> {
         let mut data = [0; 2];
         (&mut data[..]).write_all(&v.to_le_bytes()).unwrap();
-        self.0.input(&data);
+        self.0.update(&data);
         Ok(())
     }
 
     fn emit_i8(&mut self, v: i8) -> Result<(), serialize::Error> {
-        self.0.input(&[v as u8]);
+        self.0.update(&[v as u8]);
         Ok(())
     }
 
     fn emit_u8(&mut self, v: u8) -> Result<(), serialize::Error> {
-        self.0.input(&[v]);
+        self.0.update(&[v]);
         Ok(())
     }
 
     fn emit_bool(&mut self, v: bool) -> Result<(), serialize::Error> {
-        self.0.input(&[if v { 1 } else { 0 }]);
+        self.0.update(&[if v { 1 } else { 0 }]);
         Ok(())
     }
 }
@@ -130,8 +132,8 @@ impl Ripemd160Hash {
     pub fn from_data(data: &[u8]) -> Ripemd160Hash {
         let mut ret = [0; 20];
         let mut rmd = Ripemd160::new();
-        rmd.input(data);
-        ret.copy_from_slice(rmd.result().as_slice());
+        rmd.update(data);
+        ret.copy_from_slice(rmd.finalize().as_slice());
         Ripemd160Hash(ret)
     }
 }
@@ -143,10 +145,10 @@ impl Hash160 {
         let mut ret = [0; 20];
         let mut sha2 = Sha256::new();
         let mut rmd = Ripemd160::new();
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
-        rmd.input(&tmp);
-        ret.copy_from_slice(rmd.result().as_slice());
+        sha2.update(data);
+        tmp.copy_from_slice(sha2.finalize().as_slice());
+        rmd.update(&tmp);
+        ret.copy_from_slice(rmd.finalize().as_slice());
         Hash160(ret)
     }
 }
@@ -168,10 +170,10 @@ impl Sha256dHash {
         let Sha256dHash(mut ret): Sha256dHash = Default::default();
         let mut sha2 = Sha256::new();
         let mut sha2_2 = Sha256::new();
-        sha2.input(data);
-        ret.copy_from_slice(sha2.result().as_slice());
-        sha2_2.input(&ret);
-        ret.copy_from_slice(sha2_2.result().as_slice());
+        sha2.update(data);
+        ret.copy_from_slice(sha2.finalize().as_slice());
+        sha2_2.update(&ret);
+        ret.copy_from_slice(sha2_2.finalize().as_slice());
         Sha256dHash(ret)
     }
 
@@ -421,9 +423,9 @@ impl<T: BitcoinHash> MerkleRoot for Vec<T> {
 mod tests {
 
     use super::*;
-    use deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
-    use util::uint::Uint256;
+    use crate::deps_common::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::uint::Uint256;
 
     #[test]
     fn test_sha256d() {

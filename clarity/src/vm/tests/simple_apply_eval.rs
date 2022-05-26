@@ -16,8 +16,19 @@
 
 use std::collections::HashMap;
 
-use address::c32;
-use address::AddressHashMode;
+use crate::vm::ast::parse;
+use crate::vm::callables::DefinedFunction;
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use crate::vm::tests::execute;
+use crate::vm::types::signatures::*;
+use crate::vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
+use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
+use crate::vm::{eval, execute as vm_execute};
+use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
+use stacks_common::address::c32;
+use stacks_common::address::AddressHashMode;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::types::chainstate::StacksAddress;
@@ -25,20 +36,9 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex};
-use vm::ast::parse;
-use vm::callables::DefinedFunction;
-use vm::contexts::OwnedEnvironment;
-use vm::costs::LimitedCostTracker;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use vm::tests::execute;
-use vm::types::signatures::*;
-use vm::types::{BuffData, QualifiedContractIdentifier, TypeSignature};
-use vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype};
-use vm::{eval, execute as vm_execute};
-use vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 
-use vm::database::MemoryBackingStore;
-use vm::types::StacksAddressExtensions;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::StacksAddressExtensions;
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -344,7 +344,7 @@ fn test_simple_if_functions() {
     //  (with_else 3)
     //  (without_else 3)
 
-    use vm::callables::DefineType::Private;
+    use crate::vm::callables::DefineType::Private;
 
     let contract_id = QualifiedContractIdentifier::transient();
 

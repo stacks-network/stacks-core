@@ -150,6 +150,7 @@ contract_identifier = "<CONTRACT_NAME_HERE>"
 peer_host = "127.0.0.1"
 rpc_port = 20443
 peer_port = 20444
+rpc_ssl = false
 
 [[ustx_balance]]
 address = "STFTX3F4XCY7RS5VRHXP2SED0WC0YRKNWTNXD74P"

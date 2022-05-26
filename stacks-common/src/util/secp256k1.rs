@@ -16,18 +16,18 @@
 
 use secp256k1;
 use secp256k1::constants as LibSecp256k1Constants;
-use secp256k1::recovery::RecoverableSignature as LibSecp256k1RecoverableSignature;
-use secp256k1::recovery::RecoveryId as LibSecp256k1RecoveryID;
+use secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
+use secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
+use secp256k1::ecdsa::Signature as LibSecp256k1Signature;
 use secp256k1::Error as LibSecp256k1Error;
 use secp256k1::Message as LibSecp256k1Message;
 use secp256k1::PublicKey as LibSecp256k1PublicKey;
 use secp256k1::Secp256k1;
 use secp256k1::SecretKey as LibSecp256k1PrivateKey;
-use secp256k1::Signature as LibSecp256k1Signature;
 
-use types::PrivateKey;
-use types::PublicKey;
-use util::hash::{hex_bytes, to_hex};
+use crate::types::PrivateKey;
+use crate::types::PublicKey;
+use crate::util::hash::{hex_bytes, to_hex};
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -183,7 +183,7 @@ impl Secp256k1PublicKey {
                 .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
             let recovered_pubkey = ctx
-                .recover(&msg, &secp256k1_sig)
+                .recover_ecdsa(&msg, &secp256k1_sig)
                 .map_err(|_e| "Invalid signature: failed to recover public key")?;
 
             Ok(Secp256k1PublicKey {
@@ -200,7 +200,7 @@ impl Secp256k1PublicKey {
         sig: &LibSecp256k1RecoverableSignature,
     ) -> Result<LibSecp256k1PublicKey, &'static str> {
         _secp256k1.with(|ctx| {
-            ctx.recover(msg, sig)
+            ctx.recover_ecdsa(msg, sig)
                 .map_err(|_e| "Invalid signature: failed to recover public key")
         })
     }
@@ -226,7 +226,7 @@ impl PublicKey for Secp256k1PublicKey {
                 .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
             let recovered_pubkey = ctx
-                .recover(&msg, &secp256k1_sig)
+                .recover_ecdsa(&msg, &secp256k1_sig)
                 .map_err(|_e| "Invalid signature: failed to recover public key")?;
 
             if recovered_pubkey != self.key {
@@ -334,7 +334,7 @@ impl PrivateKey for Secp256k1PrivateKey {
                 "Invalid message: failed to decode data hash: must be a 32-byte hash"
             })?;
 
-            let sig = ctx.sign_recoverable(&msg, &self.key);
+            let sig = ctx.sign_ecdsa_recoverable(&msg, &self.key);
             Ok(MessageSignature::from_secp256k1_recoverable(&sig))
         })
     }
@@ -386,7 +386,7 @@ pub fn secp256k1_recover(
             &serialized_signature_arr[..64],
             rec_id,
         )?;
-        let recovered_pub = ctx.recover(&message, &recovered_sig)?;
+        let recovered_pub = ctx.recover_ecdsa(&message, &recovered_sig)?;
         let recovered_serialized = recovered_pub.serialize(); // 33 bytes version
 
         Ok(recovered_serialized)
@@ -402,8 +402,7 @@ pub fn secp256k1_verify(
         let message = LibSecp256k1Message::from_slice(message_arr)?;
         let expanded_sig = LibSecp256k1Signature::from_compact(&serialized_signature_arr[..64])?; // ignore 65th byte if present
         let pubkey = LibSecp256k1PublicKey::from_slice(pubkey_arr)?;
-
-        ctx.verify(&message, &expanded_sig, &pubkey)
+        ctx.verify_ecdsa(&message, &expanded_sig, &pubkey)
     })
 }
 
@@ -411,14 +410,14 @@ pub fn secp256k1_verify(
 mod tests {
     use super::*;
 
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
 
     use secp256k1;
     use secp256k1::PublicKey as LibSecp256k1PublicKey;
     use secp256k1::Secp256k1;
 
-    use util::get_epoch_time_ms;
-    use util::log;
+    use crate::util::get_epoch_time_ms;
+    use crate::util::log;
 
     struct KeyFixture<I, R> {
         input: I,

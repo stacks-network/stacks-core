@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::ast::build_ast;
-use vm::ast::errors::ParseErrors;
-use vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use vm::execute;
-use vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
+use crate::vm::ast::build_ast;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::execute;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();

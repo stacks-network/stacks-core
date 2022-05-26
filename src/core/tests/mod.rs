@@ -18,16 +18,15 @@ use std::cmp;
 use std::collections::HashSet;
 use std::io;
 
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::test::chainstate_path;
-use chainstate::stacks::db::test::instantiate_chainstate;
-use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
-use chainstate::stacks::db::StreamCursor;
-use chainstate::stacks::test::codec_all_transactions;
-use chainstate::stacks::{
+use crate::burnchains::Address;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::test::chainstate_path;
+use crate::chainstate::stacks::db::test::instantiate_chainstate;
+use crate::chainstate::stacks::db::test::instantiate_chainstate_with_balances;
+use crate::chainstate::stacks::db::StreamCursor;
+use crate::chainstate::stacks::test::codec_all_transactions;
+use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
     Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksPrivateKey,
     StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
@@ -35,27 +34,22 @@ use chainstate::stacks::{
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
-use chainstate::stacks::{
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use core::mempool::MemPoolWalkSettings;
-use core::mempool::TxTag;
-use core::mempool::{BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use net::Error as NetError;
-use net::HttpResponseType;
-use net::MemPoolSyncData;
-use stacks_common::types::chainstate::TrieHash;
-use util::get_epoch_time_ms;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
-use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
-use util_lib::bloom::test::setup_bloom_counter;
-use util_lib::bloom::*;
-use util_lib::db::{tx_begin_immediate, DBConn, FromRow};
-use util_lib::strings::StacksString;
-use vm::{
+use crate::core::mempool::MemPoolWalkSettings;
+use crate::core::mempool::TxTag;
+use crate::core::mempool::{BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::net::Error as NetError;
+use crate::net::HttpResponseType;
+use crate::net::MemPoolSyncData;
+use crate::util_lib::bloom::test::setup_bloom_counter;
+use crate::util_lib::bloom::*;
+use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
+use crate::util_lib::strings::StacksString;
+use clarity::vm::{
     database::HeadersDB,
     errors::Error as ClarityError,
     errors::RuntimeErrorType,
@@ -63,15 +57,21 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier},
     ClarityName, ContractName, Value,
 };
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
 
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
 use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
 use crate::{
     chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
 };
-use chainstate::stacks::index::TrieHashExtension;
-use chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
 use clarity::vm::types::StacksAddressExtensions;
 
 use super::MemPoolDB;
@@ -79,9 +79,9 @@ use super::MemPoolDB;
 use rand::prelude::*;
 use rand::thread_rng;
 
-use chainstate::stacks::db::blocks::MessageSignatureList;
-use codec::read_next;
-use codec::Error as codec_error;
+use crate::chainstate::stacks::db::blocks::MessageSignatureList;
+use stacks_common::codec::read_next;
+use stacks_common::codec::Error as codec_error;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -137,7 +137,7 @@ fn make_block(
         anchored_header,
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
-        block_height,
+        stacks_block_height: block_height,
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
@@ -149,8 +149,14 @@ fn make_block(
 
     let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
 
+    // instantiate the inner MARF
     chainstate_tx
-        .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
+        .put_indexed_all(
+            &StacksBlockId::new(&parent.0, &parent.1),
+            &new_index_hash,
+            &vec![],
+            &vec![],
+        )
         .unwrap();
 
     StacksChainState::insert_stacks_block_header(

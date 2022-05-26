@@ -18,13 +18,13 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 
-use net::Error as net_error;
-use net::PeerAddress;
+use crate::net::Error as net_error;
+use crate::net::PeerAddress;
 
 use regex::Captures;
 use regex::Regex;
 
-use util::log;
+use stacks_common::util::log;
 
 // IPv4 prefix to ASN/org map entry
 #[derive(Debug, Clone, PartialEq)]
@@ -228,9 +228,9 @@ impl ASEntry4 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use stacks_common::util::log;
     use std::io;
     use std::io::BufRead;
-    use util::log;
 
     struct asn_fixture {
         text: String,

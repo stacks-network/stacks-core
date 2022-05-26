@@ -24,18 +24,18 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{types::ToSql, OptionalExtension, Row};
 
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     query_count, query_row, query_row_columns, query_row_panic, query_rows, DBConn, FromColumn,
     FromRow,
 };
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
 use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
@@ -115,13 +115,13 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header(
-        tx: &mut StacksDBTx,
+        tx: &mut DBTx,
         parent_id: &StacksBlockId,
         tip_info: &StacksHeaderInfo,
         anchored_block_cost: &ExecutionCost,
     ) -> Result<(), Error> {
         assert_eq!(
-            tip_info.block_height,
+            tip_info.stacks_block_height,
             tip_info.anchored_header.total_work.work
         );
         assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
@@ -130,7 +130,7 @@ impl StacksChainState {
         let index_root = &tip_info.index_root;
         let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
-        let block_height = tip_info.block_height;
+        let block_height = tip_info.stacks_block_height;
         let burn_header_height = tip_info.burn_header_height;
         let burn_header_timestamp = tip_info.burn_header_timestamp;
 
@@ -258,7 +258,7 @@ impl StacksChainState {
         tip: &StacksHeaderInfo,
         height: u64,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
-        assert!(tip.block_height >= height);
+        assert!(tip.stacks_block_height >= height);
         StacksChainState::get_index_tip_ancestor(tx, &tip.index_block_hash(), height)
     }
 
@@ -288,7 +288,7 @@ impl StacksChainState {
         let mut ancestors = vec![];
         let mut ancestry_cursor = Some(upper_bound_header);
         while let Some(cursor) = ancestry_cursor.take() {
-            if cursor.block_height < lower_bound_height {
+            if cursor.stacks_block_height < lower_bound_height {
                 break;
             }
             let block_id = cursor.index_block_hash();

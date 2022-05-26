@@ -58,7 +58,7 @@ async fn serve(
 
     info!("Binding warp server.");
     let (_addr, server) =
-        warp::serve(all).bind_with_graceful_shutdown(([127, 0, 0, 1], observer_port), async {
+        warp::serve(all).bind_with_graceful_shutdown(([0, 0, 0, 0], observer_port), async {
             signal_receiver.await.ok();
         });
 

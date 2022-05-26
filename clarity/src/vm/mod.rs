@@ -52,30 +52,32 @@ pub mod clarity;
 
 // publish the non-generic StacksEpoch form for use throughout module
 use crate::types::StacksEpochId;
-pub use vm::database::clarity_db::StacksEpoch;
+pub use crate::vm::database::clarity_db::StacksEpoch;
 
-use vm::callables::CallableType;
-use vm::contexts::GlobalContext;
-pub use vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
-use vm::costs::{
+use crate::vm::callables::CallableType;
+use crate::vm::contexts::GlobalContext;
+pub use crate::vm::contexts::{CallStack, ContractContext, Environment, LocalContext};
+use crate::vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,
 };
-use vm::errors::{
+use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use vm::functions::define::DefineResult;
-pub use vm::types::Value;
-use vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use crate::vm::functions::define::DefineResult;
+pub use crate::vm::types::Value;
+use crate::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
+};
 
-pub use vm::representations::{
+pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
 
+pub use crate::vm::contexts::MAX_CONTEXT_DEPTH;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+pub use crate::vm::functions::stx_transfer_consolidated;
 use std::convert::{TryFrom, TryInto};
-pub use vm::contexts::MAX_CONTEXT_DEPTH;
-use vm::costs::cost_functions::ClarityCostFunction;
-pub use vm::functions::stx_transfer_consolidated;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -224,7 +226,7 @@ pub fn eval<'a>(
     env: &'a mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{
+    use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
@@ -409,7 +411,7 @@ pub fn execute_in_epoch(
     epoch: StacksEpochId,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
-    use vm::database::MemoryBackingStore;
+    use crate::vm::database::MemoryBackingStore;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone());
@@ -426,18 +428,18 @@ pub fn execute_in_epoch(
 #[cfg(test)]
 mod test {
     use crate::types::StacksEpochId;
-    use std::collections::HashMap;
-    use vm::callables::{DefineType, DefinedFunction};
-    use vm::costs::LimitedCostTracker;
-    use vm::database::MemoryBackingStore;
-    use vm::errors::RuntimeErrorType;
-    use vm::eval;
-    use vm::execute;
-    use vm::types::{QualifiedContractIdentifier, TypeSignature};
-    use vm::{
+    use crate::vm::callables::{DefineType, DefinedFunction};
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::RuntimeErrorType;
+    use crate::vm::eval;
+    use crate::vm::execute;
+    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+    use crate::vm::{
         CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
         Value,
     };
+    use std::collections::HashMap;
 
     #[test]
     fn test_simple_user_function() {

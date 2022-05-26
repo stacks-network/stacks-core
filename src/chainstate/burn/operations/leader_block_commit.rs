@@ -17,34 +17,34 @@
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::Txid;
 use crate::burnchains::{BitcoinNetworkType, StacksHyperOp, StacksHyperOpType};
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::Txid;
-use burnchains::{BurnchainRecipient, BurnchainSigner};
-use burnchains::{BurnchainTransaction, PublicKey};
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::{
+use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
+use crate::burnchains::{BurnchainTransaction, PublicKey};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::burn::SortitionId;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use core::STACKS_EPOCH_2_05_MARKER;
-use core::{StacksEpoch, StacksEpochId};
-use net::Error as net_error;
-use util::hash::to_hex;
-use util::log;
-use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::burn::SortitionId;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::core::STACKS_EPOCH_2_05_MARKER;
+use crate::core::{StacksEpoch, StacksEpochId};
+use crate::net::Error as net_error;
+use crate::types::chainstate::TrieHash;
+use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 // return type from parse_data below
 struct ParsedData {

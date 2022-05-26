@@ -24,17 +24,19 @@ use std::{cmp, fmt};
 
 use regex::Regex;
 
-use address::c32;
-use util::hash;
+use stacks_common::address::c32;
+use stacks_common::util::hash;
 
-use types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::StacksAddress;
 
-use vm::errors::{
+use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::representations::{
+    ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
+};
 
-pub use vm::types::signatures::{
+pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_32, BUFF_33,

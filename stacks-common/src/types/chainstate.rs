@@ -4,22 +4,22 @@ use std::io::Write;
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
-use sha2::Sha512Trunc256;
+use sha2::{Digest as Sha2Digest, Sha512_256};
 
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use util::secp256k1::MessageSignature;
-use util::vrf::VRFProof;
+use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use crate::util::secp256k1::MessageSignature;
+use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
-use util::vrf::VRF_PROOF_ENCODED_SIZE;
+use crate::util::secp256k1::Secp256k1PrivateKey;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 
-use codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
@@ -131,9 +131,9 @@ impl StacksBlockId {
         sortition_consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(sortition_consensus_hash);
+        let mut hasher = Sha512_256::new();
+        hasher.update(block_hash);
+        hasher.update(sortition_consensus_hash);
 
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)
