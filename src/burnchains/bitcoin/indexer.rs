@@ -456,9 +456,9 @@ impl BitcoinIndexer {
                     let interval_start_block = start_block / BLOCK_DIFFICULTY_CHUNK_SIZE - 2;
                     let base_block = interval_start_block * BLOCK_DIFFICULTY_CHUNK_SIZE;
                     let interval_headers =
-                        canonical_spv_client.read_block_headers(base_block, start_block)?;
+                        canonical_spv_client.read_block_headers(base_block, start_block + 1)?;
                     assert!(
-                        interval_headers.len() == (start_block - base_block) as usize,
+                        interval_headers.len() >= (start_block - base_block) as usize,
                         "BUG: missing headers for {}-{}",
                         base_block,
                         start_block
