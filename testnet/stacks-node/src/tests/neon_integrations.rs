@@ -579,12 +579,12 @@ fn mockstack_integration_test() {
 #[ignore]
 fn mockstack_wait_for_first_block() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
     conf.burnchain.first_burn_header_height = 16;
 
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -606,7 +606,7 @@ fn mockstack_wait_for_first_block() {
 
     // Walk up 16 + 1 blocks.
     btc_regtest_controller.next_block(None);
-    for i in 0..16 {
+    for _i in 0..16 {
         btc_regtest_controller.next_block(None);
     }
 
@@ -893,7 +893,7 @@ fn faucet_test() {
 fn no_contract_calls_forking_integration_test() {
     reset_static_burnblock_simulator_channel();
 
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
     conf.node.miner = true;
@@ -902,7 +902,7 @@ fn no_contract_calls_forking_integration_test() {
     conf.add_initial_balance(user_addr.to_string(), 10000000);
 
     test_observer::spawn();
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let burnchain = Burnchain::new(
         &conf.get_burn_db_path(),
@@ -915,7 +915,7 @@ fn no_contract_calls_forking_integration_test() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
-    let l2_rpc_origin = format!("http://{}", &conf.node.rpc_bind);
+    let _l2_rpc_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
@@ -964,7 +964,7 @@ fn no_contract_calls_forking_integration_test() {
     }
 
     let mut cursor = common_ancestor;
-    for i in 0..3 {
+    for _i in 0..3 {
         cursor = btc_regtest_controller.next_block(Some(cursor));
     }
 

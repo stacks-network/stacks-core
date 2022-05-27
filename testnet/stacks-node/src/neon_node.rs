@@ -10,7 +10,7 @@ use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use crate::burnchains::BurnchainController;
-use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
+use stacks::burnchains::{BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::burn::BlockSnapshot;

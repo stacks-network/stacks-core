@@ -196,7 +196,7 @@ fn test_drop_headers() {
 /// that will be the first block we record.
 #[test]
 fn test_first_header_hash_requires_waiting() {
-    let mut config = make_test_config();
+    let config = make_test_config();
 
     let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), config, true)
         .expect("Couldn't create indexer.");

@@ -20,7 +20,7 @@ use stacks::clarity::vm::Value as ClarityValue;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+    BlockHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
@@ -29,7 +29,7 @@ use stacks::vm::ClarityName;
 
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
-use crate::config::BurnchainConfig;
+
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 

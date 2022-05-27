@@ -4613,7 +4613,7 @@ impl StacksChainState {
     /// hyperchains fork yet.
     pub fn process_deposit_stx_ops(
         clarity_tx: &mut ClarityTx,
-        mut operations: Vec<DepositStxOp>,
+        operations: Vec<DepositStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
         let cost_so_far = clarity_tx.cost_so_far();
         let (all_receipts, _) =
@@ -4623,7 +4623,7 @@ impl StacksChainState {
                     .filter_map(|deposit_stx_op| {
                         let DepositStxOp {
                             txid,
-                            burn_header_hash,
+                            burn_header_hash: _,
                             amount,
                             sender,
                             ..
@@ -4677,7 +4677,7 @@ impl StacksChainState {
                     burn_header_hash,
                     hc_contract_id,
                     hc_function_name,
-                    name,
+                    name: _,
                     amount,
                     sender,
                     ..

@@ -7,26 +7,26 @@ use crate::neon;
 use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
-use clarity::util::get_epoch_time_secs;
+
 use clarity::vm::database::ClaritySerializable;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
-use reqwest::Response;
+
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::net::CallReadOnlyRequestBody;
-use stacks::net::RPCPeerInfoData;
+
 use stacks::util::hash::hex_bytes;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{Ordering};
+
 use std::time::{Duration, Instant};
 
 #[derive(std::fmt::Debug)]
@@ -778,7 +778,7 @@ fn l1_deposit_stx_integration_test() {
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
 
-    let mut l2_nonce = 0;
+    let _l2_nonce = 0;
 
     config.burnchain.contract_identifier =
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
