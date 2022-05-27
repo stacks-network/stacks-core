@@ -19,9 +19,7 @@ use stacks::chainstate::stacks::{
 use stacks::clarity::vm::Value as ClarityValue;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockId,
-};
+use stacks::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;

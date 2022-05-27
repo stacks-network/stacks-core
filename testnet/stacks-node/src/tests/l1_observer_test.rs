@@ -25,7 +25,7 @@ use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{Ordering};
+use std::sync::atomic::Ordering;
 
 use std::time::{Duration, Instant};
 
