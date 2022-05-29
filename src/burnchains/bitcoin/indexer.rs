@@ -703,7 +703,9 @@ impl BitcoinIndexer {
             let reorg_total_work = reorg_spv_client.update_chain_work()?;
             let orig_total_work = orig_spv_client.get_chain_work()?;
 
-            debug!("Bitcoin headers history is consistent up to {}", new_tip; "Orig chainwork" => %origin_total_work, "Reorg chainwork" => %reorg_total_work)i;
+            debug!("Bitcoin headers history is consistent up to {}", new_tip;
+                   "Orig chainwork" => %orig_total_work,
+                   "Reorg chainwork" => %reorg_total_work);
 
             if orig_total_work < reorg_total_work {
                 let reorg_tip = reorg_spv_client.get_headers_height()?;
