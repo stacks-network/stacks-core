@@ -147,10 +147,9 @@ macro_rules! construct_uint {
             pub fn to_u8_slice_be(&self) -> [u8; $n_words * 8] {
                 let mut ret = [0u8; $n_words * 8];
                 for i in 0..$n_words {
-                    let bytes = self.0[i].to_le_bytes();
-                    for j in 0..bytes.len() {
-                        ret[$n_words * 8 - 1 - (i * 8 + j)] = bytes[j];
-                    }
+                    let word_end = $n_words * 8 - (i * 8);
+                    let word_start = word_end - 8;
+                    ret[word_start..word_end].copy_from_slice(&self.0[i].to_be_bytes());
                 }
                 ret
             }
@@ -737,16 +736,17 @@ mod tests {
 
     #[test]
     pub fn hex_codec() {
-        let init = Uint256::from_u64(0xDEADBEEFDEADBEEF);
+        let init =
+            Uint256::from_u64(0xDEADBEEFDEADBEEF) << 64 | Uint256::from_u64(0x0102030405060708);
 
         // little-endian representation
-        let hex_init = "efbeaddeefbeadde000000000000000000000000000000000000000000000000";
+        let hex_init = "0807060504030201efbeaddeefbeadde00000000000000000000000000000000";
         assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
         assert_eq!(&init.to_hex_le(), hex_init);
         assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
 
         // big-endian representation
-        let hex_init = "000000000000000000000000000000000000000000000000deadbeefdeadbeef";
+        let hex_init = "00000000000000000000000000000000deadbeefdeadbeef0102030405060708";
         assert_eq!(Uint256::from_hex_be(&hex_init).unwrap(), init);
         assert_eq!(&init.to_hex_be(), hex_init);
         assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);

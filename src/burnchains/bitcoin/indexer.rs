@@ -453,7 +453,7 @@ impl BitcoinIndexer {
                     // * needs the last difficulty interval of headers (note that the current
                     // interval is `start_block / BLOCK_DIFFICULTY_CHUNK_SIZE - 1).
                     // * needs the last interval's chain work calculation
-                    let interval_start_block = start_block / BLOCK_DIFFICULTY_CHUNK_SIZE - 2;
+                    let interval_start_block = (start_block / BLOCK_DIFFICULTY_CHUNK_SIZE).saturating_sub(2);
                     let base_block = interval_start_block * BLOCK_DIFFICULTY_CHUNK_SIZE;
                     let interval_headers =
                         canonical_spv_client.read_block_headers(base_block, start_block + 1)?;
@@ -703,7 +703,7 @@ impl BitcoinIndexer {
             let reorg_total_work = reorg_spv_client.update_chain_work()?;
             let orig_total_work = orig_spv_client.get_chain_work()?;
 
-            debug!("Bitcoin headers history is consistent up to {}. Orig chainwork: {}, reorg chainwork: {}", new_tip, orig_total_work, reorg_total_work);
+            debug!("Bitcoin headers history is consistent up to {}", new_tip; "Orig chainwork" => %origin_total_work, "Reorg chainwork" => %reorg_total_work)i;
 
             if orig_total_work < reorg_total_work {
                 let reorg_tip = reorg_spv_client.get_headers_height()?;
