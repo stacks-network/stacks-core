@@ -453,7 +453,8 @@ impl BitcoinIndexer {
                     // * needs the last difficulty interval of headers (note that the current
                     // interval is `start_block / BLOCK_DIFFICULTY_CHUNK_SIZE - 1).
                     // * needs the last interval's chain work calculation
-                    let interval_start_block = (start_block / BLOCK_DIFFICULTY_CHUNK_SIZE).saturating_sub(2);
+                    let interval_start_block =
+                        (start_block / BLOCK_DIFFICULTY_CHUNK_SIZE).saturating_sub(2);
                     let base_block = interval_start_block * BLOCK_DIFFICULTY_CHUNK_SIZE;
                     let interval_headers =
                         canonical_spv_client.read_block_headers(base_block, start_block + 1)?;
