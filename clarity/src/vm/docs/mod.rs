@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use vm::analysis::type_checker::natives::SimpleNativeFunction;
-use vm::analysis::type_checker::TypedNativeFunction;
-use vm::costs::ExecutionCost;
-use vm::functions::define::DefineFunctions;
-use vm::functions::NativeFunctions;
-use vm::types::{FixedFunction, FunctionType, Value};
-use vm::variables::NativeVariables;
+use crate::vm::analysis::type_checker::natives::SimpleNativeFunction;
+use crate::vm::analysis::type_checker::TypedNativeFunction;
+use crate::vm::costs::ExecutionCost;
+use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::NativeFunctions;
+use crate::vm::types::{FixedFunction, FunctionType, Value};
+use crate::vm::variables::NativeVariables;
 
 pub mod contracts;
 
@@ -1687,7 +1687,7 @@ one of the following error codes:
 };
 
 fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
-    use vm::functions::NativeFunctions::*;
+    use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
         Add => make_for_simple_native(&ADD_API, &Add, name),
@@ -1815,7 +1815,7 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
 }
 
 fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
-    use vm::functions::define::DefineFunctions::*;
+    use crate::vm::functions::define::DefineFunctions::*;
     let name = define_type.get_name();
     match define_type {
         Constant => make_for_define(&DEFINE_CONSTANT_API, name),
@@ -1866,8 +1866,7 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
-    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
-    use vm::{
+    use crate::vm::{
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, STXBalance},
@@ -1876,18 +1875,19 @@ mod test {
         ContractContext, Error, GlobalContext, LimitedCostTracker, QualifiedContractIdentifier,
         Value,
     };
+    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use crate::vm::analysis::type_check;
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
     use crate::{
         types::chainstate::{BlockHeaderHash, BurnchainHeaderHash},
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
-    use vm::analysis::type_check;
 
-    use vm::costs::ExecutionCost;
+    use crate::vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};

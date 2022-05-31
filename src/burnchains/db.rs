@@ -22,16 +22,16 @@ use rusqlite::{
 };
 use serde_json;
 
-use burnchains::Txid;
-use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::stacks::index::MarfTrieId;
-use util_lib::db::{
+use crate::burnchains::Txid;
+use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::{
     query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct BurnchainDB {

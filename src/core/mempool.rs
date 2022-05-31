@@ -36,43 +36,44 @@ use rusqlite::NO_PARAMS;
 
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::{
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
     index::Error as MarfError, Error as ChainstateError, StacksTransaction,
 };
-use chainstate::stacks::{StacksMicroblock, TransactionPayload};
-use core::ExecutionCost;
-use core::StacksEpochId;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use monitoring::increment_stx_mempool_gc;
+use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
+use crate::core::ExecutionCost;
+use crate::core::StacksEpochId;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::monitoring::increment_stx_mempool_gc;
+use crate::util_lib::db::query_int;
+use crate::util_lib::db::query_row_columns;
+use crate::util_lib::db::query_rows;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::FromColumn;
+use crate::util_lib::db::{query_row, Error};
+use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
+use clarity::vm::types::PrincipalData;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 use std::time::Instant;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::hash::Sha512Trunc256Sum;
-use util_lib::db::query_int;
-use util_lib::db::query_row_columns;
-use util_lib::db::query_rows;
-use util_lib::db::sqlite_open;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::tx_busy_handler;
-use util_lib::db::u64_to_sql;
-use util_lib::db::Error as db_error;
-use util_lib::db::FromColumn;
-use util_lib::db::{query_row, Error};
-use util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
-use vm::types::PrincipalData;
 
-use net::MemPoolSyncData;
+use crate::net::MemPoolSyncData;
 
-use util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
+use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 
-use clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::StacksBlock;
 use crate::codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
@@ -85,7 +86,6 @@ use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use crate::util_lib::db::table_exists;
-use chainstate::stacks::miner::TransactionEvent;
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;
@@ -776,7 +776,7 @@ impl MemPoolDB {
             }
         }
 
-        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path)
+        let (chainstate, _) = StacksChainState::open(mainnet, chain_id, chainstate_path, None)
             .map_err(|e| db_error::Other(format!("Failed to open chainstate: {:?}", &e)))?;
 
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));

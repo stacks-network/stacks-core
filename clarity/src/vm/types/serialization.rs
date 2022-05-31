@@ -22,19 +22,19 @@ use std::{error, fmt, str};
 
 use serde_json::Value as JSONValue;
 
-use util::hash::{hex_bytes, to_hex};
-use util::retry::BoundReader;
-use vm::database::{ClarityDeserializable, ClaritySerializable};
-use vm::errors::{
+use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
+use crate::vm::errors::{
     CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
     RuntimeErrorType,
 };
-use vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
-use vm::types::{
+use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::vm::types::{
     BufferLength, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
     SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length,
     TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
 };
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::retry::BoundReader;
 
 use crate::codec::{Error as codec_error, StacksMessageCodec};
 use crate::vm::types::byte_len_of_serialization;
@@ -750,9 +750,9 @@ impl std::hash::Hash for Value {
 mod tests {
     use std::io::Write;
 
-    use vm::database::{ClarityDeserializable, ClaritySerializable};
-    use vm::errors::Error;
-    use vm::types::TypeSignature::{BoolType, IntType};
+    use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
+    use crate::vm::errors::Error;
+    use crate::vm::types::TypeSignature::{BoolType, IntType};
 
     use super::super::*;
     use super::SerializationError;

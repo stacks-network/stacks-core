@@ -20,17 +20,17 @@
 //! these blocks and the blockchain.
 //!
 
-use util::uint::Uint256;
+use crate::util::uint::Uint256;
 
-use deps_common::bitcoin::blockdata::constants::max_target;
-use deps_common::bitcoin::blockdata::transaction::Transaction;
-use deps_common::bitcoin::network::constants::Network;
-use deps_common::bitcoin::network::encodable::VarInt;
-use deps_common::bitcoin::network::serialize::BitcoinHash;
-use deps_common::bitcoin::util;
-use deps_common::bitcoin::util::hash::Sha256dHash;
-use deps_common::bitcoin::util::Error;
-use deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
+use crate::deps_common::bitcoin::blockdata::constants::max_target;
+use crate::deps_common::bitcoin::blockdata::transaction::Transaction;
+use crate::deps_common::bitcoin::network::constants::Network;
+use crate::deps_common::bitcoin::network::encodable::VarInt;
+use crate::deps_common::bitcoin::network::serialize::BitcoinHash;
+use crate::deps_common::bitcoin::util;
+use crate::deps_common::bitcoin::util::hash::Sha256dHash;
+use crate::deps_common::bitcoin::util::Error;
+use crate::deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -152,7 +152,7 @@ impl BlockHeader {
 
 impl BitcoinHash for BlockHeader {
     fn bitcoin_hash(&self) -> Sha256dHash {
-        use deps_common::bitcoin::network::serialize::serialize;
+        use crate::deps_common::bitcoin::network::serialize::serialize;
         Sha256dHash::from_data(&serialize(self).unwrap())
     }
 }
@@ -177,10 +177,10 @@ impl_consensus_encoding!(LoneBlockHeader, header, tx_count);
 
 #[cfg(test)]
 mod tests {
-    use util::hash::hex_bytes as hex_decode;
+    use crate::util::hash::hex_bytes as hex_decode;
 
-    use deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
-    use deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
     fn block_test() {

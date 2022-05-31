@@ -15,20 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::char::from_digit;
+use std::convert::TryInto;
 use std::fmt;
 use std::fmt::Write;
 use std::mem;
 
-use util::log;
-use util::pair::*;
-use util::secp256k1::Secp256k1PublicKey;
-use util::HexError;
+use crate::util::log;
+use crate::util::pair::*;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::HexError;
 
-use ripemd160::Ripemd160;
-use sha2::{Digest, Sha256, Sha512, Sha512Trunc256};
+use ripemd::Ripemd160;
+use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
 
-use util::uint::Uint256;
+use crate::util::uint::Uint256;
 
 use crate::types::StacksPublicKeyBuffer;
 
@@ -180,8 +181,8 @@ impl Hash160 {
     pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
         let mut rmd = Ripemd160::new();
         let mut ret = [0u8; 20];
-        rmd.input(sha256_hash);
-        ret.copy_from_slice(rmd.result().as_slice());
+        rmd.update(sha256_hash);
+        ret.copy_from_slice(rmd.finalize().as_slice());
         Hash160(ret)
     }
 
@@ -210,10 +211,10 @@ impl Sha512Sum {
 
 impl Sha512Trunc256Sum {
     pub fn from_data(data: &[u8]) -> Sha512Trunc256Sum {
-        Sha512Trunc256Sum::from(Sha512Trunc256::digest(data).as_slice())
+        Sha512Trunc256Sum::from(Sha512_256::digest(data).as_slice())
     }
-    pub fn from_hasher(hasher: Sha512Trunc256) -> Sha512Trunc256Sum {
-        Sha512Trunc256Sum::from(hasher.result().as_slice())
+    pub fn from_hasher(hasher: Sha512_256) -> Sha512Trunc256Sum {
+        Sha512Trunc256Sum::from(hasher.finalize().as_slice())
     }
 }
 
@@ -225,9 +226,9 @@ impl MerkleHashFunc for Hash160 {
     fn from_tagged_data(tag: u8, data: &[u8]) -> Hash160 {
         let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
-        sha2.input(&[tag]);
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&[tag]);
+        sha2.update(data);
+        tmp.copy_from_slice(sha2.finalize().as_slice());
         Hash160::from_sha256(&tmp)
     }
 
@@ -245,9 +246,9 @@ impl MerkleHashFunc for Sha256Sum {
         let mut tmp = [0u8; 32];
 
         let mut sha2 = Sha256::new();
-        sha2.input(&[tag]);
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&[tag]);
+        sha2.update(data);
+        tmp.copy_from_slice(sha2.finalize().as_slice());
 
         Sha256Sum(tmp)
     }
@@ -267,13 +268,13 @@ impl MerkleHashFunc for DoubleSha256 {
         let mut tmp2 = [0u8; 32];
 
         let mut sha2_1 = Sha256::new();
-        sha2_1.input(&[tag]);
-        sha2_1.input(data);
-        tmp.copy_from_slice(sha2_1.result().as_slice());
+        sha2_1.update(&[tag]);
+        sha2_1.update(data);
+        tmp.copy_from_slice(sha2_1.finalize().as_slice());
 
         let mut sha2_2 = Sha256::new();
-        sha2_2.input(&tmp);
-        tmp2.copy_from_slice(sha2_2.result().as_slice());
+        sha2_2.update(&tmp);
+        tmp2.copy_from_slice(sha2_2.finalize().as_slice());
 
         DoubleSha256(tmp2)
     }
@@ -292,10 +293,10 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
         use sha2::Digest;
         let mut tmp = [0u8; 32];
 
-        let mut sha2 = Sha512Trunc256::new();
-        sha2.input(&[tag]);
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
+        let mut sha2 = Sha512_256::new();
+        sha2.update(&[tag]);
+        sha2.update(data);
+        tmp.copy_from_slice(sha2.finalize().as_slice());
 
         Sha512Trunc256Sum(tmp)
     }
@@ -307,21 +308,13 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
 
 impl Keccak256Hash {
     pub fn from_data(data: &[u8]) -> Keccak256Hash {
-        let mut tmp = [0u8; 32];
-        let mut digest = Keccak256::new();
-        digest.input(data);
-        tmp.copy_from_slice(digest.result().as_slice());
-        Keccak256Hash(tmp)
+        Keccak256Hash(Keccak256::digest(data).try_into().unwrap())
     }
 }
 
 impl Sha256Sum {
     pub fn from_data(data: &[u8]) -> Sha256Sum {
-        let mut tmp = [0u8; 32];
-        let mut sha2_1 = Sha256::new();
-        sha2_1.input(data);
-        tmp.copy_from_slice(sha2_1.result().as_slice());
-        Sha256Sum(tmp)
+        Sha256Sum(Sha256::digest(data).try_into().unwrap())
     }
     pub fn zero() -> Sha256Sum {
         Sha256Sum([0u8; 32])
@@ -330,17 +323,8 @@ impl Sha256Sum {
 
 impl DoubleSha256 {
     pub fn from_data(data: &[u8]) -> DoubleSha256 {
-        let mut tmp = [0u8; 32];
-
-        let mut sha2 = Sha256::new();
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
-
-        let mut sha2_2 = Sha256::new();
-        sha2_2.input(&tmp);
-        tmp.copy_from_slice(sha2_2.result().as_slice());
-
-        DoubleSha256(tmp)
+        let hashed = Sha256::digest(Sha256::digest(data));
+        DoubleSha256(hashed.try_into().unwrap())
     }
 
     /// Converts a hash to a little-endian Uint256

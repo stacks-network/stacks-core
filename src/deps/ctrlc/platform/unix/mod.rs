@@ -7,8 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use deps::ctrlc::error::Error as CtrlcError;
-use deps::ctrlc::SignalId;
+use crate::deps::ctrlc::error::Error as CtrlcError;
+use crate::deps::ctrlc::SignalId;
 use nix::unistd;
 use std::os::unix::io::RawFd;
 

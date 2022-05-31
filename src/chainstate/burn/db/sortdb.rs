@@ -23,6 +23,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
+use clarity::vm::costs::ExecutionCost;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -30,60 +31,60 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
-use sha2::{Digest, Sha512Trunc256};
-use vm::costs::ExecutionCost;
+use sha2::{Digest, Sha512_256};
 
-use address::AddressHashMode;
-use burnchains::BitcoinNetworkType;
-use burnchains::{Address, PublicKey, Txid};
-use burnchains::{
+use crate::address::AddressHashMode;
+use crate::burnchains::{Address, PublicKey, Txid};
+use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
     BurnchainTransaction, BurnchainView, Error as BurnchainError, PoxConstants,
 };
-use chainstate::burn::operations::{
+use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
     BlockstackOperationType, DepositFtOp, DepositNftOp, DepositStxOp, LeaderBlockCommitOp,
     LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
-use chainstate::burn::Opcodes;
-use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-use chainstate::coordinator::{Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo};
-use chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use chainstate::stacks::index::marf::MarfConnection;
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::index::{Error as MARFError, MarfTrieId};
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::*;
-use chainstate::ChainstateDB;
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::{Error as NetError, Error};
-use util::get_epoch_time_secs;
-use util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
-use util::log;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
-use util_lib::db::tx_begin_immediate;
-use util_lib::db::tx_busy_handler;
-use util_lib::db::Error as db_error;
-use util_lib::db::{
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::coordinator::{
+    Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
+};
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::*;
+use crate::chainstate::ChainstateDB;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::{Error as NetError, Error};
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::tx_busy_handler;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
-use vm::representations::{ClarityName, ContractName};
-use vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
-use chainstate::burn::ConsensusHashExtensions;
-use chainstate::stacks::address::StacksAddressExtensions;
-use chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
+use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
 };
+
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::vrf::VRFPublicKey;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
 
@@ -327,7 +328,7 @@ impl FromRow<DepositNftOp> for DepositNftOp {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "2";
+pub const SORTITION_DB_VERSION: &'static str = "3";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -519,6 +520,20 @@ const SORTITION_DB_SCHEMA_2: &'static [&'static str] = &[r#"
          PRIMARY KEY(start_block_height,epoch_id)
      );"#];
 
+const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
+    CREATE TABLE block_commit_parents (
+        block_commit_txid TEXT NOT NULL,
+        block_commit_sortition_id TEXT NOT NULL,
+
+        parent_sortition_id TEXT NOT NULL,
+
+        PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
+        FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
+    );"#];
+
+// update this to add new indexes
+const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_sortition_id";
+
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS snapshots_block_stacks_hashes ON snapshots(num_sortitions,index_root,winning_stacks_block_hash);",
@@ -534,7 +549,8 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_stack_stx_burn_header_hash ON stack_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_transfer_stx_burn_header_hash ON transfer_stx(burn_header_hash);",
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
-    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);"
+    "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
+    "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);",
 ];
 
 pub struct SortitionDB {
@@ -1488,7 +1504,8 @@ impl SortitionDB {
 
     fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open index at {}", index_path);
-        let marf = MARF::from_path(index_path).map_err(|_e| db_error::Corruption)?;
+        let open_opts = MARFOpenOpts::default();
+        let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
         Ok(marf)
     }
@@ -1595,7 +1612,8 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
     ) -> Result<SortitionDB, db_error> {
-        use core::StacksEpochExtension;
+        use crate::core::StacksEpochExtension;
+        use stacks_common::util::get_epoch_time_secs;
 
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
@@ -1751,6 +1769,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_SCHEMA_2 {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_3 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
@@ -1868,6 +1889,18 @@ impl SortitionDB {
         query_row(conn, qry, &args)
     }
 
+    /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
+    /// `txid` is the burnchain txid of a block-commit.
+    /// Because the block_commit_parents table is not populated on schema migration, the returned
+    /// value may be NULL (and this is okay).
+    pub fn get_block_commit_parent_sortition_id(
+        _conn: &Connection,
+        _txid: &Txid,
+        _sortition_id: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
+        panic!("Not implemented");
+    }
+
     /// Load up all snapshots, in ascending order by block height.  Great for testing!
     pub fn get_all_snapshots(&self) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots ORDER BY block_height ASC";
@@ -1909,8 +1942,8 @@ impl SortitionDB {
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
         match epoch {
             StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (version == "1" || version == "2"),
-            StacksEpochId::Epoch2_05 => version == "2",
+            StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
+            StacksEpochId::Epoch2_05 => (version == "2" || version == "3"),
         }
     }
 
@@ -1926,7 +1959,7 @@ impl SortitionDB {
         Ok(version)
     }
 
-    fn apply_schema_2(tx: &SortitionDBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+    fn apply_schema_2(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
@@ -1941,6 +1974,17 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_3(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_3 {
+            tx.execute_batch(sql_exec)?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["3"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -1948,10 +1992,8 @@ impl SortitionDB {
                 if version == expected_version {
                     Ok(())
                 } else {
-                    Err(db_error::Other(format!(
-                        "The version of the sortition DB {} does not match the expected {} and cannot be updated from SortitionDB::open()",
-                        version, expected_version
-                    )))
+                    let version_u64 = version.parse::<u64>().unwrap();
+                    Err(db_error::OldSchema(version_u64))
                 }
             }
             Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
@@ -1959,33 +2001,71 @@ impl SortitionDB {
         }
     }
 
-    fn check_schema_version_and_update(&mut self, epochs: &[StacksEpoch]) -> Result<(), db_error> {
-        let tx = self.tx_begin()?;
-        match SortitionDB::get_schema_version(&tx) {
-            Ok(Some(version)) => {
-                let expected_version = SORTITION_DB_VERSION.to_string();
-                if version == expected_version {
-                    return Ok(());
+    /// Migrate the sortition DB to its latest version, given the set of system epochs
+    pub fn check_schema_version_and_update(
+        &mut self,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
+        let expected_version = SORTITION_DB_VERSION.to_string();
+        loop {
+            match SortitionDB::get_schema_version(self.conn()) {
+                Ok(Some(version)) => {
+                    if version == "1" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_2(&tx.deref(), epochs)?;
+                        tx.commit()?;
+                    } else if version == "2" {
+                        // add the tables of schema 3, but do not populate them.
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_3(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == expected_version {
+                        return Ok(());
+                    } else {
+                        panic!("The schema version of the sortition DB is invalid.")
+                    }
                 }
-                if version == "1" {
-                    SortitionDB::apply_schema_2(&tx, epochs)?;
-                    tx.commit()?;
-                    Ok(())
-                } else {
-                    panic!("The schema version of the sortition DB is invalid.")
-                }
+                Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
+                Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
             }
-            Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+        }
+    }
+
+    /// Open and migrate the sortition DB if it exists.
+    pub fn migrate_if_exists(path: &str, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        if let Err(db_error::OldSchema(_)) = SortitionDB::open(path, false) {
+            let index_path = db_mkdirs(path)?;
+            let marf = SortitionDB::open_index(&index_path)?;
+            let mut db = SortitionDB {
+                marf,
+                readwrite: true,
+                // not used by migration logic
+                first_block_height: 0,
+                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+            };
+            db.check_schema_version_and_update(epochs)
+        } else {
+            Ok(())
         }
     }
 
     fn add_indexes(&mut self) -> Result<(), db_error> {
-        let tx = self.tx_begin()?;
-        for row_text in SORTITION_DB_INDEXES {
-            tx.execute_batch(row_text)?;
+        // do we need to instantiate indexes?
+        // only do a transaction if we need to, since this gets called each time the sortition DB
+        // is opened.
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            &[LAST_SORTITION_DB_INDEX],
+        )?
+        .unwrap_or(0);
+        if exists == 0 {
+            let tx = self.tx_begin()?;
+            for row_text in SORTITION_DB_INDEXES {
+                tx.execute_batch(row_text)?;
+            }
+            tx.commit()?;
         }
-        tx.commit()?;
         Ok(())
     }
 }
@@ -2231,6 +2311,9 @@ impl SortitionDB {
         Ok(Some(snapshot))
     }
 
+    /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
+    /// `burn_header`. Returns the new snapshot and burnchain state
+    /// transition.
     ///
     /// # Arguments
     /// * `burn_header` - the burnchain block header to process sortition for
@@ -2238,22 +2321,17 @@ impl SortitionDB {
     /// * `burnchain` - a reference to the burnchain information struct
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
-    ///
-    pub fn evaluate_sortition(
+    /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
+    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>) -> ()>(
         &mut self,
         burn_header: &BurnchainBlockHeader,
         ops: Vec<BlockstackOperationType>,
         burnchain: &Burnchain,
         from_tip: &SortitionId,
         next_pox_info: Option<RewardCycleInfo>,
-    ) -> Result<
-        (
-            BlockSnapshot,
-            BurnchainStateTransition,
-            Option<RewardSetInfo>,
-        ),
-        BurnchainError,
-    > {
+        announce_to: F,
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
         let parent_sort_id = self
             .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
             .ok_or_else(|| {
@@ -2296,9 +2374,13 @@ impl SortitionDB {
 
         sortition_db_handle.store_transition_ops(&new_snapshot.0.sortition_id, &new_snapshot.1)?;
 
+        announce_to(reward_set_info);
+
         // commit everything!
-        sortition_db_handle.commit()?;
-        Ok((new_snapshot.0, new_snapshot.1, reward_set_info))
+        sortition_db_handle.commit().expect(
+            "Failed to commit to sortition db after announcing reward set info, state corrupted.",
+        );
+        Ok((new_snapshot.0, new_snapshot.1))
     }
 
     #[cfg(test)]
@@ -3349,10 +3431,12 @@ impl<'a> SortitionHandleTx<'a> {
         values.append(&mut block_arrival_values);
 
         // store each indexed field
-        //  -- marf tx _must_ have already began
-        self.put_indexed_begin(&parent_snapshot.sortition_id, &snapshot.sortition_id)?;
-
-        let root_hash = self.put_indexed_all(&keys, &values)?;
+        let root_hash = self.put_indexed_all(
+            &parent_snapshot.sortition_id,
+            &snapshot.sortition_id,
+            &keys,
+            &values,
+        )?;
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok(root_hash)
     }

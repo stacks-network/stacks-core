@@ -10,6 +10,8 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Reference implementation of the Stacks 2.0 Blockchain"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
+edition = "2021"
+resolver = "2"
 
 [lib]
 name = "clarity"
@@ -49,3 +51,4 @@ assert-json-diff = "1.0.0"
 default = ["developer-mode"]
 developer-mode = []
 testing = []
+slog_json = ["stacks_common/slog_json"]

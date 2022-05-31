@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::contexts::{Environment, LocalContext};
+use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+use crate::vm::types::BuffData;
+use crate::vm::types::Value;
 use std::convert::TryFrom;
-use vm::contexts::{Environment, LocalContext};
-use vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use vm::types::BuffData;
-use vm::types::Value;
 
-use vm::costs::cost_functions::ClarityCostFunction;
-use vm::costs::runtime_cost;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::runtime_cost;
 
 define_named_enum!(NativeVariables {
     ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),

@@ -1,18 +1,18 @@
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
-use chainstate::stacks::events::StacksTransactionReceipt;
-use types::chainstate::TrieHash;
-use types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
-use util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use util::vrf::VRFProof;
-use vm::costs::ExecutionCost;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
 
+use crate::chainstate::stacks::db::blocks::MessageSignatureList;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
-use chainstate::stacks::db::blocks::MessageSignatureList;
 
 /// Make a block receipt from `tx_receipts` with some dummy values filled for test.
 #[cfg(test)]
@@ -33,7 +33,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
                 miner_signatures: MessageSignatureList::empty(),
             },
             microblock_tail: None,
-            block_height: 1,
+            stacks_block_height: 1,
             index_root: TrieHash([0; 32]),
             consensus_hash: ConsensusHash([2; 20]),
             burn_header_hash: BurnchainHeaderHash([1; 32]),

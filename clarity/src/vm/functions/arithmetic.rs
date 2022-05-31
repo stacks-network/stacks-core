@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
+use crate::vm::types::{TypeSignature, Value};
 use std::convert::TryFrom;
-use vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
-use vm::types::{TypeSignature, Value};
 
 use integer_sqrt::IntegerSquareRoot;
 

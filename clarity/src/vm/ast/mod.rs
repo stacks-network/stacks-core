@@ -23,11 +23,11 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use vm::errors::{Error, RuntimeErrorType};
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
+use crate::vm::errors::{Error, RuntimeErrorType};
 
-use vm::representations::SymbolicExpression;
-use vm::types::QualifiedContractIdentifier;
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::QualifiedContractIdentifier;
 
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
@@ -37,7 +37,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
-use vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 /// Legacy function
 pub fn parse(
@@ -73,10 +73,10 @@ pub fn build_ast<T: CostTracker>(
 mod test {
     use std::collections::HashMap;
 
-    use vm::ast::build_ast;
-    use vm::costs::LimitedCostTracker;
-    use vm::representations::depth_traverse;
-    use vm::types::QualifiedContractIdentifier;
+    use crate::vm::ast::build_ast;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::representations::depth_traverse;
+    use crate::vm::types::QualifiedContractIdentifier;
 
     #[test]
     fn test_expression_identification_tuples() {

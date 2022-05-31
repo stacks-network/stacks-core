@@ -39,52 +39,52 @@ use rand::thread_rng;
 
 use url;
 
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
-use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
-use net::asn::ASEntry4;
-use net::atlas::AtlasDB;
-use net::atlas::{AttachmentInstance, AttachmentsDownloader};
-use net::chat::ConversationP2P;
-use net::chat::NeighborStats;
-use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
-use net::connection::ReplyHandleP2P;
-use net::db::LocalPeer;
-use net::db::PeerDB;
-use net::download::BlockDownloader;
-use net::inv::*;
-use net::neighbors::*;
-use net::poll::NetworkPollState;
-use net::poll::NetworkState;
-use net::prune::*;
-use net::relay::RelayerStats;
-use net::relay::*;
-use net::relay::*;
-use net::rpc::RPCHandlerArgs;
-use net::server::*;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::*;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PublicKey;
-use util_lib::db::DBConn;
-use util_lib::db::Error as db_error;
-use vm::database::BurnStateDB;
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+use crate::net::asn::ASEntry4;
+use crate::net::atlas::AtlasDB;
+use crate::net::atlas::{AttachmentInstance, AttachmentsDownloader};
+use crate::net::chat::ConversationP2P;
+use crate::net::chat::NeighborStats;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::NetworkReplyHandle;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::LocalPeer;
+use crate::net::db::PeerDB;
+use crate::net::download::BlockDownloader;
+use crate::net::inv::*;
+use crate::net::neighbors::*;
+use crate::net::poll::NetworkPollState;
+use crate::net::poll::NetworkState;
+use crate::net::prune::*;
+use crate::net::relay::RelayerStats;
+use crate::net::relay::*;
+use crate::net::relay::*;
+use crate::net::rpc::RPCHandlerArgs;
+use crate::net::server::*;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::database::BurnStateDB;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::SortitionId;
-use chainstate::stacks::StacksBlockHeader;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -1922,7 +1922,7 @@ impl PeerNetwork {
         }
 
         for (event_id, convo) in self.peers.iter() {
-            if convo.is_authenticated() {
+            if convo.is_authenticated() && convo.stats.last_contact_time > 0 {
                 // have handshaked with this remote peer
                 if convo.stats.last_contact_time
                     + (convo.peer_heartbeat as u64)
@@ -3331,7 +3331,10 @@ impl PeerNetwork {
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
+            HttpRequestMetadata::from_host(
+                PeerHost::from_socketaddr(addr),
+                Some(self.burnchain_tip.canonical_stacks_tip_height),
+            ),
             sync_data,
             Some(page_id),
         );
@@ -5112,6 +5115,7 @@ impl PeerNetwork {
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
@@ -5122,16 +5126,15 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let stacks_epoch = match sortdb
             .index_conn()
-            .get_stacks_epoch(tip.block_height as u32)
+            .get_stacks_epoch(burnchain_tip.block_height as u32)
         {
             Some(epoch) => epoch,
             None => {
                 warn!(
                         "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        tip.block_height
+                        burnchain_tip.block_height
                     );
                 return false;
             }
@@ -5166,6 +5169,8 @@ impl PeerNetwork {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
 
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();
 
@@ -5176,6 +5181,7 @@ impl PeerNetwork {
                     mempool,
                     sortdb,
                     chainstate,
+                    &sn,
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
@@ -5197,6 +5203,7 @@ impl PeerNetwork {
                 mempool,
                 sortdb,
                 chainstate,
+                &sn,
                 &canonical_consensus_hash,
                 &canonical_block_hash,
                 tx,
@@ -5320,21 +5327,21 @@ mod test {
     use rand;
     use rand::RngCore;
 
+    use crate::burnchains::burnchain::*;
+    use crate::burnchains::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochExtension;
+    use crate::net::atlas::*;
+    use crate::net::codec::*;
+    use crate::net::db::*;
+    use crate::net::test::*;
+    use crate::net::*;
     use crate::types::chainstate::BurnchainHeaderHash;
-    use burnchains::burnchain::*;
-    use burnchains::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
+    use crate::util_lib::test::*;
     use clarity::vm::types::StacksAddressExtensions;
-    use core::StacksEpochExtension;
-    use net::atlas::*;
-    use net::codec::*;
-    use net::db::*;
-    use net::test::*;
-    use net::*;
-    use util::log;
-    use util::sleep_ms;
-    use util_lib::test::*;
+    use stacks_common::util::log;
+    use stacks_common::util::sleep_ms;
 
     use super::*;
 

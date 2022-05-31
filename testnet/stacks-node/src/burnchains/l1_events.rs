@@ -243,7 +243,7 @@ impl L1Controller {
             hash_mode.to_version_testnet()
         };
         StacksAddress::from_public_keys(addr_version, &hash_mode, 1, &vec![signer.get_public_key()])
-            .unwrap()
+            .expect("Failed to make Stacks address from public key")
     }
 
     fn make_mine_contract_call(

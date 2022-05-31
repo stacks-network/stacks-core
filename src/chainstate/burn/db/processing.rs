@@ -17,23 +17,23 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use address::AddressHashMode;
-use burnchains::{
+use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
-use chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
-use chainstate::burn::operations::{
+use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
+use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo},
     BlockstackOperationType, Error as OpError,
 };
-use chainstate::burn::BlockSnapshot;
-use chainstate::coordinator::RewardCycleInfo;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::index::{
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::coordinator::RewardCycleInfo;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::{
     marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
 };
-use core::INITIAL_MINING_BONUS_WINDOW;
-use util_lib::db::Error as DBError;
+use crate::core::INITIAL_MINING_BONUS_WINDOW;
+use crate::util_lib::db::Error as DBError;
+use stacks_common::address::AddressHashMode;
 
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
@@ -59,52 +59,60 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
-            BlockstackOperationType::DepositStx(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
-                    warn!(
-                        "REJECTED burnchain operation";
-                        "op" => "deposit_stx",
-                        "l1_stacks_block_id" => %op.burn_header_hash,
-                        "txid" => %op.txid,
-                        "amount" => %op.amount,
-                        "sender" => %op.sender,
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
-            BlockstackOperationType::DepositFt(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
-                    warn!(
-                        "REJECTED burnchain operation";
-                        "op" => "deposit_ft",
-                        "l1_stacks_block_id" => %op.burn_header_hash,
-                        "txid" => %op.txid,
-                        "l1_contract_id" => %op.l1_contract_id,
-                        "hc_contract_id" => %op.hc_contract_id,
-                        "name" => %op.name,
-                        "amount" => %op.amount,
-                        "sender" => %op.sender,
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
-            BlockstackOperationType::DepositNft(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
-                    warn!(
-                        "REJECTED burnchain operation";
-                        "op" => "deposit_nft",
-                        "l1_stacks_block_id" => %op.burn_header_hash,
-                        "txid" => %op.txid,
-                        "l1_contract_id" => %op.l1_contract_id,
-                        "hc_contract_id" => %op.hc_contract_id,
-                        "id" => %op.id,
-                        "sender" => %op.sender,
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
-            BlockstackOperationType::WithdrawStx(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+            BlockstackOperationType::DepositStx(ref op) => op.check(burnchain, self).map_err(|e| {
+                warn!(
+                    "REJECTED burnchain operation";
+                    "op" => "deposit_stx",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "amount" => %op.amount,
+                    "sender" => %op.sender,
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::DepositFt(ref op) => op.check(burnchain, self).map_err(|e| {
+                warn!(
+                    "REJECTED burnchain operation";
+                    "op" => "deposit_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "name" => %op.name,
+                    "amount" => %op.amount,
+                    "sender" => %op.sender,
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::DepositNft(ref op) => op.check(burnchain, self).map_err(|e| {
+                warn!(
+                    "REJECTED burnchain operation";
+                    "op" => "deposit_nft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "id" => %op.id,
+                    "sender" => %op.sender,
+                );
+                BurnchainError::OpError(e)
+            }),
+            BlockstackOperationType::WithdrawFt(ref op) => op.check(burnchain, self).map_err(|e| {
+                warn!(
+                    "REJECTED burnchain operation";
+                    "op" => "withdraw_ft",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "l1_contract_id" => %op.l1_contract_id,
+                    "hc_contract_id" => %op.hc_contract_id,
+                    "name" => %op.name,
+                    "amount" => %op.amount,
+                    "recipient" => %op.recipient,
+                );
+                BurnchainError::OpError(e)
+            }),
+           BlockstackOperationType::WithdrawStx(ref op) => {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "withdraw_stx",
@@ -116,23 +124,8 @@ impl<'a> SortitionHandleTx<'a> {
                     BurnchainError::OpError(e)
                 })
             }
-            BlockstackOperationType::WithdrawFt(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
-                    warn!(
-                        "REJECTED burnchain operation";
-                        "op" => "withdraw_ft",
-                        "l1_stacks_block_id" => %op.burn_header_hash,
-                        "txid" => %op.txid,
-                        "l1_contract_id" => %op.l1_contract_id,
-                        "name" => %op.name,
-                        "amount" => %op.amount,
-                        "recipient" => %op.recipient,
-                    );
-                    BurnchainError::OpError(e)
-                })
-            }
             BlockstackOperationType::WithdrawNft(ref op) => {
-                op.check(burnchain, self, reward_info).map_err(|e| {
+                op.check(burnchain, self).map_err(|e| {
                     warn!(
                         "REJECTED burnchain operation";
                         "op" => "withdraw_nft",
@@ -378,20 +371,19 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::SortitionDB;
-    use chainstate::burn::db::tests::test_append_snapshot;
-    use chainstate::burn::operations::{
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::SortitionDB;
+    use crate::chainstate::burn::db::tests::test_append_snapshot;
+    use crate::chainstate::burn::operations::{
         leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
-    use chainstate::burn::*;
-    use chainstate::stacks::address::StacksAddressExtensions;
-    use chainstate::stacks::index::TrieHashExtension;
-    use chainstate::stacks::StacksPublicKey;
-    use core::MICROSTACKS_PER_STACKS;
-    use util::{hash::hex_bytes, vrf::VRFPublicKey};
-
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use crate::core::MICROSTACKS_PER_STACKS;
     use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
 
     use super::*;
 

@@ -1,8 +1,7 @@
-use burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::operations::leader_block_commit::RewardSetInfo;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::WithdrawFtOp;
+use crate::burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::WithdrawFtOp;
 use clarity::types::chainstate::BurnchainHeaderHash;
 use std::convert::TryFrom;
 
@@ -37,7 +36,6 @@ impl WithdrawFtOp {
         &self,
         _burnchain: &Burnchain,
         _tx: &mut SortitionHandleTx,
-        _reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<(), op_error> {
         // good to go!
         Ok(())

@@ -27,48 +27,48 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::burnchains::StacksHyperOpType;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::db::BurnchainDB;
-use burnchains::indexer::{
+use crate::burnchains::db::BurnchainDB;
+use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
 };
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use burnchains::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::PublicKey;
+use crate::burnchains::StacksHyperOpType;
+use crate::burnchains::Txid;
+use crate::burnchains::{
     BurnchainBlock, BurnchainBlockHeader, BurnchainParameters, BurnchainRecipient, BurnchainSigner,
     BurnchainStateTransition, BurnchainTransaction, Error as burnchain_error, PoxConstants,
 };
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
-use chainstate::burn::operations::{
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
+use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
     DepositStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
     UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp, WithdrawStxOp,
 };
-use chainstate::burn::{BlockSnapshot, Opcodes};
-use chainstate::coordinator::comm::CoordinatorChannels;
-use chainstate::stacks::StacksPublicKey;
-use core::MINING_COMMITMENT_WINDOW;
-use core::NETWORK_ID_MAINNET;
-use core::NETWORK_ID_TESTNET;
-use core::PEER_VERSION_MAINNET;
-use core::PEER_VERSION_TESTNET;
-use deps;
-use monitoring::update_burnchain_height;
+use crate::chainstate::burn::{BlockSnapshot, Opcodes};
+use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::MINING_COMMITMENT_WINDOW;
+use crate::core::NETWORK_ID_MAINNET;
+use crate::core::NETWORK_ID_TESTNET;
+use crate::core::PEER_VERSION_MAINNET;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::deps;
+use crate::monitoring::update_burnchain_height;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::vrf::VRFPublicKey;
-use util_lib::db::DBConn;
-use util_lib::db::DBTx;
-use util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 use burnchains::StacksHyperOpType::WithdrawStx;

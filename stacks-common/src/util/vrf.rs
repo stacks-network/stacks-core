@@ -17,6 +17,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+use crate::util::hash::to_hex;
 use std::clone::Clone;
 use std::cmp::Eq;
 use std::cmp::Ord;
@@ -28,7 +29,6 @@ use std::hash::{Hash, Hasher};
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 use std::ops::Deref;
 use std::ops::DerefMut;
-use util::hash::to_hex;
 
 use ed25519_dalek::Keypair as VRFKeypair;
 use ed25519_dalek::PublicKey as ed25519_PublicKey;
@@ -44,8 +44,8 @@ use sha2::Sha512;
 use std::error;
 use std::fmt;
 
+use crate::util::hash::hex_bytes;
 use rand;
-use util::hash::hex_bytes;
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
@@ -419,23 +419,23 @@ impl VRF {
 
         let h: EdwardsPoint = loop {
             let mut hasher = Sha512::new();
-            hasher.input(&[SUITE, 0x01]);
-            hasher.input(y.as_bytes());
-            hasher.input(alpha);
+            hasher.update(&[SUITE, 0x01]);
+            hasher.update(y.as_bytes());
+            hasher.update(alpha);
 
             if ctr == 0 {
-                hasher.input(&[0u8]);
+                hasher.update(&[0u8]);
             } else {
                 // 2**64 - 1 is an artificial cap -- the RFC implies that you should count forever
                 let ctr_bytes = ctr.to_le_bytes();
                 for i in 0..8 {
                     if ctr > 1u64 << (8 * i) {
-                        hasher.input(&[ctr_bytes[i]]);
+                        hasher.update(&[ctr_bytes[i]]);
                     }
                 }
             }
 
-            let y = CompressedEdwardsY::from_slice(&hasher.result()[0..32]);
+            let y = CompressedEdwardsY::from_slice(&hasher.finalize()[0..32]);
             if let Some(h) = y.decompress() {
                 break h;
             }
@@ -461,13 +461,13 @@ impl VRF {
         let mut hash128 = [0u8; 16];
 
         // hasher.input(&[SUITE, 0x02]);
-        hasher.input(&[0x03, 0x02]);
-        hasher.input(&p1.compress().to_bytes());
-        hasher.input(&p2.compress().to_bytes());
-        hasher.input(&p3.compress().to_bytes());
-        hasher.input(&p4.compress().to_bytes());
+        hasher.update(&[0x03, 0x02]);
+        hasher.update(&p1.compress().to_bytes());
+        hasher.update(&p2.compress().to_bytes());
+        hasher.update(&p3.compress().to_bytes());
+        hasher.update(&p4.compress().to_bytes());
 
-        hash128.copy_from_slice(&hasher.result()[0..16]);
+        hash128.copy_from_slice(&hasher.finalize()[0..16]);
         hash128
     }
 
@@ -484,8 +484,8 @@ impl VRF {
         let privkey_buf = secret.to_bytes();
 
         // hash secret key to produce nonce and intermediate private key
-        hasher.input(&privkey_buf[0..32]);
-        h.copy_from_slice(&hasher.result()[..]);
+        hasher.update(&privkey_buf[0..32]);
+        h.copy_from_slice(&hasher.finalize()[..]);
 
         // h[0..32] will encode a new private key, so we need to twiddle a few bits to make sure it falls in the
         // right range (i.e. the curve order).
@@ -510,9 +510,9 @@ impl VRF {
         let mut k_string = [0u8; 64];
         let h_string = H_point.compress().to_bytes();
 
-        hasher.input(trunc_hash);
-        hasher.input(&h_string);
-        let rs = &hasher.result()[..];
+        hasher.update(trunc_hash);
+        hasher.update(&h_string);
+        let rs = &hasher.finalize()[..];
         k_string.copy_from_slice(rs);
 
         ed25519_Scalar::from_bytes_mod_order_wide(&k_string)
@@ -594,7 +594,7 @@ impl VRF {
 mod tests {
     use super::*;
 
-    use util::hash::hex_bytes;
+    use crate::util::hash::hex_bytes;
 
     use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
 

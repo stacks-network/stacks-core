@@ -16,14 +16,14 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use vm::analysis::type_checker::ContractAnalysis;
-use vm::database::{
+use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::type_checker::ContractAnalysis;
+use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
-use vm::representations::ClarityName;
-use vm::types::signatures::FunctionSignature;
-use vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use crate::vm::representations::ClarityName;
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,
@@ -73,7 +73,7 @@ impl<'a> AnalysisDatabase<'a> {
     //    even if the contract isn't published.
     #[cfg(test)]
     pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
-        use util::hash::Sha512Trunc256Sum;
+        use stacks_common::util::hash::Sha512Trunc256Sum;
         self.store
             .prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]));
     }

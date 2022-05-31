@@ -8,11 +8,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=blockstack-core",
+                    "--bin=stacks-inspect",
                     "--package=blockstack-core"
                 ],
                 "filter": {
-                    "name": "blockstack-core",
+                    "name": "stacks-inspect",
                     "kind": "bin"
                 }
             },
@@ -118,11 +118,11 @@
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=blockstack-core",
+                    "--bin=stacks-inspect",
                     "--package=blockstack-core"
                 ],
                 "filter": {
-                    "name": "blockstack-core",
+                    "name": "stacks-inspect",
                     "kind": "bin"
                 }
             },
