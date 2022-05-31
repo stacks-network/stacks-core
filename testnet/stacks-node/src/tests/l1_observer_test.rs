@@ -442,6 +442,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let l1_rpc_origin = "http://127.0.0.1:20443";
     let nft_trait_name = "nft-trait-standard";
     let ft_trait_name = "ft-trait-standard";
+    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -507,6 +508,16 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         &nft_trait_content,
     );
     l1_nonce += 1;
+    let mint_from_hyperchain_trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar");
+    let mint_from_hyperchain_trait_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &mint_from_hyperchain_trait_name,
+        &mint_from_hyperchain_trait_content,
+    );
+    l1_nonce += 1;
     // Publish a simple FT and NFT
     let ft_content = include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
     let ft_publish = make_contract_publish(
@@ -544,6 +555,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     submit_tx(l1_rpc_origin, &ft_trait_publish);
     submit_tx(l1_rpc_origin, &nft_trait_publish);
+    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
     submit_tx(l1_rpc_origin, &nft_publish);
     submit_tx(l1_rpc_origin, &ft_publish);
     // Because the nonce ensures that the FT contract and NFT contract
@@ -1070,6 +1082,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             Value::UInt(1),
             Value::Principal(user_addr.into()),
             Value::none(),
+            Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::buff_from(root_hash.clone()).unwrap(),
             Value::buff_from(ft_withdrawal_leaf_hash).unwrap(),

@@ -20,7 +20,7 @@ depends_on = []
 
 [contracts.simple-ft]
 path = "contracts/helper/simple-ft.clar"
-depends_on = ["ft-trait-standard"]
+depends_on = ["ft-trait-standard", "mint-from-hyperchain-trait-standard"]
 
 [contracts.hyperchains]
 path = "contracts/hyperchains.clar"
