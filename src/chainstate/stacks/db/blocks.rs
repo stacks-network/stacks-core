@@ -82,10 +82,10 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::Error::NoSuchBlockError;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use crate::monitoring::set_last_execution_cost_observed;
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
-use clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 
 use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};

@@ -1,9 +1,9 @@
+use crate::burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::WithdrawStxOp;
 use clarity::types::chainstate::BurnchainHeaderHash;
 use std::convert::TryFrom;
-use crate::chainstate::burn::operations::WithdrawStxOp;
-use crate::burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 
 impl TryFrom<&StacksHyperOp> for WithdrawStxOp {
     type Error = op_error;

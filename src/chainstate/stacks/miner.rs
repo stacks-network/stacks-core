@@ -52,12 +52,12 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use clarity::vm::clarity::TransactionConnection;
 
 #[derive(Debug, Clone)]

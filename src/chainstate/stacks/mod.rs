@@ -74,8 +74,8 @@ pub mod transaction;
 
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::db::blocks::MessageSignatureList;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,

@@ -88,7 +88,8 @@ lazy_static! {
         minimum_recorded_height: Arc::new(Mutex::new(0)),
     });
     static ref NEXT_BURN_BLOCK: Arc<Mutex<u64>> = Arc::new(Mutex::new(1));
-    static ref NEXT_COMMIT_AND_WTIHDRAWAL_ROOT: Arc<Mutex<Option<(BlockHeaderHash, Sha512Trunc256Sum)>>> = Arc::new(Mutex::new(None));
+    static ref NEXT_COMMIT_AND_WTIHDRAWAL_ROOT: Arc<Mutex<Option<(BlockHeaderHash, Sha512Trunc256Sum)>>> =
+        Arc::new(Mutex::new(None));
 }
 
 fn make_mock_byte_string(from: i64) -> [u8; 32] {
@@ -214,44 +215,51 @@ impl MockController {
     pub fn next_block(&mut self, specify_parent: Option<u64>) -> u64 {
         let mut acquired_next_burn_block = self.next_burn_block.lock().unwrap(); // acquire the lock on "next burn block"
         let this_burn_block = *acquired_next_burn_block; // const view on the index of the block we are adding now
-        let mut next_commit_and_withdrawal_root = self.next_commit_and_withdrawal_root.lock().unwrap();
+        let mut next_commit_and_withdrawal_root =
+            self.next_commit_and_withdrawal_root.lock().unwrap();
 
-        let tx_event = next_commit_and_withdrawal_root.take().map(|(next_commit, next_withdrawal_root)| {
-            let mocked_txid = Txid(next_commit.0.clone());
-            let topic = "print".into();
-            let contract_identifier = self.contract_identifier.clone();
-            let value = TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    ClarityValue::string_ascii_from_bytes("block-commit".as_bytes().to_vec())
-                        .unwrap(),
-                ),
-                (
-                    "block-commit".into(),
-                    ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
-                ),
-                (
-                    "withdrawal-root".into(),
-                    ClarityValue::buff_from(next_withdrawal_root.as_bytes().to_vec()).unwrap(),
-                ),
-            ])
-            .expect("Should be a legal Clarity tuple")
-            .into();
+        let tx_event =
+            next_commit_and_withdrawal_root
+                .take()
+                .map(|(next_commit, next_withdrawal_root)| {
+                    let mocked_txid = Txid(next_commit.0.clone());
+                    let topic = "print".into();
+                    let contract_identifier = self.contract_identifier.clone();
+                    let value = TupleData::from_data(vec![
+                        (
+                            "event".into(),
+                            ClarityValue::string_ascii_from_bytes(
+                                "block-commit".as_bytes().to_vec(),
+                            )
+                            .unwrap(),
+                        ),
+                        (
+                            "block-commit".into(),
+                            ClarityValue::buff_from(next_commit.0.to_vec()).unwrap(),
+                        ),
+                        (
+                            "withdrawal-root".into(),
+                            ClarityValue::buff_from(next_withdrawal_root.as_bytes().to_vec())
+                                .unwrap(),
+                        ),
+                    ])
+                    .expect("Should be a legal Clarity tuple")
+                    .into();
 
-            let contract_event = Some(ContractEvent {
-                topic,
-                contract_identifier,
-                value,
-            });
+                    let contract_event = Some(ContractEvent {
+                        topic,
+                        contract_identifier,
+                        value,
+                    });
 
-            NewBlockTxEvent {
-                txid: mocked_txid,
-                event_index: 0,
-                committed: true,
-                event_type: TxEventType::ContractEvent,
-                contract_event,
-            }
-        });
+                    NewBlockTxEvent {
+                        txid: mocked_txid,
+                        event_index: 0,
+                        committed: true,
+                        event_type: TxEventType::ContractEvent,
+                        contract_event,
+                    }
+                });
 
         let effective_parent = match specify_parent {
             Some(parent) => parent,
@@ -412,8 +420,11 @@ impl BurnchainController for MockController {
                 withdrawal_merkle_root,
                 ..
             }) => {
-                let mut next_commit_and_withdrawal_root = self.next_commit_and_withdrawal_root.lock().unwrap();
-                if let Some((prior_commit, prior_withdrawal_root)) = next_commit_and_withdrawal_root.replace((block_header_hash, withdrawal_merkle_root)) {
+                let mut next_commit_and_withdrawal_root =
+                    self.next_commit_and_withdrawal_root.lock().unwrap();
+                if let Some((prior_commit, prior_withdrawal_root)) = next_commit_and_withdrawal_root
+                    .replace((block_header_hash, withdrawal_merkle_root))
+                {
                     warn!("Mocknet controller replaced a staged commit";
                         "prior_commit" => %prior_commit,
                         "prior_withdrawal_root" => %prior_withdrawal_root);

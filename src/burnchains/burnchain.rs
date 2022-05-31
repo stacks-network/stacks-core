@@ -70,9 +70,9 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
 
+use crate::burnchains::StacksHyperOpType::WithdrawStx;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::types::chainstate::BurnchainHeaderHash;
-use burnchains::StacksHyperOpType::WithdrawStx;
-use chainstate::stacks::address::StacksAddressExtensions;
 
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {

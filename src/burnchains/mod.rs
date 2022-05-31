@@ -25,7 +25,6 @@ use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
 
-use address::AddressHashMode;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::Error as op_error;
@@ -34,10 +33,10 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::util_lib::db::Error as db_error;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use crate::util_lib::db::Error as db_error;
 
 use crate::core::BLOCK_INVENTORY_SYNC_CYCLE_SIZE;
 use stacks_common::types::chainstate::StacksAddress;

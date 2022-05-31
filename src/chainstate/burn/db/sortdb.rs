@@ -83,7 +83,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
 };
 
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFPublicKey;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
