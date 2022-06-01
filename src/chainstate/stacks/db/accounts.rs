@@ -1012,7 +1012,8 @@ impl StacksChainState {
     }
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
-    /// Returns a list of payments to make to each address -- miners and user-support burners.
+    /// Returns a list of payments to make to each address -- miners and user-support burners -- as
+    /// well as an info struct about where the rewards took place on the chain.
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
         tip: &StacksHeaderInfo,
@@ -1217,7 +1218,6 @@ mod test {
             new_tip.microblock_tail.clone(),
             &block_reward,
             &user_burns,
-            None,
             None,
             &ExecutionCost::zero(),
             123,
