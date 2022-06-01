@@ -13,7 +13,6 @@
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
 (define-constant ERR_VALIDATION_FAILED 10)
-(define-constant ERR_ASSET_ALREADY_ALLOWED_FOR_MINT 11)
 (define-constant ERR_MINT_FAILED 12)
 (define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 13)
 (define-constant ERR_IN_COMPUTATION 14)
@@ -30,8 +29,6 @@
 
 ;; Map of allowed contracts for asset transfers - maps contract principal to name of the deposit function in the given contract
 (define-map allowed-contracts principal (string-ascii 45))
-;; Map of assets this contract is allowed to mint in - this maps the contract principal to an arbitrary bool
-(define-map mint-allowed-contracts principal bool)
 
 ;; Testing info for 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5:
 ;;      secret_key: 7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801
@@ -53,9 +50,6 @@
         ;; Set up the assets that the contract is allowed to transfer
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
         (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-nft-token") (err ERR_ASSET_ALREADY_ALLOWED))
-
-        ;; Set up the assets that the contract is authorized to mint
-        (asserts! (map-insert mint-allowed-contracts .simple-nft true) (err ERR_ASSET_ALREADY_ALLOWED_FOR_MINT))
 
         (ok true)
     )
@@ -226,7 +220,7 @@
 ;; Returns response<bool, int>
 (define-private (inner-transfer-ft-asset (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
     (let (
-            (call-result (as-contract (contract-call? ft-contract transfer amount sender recipient memo)))
+            (call-result (contract-call? ft-contract transfer amount sender recipient memo))
             (transfer-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
         )
         ;; Check that the transfer succeeded
@@ -238,7 +232,7 @@
 
 (define-private (inner-mint-ft-asset (amount uint) (sender principal) (recipient principal) (ft-mint-contract <mint-from-hyperchain-trait>))
     (let (
-            (call-result (as-contract (contract-call? ft-mint-contract mint-from-hyperchain amount sender recipient)))
+            (call-result (contract-call? ft-mint-contract mint-from-hyperchain amount sender recipient))
             (mint-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
         )
         ;; Check that the transfer succeeded
@@ -308,8 +302,6 @@
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
-        (asserts! (> amount u0) (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT))
-
         ;; TODO: should check leaf validity
 
         (asserts! (try! (as-contract (inner-transfer-or-mint-ft-asset amount recipient memo ft-contract ft-mint-contract))) (err ERR_TRANSFER_FAILED))
@@ -329,6 +321,9 @@
 ;; Returns response<bool, int>
 (define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
+        ;; Check that the withdraw amount is positive
+        (asserts! (> amount u0) (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT))
+
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
 
