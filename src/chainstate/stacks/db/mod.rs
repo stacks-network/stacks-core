@@ -2161,8 +2161,7 @@ impl StacksChainState {
         microblock_tail_opt: Option<StacksMicroblockHeader>,
         block_reward: &MinerPaymentSchedule,
         user_burns: &Vec<StagingUserBurnSupport>,
-        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>, // (miner, [users], parent)
-        mature_rewards_info: Option<MinerRewardInfo>,
+        mature_miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, // (miner, [users], parent, matured rewards)
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,
@@ -2226,10 +2225,8 @@ impl StacksChainState {
             user_burns,
         )?;
 
-        if let Some((miner_payout, user_payouts, parent_payout)) = mature_miner_payouts {
-            let reward_info =
-                mature_rewards_info.expect("FATAL: have mature payouts but no rewards info");
-
+        if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts
+        {
             let rewarded_miner_block_id = StacksBlockHeader::make_index_block_hash(
                 &reward_info.from_block_consensus_hash,
                 &reward_info.from_stacks_block_hash,

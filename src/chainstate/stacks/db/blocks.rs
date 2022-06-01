@@ -5041,12 +5041,12 @@ impl StacksChainState {
     /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
-        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward)>,
+        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
         block_height: u32,
         mblock_pubkey_hash: Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) = miner_payouts {
+        if let Some((ref miner_reward, ref user_rewards, ref parent_reward, _)) = miner_payouts {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -5241,7 +5241,6 @@ impl StacksChainState {
             scheduled_miner_reward,
             block_execution_cost,
             matured_rewards,
-            matured_rewards_info,
             miner_payouts_opt,
             parent_burn_block_hash,
             parent_burn_block_height,
@@ -5339,8 +5338,9 @@ impl StacksChainState {
 
             let block_cost = clarity_tx.cost_so_far();
 
-            // obtain reward info for receipt
-            let (matured_rewards, matured_rewards_info, miner_payouts_opt) =
+            // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
+            // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
+            let (matured_rewards, miner_payouts_opt) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
                 {
@@ -5350,11 +5350,10 @@ impl StacksChainState {
                     ret.push(parent_reward.clone());
                     (
                         ret,
-                        Some(reward_ptr),
-                        Some((miner_reward, user_rewards, parent_reward)),
+                        Some((miner_reward, user_rewards, parent_reward, reward_ptr)),
                     )
                 } else {
-                    (vec![], None, None)
+                    (vec![], None)
                 };
 
             // total burns
@@ -5450,7 +5449,6 @@ impl StacksChainState {
                 scheduled_miner_reward,
                 block_cost,
                 matured_rewards,
-                matured_rewards_info,
                 miner_payouts_opt,
                 parent_burn_block_hash,
                 parent_burn_block_height,
@@ -5463,6 +5461,10 @@ impl StacksChainState {
             0 => None,
             x => Some(microblocks[x - 1].header.clone()),
         };
+
+        let matured_rewards_info = miner_payouts_opt
+            .as_ref()
+            .map(|(_, _, _, info)| info.clone());
 
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
@@ -5477,7 +5479,6 @@ impl StacksChainState {
             &scheduled_miner_reward,
             user_burns,
             miner_payouts_opt,
-            matured_rewards_info.clone(),
             &block_execution_cost,
             block_size,
             applied_epoch_transition,

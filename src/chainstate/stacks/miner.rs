@@ -1620,7 +1620,8 @@ impl StacksBlockBuilder {
                                     self.header.parent_block)
         );
 
-        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward)) = self.miner_payouts
+        if let Some((ref _miner_payout, ref _user_payouts, ref _parent_reward, ref _reward_info)) =
+            self.miner_payouts
         {
             test_debug!(
                 "Miner payout to process: {:?}; user payouts: {:?}; parent payout: {:?}",
@@ -1732,8 +1733,7 @@ impl StacksBlockBuilder {
             info.mainnet,
             Some(self.miner_id),
         )?;
-        self.miner_payouts =
-            matured_miner_rewards_opt.map(|(miner, users, parent, _)| (miner, users, parent));
+        self.miner_payouts = matured_miner_rewards_opt;
         self.total_confirmed_streamed_fees += microblock_fees as u64;
 
         Ok((clarity_tx, microblock_execution_cost))
