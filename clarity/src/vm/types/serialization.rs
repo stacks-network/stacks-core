@@ -18,7 +18,7 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
-use std::{error, fmt, str};
+use std::{cmp, error, fmt, str};
 
 use serde_json::Value as JSONValue;
 
@@ -51,6 +51,7 @@ pub enum SerializationError {
     BadTypeError(CheckErrors),
     DeserializationError(String),
     DeserializeExpected(TypeSignature),
+    LeftoverBytesInDeserialization,
 }
 
 lazy_static! {
@@ -74,6 +75,9 @@ impl std::fmt::Display for SerializationError {
                 "Deserialization expected the type of the input to be: {}",
                 e
             ),
+            SerializationError::LeftoverBytesInDeserialization => {
+                write!(f, "Deserialization error: bytes left over in buffer")
+            }
         }
     }
 }
@@ -287,13 +291,171 @@ macro_rules! check_match {
     };
 }
 
+impl TypeSignature {
+    /// Return the maximum length of the consensus serialization of a
+    /// Clarity value of this type. The returned length *may* not fit
+    /// in a Clarity buffer! For example, the maximum serialized
+    /// size of a `(buff 1024*1024)` is `1+1024*1024` because of the
+    /// type prefix byte. However, that is 1 byte larger than the maximum
+    /// buffer size in Clarity.
+    pub fn max_serialized_size(&self) -> Result<u32, CheckErrors> {
+        let type_prefix_size = 1;
+
+        let max_output_size = match self {
+            TypeSignature::NoType => {
+                // A `NoType` should *never* actually be evaluated
+                // (`NoType` corresponds to the Some branch of a
+                // `none` that is never matched with a corresponding
+                // `some` or similar with `result` types).  So, when
+                // serializing an object with a `NoType`, the other
+                // branch should always be used.
+                return Err(CheckErrors::CouldNotDetermineSerializationType);
+            }
+            TypeSignature::IntType => 16,
+            TypeSignature::UIntType => 16,
+            TypeSignature::BoolType => 0,
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)) => {
+                // u32 length as big-endian bytes
+                let list_length_encode = 4;
+                list_type
+                    .get_max_len()
+                    .checked_mul(list_type.get_list_item_type().max_serialized_size()?)
+                    .and_then(|x| x.checked_add(list_length_encode))
+                    .ok_or_else(|| CheckErrors::ValueTooLarge)?
+            }
+            TypeSignature::SequenceType(SequenceSubtype::BufferType(buff_length)) => {
+                // u32 length as big-endian bytes
+                let buff_length_encode = 4;
+                u32::from(buff_length)
+                    .checked_add(buff_length_encode)
+                    .ok_or_else(|| CheckErrors::ValueTooLarge)?
+            }
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                length,
+            ))) => {
+                // u32 length as big-endian bytes
+                let str_length_encode = 4;
+                // ascii is 1-byte per character
+                u32::from(length)
+                    .checked_add(str_length_encode)
+                    .ok_or_else(|| CheckErrors::ValueTooLarge)?
+            }
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                length,
+            ))) => {
+                // u32 length as big-endian bytes
+                let str_length_encode = 4;
+                // utf-8 is maximum 4 bytes per codepoint (which is the length)
+                u32::from(length)
+                    .checked_mul(4)
+                    .and_then(|x| x.checked_add(str_length_encode))
+                    .ok_or_else(|| CheckErrors::ValueTooLarge)?
+            }
+            TypeSignature::PrincipalType => {
+                // version byte + 20 byte hash160
+                let maximum_issuer_size = 21;
+                let contract_name_length_encode = 1;
+                // contract name maximum length is `MAX_STRING_LEN` (128), and ASCII
+                let maximum_contract_name = MAX_STRING_LEN as u32;
+                maximum_contract_name + maximum_issuer_size + contract_name_length_encode
+            }
+            TypeSignature::TupleType(tuple_type) => {
+                let type_map = tuple_type.get_type_map();
+                // u32 length as big-endian bytes
+                let tuple_length_encode: u32 = 4;
+                let mut total_size = tuple_length_encode;
+                for (key, value) in type_map.iter() {
+                    let value_size = value.max_serialized_size()?;
+                    total_size = total_size
+                        .checked_add(1) // length of key-name
+                        .and_then(|x| x.checked_add(key.len() as u32)) // ClarityName is ascii-only, so 1 byte per length
+                        .and_then(|x| x.checked_add(value_size))
+                        .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+                }
+                total_size
+            }
+            TypeSignature::OptionalType(ref some_type) => {
+                match some_type.max_serialized_size() {
+                    Ok(size) => size,
+                    // if NoType, then this is just serializing a none
+                    // value, which is only the type prefix
+                    Err(CheckErrors::CouldNotDetermineSerializationType) => 0,
+                    Err(e) => return Err(e),
+                }
+            }
+            TypeSignature::ResponseType(ref response_types) => {
+                let (ok_type, err_type) = response_types.as_ref();
+                let (ok_type_max_size, no_ok_type) = match ok_type.max_serialized_size() {
+                    Ok(size) => (size, false),
+                    Err(CheckErrors::CouldNotDetermineSerializationType) => (0, true),
+                    Err(e) => return Err(e),
+                };
+                let err_type_max_size = match err_type.max_serialized_size() {
+                    Ok(size) => size,
+                    Err(CheckErrors::CouldNotDetermineSerializationType) => {
+                        if no_ok_type {
+                            // if both the ok type and the error type are NoType,
+                            //  throw a CheckError. This should not be possible, but the check
+                            //  is done out of caution.
+                            return Err(CheckErrors::CouldNotDetermineSerializationType);
+                        } else {
+                            0
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
+                cmp::max(ok_type_max_size, err_type_max_size)
+            }
+            TypeSignature::TraitReferenceType(_) => {
+                return Err(CheckErrors::CouldNotDetermineSerializationType)
+            }
+        };
+
+        max_output_size
+            .checked_add(type_prefix_size)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)
+    }
+}
+
 impl Value {
     pub fn deserialize_read<R: Read>(
         r: &mut R,
         expected_type: Option<&TypeSignature>,
     ) -> Result<Value, SerializationError> {
+        Self::deserialize_read_count(r, expected_type).map(|(value, _)| value)
+    }
+
+    /// Deserialize just like `deserialize_read` but also
+    ///  return the bytes read
+    pub fn deserialize_read_count<R: Read>(
+        r: &mut R,
+        expected_type: Option<&TypeSignature>,
+    ) -> Result<(Value, u64), SerializationError> {
         let mut bound_reader = BoundReader::from_reader(r, BOUND_VALUE_SERIALIZATION_BYTES as u64);
-        Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)
+        let value = Value::inner_deserialize_read(&mut bound_reader, expected_type, 0)?;
+        let bytes_read = bound_reader.num_read();
+        if let Some(expected_type) = expected_type {
+            let expect_size = match expected_type.max_serialized_size() {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!(
+                        "Failed to determine max serialized size when checking expected_type argument";
+                        "err" => ?e
+                    );
+                    return Ok((value, bytes_read));
+                }
+            };
+
+            assert!(
+                expect_size as u64 >= bytes_read,
+                "Deserialized more bytes than expected size during deserialization. Expected size = {}, bytes read = {}, type = {}",
+                expect_size,
+                bytes_read,
+                expected_type,
+            );
+        }
+
+        Ok((value, bytes_read))
     }
 
     fn inner_deserialize_read<R: Read>(
@@ -611,13 +773,10 @@ impl Value {
         Ok(())
     }
 
-    /// This function attempts to deserialize a hex string into a Clarity Value.
-    ///   The `expected_type` parameter determines whether or not the deserializer should expect (and enforce)
-    ///   a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    ///   have their max-length and other type information set by the type declarations in the contract.
-    ///   If passed `None`, the deserializer will construct the values as if they were literals in the contract, e.g.,
-    ///     list max length = the length of the list.
-
+    /// This function attempts to deserialize a byte buffer into a Clarity Value.
+    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
+    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
+    /// have their max-length and other type information set by the type declarations in the contract.
     pub fn try_deserialize_bytes(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
@@ -625,12 +784,38 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected))
     }
 
+    /// This function attempts to deserialize a hex string into a Clarity Value.
+    /// The `expected_type` parameter tells the deserializer to expect (and enforce)
+    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
+    /// have their max-length and other type information set by the type declarations in the contract.
     pub fn try_deserialize_hex(
         hex: &str,
         expected: &TypeSignature,
     ) -> Result<Value, SerializationError> {
         let mut data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
         Value::try_deserialize_bytes(&mut data, expected)
+    }
+
+    /// This function attempts to deserialize a byte buffer into a
+    /// Clarity Value, while ensuring that the whole byte buffer is
+    /// consumed by the deserialization, erroring if it is not. The
+    /// `expected_type` parameter tells the deserializer to expect
+    /// (and enforce) a particular type. `ClarityDB` uses this to
+    /// ensure that lists, tuples, etc. loaded from the database have
+    /// their max-length and other type information set by the type
+    /// declarations in the contract.
+    pub fn try_deserialize_bytes_exact(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+    ) -> Result<Value, SerializationError> {
+        let input_length = bytes.len();
+        let (value, read_count) =
+            Value::deserialize_read_count(&mut bytes.as_slice(), Some(expected))?;
+        if read_count != (input_length as u64) {
+            Err(SerializationError::LeftoverBytesInDeserialization)
+        } else {
+            Ok(value)
+        }
     }
 
     pub fn try_deserialize_bytes_untyped(bytes: &Vec<u8>) -> Result<Value, SerializationError> {

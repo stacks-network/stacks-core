@@ -68,6 +68,7 @@ pub enum CheckErrors {
     ExpectedOptionalOrResponseValue(Value),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
+    CouldNotDetermineSerializationType,
     UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
@@ -425,6 +426,7 @@ impl DiagnosableError for CheckErrors {
             },
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
+            CheckErrors::CouldNotDetermineSerializationType => format!("could not determine the input type for the serialization function"),
         }
     }
 

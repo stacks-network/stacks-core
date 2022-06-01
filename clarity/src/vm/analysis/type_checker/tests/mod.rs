@@ -27,6 +27,7 @@ use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::execute_v2;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
@@ -72,6 +73,145 @@ fn buff_type(size: u32) -> TypeSignature {
 
 fn ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(StringType(ASCII(size.try_into().unwrap()))).into()
+}
+
+#[test]
+fn test_from_consensus_buff() {
+    let good = [
+        ("(from-consensus-buff int 0x00)", "(optional int)"),
+        (
+            "(from-consensus-buff { a: uint, b: principal } 0x00)",
+            "(optional (tuple (a uint) (b principal)))",
+        ),
+    ];
+
+    let bad = [
+        (
+            "(from-consensus-buff)",
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(from-consensus-buff 0x00 0x00 0x00)",
+            CheckErrors::IncorrectArgumentCount(2, 3),
+        ),
+        (
+            "(from-consensus-buff 0x00 0x00)",
+            CheckErrors::InvalidTypeDescription,
+        ),
+        (
+            "(from-consensus-buff int u6)",
+            CheckErrors::TypeError(TypeSignature::max_buffer(), TypeSignature::UIntType),
+        ),
+        (
+            "(from-consensus-buff (buff 1048576) 0x00)",
+            CheckErrors::ValueTooLarge,
+        ),
+    ];
+
+    for (good_test, expected) in good.iter() {
+        let type_result = type_check_helper(good_test).unwrap();
+        assert_eq!(expected, &type_result.to_string());
+
+        assert!(
+            type_result.admits(&execute_v2(good_test).unwrap().unwrap()),
+            "The analyzed type must admit the evaluated type"
+        );
+    }
+
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_to_consensus_buff() {
+    let good = [
+        (
+            "(to-consensus-buff (if true (some u1) (some u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok u1) (ok u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok 1) (err u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok 1) (err true)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok false) (err true)))",
+            "(optional (buff 2))",
+        ),
+        (
+            "(to-consensus-buff (if true (err u1) (err u2)))",
+            "(optional (buff 18))",
+        ),
+        ("(to-consensus-buff none)", "(optional (buff 1))"),
+        ("(to-consensus-buff 0x00)", "(optional (buff 6))"),
+        ("(to-consensus-buff \"a\")", "(optional (buff 6))"),
+        ("(to-consensus-buff u\"ab\")", "(optional (buff 13))"),
+        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", "(optional (buff 151))"),
+        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)", "(optional (buff 151))"),
+        ("(to-consensus-buff true)", "(optional (buff 1))"),
+        ("(to-consensus-buff -1)", "(optional (buff 17))"),
+        ("(to-consensus-buff u1)", "(optional (buff 17))"),
+        ("(to-consensus-buff (list 1 2 3 4))", "(optional (buff 73))"),
+        (
+            "(to-consensus-buff { apple: u1, orange: 2, blue: true })",
+            "(optional (buff 58))",
+        ),
+        (
+            "(define-private (my-func (x (buff 1048566)))
+           (to-consensus-buff x))
+          (my-func 0x001122334455)
+         ",
+            "(optional (buff 1048571))",
+        ),
+    ];
+
+    let bad = [
+        (
+            "(to-consensus-buff)",
+            CheckErrors::IncorrectArgumentCount(1, 0),
+        ),
+        (
+            "(to-consensus-buff 0x00 0x00)",
+            CheckErrors::IncorrectArgumentCount(1, 2),
+        ),
+        (
+            "(define-private (my-func (x (buff 1048576)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+        (
+            "(define-private (my-func (x (buff 1048570)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+        (
+            "(define-private (my-func (x (buff 1048567)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+    ];
+
+    for (good_test, expected) in good.iter() {
+        let type_result = type_check_helper(good_test).unwrap();
+        assert_eq!(expected, &type_result.to_string());
+
+        assert!(
+            type_result.admits(&execute_v2(good_test).unwrap().unwrap()),
+            "The analyzed type must admit the evaluated type"
+        );
+    }
+
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }
 
 #[test]
