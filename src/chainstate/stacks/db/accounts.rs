@@ -949,7 +949,7 @@ impl StacksChainState {
                     )
                 } else {
                     // users that helped a miner that reported a poison-microblock get nothing
-                    (StacksAddress::burn_address(mainnet), coinbase_reward, false)
+                    (StacksAddress::burn_address(mainnet), 0, false)
                 }
             } else {
                 // no poison microblock reported
