@@ -245,12 +245,14 @@ impl L1Controller {
             .expect("Failed to make Stacks address from public key")
     }
 
+    /// Create a `commit-block(commit_to, build_off)` contract call.
     fn make_mine_contract_call(
         &self,
         sender: &StacksPrivateKey,
         sender_nonce: u64,
         tx_fee: u64,
         commit_to: BlockHeaderHash,
+        build_off: BurnchainHeaderHash,
     ) -> Result<StacksTransaction, Error> {
         let QualifiedContractIdentifier {
             issuer: contract_addr,
@@ -262,12 +264,16 @@ impl L1Controller {
             TransactionVersion::Testnet
         };
         let committed_block = commit_to.as_bytes().to_vec();
+        let build_off_bytes = build_off.as_bytes().to_vec();
+
         let payload = TransactionContractCall {
             address: contract_addr.into(),
             contract_name,
             function_name: ClarityName::from("commit-block"),
             function_args: vec![
-                ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?
+                ClarityValue::buff_from(committed_block.clone())
+                    .map_err(|_| Error::BadCommitment)?,
+                ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
             ],
         };
 
@@ -319,6 +325,7 @@ impl L1Controller {
             nonce,
             fee,
             op.block_header_hash,
+            op.burn_header_hash,
         ) {
             Ok(x) => x,
             Err(e) => {

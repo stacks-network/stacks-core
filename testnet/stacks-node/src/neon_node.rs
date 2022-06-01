@@ -238,11 +238,14 @@ fn inner_generate_poison_microblock_tx(
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
-fn inner_generate_block_commit_op(block_header_hash: BlockHeaderHash) -> BlockstackOperationType {
+fn inner_generate_block_commit_op(
+    block_header_hash: BlockHeaderHash,
+    burn_header_hash: BurnchainHeaderHash,
+) -> BlockstackOperationType {
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         txid: Txid([0; 32]),
-        burn_header_hash: BurnchainHeaderHash([0; 32]),
+        burn_header_hash,
     })
 }
 
@@ -1881,7 +1884,10 @@ impl StacksNode {
         );
 
         // let's commit
-        let op = inner_generate_block_commit_op(anchored_block.block_hash());
+        let op = inner_generate_block_commit_op(
+            anchored_block.block_hash(),
+            burn_block.burn_header_hash.clone(),
+        );
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
