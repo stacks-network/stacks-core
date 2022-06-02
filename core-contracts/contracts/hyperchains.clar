@@ -56,10 +56,6 @@
    ))
 
 ;; Helper function: determines whether the commit-block operation can be carried out
-;; Fails if:
-;;  1) we have already committed at this block height
-;;  2) `target-block` is not the burn chain tip
-;;  3) the sender is not a miner
 (define-private (can-commit-block? (commit-block-height uint)  (target-block (buff 32)))
     (begin
         ;; check no block has been committed at this height
@@ -87,7 +83,15 @@
     )
 )
 
-;; Subnets miners call this to commit a block at a particular height
+;; Subnets miners call this to commit a block at a particular height.
+;; `block` is the hash of the block being submitted.
+;; `target-block` is the `id-header-hash` of the burn block (i.e., block on this chain) that
+;;   the miner intends to build off.
+;;
+;; Fails if:
+;;  1) we have already committed at this block height
+;;  2) `target-block` is not the burn chain tip (i.e., on this chain)
+;;  3) the sender is not a miner
 (define-public (commit-block (block (buff 32)) (target-block (buff 32)))
     (let ((commit-block-height block-height))
         (unwrap! (can-commit-block? commit-block-height target-block) (err ERR_VALIDATION_FAILED))
