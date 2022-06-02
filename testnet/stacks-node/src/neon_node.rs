@@ -1431,7 +1431,7 @@ impl StacksNode {
 
                 result
             };
-            info!(
+            debug!(
                 "relayer_issue_tenure: start_new_thread: {:?}",
                 &start_new_thread
             );
