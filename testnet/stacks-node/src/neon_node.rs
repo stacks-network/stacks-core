@@ -1,3 +1,4 @@
+use core::time;
 use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::collections::{HashSet, VecDeque};
@@ -100,6 +101,8 @@ pub struct StacksNode {
     pub atlas_config: AtlasConfig,
     pub p2p_thread_handle: JoinHandle<()>,
     pub relayer_thread_handle: JoinHandle<()>,
+    /// Includes the data for the next `RunTenure` directive. Once the "wait for micro-blocks" nap is over.
+    next_run_tenure_data: Arc<Mutex<Option<(BlockSnapshot, u128)>>>,
 }
 
 #[cfg(test)]
@@ -1081,6 +1084,10 @@ fn spawn_miner_relayer(
                         // stale request
                         continue;
                     }
+                    if last_mined_blocks.contains_key(&burnchain_tip.burn_header_hash) {
+                        // this miner has already made an anchored block for this burn block
+                        continue;
+                    }
                     if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
                         if burnchain_tip.sortition_id != cur_sortition.sortition_id {
                             debug!("Drop stale RunMicroblockTenure for {}/{}: current sortition is for {} ({})", &burnchain_tip.consensus_hash, &burnchain_tip.winning_stacks_block_hash, &cur_sortition.consensus_hash, &cur_sortition.burn_header_hash);
@@ -1394,6 +1401,7 @@ impl StacksNode {
             atlas_config,
             p2p_thread_handle,
             relayer_thread_handle,
+            next_run_tenure_data: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1406,17 +1414,72 @@ impl StacksNode {
         }
 
         if let Some(burnchain_tip) = get_last_sortition(&self.last_sortition) {
-            debug!(
-                "Tenure: Building off of {}",
-                &burnchain_tip.burn_header_hash
-            );
+            let relay_channel = self.relay_channel.clone();
+            let wait_before_first_anchored_block =
+                self.config.node.wait_before_first_anchored_block;
 
-            self.relay_channel
-                .send(RelayerDirective::RunTenure(
-                    burnchain_tip,
-                    get_epoch_time_ms(),
-                ))
-                .is_ok()
+            // Check if a thread to send the `RunTenure` directive is already running, and if not we should start one.
+            let start_new_thread = {
+                let mut next_run_tenure_data_mutex = self.next_run_tenure_data.lock().unwrap();
+
+                let result = match &*next_run_tenure_data_mutex {
+                    Some(_) => false,
+                    None => true,
+                };
+                // Update the shared data for the `RunTenure` directive.
+                *next_run_tenure_data_mutex = Some((burnchain_tip, get_epoch_time_ms()));
+
+                result
+            };
+            debug!(
+                "relayer_issue_tenure: start_new_thread: {:?}",
+                &start_new_thread
+            );
+            if start_new_thread {
+                let next_run_tenure_data = self.next_run_tenure_data.clone();
+                thread::spawn(move || {
+                    debug!(
+                            "relayer_issue_tenure: Spawning a thread to wait {} ms and then build off of then-leading tip.",
+                            wait_before_first_anchored_block,
+                        );
+
+                    thread::sleep(time::Duration::from_millis(
+                        wait_before_first_anchored_block,
+                    ));
+
+                    let mut tenure_data_view = next_run_tenure_data.lock().unwrap();
+                    match &*tenure_data_view {
+                        Some(relay_tenure_data) => {
+                            debug!(
+                                "relayer_issue_tenure: Have waited {} ms and now will build off of {:?}",
+                                wait_before_first_anchored_block, &relay_tenure_data.0
+                            );
+
+                            // Send the signal.
+                            let result = relay_channel
+                                .send(RelayerDirective::RunTenure(
+                                    relay_tenure_data.0.clone(),
+                                    relay_tenure_data.1,
+                                ))
+                                .is_ok();
+
+                            // Reset the mutex.
+                            *tenure_data_view = None;
+
+                            result
+                        }
+                        None => {
+                            debug!(
+                                "relayer_issue_tenure: Have waited {} but there is nothing to build off of any more.",
+                                wait_before_first_anchored_block,
+                            );
+                            true
+                        }
+                    }
+                });
+            }
+
+            true
         } else {
             warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
             true

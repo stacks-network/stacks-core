@@ -1101,12 +1101,24 @@ pub struct NodeConfig {
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
+    /// If true, this node is a miner, otherwise a follower.
     pub miner: bool,
+    /// If true, only do "mock mining", in which the miner doesn't actually send commitments.
+    /// Otherwise, if this is a miner, send commitments.
     pub mock_mining: bool,
+    /// If true, mine micro-blocks, otherwise don't.
     pub mine_microblocks: bool,
+    /// Try to mine a new micro-block every `microblock_frequency` milliseconds.
     pub microblock_frequency: u64,
+    /// The maximum number of micro-blocks this miner will try to make per burn block.
+    /// Note: This field is currently unused.
     pub max_microblocks: u64,
+    /// Wait this number of milliseconds: 1) before starting the first anchored block for a burn block,
+    /// and 2) before starting a new anchored block after another.
     pub wait_time_for_microblocks: u64,
+    /// Wait this amount of milliseconds, after learning of a new burn block, before starting on the first
+    /// anchored block for that burn block.
+    pub wait_before_first_anchored_block: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1403,6 +1415,7 @@ impl NodeConfig {
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
+            wait_before_first_anchored_block: 5 * 60_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
