@@ -534,10 +534,6 @@ fn l1_deposit_asset_integration_test() {
 
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
-    // Sleep to give the run loop time to listen to blocks,
-    //  and start mining L2 blocks
-    thread::sleep(Duration::from_secs(60));
-
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(
         &config.get_burn_db_path(),
@@ -545,7 +541,12 @@ fn l1_deposit_asset_integration_test() {
         &config.burnchain.mode,
     )
     .unwrap();
-    let (_, burndb) = burnchain.open_db(true).unwrap();
+    let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
@@ -648,8 +649,8 @@ fn l1_deposit_asset_integration_test() {
     submit_tx(l1_rpc_origin, &l1_mint_nft_tx);
     submit_tx(l1_rpc_origin, &hc_setup_tx);
 
-    // Sleep to give the run loop time to mine a block
-    thread::sleep(Duration::from_secs(30));
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // Check that the user does not own any of the fungible tokens on the hyperchain now
     let res = call_read_only(
@@ -713,8 +714,8 @@ fn l1_deposit_asset_integration_test() {
     // deposit nft-token into hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_deposit_nft_tx);
 
-    // Sleep to give the run loop time to mine a block
-    thread::sleep(Duration::from_secs(25));
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // Check that the user owns a fungible token on the hyperchain now
     let res = call_read_only(
@@ -854,9 +855,8 @@ fn l1_deposit_stx_integration_test() {
     submit_tx(l1_rpc_origin, &nft_trait_publish);
     submit_tx(l1_rpc_origin, &hc_contract_publish);
 
-    // Sleep to give the run loop time to listen to blocks,
-    //  and start mining L2 blocks
-    thread::sleep(Duration::from_secs(60));
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // The burnchain should have registered what the listener recorded.
     let tip = burndb
@@ -888,8 +888,8 @@ fn l1_deposit_stx_integration_test() {
     l1_nonce += 1;
     submit_tx(l1_rpc_origin, &hc_setup_tx);
 
-    // Sleep to give the run loop time to listen to blocks
-    thread::sleep(Duration::from_secs(30));
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // Check that the user does not own any STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
@@ -909,8 +909,8 @@ fn l1_deposit_stx_integration_test() {
     // deposit stx into hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_deposit_stx_tx);
 
-    // Sleep to give the run loop time to mine a block
-    thread::sleep(Duration::from_secs(25));
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
 
     // Check that the user owns STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
