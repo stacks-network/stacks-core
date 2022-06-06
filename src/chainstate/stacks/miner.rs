@@ -11229,7 +11229,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new("test_get_block_info_v210", 2022, 2023);
+        let mut peer_config = TestPeerConfig::new("test_get_block_info_v210_no_microblocks", 2022, 2023);
         peer_config.initial_balances = vec![
             (addr.to_account_principal(), 1000000000),
             (addr_anchored.to_account_principal(), 1000000000),
