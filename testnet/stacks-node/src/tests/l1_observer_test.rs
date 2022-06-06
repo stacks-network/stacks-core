@@ -8,19 +8,35 @@ use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::get_epoch_time_secs;
+use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
 use clarity::vm::database::ClaritySerializable;
+use clarity::vm::events::NFTEventType::NFTWithdrawEvent;
+use clarity::vm::events::STXEventType::STXWithdrawEvent;
+use clarity::vm::events::STXWithdrawEventData;
 use clarity::vm::representations::ContractName;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{AssetIdentifier, PrincipalData, TypeSignature};
 use clarity::vm::Value;
 use reqwest::Response;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, TransactionPayload};
+use stacks::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
+use stacks::chainstate::stacks::{
+    CoinbasePayload, StacksPrivateKey, StacksTransaction, TransactionAuth, TransactionPayload,
+    TransactionSpendingCondition, TransactionVersion,
+};
+use stacks::clarity::types::chainstate::StacksPublicKey;
+use stacks::clarity::vm::events::NFTWithdrawEventData;
+use stacks::clarity_vm::withdrawal::{
+    convert_withdrawal_key_to_bytes, create_withdrawal_merkle_tree, generate_key_from_event,
+};
 use stacks::codec::StacksMessageCodec;
 use stacks::net::CallReadOnlyRequestBody;
 use stacks::net::RPCPeerInfoData;
 use stacks::util::hash::hex_bytes;
-use stacks::vm::types::QualifiedContractIdentifier;
+use stacks::vm::costs::ExecutionCost;
+use stacks::vm::events::FTEventType::FTWithdrawEvent;
+use stacks::vm::events::{FTWithdrawEventData, StacksTransactionEvent};
+use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
 use std::env;
@@ -51,6 +67,10 @@ lazy_static! {
     .unwrap();
     pub static ref MOCKNET_PRIVATE_KEY_2: StacksPrivateKey = StacksPrivateKey::from_hex(
         "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
+    )
+    .unwrap();
+    pub static ref MOCKNET_PRIVATE_KEY_3: StacksPrivateKey = StacksPrivateKey::from_hex(
+        "374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001"
     )
     .unwrap();
 }
@@ -410,7 +430,7 @@ fn l1_integration_test() {
 }
 
 #[test]
-fn l1_deposit_asset_integration_test() {
+fn l1_deposit_and_withdraw_asset_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_asset_integration_test
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
@@ -568,6 +588,10 @@ fn l1_deposit_asset_integration_test() {
       (ft-mint? ft-token amount recipient)
     )
 
+    (define-public (hyperchain-withdraw-ft-token (amount uint) (recipient principal))
+      (ft-withdraw? ft-token amount recipient)
+    )
+
     (define-read-only (get-token-balance (user principal))
         (ft-get-balance ft-token user)
     )
@@ -588,6 +612,10 @@ fn l1_deposit_asset_integration_test() {
 
     (define-public (hyperchain-deposit-nft-token (id uint) (recipient principal))
       (nft-mint? nft-token id recipient)
+    )
+
+    (define-public (hyperchain-withdraw-nft-token (id uint) (recipient principal))
+      (nft-withdraw? nft-token id recipient)
     )
 
     (define-read-only (get-token-owner (id uint))
@@ -670,9 +698,17 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let mut result = res["result"].as_str().unwrap().to_string();
-    result = result.strip_prefix("0x").unwrap().to_string();
-    assert_eq!(result, Value::none().serialize());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
+    assert_eq!(addr, Value::none());
 
     let l1_deposit_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
@@ -685,7 +721,7 @@ fn l1_deposit_asset_integration_test() {
             Value::UInt(1),
             Value::Principal(user_addr.into()),
             Value::none(),
-            Value::Principal(PrincipalData::Contract(ft_contract_id)),
+            Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
         ],
     );
@@ -700,7 +736,7 @@ fn l1_deposit_asset_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
-            Value::Principal(PrincipalData::Contract(nft_contract_id)),
+            Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(hc_nft_contract_id.clone())),
         ],
     );
@@ -724,7 +760,14 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    assert_eq!(res["result"], "0x0100000000000000000000000000000001");
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(&result, &TypeSignature::UIntType);
+    assert_eq!(amount, Value::UInt(1));
     // Check that the user owns the NFT on the hyperchain now
     let res = call_read_only(
         &l2_rpc_origin,
@@ -735,13 +778,375 @@ fn l1_deposit_asset_integration_test() {
     );
     assert!(res.get("cause").is_none());
     assert!(res["okay"].as_bool().unwrap());
-    let mut result = res["result"].as_str().unwrap().to_string();
-    result = result.strip_prefix("0x").unwrap().to_string();
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
     assert_eq!(
-        result,
-        Value::some(Value::Principal(user_addr.into()))
-            .unwrap()
-            .serialize()
+        addr,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
+
+    // Check that the user does not own the FT on the L1
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-balance",
+        vec![Value::Principal(user_addr.into()).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
+    assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
+    // Check that the user does not own the NFT on the L1 (the contract should own it)
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-owner",
+        vec![Value::UInt(1).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_ne!(
+        amount,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
+
+    // Withdraw the ft on the L2
+    let l2_withdraw_ft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l2_nonce,
+        1_000_000,
+        &user_addr,
+        "simple-ft",
+        "hyperchain-withdraw-ft-token",
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
+    );
+    l2_nonce += 1;
+    // Withdraw the nft on the L2
+    let l2_withdraw_nft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l2_nonce,
+        1_000_000,
+        &user_addr,
+        "simple-nft",
+        "hyperchain-withdraw-nft-token",
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
+    );
+    l2_nonce += 1;
+    // Withdraw ft-token from hyperchains contract on L1
+    submit_tx(&l2_rpc_origin, &l2_withdraw_ft_tx);
+    // Withdraw nft-token from hyperchains contract on L1
+    submit_tx(&l2_rpc_origin, &l2_withdraw_nft_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(25));
+
+    // Check that user no longer owns the fungible token on L2 chain
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-balance",
+        vec![Value::Principal(user_addr.into()).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
+    assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
+    // Check that user no longer owns the nft on L2 chain
+    let res = call_read_only(
+        &l2_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-token-owner",
+        vec![Value::UInt(1).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let addr = Value::deserialize(
+        &result,
+        &TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+    );
+    assert_eq!(addr, Value::none());
+    // Check that the user does not *yet* own the FT on the L1
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-balance",
+        vec![Value::Principal(user_addr.into()).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
+    assert_eq!(amount, Value::okay(Value::UInt(0)).unwrap());
+    // Check that the user does not *yet* own the NFT on the L1 (the contract should own it)
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-owner",
+        vec![Value::UInt(1).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_ne!(
+        amount,
+        Value::some(Value::Principal(user_addr.into())).unwrap()
+    );
+
+    // Create the withdrawal merkle tree by mocking the ft & nft withdraw event (if the root hash of
+    // this constructed merkle tree is not identical to the root hash published by the HC node,
+    // then the test will fail).
+    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+        StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1),
+    )
+    .expect("Failed to create p2pkh spending condition from public key.");
+    spending_condition.set_nonce(l2_nonce - 1);
+    spending_condition.set_tx_fee(1000);
+    let auth = TransactionAuth::Standard(spending_condition);
+    let ft_withdraw_event = StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
+        asset_identifier: AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(
+                user_addr.into(),
+                ContractName::from("simple-ft"),
+            ),
+            asset_name: ClarityName::from("ft-token"),
+        },
+        sender: user_addr.into(),
+        amount: 1,
+    }));
+    let nft_withdraw_event =
+        StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData {
+            asset_identifier: AssetIdentifier {
+                contract_identifier: QualifiedContractIdentifier::new(
+                    user_addr.into(),
+                    ContractName::from("simple-nft"),
+                ),
+                asset_name: ClarityName::from("nft-token"),
+            },
+            sender: user_addr.into(),
+            value: Value::UInt(1),
+        }));
+    let withdrawal_receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        )),
+        events: vec![ft_withdraw_event.clone(), nft_withdraw_event.clone()],
+        post_condition_aborted: false,
+        result: Value::err_none(),
+        stx_burned: 0,
+        contract_analysis: None,
+        execution_cost: ExecutionCost::zero(),
+        microblock_header: None,
+        tx_index: 0,
+    };
+    let withdrawal_tree = create_withdrawal_merkle_tree(&vec![withdrawal_receipt]);
+    let root_hash = withdrawal_tree.root().as_bytes().to_vec();
+
+    let ft_withdrawal_key = generate_key_from_event(&ft_withdraw_event, 0).unwrap();
+    let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
+    let ft_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
+    let ft_path = withdrawal_tree.path(&ft_withdrawal_key_bytes).unwrap();
+
+    let nft_withdrawal_key = generate_key_from_event(&nft_withdraw_event, 1).unwrap();
+    let nft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&nft_withdrawal_key);
+    let nft_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
+    let nft_path = withdrawal_tree.path(&nft_withdrawal_key_bytes).unwrap();
+
+    let mut ft_sib_data = Vec::new();
+    for (i, sib) in ft_path.iter().enumerate() {
+        let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
+        // the sibling's side is the opposite of what PathOrder is set to
+        let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
+        ];
+        let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
+        ft_sib_data.push(sib_tuple);
+    }
+    let mut nft_sib_data = Vec::new();
+    for (i, sib) in nft_path.iter().enumerate() {
+        let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
+        // the sibling's side is the opposite of what PathOrder is set to
+        let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
+        ];
+        let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
+        nft_sib_data.push(sib_tuple);
+    }
+
+    // TODO: call withdraw from unauthorized principal once leaf verification is added to the HC contract
+
+    let l1_withdraw_ft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "withdraw-ft-asset",
+        &[
+            Value::UInt(1),
+            Value::Principal(user_addr.into()),
+            Value::none(),
+            Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
+            Value::buff_from(root_hash.clone()).unwrap(),
+            Value::buff_from(ft_withdrawal_leaf_hash).unwrap(),
+            Value::list_from(ft_sib_data).unwrap(),
+        ],
+    );
+    l1_nonce += 1;
+    let l1_withdraw_nft_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "withdraw-nft-asset",
+        &[
+            Value::UInt(1),
+            Value::Principal(user_addr.into()),
+            Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
+            Value::buff_from(root_hash).unwrap(),
+            Value::buff_from(nft_withdrawal_leaf_hash).unwrap(),
+            Value::list_from(nft_sib_data).unwrap(),
+        ],
+    );
+    l1_nonce += 1;
+    // Withdraw ft-token from hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_withdraw_ft_tx);
+    // Withdraw nft-token from hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_withdraw_nft_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(25));
+
+    // Check that the user owns the fungible token on the L1 chain now
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-ft",
+        "get-balance",
+        vec![Value::Principal(user_addr.into()).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((TypeSignature::UIntType, TypeSignature::UIntType))),
+    );
+    assert_eq!(amount, Value::okay(Value::UInt(1)).unwrap());
+    // Check that the user owns the NFT on the L1 chain now
+    let res = call_read_only(
+        &l1_rpc_origin,
+        &user_addr,
+        "simple-nft",
+        "get-owner",
+        vec![Value::UInt(1).serialize()],
+    );
+    assert!(res.get("cause").is_none());
+    assert!(res["okay"].as_bool().unwrap());
+    let result = res["result"]
+        .as_str()
+        .unwrap()
+        .strip_prefix("0x")
+        .unwrap()
+        .to_string();
+    let amount = Value::deserialize(
+        &result,
+        &TypeSignature::ResponseType(Box::new((
+            TypeSignature::OptionalType(Box::new(TypeSignature::PrincipalType)),
+            TypeSignature::UIntType,
+        ))),
+    );
+    assert_eq!(
+        amount,
+        Value::okay(Value::some(Value::Principal(user_addr.into())).unwrap()).unwrap()
     );
 
     termination_switch.store(false, Ordering::SeqCst);
@@ -752,7 +1157,7 @@ fn l1_deposit_asset_integration_test() {
 /// This test calls the `deposit-stx` function in the hyperchains contract.
 /// We expect to see the stx balance for the user in question increase.
 #[test]
-fn l1_deposit_stx_integration_test() {
+fn l1_deposit_and_withdraw_stx_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_deposit_stx_integration_test
     if env::var("STACKS_NODE_TEST") != Ok("1".into()) {
@@ -768,8 +1173,13 @@ fn l1_deposit_stx_integration_test() {
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
-    config.add_initial_balance(user_addr.to_string(), 10000000);
-    config.add_initial_balance(miner_account.to_string(), 10000000);
+    let alt_user_addr = to_addr(&MOCKNET_PRIVATE_KEY_3);
+    let l2_starting_account_balance = 10000000;
+    let l1_starting_account_balance = 100000000000000;
+    let default_fee = 1_000_000;
+    config.add_initial_balance(user_addr.to_string(), l2_starting_account_balance);
+    config.add_initial_balance(miner_account.to_string(), l2_starting_account_balance);
+    config.add_initial_balance(alt_user_addr.to_string(), l2_starting_account_balance);
 
     config.burnchain.first_burn_header_hash =
         "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
@@ -872,25 +1282,52 @@ fn l1_deposit_stx_integration_test() {
         "Miner should have produced at least 2 coinbase transactions"
     );
 
+    // Publish hyperchains contract for withdrawing stx
+    let hyperchain_simple_stx = "
+    (define-public (hyperchain-withdraw-stx (amount uint) (sender principal))
+      (stx-withdraw? amount sender)
+    )
+    ";
+    let hyperchain_stx_publish = make_contract_publish(
+        &MOCKNET_PRIVATE_KEY_1,
+        l2_nonce,
+        default_fee,
+        "simple-stx",
+        hyperchain_simple_stx,
+    );
+    l2_nonce += 1;
+    let hc_stx_contract_id =
+        QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-stx"));
+
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
-        1_000_000,
+        default_fee,
         &user_addr,
         config.burnchain.contract_identifier.name.as_str(),
         "setup-allowed-contracts",
         &[],
     );
     l1_nonce += 1;
+    submit_tx(&l2_rpc_origin, &hyperchain_stx_publish);
     submit_tx(l1_rpc_origin, &hc_setup_tx);
 
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
 
-    // Check that the user does not own any STX on the hyperchain now
+    // Check that the user does not own any additional STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, 10000000);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
+    // Check the user's balance on the L1
+    let account = get_account(&l1_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce) as u128
+    );
 
     let l1_deposit_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
@@ -903,15 +1340,168 @@ fn l1_deposit_stx_integration_test() {
     );
     l1_nonce += 1;
 
-    // deposit stx into hyperchains contract on L1
+    // Deposit stx into hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_deposit_stx_tx);
 
+    // Wait to give the run loop time to mine a block
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
 
-    // Check that the user owns STX on the hyperchain now
+    // Check that the user owns additional STX on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
-    assert_eq!(account.balance, 10000001);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce + 1) as u128
+    );
+    // Check that the user's balance decreased on the L1
+    let account = get_account(&l1_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce - 1) as u128
+    );
+
+    // Call the withdraw stx function on the L2 from unauthorized user
+    let l2_withdraw_stx_tx_unauth = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_3,
+        0,
+        1_000_000,
+        &user_addr,
+        "simple-stx",
+        "hyperchain-withdraw-stx",
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
+    );
+    // withdraw stx from L2
+    submit_tx(&l2_rpc_origin, &l2_withdraw_stx_tx_unauth);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(25));
+    // Check that the user still owns STX on the hyperchain now (withdraw attempt should fail)
+    let account = get_account(&l2_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce + 1) as u128
+    );
+
+    // Call the withdraw stx function on the L2 from the correct user
+    let l2_withdraw_stx_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l2_nonce,
+        1_000_000,
+        &user_addr,
+        "simple-stx",
+        "hyperchain-withdraw-stx",
+        &[Value::UInt(1), Value::Principal(user_addr.into())],
+    );
+    l2_nonce += 1;
+    // withdraw stx from L2
+    submit_tx(&l2_rpc_origin, &l2_withdraw_stx_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(25));
+    // Check that the user does not own any additional STX anymore on the hyperchain now
+    let account = get_account(&l2_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
+    // Check that the user's balance has not yet increased on the L1
+    let account = get_account(&l1_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce - 1) as u128
+    );
+
+    // Create the withdrawal merkle tree by mocking the stx withdraw event (if the root hash of
+    // this constructed merkle tree is not identical to the root hash published by the HC node,
+    // then the test will fail).
+    let mut spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+        StacksPublicKey::from_private(&MOCKNET_PRIVATE_KEY_1),
+    )
+    .expect("Failed to create p2pkh spending condition from public key.");
+    spending_condition.set_nonce(l2_nonce - 1);
+    spending_condition.set_tx_fee(1000);
+    let auth = TransactionAuth::Standard(spending_condition);
+    let stx_withdraw_event =
+        StacksTransactionEvent::STXEvent(STXWithdrawEvent(STXWithdrawEventData {
+            sender: user_addr.into(),
+            amount: 1,
+        }));
+
+    let withdrawal_receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        )),
+        events: vec![stx_withdraw_event.clone()],
+        post_condition_aborted: false,
+        result: Value::err_none(),
+        stx_burned: 0,
+        contract_analysis: None,
+        execution_cost: ExecutionCost::zero(),
+        microblock_header: None,
+        tx_index: 0,
+    };
+    let withdrawal_tree = create_withdrawal_merkle_tree(&vec![withdrawal_receipt]);
+    let root_hash = withdrawal_tree.root().as_bytes().to_vec();
+
+    let stx_withdrawal_key = generate_key_from_event(&stx_withdraw_event, 0).unwrap();
+    let stx_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&stx_withdrawal_key);
+    let stx_withdrawal_leaf_hash =
+        MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice())
+            .as_bytes()
+            .to_vec();
+    let stx_path = withdrawal_tree.path(&stx_withdrawal_key_bytes).unwrap();
+
+    let mut stx_sib_data = Vec::new();
+    for (i, sib) in stx_path.iter().enumerate() {
+        let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
+        // the sibling's side is the opposite of what PathOrder is set to
+        let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
+        let curr_sib_data = vec![
+            (ClarityName::from("hash"), sib_hash),
+            (ClarityName::from("is-left-side"), sib_is_left),
+        ];
+        let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
+        stx_sib_data.push(sib_tuple);
+    }
+
+    let l1_withdraw_stx_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "withdraw-stx",
+        &[
+            Value::UInt(1),
+            Value::Principal(user_addr.into()),
+            Value::buff_from(root_hash.clone()).unwrap(),
+            Value::buff_from(stx_withdrawal_leaf_hash).unwrap(),
+            Value::list_from(stx_sib_data).unwrap(),
+        ],
+    );
+    l1_nonce += 1;
+
+    // Withdraw 1 stx from hyperchains contract on L1
+    submit_tx(&l1_rpc_origin, &l1_withdraw_stx_tx);
+
+    // Sleep to give the run loop time to mine a block
+    thread::sleep(Duration::from_secs(25));
+
+    // Check that the user still does not own any additional STX on the hyperchain now
+    let account = get_account(&l2_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l2_starting_account_balance - default_fee * l2_nonce) as u128
+    );
+    // Check that the user's STX was transferred back to the L1
+    let account = get_account(&l1_rpc_origin, &user_addr);
+    assert_eq!(
+        account.balance,
+        (l1_starting_account_balance - default_fee * l1_nonce) as u128
+    );
+
     termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
     run_loop_thread.join().expect("Failed to join run loop.");

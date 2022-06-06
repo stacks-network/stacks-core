@@ -169,7 +169,7 @@ pub const DOUBLE_SHA256_ENCODED_SIZE: u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
-enum MerklePathOrder {
+pub enum MerklePathOrder {
     Left = 0x02,
     Right = 0x03,
 }
@@ -382,8 +382,8 @@ pub struct MerkleTree<H: MerkleHashFunc> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerklePathPoint<H: MerkleHashFunc> {
-    order: MerklePathOrder,
-    hash: H,
+    pub order: MerklePathOrder,
+    pub hash: H,
 }
 
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
@@ -447,12 +447,12 @@ where
     }
 
     /// Get the leaf hash
-    fn get_leaf_hash(leaf_data: &[u8]) -> H {
+    pub fn get_leaf_hash(leaf_data: &[u8]) -> H {
         H::from_tagged_data(MERKLE_PATH_LEAF_TAG, leaf_data)
     }
 
     /// Get a non-leaf hash
-    fn get_node_hash(left: &H, right: &H) -> H {
+    pub fn get_node_hash(left: &H, right: &H) -> H {
         let mut buf = vec![];
         buf.extend_from_slice(left.bits());
         buf.extend_from_slice(right.bits());

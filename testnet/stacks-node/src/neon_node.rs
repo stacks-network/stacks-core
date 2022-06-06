@@ -60,6 +60,7 @@ use crate::run_loop::neon::RunLoop;
 
 use super::{BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
+use crate::util::hash::Sha512Trunc256Sum;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -241,9 +242,13 @@ fn inner_generate_poison_microblock_tx(
 }
 
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
-fn inner_generate_block_commit_op(block_header_hash: BlockHeaderHash) -> BlockstackOperationType {
+fn inner_generate_block_commit_op(
+    block_header_hash: BlockHeaderHash,
+    withdrawal_merkle_root: Sha512Trunc256Sum,
+) -> BlockstackOperationType {
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
+        withdrawal_merkle_root,
         txid: Txid([0; 32]),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
     })
@@ -1944,7 +1949,10 @@ impl StacksNode {
         );
 
         // let's commit
-        let op = inner_generate_block_commit_op(anchored_block.block_hash());
+        let op = inner_generate_block_commit_op(
+            anchored_block.block_hash(),
+            anchored_block.header.withdrawal_merkle_root,
+        );
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
