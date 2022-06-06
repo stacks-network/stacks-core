@@ -1,7 +1,7 @@
 (define-constant ERR_NOT_AUTHORIZED (err u1001))
 
-(impl-trait .ft-trait-standard.ft-trait)
-(impl-trait .mint-from-hyperchain-trait-standard.mint-from-hyperchain-trait)
+(impl-trait .trait-standards.ft-trait)
+(impl-trait .trait-standards.mint-from-hyperchain-trait)
 
 (define-fungible-token ft-token)
 

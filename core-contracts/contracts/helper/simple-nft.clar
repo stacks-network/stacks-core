@@ -3,8 +3,8 @@
 
 (define-constant ERR_NOT_AUTHORIZED (err u1001))
 
-(impl-trait .nft-trait-standard.nft-trait)
-(impl-trait .mint-from-hyperchain-trait-standard.mint-from-hyperchain-trait)
+(impl-trait .trait-standards.nft-trait)
+(impl-trait .trait-standards.mint-from-hyperchain-trait)
 
 (define-data-var lastId uint u0)
 (define-map CFG_BASE_URI bool (string-ascii 256))

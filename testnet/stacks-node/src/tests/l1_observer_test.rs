@@ -308,9 +308,7 @@ fn l1_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
-    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
+    let trait_standard_contract_name = "trait-standards";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -361,48 +359,27 @@ fn l1_integration_test() {
     thread::sleep(Duration::from_millis(10_000));
 
     // Publish the NFT/FT traits
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
+    let trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
+    let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         0,
         1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
-    );
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        1,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    let mint_from_hyperchain_trait_content = include_str!(
-        "../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar"
-    );
-    let mint_from_hyperchain_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        2,
-        1_000_000,
-        &mint_from_hyperchain_trait_name,
-        &mint_from_hyperchain_trait_content,
+        &trait_standard_contract_name,
+        &trait_content,
     );
 
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        3,
+        1,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
 
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
+    submit_tx(l1_rpc_origin, &trait_publish);
     // Because the nonce ensures that the FT contract and NFT contract
     // are published before the HC contract, we can broadcast them
     // all at once, even though the HC contract depends on those
@@ -452,9 +429,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
-    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
+    let trait_standard_contract_name = "trait-standards";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -499,36 +474,15 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
-    // Publish the NFT/FT traits
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
+    // Publish the NFT/FT/HC traits
+    let trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
+    let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
         1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
-    );
-    l1_nonce += 1;
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    l1_nonce += 1;
-    let mint_from_hyperchain_trait_content = include_str!(
-        "../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar"
-    );
-    let mint_from_hyperchain_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &mint_from_hyperchain_trait_name,
-        &mint_from_hyperchain_trait_content,
+        &trait_standard_contract_name,
+        &trait_content,
     );
     l1_nonce += 1;
     // Publish a simple FT and NFT
@@ -566,9 +520,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     );
     l1_nonce += 1;
 
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
+    submit_tx(l1_rpc_origin, &trait_publish);
     submit_tx(l1_rpc_origin, &nft_publish);
     submit_tx(l1_rpc_origin, &ft_publish);
     // Because the nonce ensures that the FT contract and NFT contract
@@ -1196,9 +1148,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
-    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
+    let trait_standard_contract_name = "trait-standards";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -1257,40 +1207,18 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
-    // Publish the NFT/FT traits
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
+    // Publish the NFT/FT/HC traits
+    let trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
+    let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
         1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
+        &trait_standard_contract_name,
+        &trait_content,
     );
     l1_nonce += 1;
 
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    l1_nonce += 1;
-
-    let mint_from_hyperchain_trait_content = include_str!(
-        "../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar"
-    );
-    let mint_from_hyperchain_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &mint_from_hyperchain_trait_name,
-        &mint_from_hyperchain_trait_content,
-    );
-    l1_nonce += 1;
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
@@ -1302,9 +1230,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     );
 
     l1_nonce += 1;
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
+    submit_tx(l1_rpc_origin, &trait_publish);
     submit_tx(l1_rpc_origin, &hc_contract_publish);
 
     // Sleep to give the run loop time to listen to blocks,
@@ -1564,9 +1490,7 @@ fn l2_simple_contract_calls() {
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
 
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
-    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
+    let trait_standard_contract_name = "trait-standards";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -1624,48 +1548,27 @@ fn l2_simple_contract_calls() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
-    // Publish the NFT/FT traits
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
+    // Publish the NFT/FT/HC traits
+    let trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
+    let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         0,
         1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
-    );
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        1,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    let mint_from_hyperchain_trait_content = include_str!(
-        "../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar"
-    );
-    let mint_from_hyperchain_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        2,
-        1_000_000,
-        &mint_from_hyperchain_trait_name,
-        &mint_from_hyperchain_trait_content,
+        &trait_standard_contract_name,
+        &trait_content,
     );
     // Publish the default hyperchains contract on the L1 chain
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
-        3,
+        2,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
         &contract_content,
     );
 
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
+    submit_tx(l1_rpc_origin, &trait_publish);
     submit_tx(l1_rpc_origin, &hc_contract_publish);
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
@@ -1738,9 +1641,7 @@ fn nft_deposit_and_withdraw_integration_test() {
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
     let l1_rpc_origin = "http://127.0.0.1:20443";
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
-    let mint_from_hyperchain_trait_name = "mint-from-hyperchain-trait-standard";
+    let trait_standards_contract_name = "trait-standards";
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
@@ -1786,37 +1687,17 @@ fn nft_deposit_and_withdraw_integration_test() {
     thread::sleep(Duration::from_millis(10_000));
 
     // Publish the NFT/FT/mint-from-hyperchain traits onto L1
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
+    let trait_content =
+        include_str!("../../../../core-contracts/contracts/helper/trait-standard.clar");
+    let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
         1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
+        &trait_standards_contract_name,
+        &trait_content,
     );
     l1_nonce += 1;
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    l1_nonce += 1;
-    let mint_from_hyperchain_trait_content = include_str!(
-        "../../../../core-contracts/contracts/helper/mint-from-hyperchain-trait-standard.clar"
-    );
-    let mint_from_hyperchain_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        l1_nonce,
-        1_000_000,
-        &mint_from_hyperchain_trait_name,
-        &mint_from_hyperchain_trait_content,
-    );
-    l1_nonce += 1;
+
     // Publish a simple NFT onto L1
     let nft_content = include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
     let nft_publish = make_contract_publish(
@@ -1841,9 +1722,7 @@ fn nft_deposit_and_withdraw_integration_test() {
     );
     l1_nonce += 1;
 
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &mint_from_hyperchain_trait_publish);
+    submit_tx(l1_rpc_origin, &trait_publish);
     submit_tx(l1_rpc_origin, &nft_publish);
     // Because the nonce ensures that the trait contracts
     // are published before the HC contract, we can broadcast them
@@ -1881,19 +1760,19 @@ fn nft_deposit_and_withdraw_integration_test() {
         "Miner should have produced at least 2 coinbase transactions"
     );
 
-    // Publish the NFT trait onto the hyperchain
-    let l2_nft_trait_publish = make_contract_publish(
+    // Publish the traits onto the hyperchain
+    let l2_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l2_nonce,
         1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
+        &trait_standards_contract_name,
+        &trait_content,
     );
     l2_nonce += 1;
 
     // Publish hyperchains contract for nft-token
     let hyperchain_simple_nft = "
-    (impl-trait .nft-trait-standard.nft-trait)
+    (impl-trait .trait-standards.nft-trait)
 
     (define-constant ERR_NOT_AUTHORIZED (err u1001))
 
@@ -1954,7 +1833,7 @@ fn nft_deposit_and_withdraw_integration_test() {
     let hc_nft_contract_id =
         QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-nft"));
 
-    submit_tx(&l2_rpc_origin, &l2_nft_trait_publish);
+    submit_tx(&l2_rpc_origin, &l2_trait_publish);
     submit_tx(&l2_rpc_origin, &hyperchain_nft_publish);
 
     // Sleep to give the run loop time to mine a block
@@ -2132,7 +2011,7 @@ fn nft_deposit_and_withdraw_integration_test() {
     );
     assert_eq!(owner, Value::okay(Value::none()).unwrap());
 
-    // Withdraw the L1 native NFT on the L2 (with `nft-withdraw?`)
+    // Withdraw the L1 native NFT from the L2 (with `nft-withdraw?`)
     let l2_withdraw_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
         l2_nonce,
@@ -2143,7 +2022,7 @@ fn nft_deposit_and_withdraw_integration_test() {
         &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l2_nonce += 1;
-    // Withdraw the hyperchain native nft on the L2 (with `nft-withdraw?`)
+    // Withdraw the hyperchain native nft from the L2 (with `nft-withdraw?`)
     let l2_withdraw_native_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
         l2_nonce,
