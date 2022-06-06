@@ -607,10 +607,10 @@ impl StacksChainState {
         let args: &[&dyn ToSql] = &[
             &reward.address.to_string(),
             &reward.vtxindex,
-            &format!("{}", &reward.coinbase),
-            &format!("{}", &reward.tx_fees_anchored),
-            &format!("{}", &reward.tx_fees_streamed_confirmed),
-            &format!("{}", &reward.tx_fees_streamed_produced),
+            &reward.coinbase.to_string(),
+            &reward.tx_fees_anchored.to_string(),
+            &reward.tx_fees_streamed_confirmed.to_string(),
+            &reward.tx_fees_streamed_produced.to_string(),
             parent_block_id,
             child_block_id,
         ];
