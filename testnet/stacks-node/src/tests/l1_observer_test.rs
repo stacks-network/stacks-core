@@ -1688,7 +1688,7 @@ fn nft_deposit_and_withdraw_integration_test() {
 
     // Publish the NFT/FT/mint-from-hyperchain traits onto L1
     let trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/trait-standard.clar");
+        include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
     let trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
