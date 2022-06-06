@@ -564,7 +564,7 @@ impl StacksChainState {
     }
 
     /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
-    fn inner_insert_matured_miner_payment<'a>(
+    fn inner_insert_matured_miner_reward<'a>(
         tx: &mut DBTx<'a>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
@@ -643,7 +643,7 @@ impl StacksChainState {
             parent_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -673,7 +673,7 @@ impl StacksChainState {
             child_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -698,7 +698,7 @@ impl StacksChainState {
             child_reward.vtxindex > 0,
             "FATAL: tried to insert a miner reward as a user reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
