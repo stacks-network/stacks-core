@@ -377,7 +377,7 @@ impl<'a> Parser<'a> {
                     Ok(name) => name,
                     Err(_) => {
                         self.add_diagnostic(
-                            ParseErrors::IllegalClarityName(name.clone()),
+                            ParseErrors::IllegalTraitName(name.clone()),
                             token.span.clone(),
                         )?;
                         ClarityName::try_from("placeholder").unwrap()
@@ -486,7 +486,7 @@ impl<'a> Parser<'a> {
                             Ok(id) => id,
                             Err(_) => {
                                 self.add_diagnostic(
-                                    ParseErrors::IllegalContractName(name),
+                                    ParseErrors::IllegalTraitName(name),
                                     self.tokens[self.next_token - 1].span.clone(),
                                 )?;
                                 ClarityName::try_from("placeholder".to_string()).unwrap()
@@ -577,7 +577,7 @@ impl<'a> Parser<'a> {
                         Ok(id) => id,
                         Err(_) => {
                             self.add_diagnostic(
-                                ParseErrors::IllegalContractName(name),
+                                ParseErrors::IllegalTraitName(name),
                                 self.tokens[self.next_token - 1].span.clone(),
                             )?;
                             ClarityName::try_from("placeholder".to_string()).unwrap()
@@ -1799,6 +1799,36 @@ mod tests {
                 start_column: 32,
                 end_line: 1,
                 end_column: 43
+            }
+        );
+
+        let (stmts, diagnostics, success) =
+            parse_collect_diagnostics("'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ");
+        assert_eq!(success, false);
+        assert_eq!(stmts.len(), 1);
+        if let Some(Value::Principal(data)) = stmts[0].match_atom_value() {
+            match data {
+                PrincipalData::Contract(data) => {
+                    assert_eq!(
+                        data.to_string(),
+                        "ST000000000000000000002AMW42H.placeholder"
+                    )
+                }
+                _ => panic!("failed to parse principal"),
+            }
+        }
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long"
+        );
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 32,
+                end_line: 1,
+                end_column: 95
             }
         );
 
