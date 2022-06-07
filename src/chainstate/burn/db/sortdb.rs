@@ -103,6 +103,12 @@ impl FromRow<SortitionId> for SortitionId {
     }
 }
 
+impl FromRow<BurnchainHeaderHash> for BurnchainHeaderHash {
+    fn from_row<'a>(row: &'a Row) -> Result<BurnchainHeaderHash, db_error> {
+        BurnchainHeaderHash::from_column(row, "burn_header_hash")
+    }
+}
+
 impl FromRow<MissedBlockCommit> for MissedBlockCommit {
     fn from_row<'a>(row: &'a Row) -> Result<MissedBlockCommit, db_error> {
         let intended_sortition = SortitionId::from_column(row, "intended_sortition_id")?;
@@ -607,7 +613,7 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
     );"#];
 
 // update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_sortition_id";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_burn_header_hash";
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -628,6 +634,8 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_missed_commits_intended_sortition_id ON missed_commits(intended_sortition_id);",
     "CREATE INDEX IF NOT EXISTS canonical_stacks_blocks ON canonical_accepted_stacks_blocks(tip_consensus_hash,stacks_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_parent_sortition_id ON block_commit_parents(parent_sortition_id);",
+    "CREATE INDEX IF NOT EXISTS index_burn_header_hash ON snapshots(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_parent_burn_header_hash ON snapshots(parent_burn_header_hash,burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -3149,6 +3157,9 @@ impl SortitionDB {
         }
     }
 
+    /// Get the list of Stack-STX operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
     pub fn get_stack_stx_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -3160,6 +3171,9 @@ impl SortitionDB {
         )
     }
 
+    /// Get the list of Transfer-STX operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
     pub fn get_transfer_stx_ops(
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
@@ -3169,6 +3183,68 @@ impl SortitionDB {
             "SELECT * FROM transfer_stx WHERE burn_header_hash = ?",
             &[burn_header_hash],
         )
+    }
+
+    /// Get the parent burnchain header hash of a given burnchain header hash
+    fn get_parent_burnchain_header_hash(
+        conn: &Connection,
+        burnchain_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let sql = "SELECT parent_burn_header_hash AS burn_header_hash FROM snapshots WHERE burn_header_hash = ?1";
+        let args: &[&dyn ToSql] = &[burnchain_header_hash];
+        let mut rows = query_rows::<BurnchainHeaderHash, _>(conn, sql, args)?;
+
+        // there can be more than one if there was a PoX reorg.  If so, make sure they're _all the
+        // same_ (otherwise we have corruption and must panic)
+        if let Some(bhh) = rows.pop() {
+            for row in rows.into_iter() {
+                if row != bhh {
+                    panic!(
+                        "FATAL: burnchain header hash {} has two parents: {} and {}",
+                        burnchain_header_hash, &bhh, &row
+                    );
+                }
+            }
+            Ok(Some(bhh))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the last N ancestor burnchain header hashes, given a burnchain header hash.
+    /// This is done without regards to PoX forks.
+    ///
+    /// The returned list will be formatted as follows:
+    ///
+    /// * burn_header_hash
+    /// * 1st ancestor of burn_header_hash
+    /// * 2nd ancestor of burn_header_hash
+    /// ...
+    /// * Nth ancestor of burn_header_hash
+    ///
+    /// That is, the resulting list will have up to N+1 items.
+    ///
+    /// If an ancestor is not found, then return early.
+    /// The returned list always starts with `burn_header_hash`.
+    pub fn get_ancestor_burnchain_header_hashes(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+        count: u64,
+    ) -> Result<Vec<BurnchainHeaderHash>, db_error> {
+        let mut ret = vec![burn_header_hash.clone()];
+        for _i in 0..count {
+            let parent_bhh = match SortitionDB::get_parent_burnchain_header_hash(
+                conn,
+                ret.last().expect("FATAL: empty burn header hash list"),
+            )? {
+                Some(bhh) => bhh,
+                None => {
+                    break;
+                }
+            };
+            ret.push(parent_bhh);
+        }
+        Ok(ret)
     }
 
     pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
@@ -3912,6 +3988,11 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub fn mock_insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
+        self.insert_stack_stx(op)
+    }
+
     /// Insert a transfer-stx op
     fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
         let args: &[&dyn ToSql] = &[
@@ -3928,6 +4009,11 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn mock_insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
+        self.insert_transfer_stx(op)
     }
 
     /// Insert a leader block commitment.
@@ -8004,5 +8090,77 @@ pub mod tests {
                 db_tx.commit().unwrap();
             }
         }
+    }
+
+    #[test]
+    fn test_get_ancestor_burnchain_header_hashes() {
+        let block_height = 100;
+        let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+        for i in 1..11 {
+            test_append_snapshot(&mut db, BurnchainHeaderHash([i as u8; 32]), &vec![]);
+        }
+
+        // typical
+        let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
+            db.conn(),
+            &BurnchainHeaderHash([0x09; 32]),
+            6,
+        )
+        .unwrap();
+        assert_eq!(
+            ancestors,
+            vec![
+                BurnchainHeaderHash([0x09; 32]),
+                BurnchainHeaderHash([0x08; 32]),
+                BurnchainHeaderHash([0x07; 32]),
+                BurnchainHeaderHash([0x06; 32]),
+                BurnchainHeaderHash([0x05; 32]),
+                BurnchainHeaderHash([0x04; 32]),
+                BurnchainHeaderHash([0x03; 32])
+            ]
+        );
+
+        // edge case -- get too many
+        let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
+            db.conn(),
+            &BurnchainHeaderHash([0x09; 32]),
+            20,
+        )
+        .unwrap();
+        assert_eq!(
+            ancestors,
+            vec![
+                BurnchainHeaderHash([0x09; 32]),
+                BurnchainHeaderHash([0x08; 32]),
+                BurnchainHeaderHash([0x07; 32]),
+                BurnchainHeaderHash([0x06; 32]),
+                BurnchainHeaderHash([0x05; 32]),
+                BurnchainHeaderHash([0x04; 32]),
+                BurnchainHeaderHash([0x03; 32]),
+                BurnchainHeaderHash([0x02; 32]),
+                BurnchainHeaderHash([0x01; 32]),
+                BurnchainHeaderHash([0x00; 32]),
+                BurnchainHeaderHash([0xff; 32]),
+            ]
+        );
+
+        // edge case -- get none
+        let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
+            db.conn(),
+            &BurnchainHeaderHash([0x09; 32]),
+            0,
+        )
+        .unwrap();
+        assert_eq!(ancestors, vec![BurnchainHeaderHash([0x09; 32])]);
+
+        // edge case -- get one that doesn't exist
+        let ancestors = SortitionDB::get_ancestor_burnchain_header_hashes(
+            db.conn(),
+            &BurnchainHeaderHash([0xfe; 32]),
+            0,
+        )
+        .unwrap();
+        assert_eq!(ancestors, vec![BurnchainHeaderHash([0xfe; 32])]);
     }
 }

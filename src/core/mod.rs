@@ -66,6 +66,9 @@ pub const NETWORK_P2P_PORT: u16 = 6265;
 // its current block-commit in a sortition
 pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 
+// Number of previous burnchain blocks to search to find burnchain-hosted Stacks operations
+pub const BURNCHAIN_TX_SEARCH_WINDOW: u8 = 6;
+
 // This controls a miner heuristic for dropping a transaction from repeated consideration
 //  in the mempool. If the transaction caused the block limit to be reached when the block
 //  was previously `TX_BLOCK_LIMIT_PROPORTION_HEURISTIC`% full, the transaction will be dropped

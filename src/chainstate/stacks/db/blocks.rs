@@ -171,6 +171,8 @@ pub struct SetupBlockResult<'a, 'b> {
         Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     pub evaluated_epoch: StacksEpochId,
     pub applied_epoch_transition: bool,
+    pub burn_stack_stx_ops: Vec<StackStxOp>,
+    pub burn_transfer_stx_ops: Vec<TransferStxOp>,
 }
 
 pub struct DummyEventDispatcher;
@@ -4041,15 +4043,15 @@ impl StacksChainState {
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
     ) -> Result<(), Error> {
-        let parent_sn = {
-            let db_handle = sort_ic.as_handle(&snapshot.sortition_id);
-            let sn = match db_handle.get_block_snapshot(&snapshot.parent_burn_header_hash)? {
-                Some(sn) => sn,
-                None => {
-                    return Err(Error::NoSuchBlockError);
-                }
-            };
-            sn
+        let parent_sn = match SortitionDB::get_block_snapshot_for_winning_stacks_block(
+            sort_ic,
+            &snapshot.sortition_id,
+            &block.header.parent_block,
+        )? {
+            Some(sn) => sn,
+            None => {
+                return Err(Error::NoSuchBlockError);
+            }
         };
 
         self.preprocess_anchored_block(
@@ -4599,6 +4601,8 @@ impl StacksChainState {
                                    "txid" => %txid,
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
+                        } else {
+                            debug!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
@@ -4667,17 +4671,20 @@ impl StacksChainState {
                             )
                         });
                         match result {
-                            Ok((value, _, events)) => Some(StacksTransactionReceipt {
-                                transaction: TransactionOrigin::Burn(txid),
-                                events,
-                                result: value,
-                                post_condition_aborted: false,
-                                stx_burned: 0,
-                                contract_analysis: None,
-                                execution_cost: ExecutionCost::zero(),
-                                microblock_header: None,
-                                tx_index: 0,
-                            }),
+                            Ok((value, _, events)) => {
+                                debug!("Processed TransferStx burnchain op"; "transfered_ustx" => transfered_ustx, "sender" => %sender, "recipient" => %recipient, "txid" => %txid);
+                                Some(StacksTransactionReceipt {
+                                    transaction: TransactionOrigin::Burn(txid),
+                                    events,
+                                    result: value,
+                                    post_condition_aborted: false,
+                                    stx_burned: 0,
+                                    contract_analysis: None,
+                                    execution_cost: ExecutionCost::zero(),
+                                    microblock_header: None,
+                                    tx_index: 0,
+                                })
+                            }
                             Err(e) => {
                                 info!("TransferStx burn op processing error.";
                               "error" => ?e,
@@ -4859,6 +4866,133 @@ impl StacksChainState {
         Ok(parent_miner)
     }
 
+    fn get_stacking_and_transfer_burn_ops_v205(
+        sortdb_conn: &Connection,
+        burn_tip: &BurnchainHeaderHash,
+    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>), Error> {
+        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, burn_tip)?;
+        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, burn_tip)?;
+        Ok((stacking_burn_ops, transfer_burn_ops))
+    }
+
+    fn get_stacking_and_transfer_burn_ops_v210(
+        chainstate_tx: &mut ChainstateTx,
+        parent_index_hash: &StacksBlockId,
+        sortdb_conn: &Connection,
+        burn_tip: &BurnchainHeaderHash,
+        burn_tip_height: u64,
+        epoch_start_height: u64,
+    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>), Error> {
+        // only consider transactions in Stacks 2.1
+        let search_window: u8 =
+            if epoch_start_height + (BURNCHAIN_TX_SEARCH_WINDOW as u64) > burn_tip_height {
+                burn_tip_height
+                    .saturating_sub(epoch_start_height)
+                    .try_into()
+                    .expect("FATAL: search window exceeds u8")
+            } else {
+                BURNCHAIN_TX_SEARCH_WINDOW
+            };
+
+        debug!(
+            "Search the last {} sortitions for burnchain-hosted stacks operations before {} ({})",
+            search_window, burn_tip, burn_tip_height
+        );
+        let ancestor_burnchain_header_hashes = SortitionDB::get_ancestor_burnchain_header_hashes(
+            sortdb_conn,
+            burn_tip,
+            search_window.into(),
+        )?;
+        let processed_burnchain_txids = StacksChainState::get_burnchain_txids_in_ancestors(
+            chainstate_tx.deref().deref(),
+            parent_index_hash,
+            search_window.into(),
+        )?;
+
+        // Find the *new* transactions -- the ones that we *haven't* seen in this Stacks
+        // fork yet.  Note that we search for the ones that we have seen by searching back
+        // `BURNCHAIN_TX_SEARCH_WINDOW` *Stacks* blocks, whose sortitions may span more
+        // than `BURNCHAIN_TX_SEARCH_WINDOW` burnchain blocks.  The inclusion of txids for
+        // burnchain transactions in the latter query is not a problem, because these txids
+        // are used to *exclude* transactions from the last `BURNCHAIN_TX_SEARCH_WINDOW`
+        // burnchain blocks.  These excluded txids, if they were mined outside of this
+        // window, are *already* excluded.
+
+        let mut all_stacking_burn_ops = vec![];
+        let mut all_transfer_burn_ops = vec![];
+
+        // go from oldest burn header hash to newest
+        for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
+            let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
+
+            for stacking_op in stacking_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&stacking_op.txid) {
+                    all_stacking_burn_ops.push(stacking_op);
+                }
+            }
+
+            for transfer_op in transfer_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&transfer_op.txid) {
+                    all_transfer_burn_ops.push(transfer_op);
+                }
+            }
+        }
+        Ok((all_stacking_burn_ops, all_transfer_burn_ops))
+    }
+
+    /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
+    /// the Stacks block that was selected for this burnchain block.
+    /// The rules are different for different epochs:
+    ///
+    /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be considered.
+    /// So if a transaction was mined in burnchain block N, it will be processed in the Stacks
+    /// block mined in burnchain block N (if there is one).
+    ///
+    /// * In Stacks 2.1+, the operations in the last K burnchain blocks that have not yet been
+    /// considered in this Stacks block's fork will be processed in the order in which they are
+    /// mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
+    /// N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
+    /// block mined in the same burnchain interval.
+    ///
+    /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
+    /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in
+    /// burnchain blocks in which there was no sortiton.  In either case, the operation does not
+    /// materialize on the canonical Stacks chain.  This is a bad user
+    /// experience, because the act of sending a PreStxOp plus this StackStxOp / TransferStxOp is a
+    /// time-consuming and tedious process that must then be repeated.
+    ///
+    /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
+    /// the first time -- the choice of K is significantly bigger than the length of short-lived
+    /// forks or periods of time with no sortition than have been observed in practice.
+    fn get_stacking_and_transfer_burn_ops(
+        chainstate_tx: &mut ChainstateTx,
+        parent_index_hash: &StacksBlockId,
+        sortdb_conn: &Connection,
+        burn_tip: &BurnchainHeaderHash,
+        burn_tip_height: u64,
+    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>), Error> {
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
+            .expect("FATAL: no epoch defined for current burnchain tip height");
+
+        match cur_epoch.epoch_id {
+            StacksEpochId::Epoch10 => {
+                panic!("FATAL: processed a block in Epoch 1.0");
+            }
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)
+            }
+            StacksEpochId::Epoch21 => StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                chainstate_tx,
+                parent_index_hash,
+                sortdb_conn,
+                burn_tip,
+                burn_tip_height,
+                cur_epoch.start_height,
+            ),
+        }
+    }
+
     /// Called in both follower and miner block assembly paths.
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
@@ -4895,8 +5029,14 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let stacking_burn_ops = SortitionDB::get_stack_stx_ops(conn, &burn_tip)?;
-        let transfer_burn_ops = SortitionDB::get_transfer_stx_ops(conn, &burn_tip)?;
+        let (stacking_burn_ops, transfer_burn_ops) =
+            StacksChainState::get_stacking_and_transfer_burn_ops(
+                chainstate_tx,
+                &parent_index_hash,
+                conn,
+                &burn_tip,
+                burn_tip_height.into(),
+            )?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -5011,14 +5151,14 @@ impl StacksChainState {
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
-        // process stacking & transfer operations from bitcoin ops
+        // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
-            stacking_burn_ops,
+            stacking_burn_ops.clone(),
         ));
         tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,
-            transfer_burn_ops,
+            transfer_burn_ops.clone(),
         ));
 
         Ok(SetupBlockResult {
@@ -5031,6 +5171,8 @@ impl StacksChainState {
             matured_miner_rewards_opt,
             evaluated_epoch,
             applied_epoch_transition,
+            burn_stack_stx_ops: stacking_burn_ops,
+            burn_transfer_stx_ops: transfer_burn_ops,
         })
     }
 
@@ -5219,6 +5361,8 @@ impl StacksChainState {
             matured_miner_rewards_opt,
             evaluated_epoch,
             applied_epoch_transition,
+            burn_stack_stx_ops,
+            burn_transfer_stx_ops,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5479,6 +5623,8 @@ impl StacksChainState {
             &block_execution_cost,
             block_size,
             applied_epoch_transition,
+            burn_stack_stx_ops,
+            burn_transfer_stx_ops,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -6441,6 +6587,8 @@ pub mod test {
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
+
+    use crate::burnchains::test::Txid_from_test_data;
 
     use super::*;
 
@@ -11077,6 +11225,561 @@ pub mod test {
             .unwrap()
             .unwrap(),
             mblocks[0..2].to_vec()
+        );
+    }
+
+    fn make_transfer_op(
+        addr: &StacksAddress,
+        recipient_addr: &StacksAddress,
+        burn_height: u64,
+        tenure_id: usize,
+    ) -> TransferStxOp {
+        let transfer_op = TransferStxOp {
+            sender: addr.clone(),
+            recipient: recipient_addr.clone(),
+            transfered_ustx: ((tenure_id + 1) * 1000) as u128,
+            memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
+
+            txid: Txid_from_test_data(
+                tenure_id as u64,
+                1,
+                &BurnchainHeaderHash([tenure_id as u8; 32]),
+                tenure_id as u64,
+            ),
+            vtxindex: (10 + tenure_id) as u32,
+            block_height: burn_height,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+        };
+        transfer_op
+    }
+
+    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// operations are picked up and applied as expected in the given Stacks fork, even though
+    /// there are empty sortitions.
+    #[test]
+    fn test_get_stacking_and_transfer_burn_ops_v210() {
+        let mut peer_config =
+            TestPeerConfig::new("test_stacking_and_transfer_burn_ops_v210", 21315, 21316);
+        let privk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let recipient_privk = StacksPrivateKey::new();
+        let recipient_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&recipient_privk)],
+        )
+        .unwrap();
+
+        let initial_balance = 1000000000;
+        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            sn.block_height
+        };
+
+        let mut last_block_id = StacksBlockId([0x00; 32]);
+        for tenure_id in 0..num_blocks {
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            assert_eq!(
+                tip.block_height,
+                first_stacks_block_height + (tenure_id as u64)
+            );
+
+            // For the first 5 burn blocks, sortition a Stacks block.
+            // For sortitions 6 and 8, don't sortition any Stacks block.
+            // For sortitions 7 and 9, do sortition a Stacks block, and verify that it includes all
+            // burnchain STX operations that got skipped by the missing sortition.
+            let process_stacks_block = tenure_id <= 5 || tenure_id % 2 != 0;
+
+            let (mut burn_ops, stacks_block_opt, microblocks_opt) = if process_stacks_block {
+                let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+                    |ref mut miner,
+                     ref mut sortdb,
+                     ref mut chainstate,
+                     vrf_proof,
+                     ref parent_opt,
+                     ref parent_microblock_header_opt| {
+                        let parent_tip = match parent_opt {
+                            None => {
+                                StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                            }
+                            Some(block) => {
+                                let ic = sortdb.index_conn();
+                                let snapshot =
+                                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                        &ic,
+                                        &tip.sortition_id,
+                                        &block.block_hash(),
+                                    )
+                                    .unwrap()
+                                    .unwrap(); // succeeds because we don't fork
+                                StacksChainState::get_anchored_block_header_info(
+                                    chainstate.db(),
+                                    &snapshot.consensus_hash,
+                                    &snapshot.winning_stacks_block_hash,
+                                )
+                                .unwrap()
+                                .unwrap()
+                            }
+                        };
+
+                        let mut mempool =
+                            MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                        let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                        let anchored_block = StacksBlockBuilder::build_anchored_block(
+                            chainstate,
+                            &sortdb.index_conn(),
+                            &mut mempool,
+                            &parent_tip,
+                            tip.total_burn,
+                            vrf_proof,
+                            Hash160([tenure_id as u8; 20]),
+                            &coinbase_tx,
+                            BlockBuilderSettings::max_value(),
+                            None,
+                        )
+                        .unwrap();
+
+                        (anchored_block.0, vec![])
+                    },
+                );
+                (burn_ops, Some(stacks_block), Some(microblocks))
+            } else {
+                (vec![], None, None)
+            };
+
+            let mut expected_transfer_ops = if tenure_id == 0 || tenure_id - 1 < 5 {
+                // all contiguous blocks up to now, so only expect this block's stx-transfer
+                vec![make_transfer_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            } else if (tenure_id - 1) % 2 == 0 {
+                // no sortition in the last burn block, so only expect this block's stx-transfer
+                vec![make_transfer_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            } else {
+                // last sortition had no block, so expect both the previous block's
+                // stx-transfer *and* this block's stx-transfer
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            };
+
+            // add one stx-transfer burn op per block
+            let mut stx_burn_ops = vec![BlockstackOperationType::TransferStx(make_transfer_op(
+                &addr,
+                &recipient_addr,
+                tip.block_height + 1,
+                tenure_id,
+            ))];
+            burn_ops.append(&mut stx_burn_ops);
+
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            match (stacks_block_opt, microblocks_opt) {
+                (Some(stacks_block), Some(microblocks)) => {
+                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                    last_block_id = StacksBlockHeader::make_index_block_hash(
+                        &consensus_hash,
+                        &stacks_block.block_hash(),
+                    );
+                }
+                _ => {}
+            }
+
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            let sortdb = peer.sortdb.take().unwrap();
+            {
+                let chainstate = peer.chainstate();
+                let (mut chainstate_tx, clarity_instance) =
+                    chainstate.chainstate_tx_begin().unwrap();
+                let (stack_stx_ops, transfer_stx_ops) =
+                    StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                        &mut chainstate_tx,
+                        &last_block_id,
+                        sortdb.conn(),
+                        &tip.burn_header_hash,
+                        tip.block_height,
+                        0,
+                    )
+                    .unwrap();
+
+                assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
+
+                // burn header hash will be different, since it's set post-processing.
+                // everything else must be the same though.
+                for i in 0..expected_transfer_ops.len() {
+                    expected_transfer_ops[i].burn_header_hash =
+                        transfer_stx_ops[i].burn_header_hash.clone();
+                }
+
+                assert_eq!(transfer_stx_ops, expected_transfer_ops);
+            }
+            peer.sortdb.replace(sortdb);
+        }
+
+        // all burnchain transactions mined, even if there was no sortition in the burn block in
+        // which they were mined.
+        let sortdb = peer.sortdb.take().unwrap();
+
+        // definitely missing some blocks -- there are empty sortitions
+        let stacks_tip = peer
+            .chainstate()
+            .get_stacks_chain_tip(&sortdb)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stacks_tip.height, 8);
+
+        // but we did process all burnchain operations
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let account = peer
+            .chainstate()
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+                StacksChainState::get_account(conn, &addr.to_account_principal())
+            })
+            .unwrap();
+        peer.sortdb.replace(sortdb);
+
+        assert_eq!(
+            account.stx_balance.get_total_balance(),
+            1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
+        );
+    }
+
+    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// operations are only dropped from consideration if there are more than 6 sortitions
+    /// between when they are mined and when the next Stacks block is mined.
+    #[test]
+    fn test_get_stacking_and_transfer_burn_ops_v210_expiration() {
+        let mut peer_config = TestPeerConfig::new(
+            "test_stacking_and_transfer_burn_ops_v210_expiration",
+            21317,
+            21318,
+        );
+        let privk = StacksPrivateKey::from_hex(
+            "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
+        )
+        .unwrap();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let recipient_privk = StacksPrivateKey::new();
+        let recipient_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&recipient_privk)],
+        )
+        .unwrap();
+
+        let initial_balance = 1000000000;
+        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 20;
+        let first_stacks_block_height = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            sn.block_height
+        };
+
+        let mut last_block_id = StacksBlockId([0x00; 32]);
+        for tenure_id in 0..num_blocks {
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            assert_eq!(
+                tip.block_height,
+                first_stacks_block_height + (tenure_id as u64)
+            );
+
+            // For the first 5 burn blocks, sortition a Stacks block.
+            let process_stacks_block = tenure_id <= 5 || tenure_id >= 13;
+
+            let (mut burn_ops, stacks_block_opt, microblocks_opt) = if process_stacks_block {
+                let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+                    |ref mut miner,
+                     ref mut sortdb,
+                     ref mut chainstate,
+                     vrf_proof,
+                     ref parent_opt,
+                     ref parent_microblock_header_opt| {
+                        let parent_tip = match parent_opt {
+                            None => {
+                                StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                            }
+                            Some(block) => {
+                                let ic = sortdb.index_conn();
+                                let snapshot =
+                                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                        &ic,
+                                        &tip.sortition_id,
+                                        &block.block_hash(),
+                                    )
+                                    .unwrap()
+                                    .unwrap(); // succeeds because we don't fork
+                                StacksChainState::get_anchored_block_header_info(
+                                    chainstate.db(),
+                                    &snapshot.consensus_hash,
+                                    &snapshot.winning_stacks_block_hash,
+                                )
+                                .unwrap()
+                                .unwrap()
+                            }
+                        };
+
+                        let mut mempool =
+                            MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                        let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                        let anchored_block = StacksBlockBuilder::build_anchored_block(
+                            chainstate,
+                            &sortdb.index_conn(),
+                            &mut mempool,
+                            &parent_tip,
+                            tip.total_burn,
+                            vrf_proof,
+                            Hash160([tenure_id as u8; 20]),
+                            &coinbase_tx,
+                            BlockBuilderSettings::max_value(),
+                            None,
+                        )
+                        .unwrap();
+
+                        (anchored_block.0, vec![])
+                    },
+                );
+                (burn_ops, Some(stacks_block), Some(microblocks))
+            } else {
+                (vec![], None, None)
+            };
+
+            let mut expected_transfer_ops = if tenure_id == 0 || tenure_id - 1 < 5 {
+                // all contiguous blocks up to now, so only expect this block's stx-transfer
+                vec![make_transfer_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            } else if tenure_id - 1 == 5 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 6 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 7 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 8 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 9 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 10 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 5, tenure_id - 6),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else if tenure_id - 1 == 11 {
+                vec![
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 5, tenure_id - 6),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                ]
+            } else {
+                vec![make_transfer_op(
+                    &addr,
+                    &recipient_addr,
+                    tip.block_height + 1,
+                    tenure_id,
+                )]
+            };
+
+            // add one stx-transfer burn op per block
+            let mut stx_burn_ops = vec![BlockstackOperationType::TransferStx(make_transfer_op(
+                &addr,
+                &recipient_addr,
+                tip.block_height + 1,
+                tenure_id,
+            ))];
+            burn_ops.append(&mut stx_burn_ops);
+
+            let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            match (stacks_block_opt, microblocks_opt) {
+                (Some(stacks_block), Some(microblocks)) => {
+                    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                    last_block_id = StacksBlockHeader::make_index_block_hash(
+                        &consensus_hash,
+                        &stacks_block.block_hash(),
+                    );
+                }
+                _ => {}
+            }
+
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+
+            let sortdb = peer.sortdb.take().unwrap();
+            {
+                let chainstate = peer.chainstate();
+                let (mut chainstate_tx, clarity_instance) =
+                    chainstate.chainstate_tx_begin().unwrap();
+                let (stack_stx_ops, transfer_stx_ops) =
+                    StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                        &mut chainstate_tx,
+                        &last_block_id,
+                        sortdb.conn(),
+                        &tip.burn_header_hash,
+                        tip.block_height,
+                        0,
+                    )
+                    .unwrap();
+
+                assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
+
+                // burn header hash will be different, since it's set post-processing.
+                // everything else must be the same though.
+                for i in 0..expected_transfer_ops.len() {
+                    expected_transfer_ops[i].burn_header_hash =
+                        transfer_stx_ops[i].burn_header_hash.clone();
+                }
+
+                assert_eq!(transfer_stx_ops, expected_transfer_ops);
+            }
+            peer.sortdb.replace(sortdb);
+        }
+
+        // all burnchain transactions mined, even if there was no sortition in the burn block in
+        // which they were mined.
+        let sortdb = peer.sortdb.take().unwrap();
+
+        // definitely missing some blocks -- there are empty sortitions
+        let stacks_tip = peer
+            .chainstate()
+            .get_stacks_chain_tip(&sortdb)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stacks_tip.height, 13);
+
+        // but we did process all burnchain operations
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+        let tip_hash = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+        let account = peer
+            .chainstate()
+            .with_read_only_clarity_tx(&sortdb.index_conn(), &tip_hash, |conn| {
+                StacksChainState::get_account(conn, &addr.to_account_principal())
+            })
+            .unwrap();
+        peer.sortdb.replace(sortdb);
+
+        // skipped tenure 6's TransferSTX
+        assert_eq!(
+            account.stx_balance.get_total_balance(),
+            1000000000
+                - (1000
+                    + 2000
+                    + 3000
+                    + 4000
+                    + 5000
+                    + 7000
+                    + 8000
+                    + 9000
+                    + 10000
+                    + 11000
+                    + 12000
+                    + 13000
+                    + 14000
+                    + 15000
+                    + 16000
+                    + 17000
+                    + 18000
+                    + 19000)
         );
     }
 

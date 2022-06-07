@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{btree_map::Entry, BTreeMap};
+use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
+use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
@@ -34,6 +35,7 @@ use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::operations::{StackStxOp, TransferStxOp};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
@@ -94,6 +96,7 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use clarity::vm::Value;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+
 pub mod accounts;
 pub mod blocks;
 pub mod contracts;
@@ -579,7 +582,7 @@ pub struct TxStreamData {
     pub corked: bool,
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "2";
+pub const CHAINSTATE_VERSION: &'static str = "3";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -729,6 +732,21 @@ const CHAINSTATE_SCHEMA_2: &'static [&'static str] = &[
     );"#,
     r#"
     UPDATE db_config SET version = "2";
+    "#,
+];
+
+const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
+    // new in epoch 2.1 (schema version 3)
+    // table to map index block hashes to the txids of on-burnchain stacks operations that were
+    // proessed
+    r#"
+    CREATE TABLE burnchain_txids(
+        index_block_hash TEXT PRIMARY KEY,
+        -- this is a JSON-encoded list of txids
+        txids TEXT NOT NULL
+    );"#,
+    r#"
+    UPDATE db_config SET version = "3";
     "#,
 ];
 
@@ -941,6 +959,17 @@ impl StacksChainState {
                         for cmd in CHAINSTATE_SCHEMA_2.iter() {
                             tx.execute_batch(cmd)?;
                         }
+                    }
+                    "2" => {
+                        // migrate to 3
+                        info!("Migrating chainstate schema from version 2 to 3");
+                        for cmd in CHAINSTATE_SCHEMA_3.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
+                    }
+                    "3" => {
+                        // done
+                        break;
                     }
                     _ => {
                         error!(
@@ -2105,6 +2134,76 @@ impl StacksChainState {
         Ok(height_opt)
     }
 
+    /// Get the burnchain txids for a given index block hash
+    fn get_burnchain_txids_for_block(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Vec<Txid>, Error> {
+        let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+
+        let txids = conn
+            .query_row(sql, args, |r| {
+                let txids_json: String = r.get_unwrap(0);
+                let txids: Vec<Txid> = serde_json::from_str(&txids_json)
+                    .expect("FATAL: database corruption: could not parse TXID JSON");
+
+                Ok(txids)
+            })
+            .optional()?
+            .unwrap_or(vec![]);
+
+        Ok(txids)
+    }
+
+    /// Get the txids of the burnchain operations applied in the past N Stacks blocks.
+    pub fn get_burnchain_txids_in_ancestors(
+        conn: &Connection,
+        index_block_hash: &StacksBlockId,
+        count: u64,
+    ) -> Result<HashSet<Txid>, Error> {
+        let mut ret = HashSet::new();
+        let ancestors = StacksChainState::get_ancestor_index_hashes(conn, index_block_hash, count)?;
+        for ancestor in ancestors.into_iter() {
+            let txids = StacksChainState::get_burnchain_txids_for_block(conn, &ancestor)?;
+            for txid in txids.into_iter() {
+                ret.insert(txid);
+            }
+        }
+        Ok(ret)
+    }
+
+    /// Store all on-burnchain STX operations' txids by index block hash
+    fn store_burnchain_txids(
+        tx: &DBTx,
+        index_block_hash: &StacksBlockId,
+        burn_stack_stx_ops: Vec<StackStxOp>,
+        burn_transfer_stx_ops: Vec<TransferStxOp>,
+    ) -> Result<(), Error> {
+        let mut txids: Vec<_> = burn_stack_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        let mut xfer_txids = burn_transfer_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        txids.append(&mut xfer_txids);
+
+        let txids_json =
+            serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
+        let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
+        let args: &[&dyn ToSql] = &[index_block_hash, &txids_json];
+        tx.execute(sql, args)?;
+        Ok(())
+    }
+
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
     pub fn advance_tip<'a>(
@@ -2122,6 +2221,8 @@ impl StacksChainState {
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,
+        burn_stack_stx_ops: Vec<StackStxOp>,
+        burn_transfer_stx_ops: Vec<TransferStxOp>,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2180,6 +2281,12 @@ impl StacksChainState {
             headers_tx.deref_mut(),
             block_reward,
             user_burns,
+        )?;
+        StacksChainState::store_burnchain_txids(
+            headers_tx.deref(),
+            &index_block_hash,
+            burn_stack_stx_ops,
+            burn_transfer_stx_ops,
         )?;
 
         if applied_epoch_transition {
