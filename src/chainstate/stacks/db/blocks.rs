@@ -4602,7 +4602,7 @@ impl StacksChainState {
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
-                            debug!("Processed StackStx burn op for {} uSTX for {} cycles starting at {} from {} to pay out to {}", stacked_ustx, num_cycles, block_height, &sender, &reward_addr);
+                            debug!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
@@ -4672,10 +4672,7 @@ impl StacksChainState {
                         });
                         match result {
                             Ok((value, _, events)) => {
-                                debug!(
-                                    "Processed TransferStx {} uSTX from {} to {}",
-                                    transfered_ustx, &sender, &recipient
-                                );
+                                debug!("Processed TransferStx burnchain op"; "transfered_ustx" => transfered_ustx, "sender" => %sender, "recipient" => %recipient, "txid" => %txid);
                                 Some(StacksTransactionReceipt {
                                     transaction: TransactionOrigin::Burn(txid),
                                     events,
@@ -4878,8 +4875,8 @@ impl StacksChainState {
         Ok((stacking_burn_ops, transfer_burn_ops))
     }
 
-    fn get_stacking_and_transfer_burn_ops_v210<'b>(
-        chainstate_tx: &'b mut ChainstateTx,
+    fn get_stacking_and_transfer_burn_ops_v210(
+        chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
@@ -4930,17 +4927,15 @@ impl StacksChainState {
             let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
 
             for stacking_op in stacking_ops.into_iter() {
-                if processed_burnchain_txids.contains(&stacking_op.txid) {
-                    continue;
+                if !processed_burnchain_txids.contains(&stacking_op.txid) {
+                    all_stacking_burn_ops.push(stacking_op);
                 }
-                all_stacking_burn_ops.push(stacking_op);
             }
 
             for transfer_op in transfer_ops.into_iter() {
-                if processed_burnchain_txids.contains(&transfer_op.txid) {
-                    continue;
+                if !processed_burnchain_txids.contains(&transfer_op.txid) {
+                    all_transfer_burn_ops.push(transfer_op);
                 }
-                all_transfer_burn_ops.push(transfer_op);
             }
         }
         Ok((all_stacking_burn_ops, all_transfer_burn_ops))
@@ -4970,8 +4965,8 @@ impl StacksChainState {
     /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
     /// the first time -- the choice of K is significantly bigger than the length of short-lived
     /// forks or periods of time with no sortition than have been observed in practice.
-    fn get_stacking_and_transfer_burn_ops<'b>(
-        chainstate_tx: &'b mut ChainstateTx,
+    fn get_stacking_and_transfer_burn_ops(
+        chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
