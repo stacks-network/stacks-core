@@ -266,7 +266,7 @@ fn test_get_block_info() {
             &format!("{}", type_check_helper(&good_test).unwrap())
         );
     }
-    for (good_test_v210, expected_v210) in good.iter().zip(expected.iter()) {
+    for (good_test_v210, expected_v210) in good_v210.iter().zip(expected_v210.iter()) {
         assert_eq!(
             expected_v210,
             &format!("{}", type_check_helper(&good_test_v210).unwrap())
