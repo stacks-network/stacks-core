@@ -1222,6 +1222,8 @@ mod test {
             &ExecutionCost::zero(),
             123,
             false,
+            vec![],
+            vec![],
         )
         .unwrap();
         tx.commit().unwrap();
