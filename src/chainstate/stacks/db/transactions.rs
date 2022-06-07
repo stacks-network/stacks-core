@@ -1176,7 +1176,18 @@ impl StacksChainState {
                                       "contract" => %contract_id,
                                       "code" => %contract_code_str,
                                       "error" => ?error);
-                            (AssetMap::new(), vec![])
+                            let receipt = StacksTransactionReceipt {
+                                transaction: tx.clone().into(),
+                                events: vec![],
+                                post_condition_aborted: false,
+                                result: Value::err_none(),
+                                stx_burned: 0,
+                                contract_analysis: Some(contract_analysis),
+                                execution_cost: total_cost,
+                                microblock_header: None,
+                                tx_index: 0,
+                            };
+                            return Ok(receipt);
                         }
                         ClarityRuntimeTxError::AbortedByCallback(_, assets, events) => {
                             let receipt =
