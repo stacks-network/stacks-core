@@ -5002,7 +5002,7 @@ impl StacksChainState {
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'b dyn BurnStateDB,
-        conn: &Connection,
+        conn: &Connection, // connection to the sortition DB
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
@@ -5077,6 +5077,7 @@ impl StacksChainState {
 
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
+            conn,
             &chain_tip,
             latest_matured_miners,
             matured_miner_parent,
