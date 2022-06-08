@@ -463,8 +463,19 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut addrs_iter =
-                                format!("{}:1", peer_host).to_socket_addrs().unwrap();
+                            let mut attempts = 0;
+                            let mut addrs_iter = loop {
+                                if let Ok(addrs_iter) = format!("{}:1", peer_host).to_socket_addrs()
+                                {
+                                    break addrs_iter;
+                                }
+                                attempts += 1;
+                                if attempts == 12 {
+                                    error!("Unable to resolve burnchain's host");
+                                    std::process::exit(1);
+                                }
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                            };
                             let sock_addr = addrs_iter.next().unwrap();
                             format!("{}", sock_addr.ip())
                         }
@@ -1090,12 +1101,24 @@ pub struct NodeConfig {
     pub local_peer_seed: Vec<u8>,
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
+    /// If true, this node is a miner, otherwise a follower.
     pub miner: bool,
+    /// If true, only do "mock mining", in which the miner doesn't actually send commitments.
+    /// Otherwise, if this is a miner, send commitments.
     pub mock_mining: bool,
+    /// If true, mine micro-blocks, otherwise don't.
     pub mine_microblocks: bool,
+    /// Try to mine a new micro-block every `microblock_frequency` milliseconds.
     pub microblock_frequency: u64,
+    /// The maximum number of micro-blocks this miner will try to make per burn block.
+    /// Note: This field is currently unused.
     pub max_microblocks: u64,
+    /// Wait this number of milliseconds: 1) before starting the first anchored block for a burn block,
+    /// and 2) before starting a new anchored block after another.
     pub wait_time_for_microblocks: u64,
+    /// Wait this amount of milliseconds, after learning of a new burn block, before starting on the first
+    /// anchored block for that burn block.
+    pub wait_before_first_anchored_block: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1392,6 +1415,7 @@ impl NodeConfig {
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
+            wait_before_first_anchored_block: 5 * 60_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -1635,6 +1659,7 @@ pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
     STXEvent,
+    WithdrawalEvent,
     MemPoolTransactions,
     Microblocks,
     AnyEvent,

@@ -1,27 +1,23 @@
 use crate::burnchains::{Burnchain, StacksHyperOp, StacksHyperOpType};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::chainstate::burn::operations::Error as op_error;
-use crate::chainstate::burn::operations::WithdrawFtOp;
+use crate::chainstate::burn::operations::WithdrawStxOp;
 use clarity::types::chainstate::BurnchainHeaderHash;
 use std::convert::TryFrom;
 
-impl TryFrom<&StacksHyperOp> for WithdrawFtOp {
+impl TryFrom<&StacksHyperOp> for WithdrawStxOp {
     type Error = op_error;
 
     fn try_from(value: &StacksHyperOp) -> Result<Self, Self::Error> {
-        if let StacksHyperOpType::WithdrawFt {
-            ref l1_contract_id,
-            ref name,
+        if let StacksHyperOpType::WithdrawStx {
             ref amount,
             ref recipient,
         } = value.event
         {
-            Ok(WithdrawFtOp {
+            Ok(WithdrawStxOp {
                 txid: value.txid.clone(),
                 // use the StacksBlockId in the L1 event as the burnchain header hash
                 burn_header_hash: BurnchainHeaderHash(value.in_block.0.clone()),
-                l1_contract_id: l1_contract_id.clone(),
-                name: name.clone(),
                 amount: amount.clone(),
                 recipient: recipient.clone(),
             })
@@ -31,7 +27,7 @@ impl TryFrom<&StacksHyperOp> for WithdrawFtOp {
     }
 }
 
-impl WithdrawFtOp {
+impl WithdrawStxOp {
     pub fn check(
         &self,
         _burnchain: &Burnchain,

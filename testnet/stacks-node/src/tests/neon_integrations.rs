@@ -6,12 +6,14 @@ use std::time::{Duration, Instant};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
 use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData};
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::Hash160;
+use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::vm::types::QualifiedContractIdentifier;
+use stacks::vm::{ClarityName, ContractName};
 use stacks::{
     chainstate::stacks::{
         StacksBlock, StacksBlockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
@@ -20,12 +22,16 @@ use stacks::{
 };
 
 use crate::burnchains::mock_events::{reset_static_burnblock_simulator_channel, MockController};
+use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon;
 use crate::tests::l1_observer_test::MOCKNET_PRIVATE_KEY_1;
 use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
 use crate::{Config, Keychain};
+use std::convert::TryFrom;
+
+use super::make_contract_call_mblock_only;
 
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -53,6 +59,8 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     conf.burnchain.first_burn_header_height = 1;
+
+    conf.node.wait_before_first_anchored_block = 5_000;
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
@@ -516,7 +524,7 @@ fn mockstack_integration_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
     btc_regtest_controller.next_block(None);
-    // btc_regtest_controller.next_block(None);
+    btc_regtest_controller.next_block(None);
 
     let (sortition_db, _) = burnchain.open_db(true).unwrap();
 
@@ -550,7 +558,7 @@ fn mockstack_integration_test() {
 
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
+    assert_eq!(account.nonce, 2);
 
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
@@ -924,14 +932,7 @@ fn no_contract_calls_forking_integration_test() {
     let (sortition_db, _) = burnchain.open_db(true).unwrap();
 
     btc_regtest_controller.next_block(None);
-
-    next_block_and_wait(
-        &mut btc_regtest_controller,
-        None,
-        &blocks_processed,
-        &sortition_db,
-    );
-    assert_l2_l1_tip_heights(&sortition_db, 0, 2);
+    btc_regtest_controller.next_block(None);
 
     next_block_and_wait(
         &mut btc_regtest_controller,
@@ -941,13 +942,21 @@ fn no_contract_calls_forking_integration_test() {
     );
     assert_l2_l1_tip_heights(&sortition_db, 0, 3);
 
-    let common_ancestor = next_block_and_wait(
+    next_block_and_wait(
         &mut btc_regtest_controller,
         None,
         &blocks_processed,
         &sortition_db,
     );
     assert_l2_l1_tip_heights(&sortition_db, 1, 4);
+
+    let common_ancestor = next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    assert_l2_l1_tip_heights(&sortition_db, 2, 5);
 
     for i in 0..2 {
         next_block_and_wait(
@@ -956,7 +965,7 @@ fn no_contract_calls_forking_integration_test() {
             &blocks_processed,
             &sortition_db,
         );
-        assert_l2_l1_tip_heights(&sortition_db, 2 + i, 5 + i);
+        assert_l2_l1_tip_heights(&sortition_db, 3 + i, 6 + i);
     }
 
     let mut cursor = common_ancestor;
@@ -970,7 +979,7 @@ fn no_contract_calls_forking_integration_test() {
         &blocks_processed,
         &sortition_db,
     );
-    assert_l2_l1_tip_heights(&sortition_db, 1, 8);
+    assert_l2_l1_tip_heights(&sortition_db, 2, 9);
 
     next_block_and_wait(
         &mut btc_regtest_controller,
@@ -978,7 +987,7 @@ fn no_contract_calls_forking_integration_test() {
         &blocks_processed,
         &sortition_db,
     );
-    assert_l2_l1_tip_heights(&sortition_db, 2, 9);
+    assert_l2_l1_tip_heights(&sortition_db, 3, 10);
 
     termination_switch.store(false, Ordering::SeqCst);
     run_loop_thread.join().expect("Failed to join run loop.");
@@ -990,4 +999,229 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
         .expect("Could not read from SortitionDB.");
     assert_eq!(l2_height, tip_snapshot.canonical_stacks_tip_height);
     assert_eq!(l1_height, tip_snapshot.block_height);
+}
+
+/// Test that we can make micro-blocks. The L2 chain is set to wait M seconds before
+/// making an anchored block. Send a transaction before this time is up and then sleep
+/// to see that this transaction went into a micro-block.
+#[test]
+#[ignore]
+fn transactions_in_block_and_microblock() {
+    reset_static_burnblock_simulator_channel();
+    let (mut conf, miner_account) = mockstack_test_conf();
+    conf.node.microblock_frequency = 100;
+    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
+    let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
+    let addr_2 = to_addr(&sk_2);
+    let addr_3 = to_addr(&sk_3);
+
+    let addr_3_init_balance = 100000;
+    let addr_2_init_balance = 2000;
+
+    conf.add_initial_balance(addr_3.to_string(), addr_3_init_balance);
+    conf.add_initial_balance(addr_2.to_string(), addr_2_init_balance);
+    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 3000);
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    info!(
+        "conf.node.wait_before_first_anchored_block: {:?}",
+        &conf.node.wait_before_first_anchored_block
+    );
+    test_observer::spawn();
+
+    let burnchain = Burnchain::new(
+        &conf.get_burn_db_path(),
+        &conf.burnchain.chain,
+        &conf.burnchain.mode,
+    )
+    .unwrap();
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    let (sortition_db, _) = burnchain.open_db(true).unwrap();
+
+    btc_regtest_controller.next_block(None);
+    btc_regtest_controller.next_block(None);
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+
+    {
+        let small_contract = "(define-public (return-one) (ok 1))";
+        let publish_tx =
+            make_contract_publish(&contract_sk, 0, 1000, "small-contract", small_contract);
+        submit_tx_and_wait(&http_origin, &publish_tx);
+    }
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+    {
+        let contract_call_tx = make_contract_call(
+            &sk_2,
+            0,
+            1000,
+            &to_addr(&contract_sk),
+            "small-contract",
+            "return-one",
+            &[],
+        );
+        submit_tx_and_wait(&http_origin, &contract_call_tx);
+    }
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+
+    {
+        let contract_call_tx = make_contract_call_mblock_only(
+            &sk_2,
+            1,
+            1000,
+            &to_addr(&contract_sk),
+            "small-contract",
+            "return-one",
+            &[],
+        );
+        submit_tx_and_wait(&http_origin, &contract_call_tx);
+    }
+    sleep_for_reason(Duration::from_millis(3000), "wait for micro-blocks");
+
+    next_block_and_wait(
+        &mut btc_regtest_controller,
+        None,
+        &blocks_processed,
+        &sortition_db,
+    );
+
+    // We should have 1 anchored block with a "return-one" transaction, and one micro-block with
+    // a "return-one" transaction.
+    {
+        let small_contract_calls = select_transactions_where(
+            &test_observer::get_blocks(),
+            |transaction| match &transaction.payload {
+                TransactionPayload::ContractCall(contract) => {
+                    contract.contract_name == ContractName::try_from("small-contract").unwrap()
+                        && contract.function_name == ClarityName::try_from("return-one").unwrap()
+                }
+                _ => false,
+            },
+        );
+        assert_eq!(1, small_contract_calls.len());
+    }
+    {
+        let small_contract_calls =
+            select_transactions_where(&test_observer::get_microblocks(), |transaction| {
+                match &transaction.payload {
+                    TransactionPayload::ContractCall(contract) => {
+                        contract.contract_name == ContractName::try_from("small-contract").unwrap()
+                            && contract.function_name
+                                == ClarityName::try_from("return-one").unwrap()
+                    }
+                    _ => false,
+                }
+            });
+        assert_eq!(1, small_contract_calls.len());
+    }
+
+    channel.stop_chains_coordinator();
+}
+
+/// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
+/// match `test_fn`.
+fn select_transactions_where(
+    blocks: &Vec<serde_json::Value>,
+    test_fn: fn(&StacksTransaction) -> bool,
+) -> Vec<StacksTransaction> {
+    let mut result = vec![];
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        for tx in transactions.iter() {
+            info!("tx: {:?}", &tx);
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            let test_value = test_fn(&parsed);
+            if test_value {
+                result.push(parsed);
+            }
+        }
+    }
+
+    return result;
+}
+
+/// Sleep for `sleep_duration`, and log `reason` at beginning and end of sleep.
+fn sleep_for_reason(sleep_duration: Duration, reason: &str) {
+    info!(
+        "sleep_for_reason: START sleep {:?} for reason: {}",
+        serde_json::to_string(&sleep_duration).expect("Serialization failed."),
+        &reason
+    );
+    thread::sleep(sleep_duration);
+    info!(
+        "sleep_for_reason: STOP sleep {:?} for reason: {}",
+        serde_json::to_string(&sleep_duration).expect("Serialization failed."),
+        &reason
+    );
+}
+
+/// Submit a transaction, and wait for it to show up in the mempool events of the
+/// test observer.
+pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
+    let start = Instant::now();
+    let original_tx_count = test_observer::get_memtxs().len();
+    let result = submit_tx(http_origin, tx);
+    info!("submitted transaction with id: {:?}", &result);
+    while test_observer::get_memtxs().len() <= original_tx_count {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            panic!("Timed out waiting for run loop to start");
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    result
 }

@@ -2157,6 +2157,18 @@ pub mod test {
                     .unwrap();
                     Ok(())
                 }
+                BlockstackOperationType::WithdrawStx(ref op) => {
+                    serde_json::to_writer(
+                        fd,
+                        &json!({
+                            "op": "withdraw_stx",
+                            "amount": op.amount,
+                            "recipient": op.recipient,
+                        }),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
                 BlockstackOperationType::WithdrawFt(ref op) => {
                     serde_json::to_writer(
                         fd,
@@ -2165,7 +2177,6 @@ pub mod test {
                             "amount": op.amount,
                             "recipient": op.recipient,
                             "l1_contract_id": op.l1_contract_id,
-                            "hc_contract_id": op.hc_contract_id,
                             "name": op.name
                         }),
                     )
@@ -2180,7 +2191,6 @@ pub mod test {
                             "id": op.id,
                             "recipient": op.recipient,
                             "l1_contract_id": op.l1_contract_id,
-                            "hc_contract_id": op.hc_contract_id,
                         }),
                     )
                     .unwrap();

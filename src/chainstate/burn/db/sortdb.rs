@@ -83,7 +83,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, VRFSeed,
 };
 
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFPublicKey;
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -197,9 +197,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let txid = Txid::from_column(row, "txid")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "l1_block_id")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "committed_block_hash")?;
+        let withdrawal_merkle_root = Sha512Trunc256Sum::from_column(row, "withdrawal_merkle_root")?;
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
+            withdrawal_merkle_root,
             txid,
             burn_header_hash,
         };
@@ -395,6 +397,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         txid TEXT NOT NULL,
         l1_block_id TEXT NOT NULL,
         committed_block_hash TEXT NOT NULL,
+        withdrawal_merkle_root TEXT NOT NULL,
         sortition_id TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
@@ -3050,6 +3053,18 @@ impl<'a> SortitionHandleTx<'a> {
 
                 self.insert_deposit_nft(op, sort_id)
             }
+            BlockstackOperationType::WithdrawStx(ref op) => {
+                info!(
+                    "ACCEPTED burnchain operation";
+                    "op" => "withdraw_stx",
+                    "l1_stacks_block_id" => %op.burn_header_hash,
+                    "txid" => %op.txid,
+                    "amount" => %op.amount,
+                    "recipient" => %op.recipient,
+                );
+                // TODO(hyperchains) - store operation!
+                Ok(())
+            }
             BlockstackOperationType::WithdrawFt(ref op) => {
                 info!(
                     "ACCEPTED burnchain operation";
@@ -3057,8 +3072,6 @@ impl<'a> SortitionHandleTx<'a> {
                     "l1_stacks_block_id" => %op.burn_header_hash,
                     "txid" => %op.txid,
                     "l1_contract_id" => %op.l1_contract_id,
-                    "hc_contract_id" => %op.hc_contract_id,
-                    "hc_function_name" => %op.hc_function_name,
                     "name" => %op.name,
                     "amount" => %op.amount,
                     "recipient" => %op.recipient,
@@ -3074,8 +3087,6 @@ impl<'a> SortitionHandleTx<'a> {
                     "l1_stacks_block_id" => %op.burn_header_hash,
                     "txid" => %op.txid,
                     "l1_contract_id" => %op.l1_contract_id,
-                    "hc_contract_id" => %op.hc_contract_id,
-                    "hc_function_name" => %op.hc_function_name,
                     "id" => %op.id,
                     "recipient" => %op.recipient,
                 );
@@ -3099,12 +3110,13 @@ impl<'a> SortitionHandleTx<'a> {
             &block_commit.txid,
             &block_commit.burn_header_hash,
             &block_commit.block_header_hash,
+            &block_commit.withdrawal_merkle_root,
             sort_id,
         ];
 
         self.execute(
-            "INSERT INTO block_commits (txid, l1_block_id, committed_block_hash, sortition_id) \
-                      VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO block_commits (txid, l1_block_id, committed_block_hash, withdrawal_merkle_root, sortition_id) \
+                      VALUES (?1, ?2, ?3, ?4, ?5)",
             args,
         )?;
 

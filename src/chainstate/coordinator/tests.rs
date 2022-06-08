@@ -440,6 +440,7 @@ fn make_genesis_block_with_recipients(
 
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
+        withdrawal_merkle_root: block.header.withdrawal_merkle_root,
         txid: next_txid(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
     };
@@ -615,6 +616,7 @@ fn make_stacks_block_with_input(
 
     let commit_op = LeaderBlockCommitOp {
         block_header_hash: block.block_hash(),
+        withdrawal_merkle_root: block.header.withdrawal_merkle_root,
         txid: next_txid(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
     };

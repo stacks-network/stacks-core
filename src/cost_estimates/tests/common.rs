@@ -28,6 +28,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
                 parent_microblock_sequence: 0,
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
+                withdrawal_merkle_root: Sha512Trunc256Sum([0; 32]),
                 microblock_pubkey_hash: Hash160([0; 20]),
                 miner_signatures: MessageSignatureList::empty(),
             },

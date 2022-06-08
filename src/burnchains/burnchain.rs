@@ -43,7 +43,8 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::{
     leader_block_commit::MissedBlockCommit, BlockstackOperationType, DepositFtOp, DepositNftOp,
-    DepositStxOp, LeaderBlockCommitOp, WithdrawFtOp, WithdrawNftOp,
+    DepositStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    UserBurnSupportOp, WithdrawFtOp, WithdrawNftOp, WithdrawStxOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -69,9 +70,9 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use crate::types::chainstate::BurnchainHeaderHash;
-
+use crate::burnchains::StacksHyperOpType::WithdrawStx;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::types::chainstate::BurnchainHeaderHash;
 
 impl BurnchainStateTransition {
     pub fn noop() -> BurnchainStateTransition {
@@ -105,6 +106,9 @@ impl BurnchainStateTransition {
                     accepted_ops.push(op.clone().into());
                 }
                 BlockstackOperationType::DepositNft(op) => {
+                    accepted_ops.push(op.clone().into());
+                }
+                BlockstackOperationType::WithdrawStx(op) => {
                     accepted_ops.push(op.clone().into());
                 }
                 BlockstackOperationType::WithdrawFt(op) => {
@@ -437,6 +441,17 @@ impl Burnchain {
                     Err(e) => {
                         warn!(
                             "Failed to parse deposit NFT operation";
+                            "txid" => %burn_tx.txid(),
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                },
+                StacksHyperOpType::WithdrawStx { .. } => match WithdrawStxOp::try_from(event) {
+                    Ok(op) => Some(BlockstackOperationType::from(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse withdraw STX operation";
                             "txid" => %burn_tx.txid(),
                             "error" => ?e,
                         );
