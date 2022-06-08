@@ -1765,8 +1765,10 @@ mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
+    use crate::burnchains::test::TestMiner;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+    use crate::chainstate::stacks::miner::test::make_coinbase_with_nonce;
     use crate::chainstate::stacks::test::*;
     use crate::chainstate::stacks::*;
     use crate::chainstate::stacks::*;
@@ -1783,10 +1785,12 @@ mod test {
     use clarity::vm::costs::LimitedCostTracker;
     use clarity::vm::database::ClarityDatabase;
     use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
     use super::*;
     use crate::clarity_vm::clarity::ClarityConnection;
-    use crate::core::StacksEpochExtension;
+    use crate::core::*;
+    use clarity::vm::types::QualifiedContractIdentifier;
     use stacks_common::types::chainstate::BlockHeaderHash;
 
     #[test]
@@ -4249,6 +4253,168 @@ mod test {
                 |_| true,
             );
         })
+    }
+
+    #[test]
+    fn test_block_pay_to_contract_gated_at_v210() {
+        let mut peer_config =
+            TestPeerConfig::new("test_block_pay_to_contract_gated_at_v210", 4246, 4247);
+        let epochs = vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 28, // NOTE: the first 25 burnchain blocks have no sortition
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 28,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+        ];
+        peer_config.epochs = Some(epochs);
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let mut make_tenure =
+            |miner: &mut TestMiner,
+             sortdb: &mut SortitionDB,
+             chainstate: &mut StacksChainState,
+             vrfproof: VRFProof,
+             parent_opt: Option<&StacksBlock>,
+             microblock_parent_opt: Option<&StacksMicroblockHeader>| {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let parent_tip = match stacks_tip_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(staging_block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &staging_block.anchored_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let coinbase_tx = make_coinbase_with_nonce(
+                    miner,
+                    parent_tip.stacks_block_height as usize,
+                    0,
+                    Some(
+                        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns")
+                            .unwrap(),
+                    ),
+                );
+
+                let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrfproof,
+                    tip.total_burn,
+                    Hash160(mblock_pubkey_hash_bytes),
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
+
+                (anchored_block.0, vec![])
+            };
+
+        // tenures 26 and 27 should fail, since the block is a pay-to-contract block
+        // Pay-to-contract should only be supported if the parent block is in epoch 2.1, which
+        // activates at tenure 27.
+        for i in 0..2 {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
+                }
+                Err(chainstate_error::InvalidStacksBlock(_)) => {}
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+
+        // *now* it should succeed, since tenure 28 was in epoch 2.1
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let mut node = peer.stacks_node.take().unwrap();
+        match Relayer::process_new_anchored_block(
+            &sortdb.index_conn(),
+            &mut node.chainstate,
+            &consensus_hash,
+            &stacks_block,
+            123,
+        ) {
+            Ok(x) => {
+                assert!(x, "Failed to process valid pay-to-contract block");
+            }
+            Err(e) => {
+                panic!("Got unexpected error {:?}", &e);
+            }
+        };
+        peer.sortdb = Some(sortdb);
+        peer.stacks_node = Some(node);
     }
 
     // TODO: process bans
