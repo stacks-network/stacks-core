@@ -3462,6 +3462,13 @@ pub mod test {
                 &last_key,
                 Some(&last_sortition_block),
             );
+
+            // patch up block-commit -- these blocks all mine off of genesis
+            if stacks_block.header.parent_block == BlockHeaderHash([0u8; 32]) {
+                block_commit_op.parent_block_ptr = 0;
+                block_commit_op.parent_vtxindex = 0;
+            }
+
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             // patch in reward set info
