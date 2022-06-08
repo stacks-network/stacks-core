@@ -8021,8 +8021,8 @@ pub mod test {
                 // (since validate_anchored_block_burnchain() will fail)
                 if let Err(e) = peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![]) {
                     match e {
-                        CoordinatorError::ChainstateError(ChainstateError::DBError(
-                            db_error::NotFoundError,
+                        CoordinatorError::ChainstateError(ChainstateError::InvalidStacksBlock(
+                            _,
                         )) => {}
                         x => {
                             panic!("Unexpected error {:?}", &x);
