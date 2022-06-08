@@ -312,6 +312,7 @@ const PANIC_TIMEOUT_SECS: u64 = 60;
 /// There is a time period between creating a burn block, and the L2 block getting made,
 /// and `during_microblocks_callback` can be used to insert code into this period,
 /// right after the burn block is signaled.
+///
 /// Panic on timeout.
 pub fn next_block_and_wait_with_callback<F>(
     btc_controller: &mut MockController,
@@ -1286,8 +1287,9 @@ pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
     resulting_txid
 }
 
-/// Test that we can create multiple micro-blocks in between two blocks, and then
-/// that we don't lose any of these transactions.
+/// Before creating an anchor block, we will spend the first "M minutes" after a burn block
+/// making micro-blocks. This test makes three micro-blocks in this time before the first
+/// anchored block.
 #[test]
 #[ignore]
 fn transactions_microblocks_then_block() {
@@ -1504,6 +1506,8 @@ fn transactions_microblocks_then_block() {
         });
     assert_eq!(3, small_contract_mb_calls.len());
 
+    // The transaction was copied in 3 micro-blocks plus 2 blocks. These all get counted here so
+    // expect 5 total.
     let small_contract_total_calls = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
