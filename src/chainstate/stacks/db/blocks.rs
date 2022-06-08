@@ -3787,9 +3787,8 @@ impl StacksChainState {
             }
         }
 
-        let sortition_burns =
-            SortitionDB::get_block_burn_amount(db_handle, &penultimate_sortition_snapshot)
-                .expect("FATAL: have block commit but no total burns in its sortition");
+        let sortition_burns = SortitionDB::get_block_burn_amount(db_handle, &burn_chain_tip)
+            .expect("FATAL: have block commit but no total burns in its sortition");
 
         Ok(Some((block_commit.burn_fee, sortition_burns)))
     }
@@ -4742,9 +4741,10 @@ impl StacksChainState {
                     snapshot.credit(miner_reward_total);
 
                     debug!(
-                        "Balance available for {} is {} STX",
+                        "Balance available for {} is {} uSTX (earned {} uSTX)",
                         &miner_reward.address,
-                        snapshot.get_available_balance();
+                        snapshot.get_available_balance(),
+                        miner_reward_total
                     );
                     snapshot.save();
 
@@ -4831,13 +4831,13 @@ impl StacksChainState {
     /// Given the list of matured miners, find the miner reward schedule that produced the parent
     /// of the block whose coinbase just matured.
     pub fn get_parent_matured_miner(
-        stacks_tx: &mut StacksDBTx,
+        conn: &DBConn,
         mainnet: bool,
         latest_matured_miners: &Vec<MinerPaymentSchedule>,
     ) -> Result<MinerPaymentSchedule, Error> {
         let parent_miner = if let Some(ref miner) = latest_matured_miners.first().as_ref() {
             StacksChainState::get_scheduled_block_rewards_at_block(
-                stacks_tx,
+                conn,
                 &StacksBlockHeader::make_index_block_hash(
                     &miner.parent_consensus_hash,
                     &miner.parent_block_hash,
@@ -5002,7 +5002,7 @@ impl StacksChainState {
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'b dyn BurnStateDB,
-        conn: &Connection,
+        conn: &Connection, // connection to the sortition DB
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
@@ -5077,6 +5077,7 @@ impl StacksChainState {
 
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
+            conn,
             &chain_tip,
             latest_matured_miners,
             matured_miner_parent,
@@ -5183,14 +5184,12 @@ impl StacksChainState {
     /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
-        miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
         block_height: u32,
         mblock_pubkey_hash: Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards, ref parent_reward)) =
-            miner_payouts.as_ref()
-        {
+        if let Some((ref miner_reward, ref user_rewards, ref parent_reward, _)) = miner_payouts {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -5387,7 +5386,7 @@ impl StacksChainState {
             scheduled_miner_reward,
             block_execution_cost,
             matured_rewards,
-            matured_rewards_info,
+            miner_payouts_opt,
             parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
@@ -5484,8 +5483,9 @@ impl StacksChainState {
 
             let block_cost = clarity_tx.cost_so_far();
 
-            // obtain reward info for receipt
-            let (matured_rewards, matured_rewards_info, miner_payouts_opt) =
+            // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
+            // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
+            let (matured_rewards, miner_payouts_opt) =
                 if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
                     matured_miner_rewards_opt
                 {
@@ -5495,11 +5495,10 @@ impl StacksChainState {
                     ret.push(parent_reward.clone());
                     (
                         ret,
-                        Some(reward_ptr),
-                        Some((miner_reward, user_rewards, parent_reward)),
+                        Some((miner_reward, user_rewards, parent_reward, reward_ptr)),
                     )
                 } else {
-                    (vec![], None, None)
+                    (vec![], None)
                 };
 
             // total burns
@@ -5509,7 +5508,7 @@ impl StacksChainState {
 
             let mut lockup_events = match StacksChainState::finish_block(
                 &mut clarity_tx,
-                miner_payouts_opt,
+                miner_payouts_opt.as_ref(),
                 block.header.total_work.work as u32,
                 block.header.microblock_pubkey_hash,
             ) {
@@ -5595,7 +5594,7 @@ impl StacksChainState {
                 scheduled_miner_reward,
                 block_cost,
                 matured_rewards,
-                matured_rewards_info,
+                miner_payouts_opt,
                 parent_burn_block_hash,
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
@@ -5607,6 +5606,10 @@ impl StacksChainState {
             0 => None,
             x => Some(microblocks[x - 1].header.clone()),
         };
+
+        let matured_rewards_info = miner_payouts_opt
+            .as_ref()
+            .map(|(_, _, _, info)| info.clone());
 
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
@@ -5620,6 +5623,7 @@ impl StacksChainState {
             microblock_tail_opt,
             &scheduled_miner_reward,
             user_burns,
+            miner_payouts_opt,
             &block_execution_cost,
             block_size,
             applied_epoch_transition,

@@ -32,6 +32,7 @@ use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::MinerRewardInfo;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
@@ -853,7 +854,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     parent_consensus_hash: ConsensusHash,
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
