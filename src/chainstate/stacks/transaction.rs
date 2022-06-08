@@ -135,9 +135,22 @@ impl StacksMessageCodec for TransactionPayload {
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(ref buf) => {
-                write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
-                write_next(fd, buf)?;
+            TransactionPayload::Coinbase(ref buf, ref contract_id_opt) => {
+                match contract_id_opt {
+                    None => {
+                        // stacks 2.05 and earlier only use this path
+                        write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
+                        write_next(fd, buf)?;
+                    }
+                    Some(contract_id) => {
+                        write_next(fd, &(TransactionPayloadID::CoinbaseToContract as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(fd, &contract_id.issuer.0)?;
+                        fd.write_all(&contract_id.issuer.1)
+                            .map_err(|e| codec_error::WriteError(e))?;
+                        write_next(fd, &contract_id.name)?;
+                    }
+                }
             }
         }
         Ok(())
@@ -183,7 +196,21 @@ impl StacksMessageCodec for TransactionPayload {
             }
             x if x == TransactionPayloadID::Coinbase as u8 => {
                 let payload: CoinbasePayload = read_next(fd)?;
-                TransactionPayload::Coinbase(payload)
+                TransactionPayload::Coinbase(payload, None)
+            }
+            x if x == TransactionPayloadID::CoinbaseToContract as u8 => {
+                let payload: CoinbasePayload = read_next(fd)?;
+                let addr_version: u8 = read_next(fd)?;
+                let mut addr_bytes = [0u8; 20];
+                fd.read_exact(&mut addr_bytes)
+                    .map_err(|e| codec_error::ReadError(e))?;
+                let name: ContractName = read_next(fd)?;
+
+                let contract_id = QualifiedContractIdentifier {
+                    issuer: StandardPrincipalData(addr_version, addr_bytes),
+                    name: name,
+                };
+                TransactionPayload::Coinbase(payload, Some(contract_id))
             }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
@@ -458,7 +485,7 @@ impl StacksTransaction {
                     ));
                 }
             }
-            TransactionPayload::Coinbase(_) => {
+            TransactionPayload::Coinbase(..) => {
                 if anchor_mode != TransactionAnchorMode::OnChainOnly {
                     warn!("Invalid tx: invalid anchor mode for coinbase");
                     return Err(codec_error::DeserializeError(
@@ -497,6 +524,18 @@ impl StacksTransaction {
             },
             fd.num_read(),
         ))
+    }
+
+    /// Try to convert to a coinbase payload
+    pub fn try_as_coinbase(
+        &self,
+    ) -> Option<(&CoinbasePayload, Option<&QualifiedContractIdentifier>)> {
+        match &self.payload {
+            TransactionPayload::Coinbase(ref payload, ref contract_opt) => {
+                Some((payload, contract_opt.as_ref()))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -537,7 +576,7 @@ impl StacksTransaction {
         payload: TransactionPayload,
     ) -> StacksTransaction {
         let anchor_mode = match payload {
-            TransactionPayload::Coinbase(_) => TransactionAnchorMode::OnChainOnly,
+            TransactionPayload::Coinbase(..) => TransactionAnchorMode::OnChainOnly,
             TransactionPayload::PoisonMicroblock(_, _) => TransactionAnchorMode::OnChainOnly,
             _ => TransactionAnchorMode::Any,
         };
@@ -1459,12 +1498,12 @@ mod test {
                 corrupt_h2.sequence += 1;
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
-            TransactionPayload::Coinbase(ref buf) => {
+            TransactionPayload::Coinbase(ref buf, ref contract_id_opt) => {
                 let mut corrupt_buf_bytes = buf.as_bytes().clone();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf)
+                TransactionPayload::Coinbase(corrupt_buf, contract_id_opt.clone())
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
@@ -1651,7 +1690,7 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_coinbase() {
-        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]));
+        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None);
         let coinbase_payload_bytes = vec![
             // payload type ID
             TransactionPayloadID::Coinbase as u8,
@@ -3151,7 +3190,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         let tx_stx = StacksTransaction::new(
