@@ -701,6 +701,15 @@ impl TransactionSpendingCondition {
         }
     }
 
+    /// Get the address for an account, given the network flag
+    pub fn get_address(&self, mainnet: bool) -> StacksAddress {
+        if mainnet {
+            self.address_mainnet()
+        } else {
+            self.address_testnet()
+        }
+    }
+
     /// Clear fee rate, nonces, signatures, and public keys
     pub fn clear(&mut self) -> () {
         match *self {
