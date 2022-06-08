@@ -1024,7 +1024,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let nft_path = withdrawal_tree.path(&nft_withdrawal_key_bytes).unwrap();
 
     let mut ft_sib_data = Vec::new();
-    for (i, sib) in ft_path.iter().enumerate() {
+    for sib in ft_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -1036,7 +1036,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         ft_sib_data.push(sib_tuple);
     }
     let mut nft_sib_data = Vec::new();
-    for (i, sib) in nft_path.iter().enumerate() {
+    for sib in nft_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -1084,7 +1084,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             Value::list_from(nft_sib_data).unwrap(),
         ],
     );
-    l1_nonce += 1;
     // Withdraw ft-token from hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_withdraw_ft_tx);
     // Withdraw nft-token from hyperchains contract on L1
@@ -1185,7 +1184,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
 
-    let _l2_nonce = 0;
+    let mut l2_nonce = 0;
 
     config.burnchain.contract_identifier =
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
@@ -1287,8 +1286,6 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         hyperchain_simple_stx,
     );
     l2_nonce += 1;
-    let hc_stx_contract_id =
-        QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-stx"));
 
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
@@ -1445,7 +1442,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     let stx_path = withdrawal_tree.path(&stx_withdrawal_key_bytes).unwrap();
 
     let mut stx_sib_data = Vec::new();
-    for (i, sib) in stx_path.iter().enumerate() {
+    for sib in stx_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);

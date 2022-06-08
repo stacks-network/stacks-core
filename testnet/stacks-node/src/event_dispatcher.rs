@@ -577,7 +577,6 @@ impl EventDispatcher {
                     StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(_))
-                    | StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(_))
                     | StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(_)) => {
                         for o_i in &self.stx_observers_lookup {
                             dispatch_matrix[*o_i as usize].insert(i);

@@ -43,7 +43,6 @@ pub struct MockController {
     /// This is the simulated contract identifier
     contract_identifier: QualifiedContractIdentifier,
     burnchain: Burnchain,
-    config: Config,
     indexer: DBBurnchainIndexer,
 
     db: Option<SortitionDB>,
@@ -192,7 +191,6 @@ impl MockController {
         MockController {
             contract_identifier,
             burnchain,
-            config,
             indexer,
             db: None,
             burnchain_db: None,
