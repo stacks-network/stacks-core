@@ -602,7 +602,7 @@ impl StacksChainState {
     }
 
     /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
-    fn inner_insert_matured_miner_payment<'a>(
+    fn inner_insert_matured_miner_reward<'a>(
         tx: &mut DBTx<'a>,
         parent_block_id: &StacksBlockId,
         child_block_id: &StacksBlockId,
@@ -650,10 +650,10 @@ impl StacksChainState {
                 .as_ref()
                 .map(|r| format!("{}", &r)),
             &reward.vtxindex,
-            &format!("{}", &reward.coinbase),
-            &format!("{}", &reward.tx_fees_anchored),
-            &format!("{}", &reward.tx_fees_streamed_confirmed),
-            &format!("{}", &reward.tx_fees_streamed_produced),
+            &reward.coinbase.to_string(),
+            &reward.tx_fees_anchored.to_string(),
+            &reward.tx_fees_streamed_confirmed.to_string(),
+            &reward.tx_fees_streamed_produced.to_string(),
             parent_block_id,
             child_block_id,
         ];
@@ -686,7 +686,7 @@ impl StacksChainState {
             parent_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -716,7 +716,7 @@ impl StacksChainState {
             child_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -741,7 +741,7 @@ impl StacksChainState {
             child_reward.vtxindex > 0,
             "FATAL: tried to insert a miner reward as a user reward"
         );
-        StacksChainState::inner_insert_matured_miner_payment(
+        StacksChainState::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -990,7 +990,7 @@ impl StacksChainState {
                     )
                 } else {
                     // users that helped a miner that reported a poison-microblock get nothing
-                    (StacksAddress::burn_address(mainnet), coinbase_reward, false)
+                    (StacksAddress::burn_address(mainnet), 0, false)
                 }
             } else {
                 // no poison microblock reported
@@ -1069,7 +1069,8 @@ impl StacksChainState {
     }
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
-    /// Returns a list of payments to make to each address -- miners and user-support burners.
+    /// Returns a list of payments to make to each address -- miners and user-support burners -- as
+    /// well as an info struct about where the rewards took place on the chain.
     pub fn find_mature_miner_rewards(
         clarity_tx: &mut ClarityTx,
         sortdb_conn: &Connection,
@@ -1289,10 +1290,11 @@ mod test {
             &block_reward,
             &user_burns,
             None,
-            None,
             &ExecutionCost::zero(),
             123,
             false,
+            vec![],
+            vec![],
         )
         .unwrap();
         tx.commit().unwrap();
