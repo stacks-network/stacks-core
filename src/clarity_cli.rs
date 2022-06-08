@@ -1484,7 +1484,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                         vm_env.take_coverage_reporter(),
                                     )
                                 });
-                            // let (result)
                             let ((result, coverage), cost) = result_and_cost;
                             (header_db, marf, Ok((analysis, (result, cost, coverage))))
                         }
