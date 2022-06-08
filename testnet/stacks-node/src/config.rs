@@ -463,8 +463,19 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut addrs_iter =
-                                format!("{}:1", peer_host).to_socket_addrs().unwrap();
+                            let mut attempts = 0;
+                            let mut addrs_iter = loop {
+                                if let Ok(addrs_iter) = format!("{}:1", peer_host).to_socket_addrs()
+                                {
+                                    break addrs_iter;
+                                }
+                                attempts += 1;
+                                if attempts == 12 {
+                                    error!("Unable to resolve burnchain's host");
+                                    std::process::exit(1);
+                                }
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                            };
                             let sock_addr = addrs_iter.next().unwrap();
                             format!("{}", sock_addr.ip())
                         }
