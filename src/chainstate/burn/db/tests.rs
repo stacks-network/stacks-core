@@ -27,10 +27,6 @@ use super::sortdb::*;
 
 #[test]
 fn test_instantiate() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
     let _db = SortitionDB::connect_test(123).unwrap();
 }
 
@@ -43,10 +39,6 @@ fn random_sortdb_test_dir() -> String {
 
 #[test]
 fn test_tx_begin_end() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
     let mut db = SortitionDB::connect_test(123).unwrap();
     let tx = db.tx_begin().unwrap();
     tx.commit().unwrap();
@@ -83,10 +75,6 @@ pub fn test_append_snapshot(
 fn test_insert_block_commit() {
     let block_height = 123;
     let vtxindex = 456;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
 
     let block_commit = LeaderBlockCommitOp {
         block_header_hash: BlockHeaderHash([0x22; 32]),
@@ -186,10 +174,6 @@ fn test_insert_block_commit() {
 #[test]
 fn is_fresh_consensus_hash() {
     let consensus_hash_lifetime = 24;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
     let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();

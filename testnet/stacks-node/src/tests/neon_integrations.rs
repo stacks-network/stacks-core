@@ -584,8 +584,6 @@ fn mockstack_wait_for_first_block() {
     conf.node.prometheus_bind = Some(prom_bind.clone());
     conf.burnchain.first_burn_header_height = 16;
 
-    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
-
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -902,7 +900,6 @@ fn no_contract_calls_forking_integration_test() {
     conf.add_initial_balance(user_addr.to_string(), 10000000);
 
     test_observer::spawn();
-    let _http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let burnchain = Burnchain::new(
         &conf.get_burn_db_path(),
@@ -915,7 +912,6 @@ fn no_contract_calls_forking_integration_test() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
-    let _l2_rpc_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 

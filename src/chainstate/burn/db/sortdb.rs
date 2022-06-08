@@ -1576,7 +1576,10 @@ impl SortitionDB {
         } else {
             // validate -- must contain the given first block and first block hash
             let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial() || snapshot.block_height != first_block_height {
+            if !snapshot.is_initial()
+                || snapshot.block_height != first_block_height
+                || snapshot.burn_header_hash != BurnchainHeaderHash::zero()
+            {
                 error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}",
                        snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height);
                 return Err(db_error::Corruption);
@@ -2407,35 +2410,58 @@ impl SortitionDB {
         }
     }
 
+    /// Get ops between `start_block`  and `ancestor` using `get_ops_in_block` to
+    /// find ops in each block. This is inclusive of both `start_block` and `ancestor`.
+    ///
+    /// Ops will be in the order that they were broadcasted on L1 (i.e., going from
+    /// the ancestor to the current block).
     pub fn get_ops_between<F, Op>(
         conn: &Connection,
-        parent_l1_block_id: &BurnchainHeaderHash,
-        l1_block_id: &BurnchainHeaderHash,
+        ancestor: &BurnchainHeaderHash,
+        start_block: &BurnchainHeaderHash,
         get_ops_in_block: F,
     ) -> Result<Vec<Op>, db_error>
     where
         F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>,
     {
-        if parent_l1_block_id == &BurnchainHeaderHash([0; 32]) {
-            debug!("Parent block is at `first_burn_height`, no ops are recorded at that height");
-            return Ok(vec![]);
-        }
+        // create a vec of vecs: each entry in the vec is all the operations
+        //  at a particular block. this vec of vecs is then flattened for the
+        //  return. This is done so that the returned operations can be returned
+        //  in the order that they appeared on L1, even though they are fetched in
+        //  reverse block order (but the correct direction within the blocks).
+        let mut ops = vec![];
+        let mut curr_block_id = start_block.clone();
+        let mut curr_sortition_id = SortitionId::new(&start_block);
 
-        let mut curr_block_id = l1_block_id.clone();
-        let mut ops = get_ops_in_block(conn, &curr_block_id)?;
-        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
+        loop {
+            if curr_block_id == BurnchainHeaderHash::zero() {
+                debug!("L1 block is at `first_burn_height`, no ops are recorded at that height");
+                break;
+            }
 
-        while curr_block_id != *parent_l1_block_id {
-            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
-                .ok_or(db_error::NotFoundError)?;
-            curr_block_id = curr_snapshot.parent_burn_header_hash;
             let curr_ops = get_ops_in_block(conn, &curr_block_id)?;
-            ops.extend(curr_ops.into_iter());
+            ops.push(curr_ops);
 
+            if &curr_block_id == ancestor {
+                break;
+            }
+
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
+                .ok_or_else(|| {
+                    warn!("Could not find snapshot in `get_ops_between` traversal";
+                          "start_block" => %start_block,
+                          "ancestor" => %ancestor,
+                          "current_block" => %curr_block_id,
+                          "sortition_id" => %curr_sortition_id);
+                    db_error::NotFoundError
+                })?;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
             curr_sortition_id = curr_snapshot.parent_sortition_id;
         }
 
-        Ok(ops)
+        ops.reverse();
+
+        Ok(ops.into_iter().flatten().collect())
     }
 
     pub fn get_deposit_stx_ops(
@@ -2887,7 +2913,7 @@ impl<'a> SortitionHandleTx<'a> {
         if parent_snapshot.block_height == self.context.first_block_height {
             assert_eq!(
                 parent_snapshot.burn_header_hash,
-                BurnchainHeaderHash([0; 32])
+                BurnchainHeaderHash::zero(),
             );
         } else {
             assert_eq!(

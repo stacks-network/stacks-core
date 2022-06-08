@@ -284,7 +284,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
-                    info!("Received new burn block notice");
+                    debug!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
@@ -459,9 +459,9 @@ impl<
     pub fn handle_new_burnchain_block(&mut self) -> Result<(), Error> {
         // Retrieve canonical burnchain chain tip from the BurnchainBlocksDB
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
-        info!("Handle new canonical burnchain tip";
-              "height" => %canonical_burnchain_tip.block_height,
-              "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
+        debug!("Handle new canonical burnchain tip";
+               "height" => %canonical_burnchain_tip.block_height,
+               "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
@@ -506,7 +506,7 @@ impl<
             .map(|block| block.header.block_hash.to_string())
             .collect();
 
-        info!(
+        debug!(
             "Unprocessed burn chain blocks [{}]",
             burn_header_hashes.join(", ")
         );
@@ -558,7 +558,7 @@ impl<
 
             self.notifier.notify_sortition_processed();
 
-            info!(
+            debug!(
                 "Sortition processed";
                 "sortition_id" => &sortition_id.to_string(),
                 "burn_header_hash" => &next_snapshot.burn_header_hash.to_string(),

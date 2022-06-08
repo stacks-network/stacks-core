@@ -28,6 +28,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::index::{
     marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
 };
@@ -342,7 +343,7 @@ impl<'a> SortitionHandleTx<'a> {
         if parent_snapshot.block_height == self.context.first_block_height {
             assert_eq!(
                 parent_snapshot.burn_header_hash,
-                BurnchainHeaderHash([0; 32])
+                BurnchainHeaderHash::zero(),
             );
         } else {
             assert_eq!(
@@ -384,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_initial_block_reward() {
-        let first_burn_hash = BurnchainHeaderHash([0; 32]);
+        let first_burn_hash = BurnchainHeaderHash::zero();
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash([0x22; 32]),

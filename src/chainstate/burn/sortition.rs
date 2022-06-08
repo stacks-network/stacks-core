@@ -51,7 +51,7 @@ impl BlockSnapshot {
     pub fn initial(first_block_height: u64) -> BlockSnapshot {
         BlockSnapshot {
             block_height: first_block_height,
-            burn_header_hash: BurnchainHeaderHash([0; 32]),
+            burn_header_hash: BurnchainHeaderHash::zero(),
             burn_header_timestamp: 0,
             parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -69,7 +69,7 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            sortition_id: SortitionId([0; 32]),
+            sortition_id: SortitionId::zero(),
             parent_sortition_id: SortitionId::sentinel(),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
@@ -98,7 +98,7 @@ impl BlockSnapshot {
     ) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let parent_block_hash = parent_snapshot.burn_header_hash.clone();
 
         let non_winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -180,7 +180,8 @@ impl BlockSnapshot {
 
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let parent_block_hash = parent_snapshot.burn_header_hash.clone();
+
         let first_block_height = burnchain.first_block_height;
 
         let last_sortition_hash = parent_snapshot.sortition_hash.clone();

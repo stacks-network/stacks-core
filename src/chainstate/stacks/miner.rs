@@ -1950,7 +1950,7 @@ impl StacksBlockBuilder {
             parent_stacks_header.stacks_block_height,
         );
 
-        info!(
+        debug!(
             "Build anchored block off of {}/{} height {}",
             &tip_consensus_hash, &tip_block_hash, tip_height
         );
@@ -1999,7 +1999,7 @@ impl StacksBlockBuilder {
         let deadline = ts_start + (max_miner_time_ms as u128);
         let mut num_txs = 0;
 
-        info!(
+        debug!(
             "Anchored block transaction selection begins (child of {})",
             &parent_stacks_header.anchored_header.block_hash()
         );
@@ -2129,7 +2129,7 @@ impl StacksBlockBuilder {
                     break;
                 }
             }
-            info!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
             intermediate_result
         };
 
