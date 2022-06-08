@@ -34,8 +34,11 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 
+use clarity::vm::types::QualifiedContractIdentifier;
+
 fn advance_to_2_1(
     mut initial_balances: Vec<InitialBalance>,
+    pay_to_contract: Option<QualifiedContractIdentifier>,
 ) -> (
     Config,
     BitcoinCoreController,
@@ -51,6 +54,8 @@ fn advance_to_2_1(
     let (mut conf, miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.append(&mut initial_balances);
+    conf.miner.pay_to_contract = pay_to_contract;
+
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
@@ -230,7 +235,7 @@ fn transition_fixes_utxo_chaining() {
     // transition.  Really tests that the block-commits are well-formed before and after the epoch
     // transition.
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![]);
+        advance_to_2_1(vec![], None);
 
     // post epoch 2.1 -- UTXO chaining should be fixed
     for i in 0..10 {
@@ -284,10 +289,13 @@ fn transition_adds_burn_block_height() {
     let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sk));
 
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![InitialBalance {
-            address: spender_addr.clone(),
-            amount: 200_000_000,
-        }]);
+        advance_to_2_1(
+            vec![InitialBalance {
+                address: spender_addr.clone(),
+                amount: 200_000_000,
+            }],
+            None,
+        );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // post epoch 2.1 -- we should be able to query any/all burnchain headers after the first
@@ -452,6 +460,35 @@ fn transition_adds_burn_block_height() {
             }
         }
     }
+
+    test_observer::clear();
+    coord_channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn transition_adds_pay_to_contract() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // very simple test to verify that the miner will automatically start sending block rewards to
+    // a contract in the config file when it mines after epoch 2.1.
+    let target_contract_address =
+        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns").unwrap();
+    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+        advance_to_2_1(vec![], Some(target_contract_address.clone()));
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let contract_account_before = get_account(&http_origin, &target_contract_address);
+
+    for _i in 0..stacks_common::consts::MINER_REWARD_MATURITY + 1 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let contract_account_after = get_account(&http_origin, &target_contract_address);
+
+    assert!(contract_account_before.balance < contract_account_after.balance);
 
     test_observer::clear();
     coord_channel.stop_chains_coordinator();
