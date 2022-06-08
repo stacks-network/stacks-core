@@ -1296,7 +1296,7 @@ fn transactions_microblocks_then_block() {
     reset_static_burnblock_simulator_channel();
     let (mut conf, miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
-    info!("conf.node {:#?}", &conf.node);
+
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
     let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
@@ -1317,10 +1317,7 @@ fn transactions_microblocks_then_block() {
         events_keys: vec![EventKeyType::AnyEvent],
     });
 
-    info!(
-        "conf.node.wait_before_first_anchored_block: {:?}",
-        &conf.node.wait_before_first_anchored_block
-    );
+
     test_observer::spawn();
 
     let burnchain = Burnchain::new(
@@ -1337,8 +1334,6 @@ fn transactions_microblocks_then_block() {
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
     thread::spawn(move || run_loop.start(None, 0));
-
-    // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
     let (sortition_db, _) = burnchain.open_db(true).unwrap();
