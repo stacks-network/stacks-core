@@ -431,6 +431,23 @@ pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
     })
 }
 
+fn save_coverage(coverage_folder: Option<String>, coverage: Option<CoverageReporter>, prefix: &str) {
+    match (coverage_folder, coverage) {
+        (Some(coverage_folder), Some(coverage)) => {
+            let mut coverage_file = PathBuf::from(coverage_folder);
+            coverage_file.push(&format!("{}_{}", prefix, get_epoch_time_ms()));
+            coverage_file.set_extension("clarcov");
+
+            coverage
+                .to_file(&coverage_file)
+                .expect("Coverage reference file generation failure");
+        }
+        (None, None) => (),
+        (None, Some(_)) => (),
+        (Some(_), None) => (),
+    }
+}
+
 struct CLIHeadersDB {
     db_path: String,
     conn: Connection,
@@ -1276,18 +1293,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             match result_and_cost {
                 (Ok(result), cost, coverage) => {
-                    if let Some(ref coverage_folder) = coverage_folder {
-                        let mut coverage_file = PathBuf::from(coverage_folder);
-                        coverage_file.push(&format!("eval_{}", get_epoch_time_ms()));
-                        coverage_file.set_extension("clarcov");
-
-                        coverage
-                            .expect(
-                                "Failed to recover coverage reporter when coverage was requested",
-                            )
-                            .to_file(&coverage_file)
-                            .expect("Coverage reference file generation failure");
-                    }
+                    save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "output": serde_json::to_value(&result).unwrap(),
                         "success": true,
@@ -1299,18 +1305,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     (0, Some(result_json))
                 }
                 (Err(error), cost, coverage) => {
-                    if let Some(ref coverage_folder) = coverage_folder {
-                        let mut coverage_file = PathBuf::from(coverage_folder);
-                        coverage_file.push(&format!("eval_{}", get_epoch_time_ms()));
-                        coverage_file.set_extension("clarcov");
-
-                        coverage
-                            .expect(
-                                "Failed to recover coverage reporter when coverage was requested",
-                            )
-                            .to_file(&coverage_file)
-                            .expect("Coverage reference file generation failure");
-                    }
+                    save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
@@ -1505,18 +1500,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     add_costs(&mut result, costs, cost);
                     add_assets(&mut result, assets, asset_map);
 
-                    if let Some(ref coverage_folder) = coverage_folder {
-                        let mut coverage_file = PathBuf::from(coverage_folder);
-                        coverage_file.push(&format!("launch_{}", get_epoch_time_ms()));
-                        coverage_file.set_extension("clarcov");
-
-                        coverage
-                            .expect(
-                                "Failed to recover coverage reporter when coverage was requested",
-                            )
-                            .to_file(&coverage_file)
-                            .expect("Coverage reference file generation failure");
-                    }
+                    save_coverage(coverage_folder, coverage, "launch");
 
                     if output_analysis {
                         result["analysis"] =
@@ -1638,16 +1622,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match result_and_cost {
                 (Ok((x, asset_map, events)), cost, coverage) => {
                     if let Value::Response(data) = x {
-                        if let Some(ref coverage_folder) = coverage_folder {
-                            let mut coverage_file = PathBuf::from(coverage_folder);
-                            coverage_file.push(&format!("execute_{}", get_epoch_time_ms()));
-                            coverage_file.set_extension("clarcov");
-
-                            coverage
-                                .expect("Failed to recover coverage reporter when coverage was requested")
-                                .to_file(&coverage_file)
-                                .expect("Coverage reference file generation failure");
-                        }
+                        save_coverage(coverage_folder, coverage, "execute");
                         if data.committed {
                             let mut result = json!({
                                 "message": "Transaction executed and committed.",
