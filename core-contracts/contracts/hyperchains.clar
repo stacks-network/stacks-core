@@ -12,6 +12,8 @@
 (define-constant ERR_ASSET_ALREADY_ALLOWED 7)
 ;;; The value supplied for `target-chain-tip` does not match the current chain tip.
 (define-constant ERR_INVALID_CHAIN_TIP 8)
+;;; The contract was called before reaching this-chain height 1.
+(define-constant ERR_CALLED_TOO_EARLY 9)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -67,7 +69,7 @@
         ;; check that `target-chain-tip` matches the burn chain tip
         (asserts! (is-eq 
             target-chain-tip 
-            (unwrap! (get-block-info? id-header-hash (- block-height u1)) (err ERR_BLOCK_ALREADY_COMMITTED)) )
+            (unwrap! (get-block-info? id-header-hash (- block-height u1)) (err ERR_CALLED_TOO_EARLY)) )
             (err ERR_INVALID_CHAIN_TIP)) 
 
         ;; check that the tx sender is one of the miners
