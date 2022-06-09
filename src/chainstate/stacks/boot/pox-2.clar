@@ -682,7 +682,6 @@
     })
 )
 
-
 ;; Extend an active stacking lock.
 ;; *New in Stacks 2.1*
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
@@ -824,4 +823,46 @@
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
+
+;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
+;; is expired, or if there's never been such a stacker, then returns none.
+;; *New in Stacks 2.1*
+(define-read-only (get-delegation-info (stacker principal))
+    (get-check-delegation stacker)
+)
+
+;; Get the burn height at which a particular contract is allowed to stack for a particular principal.
+;; *New in Stacks 2.1*
+;; Returns (some (some X)) if X is the burn height at which the allowance terminates
+;; Returns (some none) if the caller is allowed indefinitely
+;; Returns none if there is no allowance record
+(define-read-only (get-allowance-contract-callers (sender principal) (calling-contract principal))
+    (map-get? allowance-contract-callers { sender: sender, contract-caller: calling-contract })
+)
+
+;; How many PoX addresses in this reward cycle?
+;; *New in Stacks 2.1*
+(define-read-only (get-num-reward-set-pox-addresses (reward-cycle uint))
+    (match (map-get? reward-cycle-pox-address-list-len { reward-cycle: reward-cycle })
+        num-addrs
+            (get len num-addrs)
+        u0
+    )
+)
+
+;; How many uSTX have been locked up for this address so far, before the delegator commits them?
+;; *New in Stacks 2.1*
+(define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 20) }) (reward-cycle uint) (sender principal))
+    (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
+)
+
+;; How any uSTX have voted to reject PoX in a given reward cycle?
+;; *New in Stacks 2.1*
+(define-read-only (get-total-pox-rejection (reward-cycle uint))
+    (match (map-get? stacking-rejection { reward-cycle: reward-cycle })
+        rejected
+            (get amount rejected)
+        u0
+    )
+)
 
