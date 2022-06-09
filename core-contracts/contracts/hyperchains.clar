@@ -19,7 +19,7 @@
 ;; Map recording withdrawal roots
 (define-map withdrawal-roots-map (buff 32) bool)
 ;; Map recording processed withdrawal leaves
-(define-map processed-withdrawal-leaves-map (buff 32) bool)
+(define-map processed-withdrawal-leaves-map { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) } bool)
 
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
@@ -151,7 +151,7 @@
 
         (asserts! (try! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
+        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
     )
 )
 
@@ -230,7 +230,7 @@
 
         (asserts! (try! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
+        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
     )
 )
 
@@ -314,7 +314,9 @@
 
         (asserts! (try! (as-contract (inner-transfer-stx amount tx-sender recipient))) (err ERR_TRANSFER_FAILED))
 
-        (asserts! (finish-withdraw withdrawal-leaf-hash) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
         ;; Emit a print event 
         (print { event: "withdraw-stx", recipient: recipient, amount: amount })
@@ -367,7 +369,11 @@
         (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
 
         ;; Check that this withdrawal leaf has not been processed before
-        (asserts! (is-none (map-get? processed-withdrawal-leaves-map withdrawal-leaf-hash)) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        (asserts!
+            (is-none 
+             (map-get? processed-withdrawal-leaves-map
+                       { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
+            (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
         (let (
                 (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
@@ -385,6 +391,5 @@
 ;; It adds the withdrawal leaf hash to a map of processed leaves. This ensures that 
 ;; this withdrawal leaf can't be used again to withdraw additional funds. 
 ;; Returns bool
-(define-private (finish-withdraw (withdrawal-leaf-hash (buff 32)))
-    (map-insert processed-withdrawal-leaves-map withdrawal-leaf-hash true)
-)
+(define-private (finish-withdraw (withdraw-info { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) }))
+    (map-insert processed-withdrawal-leaves-map withdraw-info true))

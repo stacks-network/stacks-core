@@ -28,6 +28,7 @@ use rusqlite::OpenFlags;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
+use util::hash::MerkleTree;
 
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
@@ -154,6 +155,7 @@ pub struct StacksHeaderInfo {
     pub burn_header_height: u32,
     pub burn_header_timestamp: u64,
     pub anchored_block_size: u64,
+    pub withdrawal_tree: MerkleTree<Sha512Trunc256Sum>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -214,6 +216,7 @@ impl StacksHeaderInfo {
             consensus_hash: ConsensusHash::empty(),
             burn_header_timestamp: 0,
             anchored_block_size: 0,
+            withdrawal_tree: MerkleTree::empty(),
         }
     }
 
@@ -233,6 +236,7 @@ impl StacksHeaderInfo {
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
+            withdrawal_tree: MerkleTree::empty(),
         }
     }
 
@@ -271,6 +275,9 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
+        let withdrawal_tree_str: String = row.get_unwrap("withdrawal_tree");
+        let withdrawal_tree =
+            serde_json::from_str(&withdrawal_tree_str).map_err(|_| db_error::ParseError)?;
 
         if block_height != stacks_header.total_work.work {
             return Err(db_error::ParseError);
@@ -286,6 +293,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_height: burn_header_height as u32,
             burn_header_timestamp,
             anchored_block_size,
+            withdrawal_tree,
         })
     }
 }
@@ -614,6 +622,8 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         cost TEXT NOT NULL,
         block_size TEXT NOT NULL,       -- converted to/from u64
+
+        withdrawal_tree TEXT NOT NULL,
 
         PRIMARY KEY(consensus_hash,block_hash)
     );"#,
@@ -2102,8 +2112,8 @@ impl StacksChainState {
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    pub fn advance_tip<'a>(
-        headers_tx: &mut StacksDBTx<'a>,
+    pub fn advance_tip(
+        headers_tx: &mut StacksDBTx,
         parent_tip: &StacksBlockHeader,
         parent_consensus_hash: &ConsensusHash,
         new_tip: &StacksBlockHeader,
@@ -2117,6 +2127,7 @@ impl StacksChainState {
         anchor_block_cost: &ExecutionCost,
         anchor_block_size: u64,
         applied_epoch_transition: bool,
+        withdrawal_tree: MerkleTree<Sha512Trunc256Sum>,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2163,6 +2174,7 @@ impl StacksChainState {
             burn_header_height: new_burnchain_height,
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
+            withdrawal_tree,
         };
 
         StacksChainState::insert_stacks_block_header(

@@ -7,6 +7,7 @@ use clarity::vm::events::{
     STXWithdrawEventData, StacksTransactionEvent,
 };
 use clarity::vm::types::PrincipalData;
+use clarity::vm::Value;
 use regex::internal::Input;
 
 pub fn make_key_for_withdrawal(
@@ -22,6 +23,10 @@ pub fn make_key_for_withdrawal(
     )
 }
 
+pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
+    Value::buff_from(hash.0.to_vec()).expect("Failed to construct buffer from hash")
+}
+
 pub fn make_key_for_ft_withdrawal(data: &FTWithdrawEventData, withdrawal_id: u32) -> String {
     let str_data = format!("ft::{}::{}", data.asset_identifier, data.amount);
     make_key_for_withdrawal(str_data, &data.sender, withdrawal_id)
@@ -32,14 +37,33 @@ pub fn make_key_for_nft_withdrawal(data: &NFTWithdrawEventData, withdrawal_id: u
     make_key_for_withdrawal(str_data, &data.sender, withdrawal_id)
 }
 
-pub fn make_key_for_stx_withdrawal(data: &STXWithdrawEventData, withdrawal_id: u32) -> String {
-    let str_data = format!("stx::{}", data.amount);
-    make_key_for_withdrawal(str_data, &data.sender, withdrawal_id)
+pub fn make_key_for_stx_withdrawal_event(
+    data: &STXWithdrawEventData,
+    withdrawal_id: u32,
+    block_height: u64,
+) -> String {
+    info!("Parsed L2 withdrawal event";
+          "type" => "stx",
+          "block_height" => block_height,
+          "sender" => %data.sender,
+          "withdrawal_id" => withdrawal_id,
+          "amount" => %data.amount);
+    make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount)
+}
+
+pub fn make_key_for_stx_withdrawal(
+    sender: &PrincipalData,
+    withdrawal_id: u32,
+    amount: u128,
+) -> String {
+    let str_data = format!("stx::{}", amount);
+    make_key_for_withdrawal(str_data, sender, withdrawal_id)
 }
 
 pub fn generate_key_from_event(
     event: &StacksTransactionEvent,
     withdrawal_id: u32,
+    block_height: u64,
 ) -> Option<String> {
     match event {
         StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(data)) => {
@@ -48,9 +72,9 @@ pub fn generate_key_from_event(
         StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) => {
             Some(make_key_for_ft_withdrawal(data, withdrawal_id))
         }
-        StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) => {
-            Some(make_key_for_stx_withdrawal(data, withdrawal_id))
-        }
+        StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) => Some(
+            make_key_for_stx_withdrawal_event(data, withdrawal_id, block_height),
+        ),
         _ => None,
     }
 }
@@ -62,12 +86,15 @@ pub fn convert_withdrawal_key_to_bytes(key: &str) -> Vec<u8> {
 /// The order of withdrawal events in the transaction receipts will determine the withdrawal IDs
 /// that correspond to each event. These IDs are used to generate the withdrawal key that is
 /// ultimately inserted in the withdrawal Merkle tree.
-pub fn generate_withdrawal_keys(tx_receipts: &Vec<StacksTransactionReceipt>) -> Vec<Vec<u8>> {
+pub fn generate_withdrawal_keys(
+    tx_receipts: &Vec<StacksTransactionReceipt>,
+    block_height: u64,
+) -> Vec<Vec<u8>> {
     let mut items = Vec::new();
     let mut withdrawal_id = 0;
     for receipt in tx_receipts {
         for event in &receipt.events {
-            if let Some(key) = generate_key_from_event(event, withdrawal_id) {
+            if let Some(key) = generate_key_from_event(event, withdrawal_id, block_height) {
                 withdrawal_id += 1;
                 items.push(key);
             }
@@ -84,9 +111,10 @@ pub fn generate_withdrawal_keys(tx_receipts: &Vec<StacksTransactionReceipt>) -> 
 /// The order of the transaction receipts will affect the final tree
 pub fn create_withdrawal_merkle_tree(
     tx_receipts: &Vec<StacksTransactionReceipt>,
+    block_height: u64,
 ) -> MerkleTree<Sha512Trunc256Sum> {
     // The specific keys generated is dependent on the order of the provided transaction receipts
-    let items = generate_withdrawal_keys(tx_receipts);
+    let items = generate_withdrawal_keys(tx_receipts, block_height);
 
     MerkleTree::<Sha512Trunc256Sum>::new(&items)
 }

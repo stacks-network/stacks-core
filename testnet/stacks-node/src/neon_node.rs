@@ -889,7 +889,7 @@ fn spawn_miner_relayer(
                     send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
-                    debug!(
+                    info!(
                         "Relayer: Process tenure {}/{} in {}",
                         &consensus_hash, &block_header_hash, &burn_hash
                     );
@@ -1006,45 +1006,25 @@ fn spawn_miner_relayer(
                                 miner_tip = None;
                             }
                         }
+                    } else {
+                        info!(
+                            "No mined blocks at process tenure";
+                            "burn_hash" => %burn_hash,
+                            "last_mined_blocks" => ?last_mined_blocks.keys(),
+                        );
                     }
                 }
-                RelayerDirective::RunTenure(last_burn_block, issue_timestamp_ms) => {
-                    if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
-                        if last_burn_block.sortition_id != cur_sortition.sortition_id {
-                            debug!("Drop stale RunTenure for {}: current sortition is for {}", &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash);
-                            counters.bump_missed_tenures();
-                            continue;
-                        }
-                    }
-
-                    let burn_header_hash = last_burn_block.burn_header_hash.clone();
+                RelayerDirective::RunTenure(_last_burn_block, issue_timestamp_ms) => {
                     let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
+
+                    let burn_header_hash = burn_chain_sn.burn_header_hash.clone();
 
                     let burn_chain_tip = burn_chain_sn
                         .burn_header_hash
                         .clone();
 
-                    let mut burn_tenure_snapshot = last_burn_block.clone();
-                    if burn_chain_tip == burn_header_hash {
-                        // no burnchain change, so only re-run block tenure every so often in order
-                        // to give microblocks a chance to collect
-                        if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
-                            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
-                                    issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
-                            continue;
-                        }
-                    }
-                    else {
-                        // burnchain has changed since this directive was sent, so mine immediately
-                        burn_tenure_snapshot = burn_chain_sn;
-                        if issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128) < get_epoch_time_ms() {
-                            // still waiting for microblocks to arrive
-                            debug!("Relayer: will NOT run tenure since still waiting for microblocks to arrive ({} <= {})", (issue_timestamp_ms + (config.node.wait_time_for_microblocks as u128)) / 1000, get_epoch_time_secs());
-                            continue;
-                        }
-                        debug!("Relayer: burnchain has advanced from {} to {}", &burn_header_hash, &burn_chain_tip);
-                    }
+                    let burn_tenure_snapshot = burn_chain_sn;
 
                     let tenure_begin = get_epoch_time_ms();
                     fault_injection_long_tenure();
@@ -1053,10 +1033,9 @@ fn spawn_miner_relayer(
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
 
-
-                    debug!(
+                    info!(
                         "Relayer: Run tenure";
-                        "height" => last_burn_block.block_height,
+                        "height" => burn_tenure_snapshot.block_height,
                         "burn_header_hash" => %burn_chain_tip,
                         "last_burn_header_hash" => %burn_header_hash,
                         "last_mined_blocks_vec.len()" => last_mined_blocks_vec.len(),
@@ -1081,7 +1060,7 @@ fn spawn_miner_relayer(
                     }
                     last_mined_blocks.insert(burn_header_hash, last_mined_blocks_vec);
 
-                    last_tenure_issue_time = get_epoch_time_ms();
+                    let last_tenure_issue_time = get_epoch_time_ms();
                     debug!("Relayer: RunTenure finished at {} (in {}ms)", last_tenure_issue_time, last_tenure_issue_time.saturating_sub(tenure_begin));
                 }
                 RelayerDirective::RunMicroblockTenure(burnchain_tip, tenure_issue_ms) => {
@@ -1423,68 +1402,12 @@ impl StacksNode {
             let wait_before_first_anchored_block =
                 self.config.node.wait_before_first_anchored_block;
 
-            // Check if a thread to send the `RunTenure` directive is already running, and if not we should start one.
-            let start_new_thread = {
-                let mut next_run_tenure_data_mutex = self.next_run_tenure_data.lock().unwrap();
-
-                let result = match &*next_run_tenure_data_mutex {
-                    Some(_) => false,
-                    None => true,
-                };
-                // Update the shared data for the `RunTenure` directive.
-                *next_run_tenure_data_mutex = Some((burnchain_tip, get_epoch_time_ms()));
-
-                result
-            };
-            debug!(
-                "relayer_issue_tenure: start_new_thread: {:?}",
-                &start_new_thread
-            );
-            if start_new_thread {
-                let next_run_tenure_data = self.next_run_tenure_data.clone();
-                thread::spawn(move || {
-                    debug!(
-                            "relayer_issue_tenure: Spawning a thread to wait {} ms and then build off of then-leading tip.",
-                            wait_before_first_anchored_block,
-                        );
-
-                    thread::sleep(time::Duration::from_millis(
-                        wait_before_first_anchored_block,
-                    ));
-
-                    let mut tenure_data_view = next_run_tenure_data.lock().unwrap();
-                    match &*tenure_data_view {
-                        Some(relay_tenure_data) => {
-                            debug!(
-                                "relayer_issue_tenure: Have waited {} ms and now will build off of {:?}",
-                                wait_before_first_anchored_block, &relay_tenure_data.0
-                            );
-
-                            // Send the signal.
-                            let result = relay_channel
-                                .send(RelayerDirective::RunTenure(
-                                    relay_tenure_data.0.clone(),
-                                    relay_tenure_data.1,
-                                ))
-                                .is_ok();
-
-                            // Reset the mutex.
-                            *tenure_data_view = None;
-
-                            result
-                        }
-                        None => {
-                            debug!(
-                                "relayer_issue_tenure: Have waited {} but there is nothing to build off of any more.",
-                                wait_before_first_anchored_block,
-                            );
-                            true
-                        }
-                    }
-                });
-            }
-
-            true
+            relay_channel
+                .send(RelayerDirective::RunTenure(
+                    burnchain_tip,
+                    get_epoch_time_ms(),
+                ))
+                .is_ok()
         } else {
             warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
             true
@@ -1501,7 +1424,7 @@ impl StacksNode {
         }
 
         if let Some(snapshot) = get_last_sortition(&self.last_sortition) {
-            debug!(
+            info!(
                 "Tenure: Notify sortition!";
                 "consensus_hash" => %snapshot.consensus_hash,
                 "burn_block_hash" => %snapshot.burn_header_hash,
@@ -1520,7 +1443,7 @@ impl StacksNode {
                     .is_ok();
             }
         } else {
-            debug!("Tenure: Notify sortition! No last burn block");
+            info!("Tenure: Notify sortition! No last burn block");
         }
         true
     }
@@ -1935,17 +1858,11 @@ impl StacksNode {
             }
         };
         let block_height = anchored_block.header.total_work.work;
-        info!(
-            "Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
-            if parent_block_total_burn == 0 {
-                "Genesis"
-            } else {
-                "Stacks"
-            },
-            block_height,
-            anchored_block.block_hash(),
-            anchored_block.txs.len(),
-            attempt
+        debug!(
+            "Assembled hyperchain block";
+            "height" => block_height,
+            "tx_count" => anchored_block.txs.len(),
+            "block_hash" => %anchored_block.block_hash(),
         );
 
         // let's commit

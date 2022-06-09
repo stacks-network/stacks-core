@@ -4618,7 +4618,6 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         operations: Vec<DepositStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
-        let cost_so_far = clarity_tx.cost_so_far();
         let (all_receipts, _) =
             clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
                 operations
@@ -4640,10 +4639,8 @@ impl StacksChainState {
                                 },
                             ))
                         });
-                        let mut execution_cost = clarity_tx.cost_so_far();
-                        execution_cost
-                            .sub(&cost_so_far)
-                            .expect("BUG: cost declined between executions");
+                        // deposits increment the STX liquidity in the layer 2
+                        clarity_tx.increment_ustx_liquid_supply(amount);
 
                         Some(StacksTransactionReceipt {
                             transaction: TransactionOrigin::Burn(txid),
@@ -4652,7 +4649,7 @@ impl StacksChainState {
                             post_condition_aborted: false,
                             stx_burned: 0,
                             contract_analysis: None,
-                            execution_cost,
+                            execution_cost: ExecutionCost::zero(),
                             microblock_header: None,
                             tx_index: 0,
                         })
@@ -5363,6 +5360,7 @@ impl StacksChainState {
             parent_burn_block_height,
             parent_burn_block_timestamp,
             clarity_commit,
+            withdrawal_tree,
         ) = {
             // get previous burn block stats
             let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
@@ -5529,7 +5527,8 @@ impl StacksChainState {
 
             // Check withdrawal state merkle root
             // Process withdrawal events
-            let withdrawal_tree = create_withdrawal_merkle_tree(&tx_receipts);
+            let withdrawal_tree =
+                create_withdrawal_merkle_tree(&tx_receipts, block.header.total_work.work);
             let withdrawal_root_hash = withdrawal_tree.root();
 
             if withdrawal_root_hash != block.header.withdrawal_merkle_root {
@@ -5591,6 +5590,7 @@ impl StacksChainState {
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
                 clarity_commit,
+                withdrawal_tree,
             )
         };
 
@@ -5614,6 +5614,7 @@ impl StacksChainState {
             &block_execution_cost,
             block_size,
             applied_epoch_transition,
+            withdrawal_tree,
         )
         .expect("FATAL: failed to advance chain tip");
 
