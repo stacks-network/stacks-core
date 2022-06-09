@@ -10,6 +10,8 @@
 (define-constant ERR_TRANSFER_FAILED 5)
 (define-constant ERR_DISALLOWED_ASSET 6)
 (define-constant ERR_ASSET_ALREADY_ALLOWED 7)
+;;; The value supplied for `target-chain-tip` does not match the current chain tip.
+(define-constant ERR_INVALID_CHAIN_TIP 8)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -55,17 +57,18 @@
         (is-none fold-result)
    ))
 
-;; Helper function: determines whether the commit-block operation can be carried out
-(define-private (can-commit-block? (commit-block-height uint)  (target-block (buff 32)))
+;; Helper function: determines whether the commit-block operation satisfies pre-conditions
+;; listed in `commit-block`.
+(define-private (can-commit-block? (commit-block-height uint)  (target-chain-tip (buff 32)))
     (begin
         ;; check no block has been committed at this height
         (asserts! (is-none (map-get? block-commits commit-block-height)) (err ERR_BLOCK_ALREADY_COMMITTED))
 
-        ;; check that `target-block` matches the burn chain tip
+        ;; check that `target-chain-tip` matches the burn chain tip
         (asserts! (is-eq 
-            target-block 
+            target-chain-tip 
             (unwrap! (get-block-info? id-header-hash (- block-height u1)) (err ERR_BLOCK_ALREADY_COMMITTED)) )
-            (err ERR_BLOCK_ALREADY_COMMITTED)) 
+            (err ERR_INVALID_CHAIN_TIP)) 
 
         ;; check that the tx sender is one of the miners
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
@@ -85,16 +88,16 @@
 
 ;; Subnets miners call this to commit a block at a particular height.
 ;; `block` is the hash of the block being submitted.
-;; `target-block` is the `id-header-hash` of the burn block (i.e., block on this chain) that
+;; `target-chain-tip` is the `id-header-hash` of the burn block (i.e., block on this chain) that
 ;;   the miner intends to build off.
 ;;
 ;; Fails if:
 ;;  1) we have already committed at this block height
-;;  2) `target-block` is not the burn chain tip (i.e., on this chain)
+;;  2) `target-chain-tip` is not the burn chain tip (i.e., on this chain)
 ;;  3) the sender is not a miner
-(define-public (commit-block (block (buff 32)) (target-block (buff 32)))
+(define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)))
     (let ((commit-block-height block-height))
-        (unwrap! (can-commit-block? commit-block-height target-block) (err ERR_VALIDATION_FAILED))
+        (unwrap! (can-commit-block? commit-block-height target-chain-tip) (err ERR_VALIDATION_FAILED))
         (inner-commit-block block commit-block-height)
     )
 )
