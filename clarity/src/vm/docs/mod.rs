@@ -31,7 +31,7 @@ struct ReferenceAPIs {
 }
 
 #[derive(Serialize, Clone)]
-struct KeywordAPI {
+pub struct KeywordAPI {
     name: &'static str,
     output_type: &'static str,
     description: &'static str,
@@ -39,7 +39,7 @@ struct KeywordAPI {
 }
 
 #[derive(Serialize)]
-struct FunctionAPI {
+pub struct FunctionAPI {
     name: String,
     input_type: String,
     output_type: String,
@@ -2059,7 +2059,7 @@ to deserialize the type, the method returns `none`.
 "#,
 };
 
-fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
+pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
     match function {
@@ -2165,7 +2165,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     }
 }
 
-fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
+pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
     match variable {
         NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
         NativeVariables::ContractCaller => Some(CONTRACT_CALLER_KEYWORD.clone()),
@@ -2204,7 +2204,7 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
     }
 }
 
-fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
+pub fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
     use crate::vm::functions::define::DefineFunctions::*;
     let name = define_type.get_name();
     match define_type {

@@ -33,7 +33,7 @@ pub mod representations;
 
 mod callables;
 pub mod functions;
-mod variables;
+pub mod variables;
 
 pub mod analysis;
 pub mod docs;
@@ -79,9 +79,74 @@ pub use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::version::ClarityVersion;
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
+use self::analysis::ContractAnalysis;
+use self::ast::ContractAST;
+use self::costs::ExecutionCost;
+use self::diagnostic::Diagnostic;
+
 const MAX_CALL_STACK_DEPTH: usize = 64;
+
+#[derive(Default, Debug, Clone)]
+pub struct ExecutionResult {
+    pub contract: Option<(
+        String,
+        String,
+        BTreeMap<String, Vec<String>>,
+        ContractAST,
+        ContractAnalysis,
+    )>,
+    pub result: Option<types::Value>,
+    pub events: Vec<Value>,
+    pub cost: Option<CostSynthesis>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CostSynthesis {
+    pub total: ExecutionCost,
+    pub limit: ExecutionCost,
+    pub memory: u64,
+    pub memory_limit: u64,
+}
+
+impl CostSynthesis {
+    pub fn from_cost_tracker(cost_tracker: &LimitedCostTracker) -> CostSynthesis {
+        CostSynthesis {
+            total: cost_tracker.get_total(),
+            limit: cost_tracker.get_limit(),
+            memory: cost_tracker.get_memory(),
+            memory_limit: cost_tracker.get_memory_limit(),
+        }
+    }
+}
+
+/// EvalHook defines an interface for hooks to execute during evaluation.
+pub trait EvalHook {
+    // Called before the expression is evaluated
+    fn will_begin_eval(
+        &mut self,
+        _env: &mut Environment,
+        _context: &LocalContext,
+        _expr: &SymbolicExpression,
+    ) {
+    }
+
+    // Called after the expression is evaluated
+    fn did_finish_eval(
+        &mut self,
+        _env: &mut Environment,
+        _context: &LocalContext,
+        _expr: &SymbolicExpression,
+        _res: &core::result::Result<Value, crate::vm::errors::Error>,
+    ) {
+    }
+
+    // Called upon completion of the execution
+    fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>) {}
+}
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
@@ -234,24 +299,20 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    if let Some(ref mut coverage_tracker) = env.global_context.coverage_reporting {
-        coverage_tracker.report_eval(exp, &env.contract_context.contract_identifier);
+    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+        for hook in eval_hooks.iter_mut() {
+            hook.will_begin_eval(env, context, exp);
+        }
+        env.global_context.eval_hooks = Some(eval_hooks);
     }
 
-    match exp.expr {
+    let res = match exp.expr {
         AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children
                 .split_first()
                 .ok_or(CheckErrors::NonFunctionApplication)?;
-
-            if let Some(ref mut coverage_tracker) = env.global_context.coverage_reporting {
-                coverage_tracker.report_eval(
-                    &function_variable,
-                    &env.contract_context.contract_identifier,
-                );
-            }
 
             let function_name = function_variable
                 .match_atom()
@@ -260,7 +321,16 @@ pub fn eval<'a>(
             apply(&f, &rest, env, context)
         }
         TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
+    };
+
+    if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
+        for hook in eval_hooks.iter_mut() {
+            hook.did_finish_eval(env, context, exp, &res);
+        }
+        env.global_context.eval_hooks = Some(eval_hooks);
     }
+
+    res
 }
 
 pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
