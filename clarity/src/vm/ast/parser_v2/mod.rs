@@ -33,8 +33,12 @@ pub const MAX_CONTRACT_NAME_LEN: usize = 40;
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrors> {
+        let lexer = match Lexer::new(input, fail_fast) {
+            Ok(lexer) => lexer,
+            Err(e) => return Err(ParseErrors::Lexer(e)),
+        };
         let mut p = Self {
-            lexer: Lexer::new(input, fail_fast),
+            lexer,
             tokens: vec![],
             next_token: 0,
             comments: vec![],
@@ -863,14 +867,28 @@ mod tests {
                 end_column: 8
             }
         );
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].level, Level::Error);
         assert_eq!(
             diagnostics[0].message,
-            "invalid character, '👎', in string literal".to_string()
+            "illegal non-ASCII character, '👎'".to_string()
         );
         assert_eq!(
             diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 2
+            }
+        );
+        assert_eq!(diagnostics[1].level, Level::Error);
+        assert_eq!(
+            diagnostics[1].message,
+            "invalid character, '👎', in string literal".to_string()
+        );
+        assert_eq!(
+            diagnostics[1].spans[0],
             Span {
                 start_line: 1,
                 start_column: 2,

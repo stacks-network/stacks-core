@@ -22,6 +22,7 @@ pub enum LexerError {
     InvalidUTF8Encoding,
     SingleSemiColon,
     UnknownSymbol(char),
+    NonASCIIChar(char),
     NoteToMatchThis(char),
     UnsupportedLineEnding,
     EditorCRLFMode,
@@ -54,6 +55,7 @@ impl DiagnosableError for LexerError {
             ExpectedSeparator => "expected separator".to_string(),
             SingleSemiColon => "unexpected single ';' (comments begin with \";;\"".to_string(),
             UnknownSymbol(c) => format!("unknown symbol, '{}'", c),
+            NonASCIIChar(c) => format!("illegal non-ASCII character, '{}'", c),
             NoteToMatchThis(c) => format!("to match this '{}'", c),
             UnsupportedLineEnding => {
                 "unsupported line-ending '\\r', only '\\n' is supported".to_string()
