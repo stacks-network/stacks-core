@@ -1197,6 +1197,17 @@ mod tests {
             LexerError::InvalidCharPrincipal('a')
         );
 
+        lexer = Lexer::new("'123456789OABCDEFG", false).unwrap();
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Principal("123456789".to_string())
+        );
+        assert_eq!(lexer.diagnostics.len(), 1);
+        assert_eq!(
+            lexer.diagnostics[0].e,
+            LexerError::InvalidCharPrincipal('O')
+        );
+
         lexer = Lexer::new("~", false).unwrap();
         assert_eq!(lexer.read_token().unwrap().token, Token::Placeholder);
         assert_eq!(lexer.diagnostics.len(), 1);
