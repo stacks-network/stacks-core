@@ -825,7 +825,10 @@ mod tests {
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharInt('a'));
 
         lexer = Lexer::new("test\0", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::Ident("test".to_string()));
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Ident("test".to_string())
+        );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharIdent('\0'));
 
