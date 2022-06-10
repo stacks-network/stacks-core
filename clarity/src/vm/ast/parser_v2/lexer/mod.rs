@@ -248,7 +248,10 @@ impl<'a> Lexer<'a> {
         loop {
             self.read_char()?;
             match self.next {
-                'A'..='Z' | '0'..='9' => principal.push(self.next),
+                // Crockford alphabet characters only
+                '0'..='9' | 'A'..='H' | 'J' | 'K' | 'M' | 'N' | 'P'..='T' | 'V'..='Z' => {
+                    principal.push(self.next)
+                }
                 _ => {
                     if is_separator(self.next) {
                         return Ok(principal);
