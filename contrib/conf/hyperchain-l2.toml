@@ -19,3 +19,4 @@ rpc_port = 20443
 peer_host = "127.0.0.1"
 first_burn_header_height = 1
 contract_identifier = "ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP.hyperchain"
+observer_port = 49303

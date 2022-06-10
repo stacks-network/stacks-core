@@ -234,13 +234,15 @@ impl STXBurnEventData {
 pub struct STXWithdrawEventData {
     pub sender: PrincipalData,
     pub amount: u128,
+    pub withdrawal_id: Option<u32>,
 }
 
 impl STXWithdrawEventData {
     pub fn json_serialize(&self) -> serde_json::Value {
         json!({
-            "sender": format!("{}", self.sender),
-            "amount": format!("{}", self.amount),
+            "sender": self.sender.to_string(),
+            "amount": self.amount.to_string(),
+            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
         })
     }
 }
@@ -324,6 +326,7 @@ pub struct NFTWithdrawEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
     pub value: Value,
+    pub withdrawal_id: Option<u32>,
 }
 
 impl NFTWithdrawEventData {
@@ -339,6 +342,7 @@ impl NFTWithdrawEventData {
             "sender": format!("{}",self.sender),
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
+            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
         })
     }
 }
@@ -401,6 +405,7 @@ pub struct FTWithdrawEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
     pub amount: u128,
+    pub withdrawal_id: Option<u32>,
 }
 
 impl FTWithdrawEventData {
@@ -409,6 +414,7 @@ impl FTWithdrawEventData {
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "amount": format!("{}", self.amount),
+            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
         })
     }
 }

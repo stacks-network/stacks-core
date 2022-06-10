@@ -4,7 +4,9 @@ use std::thread::{self, JoinHandle};
 
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon;
-use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
+use crate::tests::neon_integrations::{
+    filter_map_events, get_account, get_withdrawal_entry, submit_tx, test_observer,
+};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
@@ -966,18 +968,20 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     spending_condition.set_nonce(l2_nonce - 1);
     spending_condition.set_tx_fee(1000);
     let auth = TransactionAuth::Standard(spending_condition);
-    let ft_withdraw_event = StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
-        asset_identifier: AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::new(
-                user_addr.into(),
-                ContractName::from("simple-ft"),
-            ),
-            asset_name: ClarityName::from("ft-token"),
-        },
-        sender: user_addr.into(),
-        amount: 1,
-    }));
-    let nft_withdraw_event =
+    let mut ft_withdraw_event =
+        StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
+            asset_identifier: AssetIdentifier {
+                contract_identifier: QualifiedContractIdentifier::new(
+                    user_addr.into(),
+                    ContractName::from("simple-ft"),
+                ),
+                asset_name: ClarityName::from("ft-token"),
+            },
+            sender: user_addr.into(),
+            amount: 1,
+            withdrawal_id: None,
+        }));
+    let mut nft_withdraw_event =
         StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData {
             asset_identifier: AssetIdentifier {
                 contract_identifier: QualifiedContractIdentifier::new(
@@ -988,6 +992,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             },
             sender: user_addr.into(),
             value: Value::UInt(1),
+            withdrawal_id: None,
         }));
     let withdrawal_receipt = StacksTransactionReceipt {
         transaction: TransactionOrigin::Stacks(StacksTransaction::new(
@@ -1004,10 +1009,11 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         microblock_header: None,
         tx_index: 0,
     };
-    let withdrawal_tree = create_withdrawal_merkle_tree(&vec![withdrawal_receipt]);
+    let mut receipts = vec![withdrawal_receipt];
+    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, 0);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
-    let ft_withdrawal_key = generate_key_from_event(&ft_withdraw_event, 0).unwrap();
+    let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 0, 0).unwrap();
     let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
     let ft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice())
@@ -1015,7 +1021,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             .to_vec();
     let ft_path = withdrawal_tree.path(&ft_withdrawal_key_bytes).unwrap();
 
-    let nft_withdrawal_key = generate_key_from_event(&nft_withdraw_event, 1).unwrap();
+    let nft_withdrawal_key = generate_key_from_event(&mut nft_withdraw_event, 1, 0).unwrap();
     let nft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&nft_withdrawal_key);
     let nft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice())
@@ -1190,6 +1196,13 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
 
     config.node.miner = true;
+
+    config.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    test_observer::spawn();
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
@@ -1386,6 +1399,54 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     // Sleep to give the run loop time to mine a block
     thread::sleep(Duration::from_secs(25));
+
+    // TODO: here, read the withdrawal events to get the withdrawal ID, and figure out the
+    //       block height to query.
+    let block_data = test_observer::get_blocks();
+    let mut withdraw_events = filter_map_events(&block_data, |height, event| {
+        let ev_type = event.get("type").unwrap().as_str().unwrap();
+        if ev_type == "stx_withdraw_event" {
+            Some((height, event.get("stx_withdraw_event").unwrap().clone()))
+        } else {
+            None
+        }
+    });
+
+    // should only be one withdrawal event
+    assert_eq!(withdraw_events.len(), 1);
+    let (withdrawal_height, withdrawal_json) = withdraw_events.pop().unwrap();
+
+    let withdrawal_id = withdrawal_json
+        .get("withdrawal_id")
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    let withdrawal_amount: u64 = withdrawal_json
+        .get("amount")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let withdrawal_sender = withdrawal_json
+        .get("sender")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    assert_eq!(withdrawal_id, 0);
+    assert_eq!(withdrawal_amount, 1);
+    assert_eq!(withdrawal_sender, user_addr.to_string());
+
+    let withdrawal_entry = get_withdrawal_entry(
+        &l2_rpc_origin,
+        withdrawal_height,
+        &user_addr,
+        withdrawal_id,
+        withdrawal_amount,
+    );
+
     // Check that the user does not own any additional STX anymore on the hyperchain now
     let account = get_account(&l2_rpc_origin, &user_addr);
     assert_eq!(
@@ -1409,10 +1470,11 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     spending_condition.set_nonce(l2_nonce - 1);
     spending_condition.set_tx_fee(1000);
     let auth = TransactionAuth::Standard(spending_condition);
-    let stx_withdraw_event =
+    let mut stx_withdraw_event =
         StacksTransactionEvent::STXEvent(STXWithdrawEvent(STXWithdrawEventData {
             sender: user_addr.into(),
             amount: 1,
+            withdrawal_id: None,
         }));
 
     let withdrawal_receipt = StacksTransactionReceipt {
@@ -1430,10 +1492,14 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         microblock_header: None,
         tx_index: 0,
     };
-    let withdrawal_tree = create_withdrawal_merkle_tree(&vec![withdrawal_receipt]);
+    let mut receipts = vec![withdrawal_receipt];
+
+    // okay to pass a zero block height in tests: the block height parameter is only used for logging
+    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, 0);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
-    let stx_withdrawal_key = generate_key_from_event(&stx_withdraw_event, 0).unwrap();
+    // okay to pass a zero block height in tests: the block height parameter is only used for logging
+    let stx_withdrawal_key = generate_key_from_event(&mut stx_withdraw_event, 0, 0).unwrap();
     let stx_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&stx_withdrawal_key);
     let stx_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice())
@@ -1454,6 +1520,25 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         stx_sib_data.push(sib_tuple);
     }
 
+    let root_hash_val = Value::buff_from(root_hash.clone()).unwrap();
+    let leaf_hash_val = Value::buff_from(stx_withdrawal_leaf_hash).unwrap();
+    let siblings_val = Value::list_from(stx_sib_data).unwrap();
+
+    assert_eq!(
+        &root_hash_val, &withdrawal_entry.root_hash,
+        "Root hash should match value returned via RPC"
+    );
+    assert_eq!(
+        &leaf_hash_val, &withdrawal_entry.leaf_hash,
+        "Leaf hash should match value returned via RPC"
+    );
+    assert_eq!(
+        &siblings_val, &withdrawal_entry.siblings,
+        "Sibling hashes should match value returned via RPC"
+    );
+
+    // test the result of our RPC call matches our constructed values
+
     let l1_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
         l1_nonce,
@@ -1464,9 +1549,9 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
-            Value::buff_from(root_hash.clone()).unwrap(),
-            Value::buff_from(stx_withdrawal_leaf_hash).unwrap(),
-            Value::list_from(stx_sib_data).unwrap(),
+            root_hash_val,
+            leaf_hash_val,
+            siblings_val,
         ],
     );
     l1_nonce += 1;

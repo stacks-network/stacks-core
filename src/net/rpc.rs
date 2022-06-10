@@ -31,6 +31,7 @@ use clarity::util::hash::MerklePathOrder;
 use clarity::util::hash::MerklePathPoint;
 use clarity::util::hash::MerkleTree;
 use clarity::util::hash::Sha512Trunc256Sum;
+use clarity::vm::types::AssetIdentifier;
 use clarity::vm::types::TupleData;
 use rand::prelude::*;
 use rand::thread_rng;
@@ -938,6 +939,29 @@ impl ConversationHttp {
         amount: u128,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
+        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount);
+        Self::handle_get_generic_withdrawal_entry(
+            http,
+            fd,
+            req,
+            chainstate,
+            canonical_tip,
+            requested_block_height,
+            withdrawal_key,
+            canonical_stacks_tip_height,
+        )
+    }
+
+    fn handle_get_generic_withdrawal_entry<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        canonical_tip: &StacksBlockId,
+        requested_block_height: u64,
+        withdrawal_key: String,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
@@ -975,8 +999,6 @@ impl ConversationHttp {
                 .map(|_| ())
             }
         };
-
-        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount);
 
         let merkle_path = match withdrawal_tree.path(withdrawal_key.as_bytes()) {
             Some(path) => path,

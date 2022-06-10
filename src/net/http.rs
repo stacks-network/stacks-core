@@ -1803,7 +1803,7 @@ impl HttpRequestType {
         _protocol: &mut StacksHttp,
         preamble: &HttpRequestPreamble,
         captures: &Captures,
-        query: Option<&str>,
+        _query: Option<&str>,
         _fd: &mut R,
     ) -> Result<HttpRequestType, net_error> {
         if preamble.get_content_length() != 0 {
