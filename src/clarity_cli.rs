@@ -431,7 +431,11 @@ pub fn vm_execute(program: &str) -> Result<Option<Value>, Error> {
     })
 }
 
-fn save_coverage(coverage_folder: Option<String>, coverage: Option<CoverageReporter>, prefix: &str) {
+fn save_coverage(
+    coverage_folder: Option<String>,
+    coverage: Option<CoverageReporter>,
+    prefix: &str,
+) {
     match (coverage_folder, coverage) {
         (Some(coverage_folder), Some(coverage)) => {
             let mut coverage_file = PathBuf::from(coverage_folder);
