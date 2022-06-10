@@ -1217,18 +1217,19 @@ fn select_transactions_where(
     test_fn: fn(&StacksTransaction) -> bool,
 ) -> Vec<StacksTransaction> {
     let mut result = vec![];
-    for block in blocks {
+    for (block_idx, block) in blocks.iter().enumerate() {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
+        for (tx_idx, tx) in transactions.iter().enumerate() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             let test_value = test_fn(&parsed);
 
             info!(
-                "select_transactions_where: tx: {:?}, parsed {:?}, matches ? {}",
-                &tx, &parsed, test_value
+                "select_transactions_where considers: block_idx: {}, tx_idx: {}, tx: {:?}, parsed: {:?}, test_value {}",
+                block_idx, tx_idx, &tx, &parsed, test_value
             );
+
             if test_value {
                 result.push(parsed);
             }
@@ -1488,6 +1489,7 @@ fn transactions_microblocks_then_block() {
     // We should have three micro-blocks with one `small-contract` tx each.
     assert!(test_observer::get_microblocks().len() >= 3);
 
+    info!("calling select_transactions_where for micro-blocks");
     let small_contract_mb_calls =
         select_transactions_where(&test_observer::get_microblocks(), |transaction| {
             match &transaction.payload {
@@ -1502,6 +1504,7 @@ fn transactions_microblocks_then_block() {
 
     // The transaction was copied in 3 micro-blocks plus 2 blocks. These all get counted here so
     // expect 5 total.
+    info!("calling select_transactions_where for blocks");
     let small_contract_total_calls = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
