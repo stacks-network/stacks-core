@@ -113,7 +113,12 @@ fn main() {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
-            ConfigFile::from_path(&config_path)
+            let config_file_result = ConfigFile::from_path(&config_path);
+            if config_file_result.is_err() {
+                warn!("Invalid config file: {}", config_file_result.err().unwrap());
+                process::exit(1);        
+            }
+            config_file_result.unwrap()
         }
         "version" => {
             println!("{}", &version());
@@ -123,7 +128,7 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(ConfigFile::from_path(&config_path));
+                    let conf = Config::from_config_file(ConfigFile::from_path(&config_path).unwrap()).unwrap();
                     args.finish().unwrap();
                     conf.node.seed
                 } else {
@@ -151,7 +156,12 @@ fn main() {
         }
     };
 
-    let conf = Config::from_config_file(config_file);
+    let conf_result = Config::from_config_file(config_file);
+    if conf_result.is_err() {
+        warn!("Invalid config: {}", conf_result.err().unwrap());
+        process::exit(1);
+    }
+    let conf = conf_result.unwrap();
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);

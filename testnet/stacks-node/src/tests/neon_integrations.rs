@@ -100,7 +100,7 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     conf.burnchain.commit_anchor_block_within = 0;
 
     // test to make sure config file parsing is correct
-    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
+    let magic_bytes = Config::from_config_file(ConfigFile::xenon()).unwrap()
         .burnchain
         .magic_bytes;
     assert_eq!(magic_bytes.as_bytes(), &['T' as u8, '2' as u8]);

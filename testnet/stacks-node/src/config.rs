@@ -39,7 +39,7 @@ const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
@@ -58,6 +58,36 @@ pub struct LegacyMstxConfigFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_invalid_config_files() {
+        ConfigFile::from_path("some_path").expect_err("path does not exist");
+        ConfigFile::from_str("//[node]").expect_err("invalid toml comment");
+    }
+
+    #[test]
+    fn check_invalid_configs() {
+        Config::from_config_file(ConfigFile::from_str(
+            r#"
+            [node]
+            seed = "invalid-hex-value"
+            "#
+        ).unwrap()).expect_err("invalid [node]seed hex encoding");
+
+        Config::from_config_file(ConfigFile::from_str(
+            r#"
+            [node]
+            local_peer_seed = "invalid-hex-value"
+            "#
+        ).unwrap()).expect_err("invalid [node]local_peer_seed hex encoding");
+
+        Config::from_config_file(ConfigFile::from_str(
+            r#"
+            [burnchain]
+            peer_host = "bitcoin2.blockstack.com"
+            "#
+        ).unwrap()).expect_err("invalid [burnchain].peer_host");
+    }
 
     #[test]
     fn should_load_legacy_mstx_balances_toml() {
@@ -80,6 +110,7 @@ mod tests {
             amount = 10000000000000000
             "#,
         );
+        let config = config.unwrap();
         assert!(config.ustx_balance.is_some());
         let balances = config
             .ustx_balance
@@ -105,13 +136,20 @@ mod tests {
 }
 
 impl ConfigFile {
-    pub fn from_path(path: &str) -> ConfigFile {
-        let content_str = fs::read_to_string(path).unwrap();
-        Self::from_str(&content_str)
+    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
+        let content_str = fs::read_to_string(path);
+        if content_str.is_err() {
+            return Err(format!("Invalid path"));
+        }
+        Self::from_str(&content_str.unwrap())
     }
 
-    pub fn from_str(content: &str) -> ConfigFile {
-        let mut config: ConfigFile = toml::from_str(content).unwrap();
+    pub fn from_str(content: &str) -> Result<ConfigFile, String> {
+        let toml_result = toml::from_str(content);
+        if toml_result.is_err() {
+            return Err(format!("Invalid toml: {}", toml_result.err().unwrap()));
+        }
+        let mut config: ConfigFile = toml_result.unwrap();
         let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
         if let Some(mstx_balance) = legacy_config.mstx_balance {
             warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
@@ -120,7 +158,7 @@ impl ConfigFile {
                 None => Some(mstx_balance),
             };
         }
-        config
+        Ok(config)
     }
 
     pub fn xenon() -> ConfigFile {
@@ -284,7 +322,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
@@ -327,7 +365,7 @@ lazy_static! {
 }
 
 impl Config {
-    pub fn from_config_file(config_file: ConfigFile) -> Config {
+    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -336,7 +374,12 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => {
-                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
+                            match hex_bytes(&seed) {
+                                Err(_error) => {
+                                    return Err(format!("[node]seed should be a hex encoded string"));
+                                }
+                                Ok(seed) => seed,
+                            }
                         }
                         None => default_node_config.seed,
                     },
@@ -352,7 +395,12 @@ impl Config {
                     },
                     local_peer_seed: match node.local_peer_seed {
                         Some(seed) => {
-                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
+                            match hex_bytes(&seed) {
+                                Err(_error) => {
+                                    return Err(format!("[node]local_peer_seed should be a hex encoded string"));
+                                }
+                                Ok(seed) => seed,
+                            }
                         }
                         None => default_node_config.local_peer_seed,
                     },
@@ -404,19 +452,17 @@ impl Config {
                         burnchain.magic_bytes = mainnet_magic.clone();
                     }
                     if burnchain.magic_bytes != mainnet_magic {
-                        panic!(
-                            "Attempted to run mainnet node with bad magic bytes '{}'",
-                            burnchain.magic_bytes.as_ref().unwrap()
-                        );
+                        return Err(format!("Attempted to run mainnet node with bad magic bytes '{}'",
+                            burnchain.magic_bytes.as_ref().unwrap()));
                     }
                     if node.use_test_genesis_chainstate == Some(true) {
-                        panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
+                        return Err(format!("Attempted to run mainnet node with `use_test_genesis_chainstate`"));
                     }
                     if let Some(ref balances) = config_file.ustx_balance {
                         if balances.len() > 0 {
-                            panic!(
+                            return Err(format!(
                                 "Attempted to run mainnet node with specified `initial_balances`"
-                            );
+                            ));
                         }
                     }
                 }
@@ -445,9 +491,11 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut addrs_iter =
-                                format!("{}:1", peer_host).to_socket_addrs().unwrap();
-                            let sock_addr = addrs_iter.next().unwrap();
+                            let addrs_iter = format!("{}:1", peer_host).to_socket_addrs();
+                            if addrs_iter.is_err() {
+                                return Err(format!("Invalid [burnchain].peer_host"));
+                            }
+                            let sock_addr = addrs_iter.unwrap().next().unwrap();
                             format!("{}", sock_addr.ip())
                         }
                         None => default_burnchain_config.peer_host,
@@ -528,14 +576,12 @@ impl Config {
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
-            panic!(
-                "Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")
-            )
+            return Err(format!("Setting burnchain.network not supported (should be: {})",
+                supported_modes.join(", ")));
         }
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
+            return Err(format!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)"));
         }
 
         if let Some(bootstrap_node) = bootstrap_node {
@@ -757,7 +803,7 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
-        Config {
+        Ok(Config {
             node,
             burnchain,
             initial_balances,
@@ -765,7 +811,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
-        }
+        })
     }
 
     fn get_burnchain_path(&self) -> PathBuf {
@@ -1011,7 +1057,7 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1449,7 +1495,7 @@ impl MinerConfig {
     }
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Debug)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
@@ -1492,7 +1538,7 @@ pub struct ConnectionOptionsFile {
     pub antientropy_public: Option<bool>,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -1517,7 +1563,7 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -1542,7 +1588,7 @@ impl Default for FeeEstimationConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
@@ -1551,19 +1597,19 @@ pub struct MinerConfigFile {
     pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
@@ -1641,7 +1687,7 @@ pub struct InitialBalance {
     pub amount: u64,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
