@@ -313,12 +313,32 @@ impl<'a> Parser<'a> {
         let node = match token.token {
             Token::Lparen => Some(self.parse_list(token)?),
             Token::Lbrace => Some(self.parse_tuple(token)?),
-            Token::Int(val) => {
+            Token::Int(val_string) => {
+                let val = match val_string.parse::<i128>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        self.add_diagnostic(
+                            ParseErrors::FailedParsingIntValue(val_string),
+                            token.span.clone(),
+                        )?;
+                        0
+                    }
+                };
                 let mut e = PreSymbolicExpression::atom_value(Value::Int(val));
                 e.span = token.span;
                 Some(e)
             }
-            Token::Uint(val) => {
+            Token::Uint(val_string) => {
+                let val = match val_string.parse::<u128>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        self.add_diagnostic(
+                            ParseErrors::FailedParsingUIntValue(val_string),
+                            token.span.clone(),
+                        )?;
+                        0
+                    }
+                };
                 let mut e = PreSymbolicExpression::atom_value(Value::UInt(val));
                 e.span = token.span;
                 Some(e)
@@ -774,6 +794,39 @@ mod tests {
                 end_column: 3
             }
         );
+
+        let (stmts, diagnostics, success) =
+            parse_collect_diagnostics("340282366920938463463374607431768211456 ");
+        assert_eq!(success, false);
+        assert_eq!(stmts.len(), 1);
+        if let Some(Value::Int(0)) = stmts[0].match_atom_value() {
+        } else {
+            panic!("failed to parse int value with error");
+        }
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 39
+            }
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].level, Level::Error);
+        assert_eq!(
+            diagnostics[0].message,
+            "Failed to parse int literal '340282366920938463463374607431768211456'".to_string()
+        );
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 39
+            }
+        );
     }
 
     #[test]
@@ -825,6 +878,40 @@ mod tests {
                 start_column: 4,
                 end_line: 2,
                 end_column: 5
+            }
+        );
+
+        let (stmts, diagnostics, success) =
+            parse_collect_diagnostics("u340282366920938463463374607431768211457 ");
+        assert_eq!(success, false);
+        assert_eq!(stmts.len(), 1);
+        println!("{:?}", stmts);
+        if let Some(Value::UInt(0)) = stmts[0].match_atom_value() {
+        } else {
+            panic!("failed to parse uint value with error");
+        }
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 40
+            }
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].level, Level::Error);
+        assert_eq!(
+            diagnostics[0].message,
+            "Failed to parse uint literal 'u340282366920938463463374607431768211457'".to_string()
+        );
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 40
             }
         );
     }

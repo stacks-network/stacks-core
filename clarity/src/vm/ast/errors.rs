@@ -41,6 +41,7 @@ pub enum ParseErrors {
     IllegalContractName(String),
     UnknownQuotedValue(String),
     FailedParsingIntValue(String),
+    FailedParsingUIntValue(String),
     FailedParsingBuffer(String),
     FailedParsingHexValue(String, String),
     FailedParsingPrincipal(String),
@@ -198,6 +199,9 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::UnknownQuotedValue(value) => format!("Unknown 'quoted value '{}'", value),
             ParseErrors::FailedParsingIntValue(value) => {
                 format!("Failed to parse int literal '{}'", value)
+            }
+            ParseErrors::FailedParsingUIntValue(value) => {
+                format!("Failed to parse uint literal 'u{}'", value)
             }
             ParseErrors::FailedParsingHexValue(value, x) => {
                 format!("Invalid hex-string literal {}: {}", value, x)
