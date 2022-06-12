@@ -100,7 +100,7 @@ impl<'a> Parser<'a> {
             return None;
         }
         let token = self.tokens[self.next_token].clone();
-        self.next_token = self.next_token + 1;
+        self.next_token += 1;
         Some(token)
     }
 
@@ -113,12 +113,12 @@ impl<'a> Parser<'a> {
             let token = &self.tokens[self.next_token];
             match &token.token {
                 Token::Whitespace => {
-                    self.next_token = self.next_token + 1;
+                    self.next_token += 1;
                     found = true;
                 }
                 Token::Comment(comment) => {
                     self.comments.push(comment.clone());
-                    self.next_token = self.next_token + 1;
+                    self.next_token += 1;
                     found = true;
                 }
                 _ => return found,
