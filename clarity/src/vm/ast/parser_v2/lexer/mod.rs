@@ -405,6 +405,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Read `X` in `\u{X}` in a UTF8 string
     fn read_utf8_encoding(&mut self) -> LexResult<String> {
         // Red exclamation mark
         const error_string: &str = "2757";
