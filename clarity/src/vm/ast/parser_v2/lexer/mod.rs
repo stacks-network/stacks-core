@@ -517,10 +517,41 @@ impl<'a> Lexer<'a> {
                     'r' => data.push("\r".to_string().into_bytes()),
                     '0' => data.push("\0".to_string().into_bytes()),
                     'u' => {
+                        const error_char: char = '\u{2757}';
+                        let code_start_line = self.line as u32;
+                        let code_start_column = self.column as u32;
                         let encode_str = self.read_utf8_encoding()?;
                         let unicode_char = {
-                            let u = u32::from_str_radix(&encode_str, 16).unwrap();
-                            let c = char::from_u32(u).unwrap();
+                            let u = match u32::from_str_radix(&encode_str, 16) {
+                                Ok(u) => u,
+                                Err(_) => {
+                                    self.add_diagnostic(
+                                        LexerError::InvalidUTF8Encoding,
+                                        Span {
+                                            start_line: code_start_line,
+                                            start_column: code_start_column,
+                                            end_line: self.line as u32,
+                                            end_column: self.column as u32,
+                                        },
+                                    )?;
+                                    error_char as u32
+                                }
+                            };
+                            let c = match char::from_u32(u) {
+                                Some(c) => c,
+                                None => {
+                                    self.add_diagnostic(
+                                        LexerError::InvalidUTF8Encoding,
+                                        Span {
+                                            start_line: code_start_line,
+                                            start_column: code_start_column,
+                                            end_line: self.line as u32,
+                                            end_column: self.column as u32,
+                                        },
+                                    )?;
+                                    error_char
+                                }
+                            };
                             let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
                             c.encode_utf8(&mut encoded_char[..]);
                             encoded_char
@@ -993,6 +1024,24 @@ mod tests {
             _ => panic!("failed to parse utf8 string"),
         };
         assert_eq!(format!("{}", data), "u\"\\u{e29d97}abc\"");
+        assert_eq!(lexer.diagnostics.len(), 1);
+        assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
+
+        lexer = Lexer::new("u\"\\u{1234567}\"", false).unwrap();
+        let data = match lexer.read_token().unwrap().token {
+            Token::Utf8String(data) => UTF8Data { data },
+            _ => panic!("failed to parse utf8 string"),
+        };
+        assert_eq!(format!("{}", data), "u\"\\u{e29d97}\"");
+        assert_eq!(lexer.diagnostics.len(), 1);
+        assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
+
+        lexer = Lexer::new("u\"\\u{123456789}\"", false).unwrap();
+        let data = match lexer.read_token().unwrap().token {
+            Token::Utf8String(data) => UTF8Data { data },
+            _ => panic!("failed to parse utf8 string"),
+        };
+        assert_eq!(format!("{}", data), "u\"\\u{e29d97}\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
 
