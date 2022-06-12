@@ -1146,7 +1146,7 @@ mod tests {
         match &exprs[3].pre_expr {
             PreSymbolicExpressionType::AtomValue(Value::Sequence(SequenceData::String(
                 CharType::ASCII(ASCIIData { data: s }),
-            ))) => assert_eq!(s, "hel\tlo".as_bytes()), //assert_eq!(val.expect_ascii(), "hel\tlo"),
+            ))) => assert_eq!(s, "hel\tlo".as_bytes()),
             _ => panic!("expected Value(\"hel\tlo\")"),
         }
         assert_eq!(
