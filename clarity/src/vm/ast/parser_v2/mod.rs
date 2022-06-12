@@ -1278,7 +1278,6 @@ mod tests {
                 end_column: 4
             }
         );
-
         if let Some(name) = list[1].match_atom() {
             assert_eq!(name.as_str(), "bar");
         } else {
@@ -1291,6 +1290,316 @@ mod tests {
                 start_column: 7,
                 end_line: 1,
                 end_column: 9,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo: bar,}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 11
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 2);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 7,
+                end_line: 1,
+                end_column: 9,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 9
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 2);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 8,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar,}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 10
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 2);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 8,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar }");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 10
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 2);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 8,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar ,}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 11
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 2);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 8,
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{foo:bar,baz:goo}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 17
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 4);
+        if let Some(name) = list[0].match_atom() {
+            assert_eq!(name.as_str(), "foo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        if let Some(name) = list[1].match_atom() {
+            assert_eq!(name.as_str(), "bar");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 8,
+            }
+        );
+        if let Some(name) = list[2].match_atom() {
+            assert_eq!(name.as_str(), "baz");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[2].span,
+            Span {
+                start_line: 1,
+                start_column: 10,
+                end_line: 1,
+                end_column: 12,
+            }
+        );
+        if let Some(name) = list[3].match_atom() {
+            assert_eq!(name.as_str(), "goo");
+        } else {
+            panic!("failed to parse identifier");
+        }
+        assert_eq!(
+            list[3].span,
+            Span {
+                start_line: 1,
+                start_column: 14,
+                end_line: 1,
+                end_column: 16,
             }
         );
 
