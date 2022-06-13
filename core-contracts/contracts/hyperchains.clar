@@ -13,6 +13,7 @@
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
 (define-constant ERR_VALIDATION_FAILED 10)
+(define-constant ERR_MINER_ALREADY_SET 20)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -22,7 +23,7 @@
 (define-map processed-withdrawal-leaves-map { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) } bool)
 
 ;; List of miners
-(define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
+(define-data-var miner (optional principal) none)
 
 ;; Map of allowed contracts for asset transfers
 (define-map allowed-contracts principal (string-ascii 45))
@@ -35,13 +36,27 @@
 (use-trait nft-trait .nft-trait-standard.nft-trait)
 (use-trait ft-trait .ft-trait-standard.ft-trait)
 
+;; Set the hc miner for this contract. Can be called by *anyone*
+;;  before the miner is set. This is an unsafe way to initialize the
+;;  contract, because a re-org could allow someone to reinitialize
+;;  this field. Instead, authors should initialize the variable
+;;  directly at the data-var instantiation. This is used for testing
+;;  purposes only. 
+(define-public (set-hc-miner (miner-to-set principal))
+    (match (var-get miner) existing-miner (err ERR_MINER_ALREADY_SET) 
+        (begin 
+            (var-set miner (some miner-to-set))
+            (ok true))))
+
 ;; This function adds contracts to the allowed-contracts map.
 ;; Once in this map, asset transfers from that contract will be allowed in the deposit and withdraw operations.
 ;; Returns response<bool, int>
 (define-public (setup-allowed-contracts)
     (begin
         ;; Verify that tx-sender is an authorized miner
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+        (asserts! (or (is-eq tx-sender CONTRACT_ADDRESS)
+                      (is-miner tx-sender))
+                  (err ERR_INVALID_MINER))
 
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
         (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-nft-token") (err ERR_ASSET_ALREADY_ALLOWED))
@@ -58,12 +73,11 @@
         search-for
     )
 )
-;; Helper function: returns a boolean indicating whether the given principal is in the list of miners
+;; Helper function: returns a boolean indicating whether the given principal is a miner
 ;; Returns bool
-(define-private (is-miner (miner principal))
-   (let ((fold-result (fold is-principal-eq miners (some miner))))
-        (is-none fold-result)
-   ))
+(define-private (is-miner (miner-to-check principal))
+    (is-eq (some miner-to-check) (var-get  miner)))
+
 
 ;; Helper function: determines whether the commit-block operation can be carried out
 ;; Returns response<bool, int>
@@ -74,6 +88,9 @@
 
         ;; check that the tx sender is one of the miners
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; check that the miner called this contract directly
+        (asserts! (is-miner contract-caller) (err ERR_INVALID_MINER))
 
         (ok true)
     )

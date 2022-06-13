@@ -11,6 +11,15 @@ Clarinet.test({
         // invalid miner
         const bob = accounts.get("wallet_2")!;
 
+        // set alice as a miner
+        let initialize = chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(alice.address),
+            ],
+            alice.address),
+        ]);
+
         let block = chain.mineBlock([
           // Successfully commit block at height 0 with alice.
           Tx.contractCall("hyperchains", "commit-block",
@@ -27,7 +36,7 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 2);
+        assertEquals(block.height, 3);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -46,7 +55,7 @@ Clarinet.test({
                 ],
                 bob.address),
         ]);
-        assertEquals(block.height, 3);
+        assertEquals(block.height, 4);
         // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[0].result
             .expectErr()
@@ -61,7 +70,7 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 4);
+        assertEquals(block.height, 5);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 2, 2, 2, 2]));
@@ -80,6 +89,15 @@ Clarinet.test({
         // user
         const charlie = accounts.get("wallet_3")!;
 
+        // set alice as a miner
+        let initialize = chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(alice.address),
+            ],
+            alice.address),
+        ]);
+        
         // nft contract id
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft")!;
         const hyperchain_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchains")!;
@@ -179,7 +197,7 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 8);
+        assertEquals(block.height, 9);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -252,6 +270,15 @@ Clarinet.test({
 
         // ft contract
         const ft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-ft")!;
+
+        // set alice as a miner
+        let initialize = chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(alice.address),
+            ],
+            alice.address),
+        ]);
 
         // User should be able to mint a fungible token
         let block = chain.mineBlock([
@@ -363,7 +390,7 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 10);
+        assertEquals(block.height, 11);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -436,6 +463,15 @@ Clarinet.test({
         // get address of contracts
         const ft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-ft")!;
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft")!;
+
+        // set alice as a miner
+        let initialize = chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(alice.address),
+            ],
+            alice.address),
+        ]);
 
         // User should be able to mint a fungible token
         let block = chain.mineBlock([
