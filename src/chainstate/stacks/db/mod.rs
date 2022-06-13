@@ -594,6 +594,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
         parent_microblock_sequence INTEGER NOT NULL,
         tx_merkle_root TEXT NOT NULL,
         state_index_root TEXT NOT NULL,
+        withdrawal_merkle_root TEXT NOT NULL,
         microblock_pubkey_hash TEXT NOT NULL,
         
         block_hash TEXT NOT NULL,                   -- NOTE: this is *not* unique, since two burn chain forks can commit to the same Stacks block.

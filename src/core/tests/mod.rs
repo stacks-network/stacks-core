@@ -96,6 +96,7 @@ fn mempool_db_init() {
     let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 }
 
+#[cfg(test)]
 fn make_block(
     chainstate: &mut StacksChainState,
     block_consensus: ConsensusHash,
@@ -117,6 +118,7 @@ fn make_block(
         parent_microblock_sequence: 0,
         tx_merkle_root: Sha512Trunc256Sum::empty(),
         state_index_root: TrieHash::from_empty_data(),
+        withdrawal_merkle_root: Sha512Trunc256Sum::empty(),
         microblock_pubkey_hash: Hash160([0; 20]),
         miner_signatures: MessageSignatureList::empty(),
     };

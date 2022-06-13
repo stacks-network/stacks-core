@@ -52,6 +52,7 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::chainstate::StacksBlockId;
@@ -1082,6 +1083,7 @@ impl StacksBlockBuilder {
         StacksBlockBuilder {
             chain_tip: parent_chain_tip.clone(),
             txs: vec![],
+            tx_receipts: vec![],
             micro_txs: vec![],
             total_anchored_fees: 0,
             total_confirmed_streamed_fees: 0,
@@ -1337,6 +1339,7 @@ impl StacksBlockBuilder {
 
             // save
             self.txs.push(tx.clone());
+            self.tx_receipts.push(receipt.clone());
             self.total_anchored_fees += fee;
 
             TransactionResult::success(&tx, fee, receipt)
@@ -1430,6 +1433,7 @@ impl StacksBlockBuilder {
             match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
+                    self.tx_receipts.push(receipt);
                 }
                 Err(e) => {
                     warn!("Invalid transaction {} in anchored block, but forcing inclusion (error: {:?})", &tx.txid(), &e);
@@ -1459,7 +1463,7 @@ impl StacksBlockBuilder {
     }
 
     pub fn finalize_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
-        // done!  Calculate state root and tx merkle root
+        // done!  Calculate state root, tx merkle root, and withdrawal merkle root
         let txid_vecs = self
             .txs
             .iter()
@@ -1472,6 +1476,10 @@ impl StacksBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+
+        let withdrawal_tree = create_withdrawal_merkle_tree(&self.tx_receipts);
+        let withdrawal_merkle_root = withdrawal_tree.root();
+        self.header.withdrawal_merkle_root = withdrawal_merkle_root;
 
         self.header
             .sign(&self.miner_privkey)

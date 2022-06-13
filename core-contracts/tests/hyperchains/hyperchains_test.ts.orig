@@ -10,7 +10,6 @@ Clarinet.test({
         const alice = accounts.get("wallet_1")!;
         // invalid miner
         const bob = accounts.get("wallet_2")!;
-        const charlie = accounts.get("wallet_3")!;
 
         const id_header_hash1 = chain.callReadOnlyFn('hyperchains', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
 
@@ -19,14 +18,22 @@ Clarinet.test({
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+<<<<<<< HEAD
                     id_header_hash1,
+=======
+                    types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+>>>>>>> master
                 ],
                 alice.address),
           // Try and fail to commit a different block, but again at height 0.
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+<<<<<<< HEAD
                     id_header_hash1,
+=======
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
+>>>>>>> master
                 ],
                 alice.address),
         ]);
@@ -34,10 +41,10 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+        // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[1].result
             .expectErr()
-            .expectInt(3);
-
+            .expectInt(1);
 
         // Try and fail to commit a block at height 1 with an invalid miner.
         const id_header_hash2 = chain.callReadOnlyFn('hyperchains', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
@@ -45,14 +52,19 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+<<<<<<< HEAD
                     id_header_hash2,
+=======
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
+>>>>>>> master
                 ],
                 bob.address),
         ]);
         assertEquals(block.height, 3);
+        // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[0].result
             .expectErr()
-            .expectInt(3);
+            .expectInt(2);
 
         // Successfully commit block at height 1 with valid miner.
         const id_header_hash3 = chain.callReadOnlyFn('hyperchains', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
@@ -60,7 +72,11 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+<<<<<<< HEAD
                     id_header_hash3,
+=======
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
+>>>>>>> master
                 ],
                 alice.address),
         ]);
@@ -203,14 +219,6 @@ Clarinet.test({
                         "is-left-side": types.bool(true)
                     })])
 
-        // Miner should be able to withdraw NFT asset
-        block = chain.mineBlock([
-            Tx.contractCall("hyperchains", "withdraw-nft-asset",
-                [
-                    types.uint(1),
-                    types.principal(bob.address),
-                    types.principal(nft_contract.contract_id),
-                    types.principal(nft_contract.contract_id),
                 ],
                 charlie.address),
         ]);
@@ -298,6 +306,7 @@ Clarinet.test({
                 [],
                 bob.address),
         ]);
+        // should return (err ERR_INVALID_MINER)
         block.receipts[0].result
             .expectErr()
             .expectInt(2);

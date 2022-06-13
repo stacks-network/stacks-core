@@ -253,8 +253,11 @@ impl L1Controller {
         sender_nonce: u64,
         tx_fee: u64,
         commit_to: BlockHeaderHash,
+<<<<<<< HEAD
         build_off: BurnchainHeaderHash,
+=======
         withdrawal_root: Sha512Trunc256Sum,
+>>>>>>> master
     ) -> Result<StacksTransaction, Error> {
         let QualifiedContractIdentifier {
             issuer: contract_addr,
@@ -266,19 +269,25 @@ impl L1Controller {
             TransactionVersion::Testnet
         };
         let committed_block = commit_to.as_bytes().to_vec();
+<<<<<<< HEAD
         let build_off_bytes = build_off.as_bytes().to_vec();
-        let withdrawal_root_bytes = withdrawal_root.as_bytes().to_vec();
 
+=======
+        let withdrawal_root_bytes = withdrawal_root.as_bytes().to_vec();
+>>>>>>> master
         let payload = TransactionContractCall {
             address: contract_addr.into(),
             contract_name,
             function_name: ClarityName::from("commit-block"),
             function_args: vec![
+<<<<<<< HEAD
                 ClarityValue::buff_from(committed_block.clone())
                     .map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
+=======
+                ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
-
+>>>>>>> master
             ],
         };
 
@@ -330,8 +339,11 @@ impl L1Controller {
             nonce,
             fee,
             op.block_header_hash,
+<<<<<<< HEAD
             op.burn_header_hash,
+=======
             op.withdrawal_merkle_root,
+>>>>>>> master
         ) {
             Ok(x) => x,
             Err(e) => {

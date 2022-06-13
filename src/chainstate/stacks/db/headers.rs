@@ -50,6 +50,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
         let parent_microblock_sequence: u16 = row.get_unwrap("parent_microblock_sequence");
         let tx_merkle_root = Sha512Trunc256Sum::from_column(row, "tx_merkle_root")?;
         let state_index_root = TrieHash::from_column(row, "state_index_root")?;
+        let withdrawal_merkle_root = Sha512Trunc256Sum::from_column(row, "withdrawal_merkle_root")?;
         let microblock_pubkey_hash = Hash160::from_column(row, "microblock_pubkey_hash")?;
 
         let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
@@ -74,6 +75,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
             parent_microblock_sequence,
             tx_merkle_root,
             state_index_root,
+            withdrawal_merkle_root,
             microblock_pubkey_hash,
             miner_signatures,
         };
@@ -155,6 +157,7 @@ impl StacksChainState {
             &header.parent_microblock_sequence,
             &header.tx_merkle_root,
             &header.state_index_root,
+            &header.withdrawal_merkle_root,
             &header.microblock_pubkey_hash,
             &block_hash,
             &index_block_hash,
@@ -180,6 +183,7 @@ impl StacksChainState {
                     parent_microblock_sequence, \
                     tx_merkle_root, \
                     state_index_root, \
+                    withdrawal_merkle_root, \
                     microblock_pubkey_hash, \
                     block_hash, \
                     index_block_hash, \
@@ -194,7 +198,7 @@ impl StacksChainState {
                     parent_block_id, \
                     miner_signatures \
                     ) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

@@ -554,10 +554,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
-    // Sleep to give the run loop time to listen to blocks,
-    //  and start mining L2 blocks
-    thread::sleep(Duration::from_secs(60));
-
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(
         &config.get_burn_db_path(),
@@ -566,11 +562,16 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     )
     .unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+<<<<<<< HEAD
 
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
 
+=======
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+>>>>>>> master
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
@@ -728,7 +729,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             Value::UInt(1),
             Value::Principal(user_addr.into()),
             Value::none(),
-            Value::Principal(PrincipalData::Contract(ft_contract_id)),
+            Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
         ],
     );
@@ -1350,6 +1351,10 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Deposit stx into hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_deposit_stx_tx);
 
+<<<<<<< HEAD
+    wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+=======
     // Wait to give the run loop time to mine a block
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
@@ -1472,6 +1477,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         let sib_tuple = Value::Tuple(TupleData::from_data(curr_sib_data).unwrap());
         stx_sib_data.push(sib_tuple);
     }
+>>>>>>> master
 
     let l1_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,

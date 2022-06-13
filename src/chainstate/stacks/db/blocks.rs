@@ -79,11 +79,14 @@ use stacks_common::util::retry::BoundReader;
 
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::Error::NoSuchBlockError;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
+use crate::clarity_vm::withdrawal::create_withdrawal_merkle_tree;
 use crate::monitoring::set_last_execution_cost_observed;
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
+
 use rusqlite::types::ToSqlOutput;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 
@@ -5504,7 +5507,11 @@ impl StacksChainState {
                 }
             }
 
+            tx_receipts.extend(microblock_txs_receipts.into_iter());
+
+            // check clarity state merkle root
             let root_hash = clarity_tx.seal();
+
             if root_hash != block.header.state_index_root {
                 let msg = format!(
                     "Block {} state root mismatch: expected {}, got {}",
@@ -5521,6 +5528,24 @@ impl StacksChainState {
             debug!("Reached state root {}", root_hash;
                    "microblock cost" => %microblock_execution_cost,
                    "block cost" => %block_cost);
+
+            // Check withdrawal state merkle root
+            // Process withdrawal events
+            let withdrawal_tree = create_withdrawal_merkle_tree(&tx_receipts);
+            let withdrawal_root_hash = withdrawal_tree.root();
+
+            if withdrawal_root_hash != block.header.withdrawal_merkle_root {
+                let msg = format!(
+                    "Block {} withdrawal root mismatch: expected {}, got {}",
+                    block.block_hash(),
+                    withdrawal_root_hash,
+                    block.header.withdrawal_merkle_root
+                );
+                info!("{}", &msg);
+
+                clarity_tx.rollback_block();
+                return Err(Error::InvalidStacksBlock(msg));
+            }
 
             // good to go!
             let clarity_commit =
@@ -5558,8 +5583,6 @@ impl StacksChainState {
                 total_coinbase,
             )
             .expect("FATAL: parsed and processed a block without a coinbase");
-
-            tx_receipts.extend(microblock_txs_receipts.into_iter());
 
             (
                 scheduled_miner_reward,
@@ -6575,6 +6598,7 @@ pub mod test {
     use clarity::vm::types::StacksAddressExtensions;
     use serde_json;
 
+    #[cfg(test)]
     pub fn make_empty_coinbase_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(
             "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",
@@ -6615,6 +6639,7 @@ pub mod test {
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
             microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([10u8; 32]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
@@ -6642,6 +6667,7 @@ pub mod test {
         block
     }
 
+    #[cfg(test)]
     pub fn make_16k_block(mblock_key: &StacksPrivateKey) -> StacksBlock {
         let privk = StacksPrivateKey::from_hex(
             "59e4d5e18351d6027a37920efe53c2f1cbadc50dca7d77169b7291dff936ed6d01",
@@ -6709,7 +6735,8 @@ pub mod test {
             parent_microblock_sequence: 4,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([10u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
@@ -8170,7 +8197,8 @@ pub mod test {
             parent_microblock_sequence: microblocks[num_mblocks - 1].header.sequence,
             tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
             state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20]),
+            withdrawal_merkle_root: Sha512Trunc256Sum([9u8; 32]),
+            microblock_pubkey_hash: Hash160([10u8; 20]),
             miner_signatures: MessageSignatureList::empty(),
         };
 
