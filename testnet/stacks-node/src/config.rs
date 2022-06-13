@@ -30,6 +30,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -421,7 +422,7 @@ impl Config {
                     }
                 }
 
-                BurnchainConfig {
+                let mut result = BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
                         CHAIN_ID_MAINNET
@@ -494,11 +495,44 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
-                    epochs: match burnchain.epochs {
-                        Some(epochs) => Some(epochs),
-                        None => default_burnchain_config.epochs,
-                    },
+                    epochs: default_burnchain_config.epochs,
+                };
+
+                if let Some(ref conf_epochs) = burnchain.epochs {
+                    let mut epochs = match result.get_bitcoin_network().1 {
+                        BitcoinNetworkType::Mainnet => {
+                            panic!("Cannot configure epochs in mainnet mode");
+                        }
+                        BitcoinNetworkType::Testnet => stacks::core::STACKS_EPOCHS_TESTNET.to_vec(),
+                        BitcoinNetworkType::Regtest => stacks::core::STACKS_EPOCHS_REGTEST.to_vec(),
+                    };
+                    if result.mode == "mocknet" {
+                        for epoch in epochs.iter_mut() {
+                            epoch.block_limit = ExecutionCost::max_value();
+                        }
+                    }
+                    for configured_epoch in conf_epochs.iter() {
+                        let mut epoch = epochs
+                            .iter_mut()
+                            .find(|x| x.epoch_id as u32 == configured_epoch.epoch_id)
+                            .expect(&format!(
+                                "Failed to find Epoch ID in defined epochs: {} not found",
+                                configured_epoch.epoch_id
+                            ));
+                        epoch.start_height = configured_epoch
+                            .start_height
+                            .try_into()
+                            .expect("Epoch start height must be a positive integer");
+                        epoch.end_height = configured_epoch
+                            .end_height
+                            .try_into()
+                            .expect("Epoch end height must be a positive integer");
+                    }
+
+                    result.epochs = Some(epochs);
                 }
+
+                result
             }
             None => default_burnchain_config,
         };
@@ -1012,6 +1046,13 @@ impl BurnchainConfig {
 }
 
 #[derive(Clone, Deserialize, Default)]
+pub struct StacksEpochConfigFile {
+    epoch_id: u32,
+    start_height: i64,
+    end_height: i64,
+}
+
+#[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1033,7 +1074,7 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<Vec<StacksEpochConfigFile>>,
 }
 
 #[derive(Clone, Debug, Default)]

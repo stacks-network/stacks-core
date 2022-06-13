@@ -18,6 +18,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::chainstate::{burn::db::sortdb::SortitionDB, stacks::db::StacksEpochReceipt};
 use stacks::core::mempool::MemPoolDB;
+use stacks::core::STACKS_EPOCH_2_05_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::atlas::AttachmentInstance;
@@ -1017,7 +1018,7 @@ impl Node {
             apparent_sender: self.keychain.get_burnchain_signer(),
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![],
+            memo: vec![STACKS_EPOCH_2_05_MARKER],
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
