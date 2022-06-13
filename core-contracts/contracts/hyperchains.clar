@@ -12,7 +12,6 @@
 (define-constant ERR_ASSET_ALREADY_ALLOWED 7)
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
-(define-constant ERR_VALIDATION_FAILED 10)
 ;;; The value supplied for `target-chain-tip` does not match the current chain tip.
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height 1.
@@ -20,6 +19,10 @@
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
+;; Map recording withdrawal roots
+(define-map withdrawal-roots-map (buff 32) bool)
+;; Map recording processed withdrawal leaves
+(define-map processed-withdrawal-leaves-map (buff 32) bool)
 
 ;; List of miners
 (define-constant miners (list 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
@@ -106,10 +109,10 @@
 ;;  1) we have already committed at this block height
 ;;  2) `target-chain-tip` is not the burn chain tip (i.e., on this chain)
 ;;  3) the sender is not a miner
-(define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)))
+(define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)) (withdrawal-root (buff 32)))
     (let ((commit-block-height block-height))
         (try! (can-commit-block? commit-block-height target-chain-tip))
-        (inner-commit-block block commit-block-height)
+        (inner-commit-block block commit-block-height withdrawal-root)
     )
 )
 

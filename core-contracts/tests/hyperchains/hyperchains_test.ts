@@ -19,16 +19,16 @@ Clarinet.test({
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                    types.buff(new Uint8Array([0, 1, 1, 1, 2])),
                     id_header_hash1,
+                    types.buff(new Uint8Array([0, 1, 1, 1, 2])),
                 ],
                 alice.address),
           // Try and fail to commit a different block, but again at height 0.
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash1,
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                 ],
                 alice.address),
         ]);
@@ -48,8 +48,8 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash2,
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                 ],
                 bob.address),
         ]);
@@ -65,8 +65,8 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
-                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash3,
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                 ],
                 alice.address),
         ]);
