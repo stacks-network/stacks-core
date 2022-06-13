@@ -19,6 +19,7 @@ Clarinet.test({
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    types.buff(new Uint8Array([0, 1, 1, 1, 2])),
                     id_header_hash1,
                 ],
                 alice.address),
@@ -26,6 +27,7 @@ Clarinet.test({
           Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash1,
                 ],
                 alice.address),
@@ -34,9 +36,10 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+        // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[1].result
             .expectErr()
-            .expectInt(3);
+            .expectInt(1);
 
 
         // Try and fail to commit a block at height 1 with an invalid miner.
@@ -45,11 +48,13 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash2,
                 ],
                 bob.address),
         ]);
         assertEquals(block.height, 3);
+        // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[0].result
             .expectErr()
             .expectInt(3);
@@ -60,6 +65,7 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 2, 2, 2, 2])),
+                    types.buff(new Uint8Array([0, 2, 2, 2, 3])),
                     id_header_hash3,
                 ],
                 alice.address),
@@ -298,6 +304,7 @@ Clarinet.test({
                 [],
                 bob.address),
         ]);
+        // should return (err ERR_INVALID_MINER)
         block.receipts[0].result
             .expectErr()
             .expectInt(2);

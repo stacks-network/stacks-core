@@ -108,7 +108,7 @@
 ;;  3) the sender is not a miner
 (define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)))
     (let ((commit-block-height block-height))
-        (unwrap! (can-commit-block? commit-block-height target-chain-tip) (err ERR_VALIDATION_FAILED))
+        (try! (can-commit-block? commit-block-height target-chain-tip))
         (inner-commit-block block commit-block-height)
     )
 )
@@ -155,6 +155,7 @@
         (ok true)
     )
 )
+
 
 ;; Helper function for `withdraw-nft-asset`
 ;; Returns response<bool, int>

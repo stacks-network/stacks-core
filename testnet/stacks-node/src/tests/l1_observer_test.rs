@@ -554,10 +554,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
-    // Sleep to give the run loop time to listen to blocks,
-    //  and start mining L2 blocks
-    thread::sleep(Duration::from_secs(60));
-
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(
         &config.get_burn_db_path(),

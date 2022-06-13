@@ -278,7 +278,6 @@ impl L1Controller {
                     .map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
-
             ],
         };
 
