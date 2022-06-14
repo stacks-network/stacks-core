@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -38,14 +37,12 @@ use crate::burnchains::l1_events::L1Controller;
 use crate::burnchains::mock_events::MockController;
 use crate::BurnchainController;
 
-const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
-pub const BURNCHAIN_NAME_STACKS_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_STACKS_TESTNET_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_STACKS_MAINNET_L1: &str = "stacks_layer_1::mainnet";
 pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
 pub const DEFAULT_L1_OBSERVER_PORT: u16 = 50303;
 
@@ -133,58 +130,11 @@ impl ConfigFile {
         config
     }
 
-    pub fn xenon() -> ConfigFile {
-        let burnchain = BurnchainConfigFile {
-            mode: Some("xenon".to_string()),
-            rpc_port: Some(18332),
-            peer_port: Some(18333),
-            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            magic_bytes: Some("T2".into()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
-            miner: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        let balances = vec![
-            InitialBalanceFile {
-                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
-                amount: 10000000000000000,
-            },
-        ];
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            ustx_balance: Some(balances),
-            ..ConfigFile::default()
-        }
-    }
-
     pub fn mainnet() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
-            mode: Some("mainnet".to_string()),
             rpc_port: Some(8332),
             peer_port: Some(8333),
             peer_host: Some("bitcoin.blockstack.com".to_string()),
-            username: Some("blockstack".to_string()),
-            password: Some("blockstacksystem".to_string()),
-            magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
 
@@ -207,45 +157,8 @@ impl ConfigFile {
         }
     }
 
-    pub fn helium() -> ConfigFile {
-        // ## Settings for local testnet, relying on a local bitcoind server
-        // ## running with the following bitcoin.conf:
-        // ##
-        // ##    chain=regtest
-        // ##    disablewallet=0
-        // ##    txindex=1
-        // ##    server=1
-        // ##    rpcuser=helium
-        // ##    rpcpassword=helium
-        // ##
-        let burnchain = BurnchainConfigFile {
-            mode: Some("helium".to_string()),
-            commit_anchor_block_within: Some(10_000),
-            rpc_port: Some(18443),
-            peer_port: Some(18444),
-            peer_host: Some("0.0.0.0".to_string()),
-            username: Some("helium".to_string()),
-            password: Some("helium".to_string()),
-            local_mining_public_key: Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            miner: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            ..ConfigFile::default()
-        }
-    }
-
     pub fn mocknet() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
-            mode: Some("mocknet".to_string()),
-            commit_anchor_block_within: Some(10_000),
             ..BurnchainConfigFile::default()
         };
 
@@ -403,42 +316,11 @@ impl Config {
         let default_burnchain_config = BurnchainConfig::default();
 
         let burnchain = match config_file.burnchain {
-            Some(mut burnchain) => {
-                if burnchain.mode.as_deref() == Some("xenon") {
-                    if burnchain.magic_bytes.is_none() {
-                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
-                    }
-                }
-
-                let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
-
-                if &burnchain_mode == "mainnet" {
-                    // check magic bytes and set if not defined
-                    let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
-                    if burnchain.magic_bytes.is_none() {
-                        burnchain.magic_bytes = mainnet_magic.clone();
-                    }
-                    if burnchain.magic_bytes != mainnet_magic {
-                        panic!(
-                            "Attempted to run mainnet node with bad magic bytes '{}'",
-                            burnchain.magic_bytes.as_ref().unwrap()
-                        );
-                    }
-                    if node.use_test_genesis_chainstate == Some(true) {
-                        panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
-                    }
-                    if let Some(ref balances) = config_file.ustx_balance {
-                        if balances.len() > 0 {
-                            panic!(
-                                "Attempted to run mainnet node with specified `initial_balances`"
-                            );
-                        }
-                    }
-                }
-
+            Some(burnchain) => {
+                let chain = burnchain.chain.unwrap_or(default_burnchain_config.chain);
                 BurnchainConfig {
-                    chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
-                    chain_id: if &burnchain_mode == "mainnet" {
+                    chain: chain.clone(),
+                    chain_id: if &chain == BURNCHAIN_NAME_STACKS_MAINNET_L1 {
                         CHAIN_ID_MAINNET
                     } else {
                         CHAIN_ID_TESTNET
@@ -446,18 +328,11 @@ impl Config {
                     observer_port: burnchain
                         .observer_port
                         .unwrap_or(default_burnchain_config.observer_port),
-                    peer_version: if &burnchain_mode == "mainnet" {
+                    peer_version: if &chain == BURNCHAIN_NAME_STACKS_MAINNET_L1 {
                         PEER_VERSION_MAINNET
                     } else {
                         PEER_VERSION_TESTNET
                     },
-                    mode: burnchain_mode,
-                    burn_fee_cap: burnchain
-                        .burn_fee_cap
-                        .unwrap_or(default_burnchain_config.burn_fee_cap),
-                    commit_anchor_block_within: burnchain
-                        .commit_anchor_block_within
-                        .unwrap_or(default_burnchain_config.commit_anchor_block_within),
                     peer_host: match burnchain.peer_host {
                         Some(peer_host) => {
                             // Using std::net::LookupHost would be preferable, but it's
@@ -490,36 +365,16 @@ impl Config {
                     rpc_ssl: burnchain
                         .rpc_ssl
                         .unwrap_or(default_burnchain_config.rpc_ssl),
-                    username: burnchain.username,
-                    password: burnchain.password,
                     timeout: burnchain
                         .timeout
                         .unwrap_or(default_burnchain_config.timeout),
-                    magic_bytes: burnchain
-                        .magic_bytes
-                        .map(|magic_ascii| {
-                            assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
-                            assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
-                            MagicBytes::from(magic_ascii.as_bytes())
-                        })
-                        .unwrap_or(default_burnchain_config.magic_bytes),
-                    local_mining_public_key: burnchain.local_mining_public_key,
                     process_exit_at_block_height: burnchain.process_exit_at_block_height,
                     poll_time_secs: burnchain
                         .poll_time_secs
                         .unwrap_or(default_burnchain_config.poll_time_secs),
-                    satoshis_per_byte: burnchain
-                        .satoshis_per_byte
-                        .unwrap_or(default_burnchain_config.satoshis_per_byte),
                     max_rbf: burnchain
                         .max_rbf
                         .unwrap_or(default_burnchain_config.max_rbf),
-                    leader_key_tx_estimated_size: burnchain
-                        .leader_key_tx_estimated_size
-                        .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
-                    block_commit_tx_estimated_size: burnchain
-                        .block_commit_tx_estimated_size
-                        .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
@@ -562,31 +417,10 @@ impl Config {
             None => miner_default_config,
         };
 
-        let supported_modes = vec!["hyperchain"];
-
-        if !supported_modes.contains(&burnchain.mode.as_str()) {
-            panic!(
-                "Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")
-            )
-        }
-
-        if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
-        }
-
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
-        } else {
-            if burnchain.mode == "mainnet" {
-                let bootstrap_node = ConfigFile::mainnet().node.unwrap().bootstrap_node.unwrap();
-                node.set_bootstrap_nodes(
-                    bootstrap_node,
-                    burnchain.chain_id,
-                    burnchain.peer_version,
-                );
-            }
         }
+
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
         }
@@ -762,14 +596,10 @@ impl Config {
                         .inv_sync_interval
                         .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_sync_interval),
                     inv_reward_cycles: opts.inv_reward_cycles.unwrap_or_else(|| {
-                        if burnchain.mode == "mainnet" {
-                            HELIUM_DEFAULT_CONNECTION_OPTIONS.inv_reward_cycles
-                        } else {
-                            // testnet reward cycles are a bit smaller (and blocks can go by
-                            // faster), so make our inventory
-                            // reward cycle depth a bit longer to compensate
-                            INV_REWARD_CYCLES_TESTNET
-                        }
+                        // testnet reward cycles are a bit smaller (and blocks can go by
+                        // faster), so make our inventory
+                        // reward cycle depth a bit longer to compensate
+                        INV_REWARD_CYCLES_TESTNET
                     }),
                     public_ip_address: ip_addr,
                     disable_inbound_walks: opts.disable_inbound_walks.unwrap_or(false),
@@ -807,14 +637,14 @@ impl Config {
 
     fn get_burnchain_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
-        path.push(&self.burnchain.mode);
+        path.push("hyperchain");
         path.push("burnchain");
         path
     }
 
     pub fn get_chainstate_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
-        path.push(&self.burnchain.mode);
+        path.push("hyperchain");
         path.push("chainstate");
         path
     }
@@ -894,10 +724,7 @@ impl Config {
     }
 
     pub fn is_mainnet(&self) -> bool {
-        match self.burnchain.mode.as_str() {
-            "mainnet" => true,
-            _ => false,
-        }
+        BURNCHAIN_NAME_STACKS_MAINNET_L1 == self.burnchain.chain.as_str()
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -964,28 +791,38 @@ impl std::default::Default for Config {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BurnchainConfig {
+    /// The name of the L1 chain that this hyperchain runs on: this is either "stacks_layer_1" or
+    /// "mockstack".
     pub chain: String,
-    pub mode: String,
+    /// This controls the listening port that this node's L1 event observer will run on. This is how
+    /// the hyperchain node receives events from L1.
     pub observer_port: u16,
+    /// The `chain_id` is used to differentiate transactions between
+    /// different Stacks blockchains (e.g., Stacks testnet vs. Stacks mainnet).
+    /// This configuration variable specifies the `chain_id` used in the L1
+    /// blockchain that this hyperchain is running on top of.
     pub chain_id: u32,
+    /// The peer version is used to determine network compatibility
+    /// for the net/p2p layer in the hyperchain network stack.
     pub peer_version: u32,
-    pub commit_anchor_block_within: u64,
-    pub burn_fee_cap: u64,
+    /// This is the host IP address for the L1 node this hyperchain node communicates with
     pub peer_host: String,
+    /// This is the p2p port for the L1 node this hyperchain node communicates with
     pub peer_port: u16,
+    /// This is the rpc port for the L1 node this hyperchain node communicates with
     pub rpc_port: u16,
+    /// Whether or not to use SSL for L1 rpc communications
     pub rpc_ssl: bool,
-    pub username: Option<String>,
-    pub password: Option<String>,
+    /// The number of ms before synchronous L1 communications timeout
     pub timeout: u32,
-    pub magic_bytes: MagicBytes,
-    pub local_mining_public_key: Option<String>,
+    /// When set, will configure the node to exit at the specified L1 block height
     pub process_exit_at_block_height: Option<u64>,
+    /// How frequently to poll the L1 chain for more information (not used for the event observer interface)
     pub poll_time_secs: u64,
-    pub satoshis_per_byte: u64,
+    /// The maximum number of replace-by-fee iterations this
+    /// hyperchain node will send for each miner commit.
     pub max_rbf: u64,
-    pub leader_key_tx_estimated_size: u64,
-    pub block_commit_tx_estimated_size: u64,
+    /// How much to increment the fee for each iteration of replace-by-fee for miner commitments
     pub rbf_fee_increment: u64,
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
@@ -1002,27 +839,17 @@ impl Default for BurnchainConfig {
     fn default() -> Self {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            mode: "mocknet".to_string(),
             chain_id: CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
-            burn_fee_cap: 20000,
             observer_port: DEFAULT_L1_OBSERVER_PORT,
-            commit_anchor_block_within: 5000,
             peer_host: "0.0.0.0".to_string(),
             peer_port: 8333,
             rpc_port: 8332,
             rpc_ssl: false,
-            username: None,
-            password: None,
             timeout: 300,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
-            local_mining_public_key: None,
             process_exit_at_block_height: None,
             poll_time_secs: 10, // TODO: this is a testnet specific value.
-            satoshis_per_byte: DEFAULT_SATS_PER_VB,
             max_rbf: DEFAULT_MAX_RBF_RATE,
-            leader_key_tx_estimated_size: LEADER_KEY_TX_ESTIM_SIZE,
-            block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             contract_identifier: QualifiedContractIdentifier::transient(),
@@ -1035,7 +862,8 @@ impl Default for BurnchainConfig {
 impl BurnchainConfig {
     /// Does this configuration need a L1 observer to be spawned?
     pub fn spawn_l1_observer(&self) -> bool {
-        self.chain == BURNCHAIN_NAME_STACKS_L1
+        self.chain == BURNCHAIN_NAME_STACKS_MAINNET_L1
+            || self.chain == BURNCHAIN_NAME_STACKS_TESTNET_L1
     }
 
     /// Is the L1 chain itself mainnet or testnet?
@@ -1063,24 +891,14 @@ impl BurnchainConfig {
 #[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
-    pub burn_fee_cap: Option<u64>,
     pub observer_port: Option<u16>,
-    pub mode: Option<String>,
-    pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,
     pub rpc_port: Option<u16>,
     pub rpc_ssl: Option<bool>,
-    pub username: Option<String>,
-    pub password: Option<String>,
     pub timeout: Option<u32>,
-    pub magic_bytes: Option<String>,
-    pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
     pub poll_time_secs: Option<u64>,
-    pub satoshis_per_byte: Option<u64>,
-    pub leader_key_tx_estimated_size: Option<u64>,
-    pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpoch>>,
@@ -1273,7 +1091,9 @@ impl Config {
             BURNCHAIN_NAME_MOCKSTACK => {
                 Ok(Box::new(MockController::new(self.clone(), coordinator)))
             }
-            BURNCHAIN_NAME_STACKS_L1 => Ok(Box::new(L1Controller::new(self.clone(), coordinator)?)),
+            BURNCHAIN_NAME_STACKS_MAINNET_L1 | BURNCHAIN_NAME_STACKS_TESTNET_L1 => {
+                Ok(Box::new(L1Controller::new(self.clone(), coordinator)?))
+            }
             _ => {
                 warn!(
                     "No matching controller for `chain`: {}",

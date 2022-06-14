@@ -311,6 +311,8 @@ pub struct Burnchain {
     pub peer_version: u32,
     pub network_id: u32,
     pub chain_name: String,
+    /// This is the Layer-2 network name. In hyperchains,
+    /// this is always "hyperchain".
     pub network_name: String,
     pub working_dir: String,
     pub consensus_hash_lifetime: u32,

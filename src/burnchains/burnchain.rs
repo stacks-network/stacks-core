@@ -188,11 +188,8 @@ impl BurnchainBlock {
 
 impl Burnchain {
     /// Creates a burnchain using default values chosen based on chain and network.
-    pub fn new(
-        working_dir: &str,
-        chain_name: &str,
-        network_name: &str,
-    ) -> Result<Burnchain, burnchain_error> {
+    pub fn new(working_dir: &str, chain_name: &str) -> Result<Burnchain, burnchain_error> {
+        let network_name = "hyperchain";
         let (params, pox_constants, peer_version) = match (chain_name, network_name) {
             ("mockstack", "hyperchain") => (
                 BurnchainParameters::hyperchain_mocknet(),
@@ -200,6 +197,11 @@ impl Burnchain {
                 PEER_VERSION_MAINNET,
             ),
             ("stacks_layer_1", "hyperchain") => (
+                BurnchainParameters::hyperchain_mocknet(),
+                PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
+            ),
+            ("stacks_layer_1::mainnet", "hyperchain") => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
@@ -256,12 +258,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(
-            working_dir,
-            &"mockstack".to_string(),
-            &"hyperchain".to_string(),
-        )
-        .unwrap();
+        let ret = Burnchain::new(working_dir, &"mockstack".to_string()).unwrap();
         ret
     }
 
@@ -273,7 +270,6 @@ impl Burnchain {
         let mut ret = Burnchain::new(
             &"/tmp/stacks-node-tests/unit-tests".to_string(),
             &"mockstack".to_string(),
-            &"hyperchain".to_string(),
         )
         .unwrap();
         ret.first_block_height = first_block_height;
