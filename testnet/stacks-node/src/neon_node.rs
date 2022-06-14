@@ -11,9 +11,8 @@ use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use crate::burnchains::BurnchainController;
-use stacks::burnchains::{BurnchainParameters, Txid};
+use stacks::burnchains::BurnchainParameters;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -60,7 +59,6 @@ use crate::run_loop::neon::RunLoop;
 
 use super::{BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
-use crate::util::hash::Sha512Trunc256Sum;
 use stacks::monitoring;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -239,19 +237,6 @@ fn inner_generate_poison_microblock_tx(
     keychain.sign_as_origin(&mut tx_signer);
 
     tx_signer.get_tx().unwrap()
-}
-
-/// Constructs and returns a LeaderBlockCommitOp out of the provided params
-fn inner_generate_block_commit_op(
-    block_header_hash: BlockHeaderHash,
-    withdrawal_merkle_root: Sha512Trunc256Sum,
-) -> BlockstackOperationType {
-    BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-        block_header_hash,
-        withdrawal_merkle_root,
-        txid: Txid([0; 32]),
-        burn_header_hash: BurnchainHeaderHash([0; 32]),
-    })
 }
 
 /// Mine and broadcast a single microblock, unconditionally.
@@ -1902,11 +1887,16 @@ impl StacksNode {
             "block_hash" => %anchored_block.block_hash(),
         );
 
-        // let's commit
-        let op = inner_generate_block_commit_op(
-            anchored_block.block_hash(),
-            anchored_block.header.withdrawal_merkle_root,
-        );
+        // collect required contents for commit
+        let committed_block_hash = anchored_block.block_hash();
+        let withdrawal_merkle_root = anchored_block.header.withdrawal_merkle_root;
+
+        let required_signatures = bitcoin_controller.commit_required_signatures();
+        let signatures = if required_signatures == 0 {
+            vec![]
+        } else {
+            unimplemented!("No implementation of multiparty signature collection")
+        };
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
@@ -1960,13 +1950,26 @@ impl StacksNode {
             "attempt" => attempt
         );
 
-        let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
-        if !res {
-            if !config.node.mock_mining {
-                warn!("Failed to submit Bitcoin transaction");
-                return None;
-            } else {
-                debug!("Mock-mining enabled; not sending Bitcoin transaction");
+        let res = bitcoin_controller.submit_commit(
+            committed_block_hash,
+            withdrawal_merkle_root,
+            signatures,
+            &mut op_signer,
+            attempt,
+        );
+
+        match res {
+            Ok(x) => {
+                info!("Submitted miner commitment L1 transaction"; "txid" => %x);
+            }
+            Err(e) => {
+                if !config.node.mock_mining {
+                    warn!("Failed to submit miner commitment L1 transaction: {}", e);
+                    warn!("Failed to submit Bitcoin transaction");
+                    return None;
+                } else {
+                    debug!("Mock-mining enabled; not sending Bitcoin transaction");
+                }
             }
         }
 
