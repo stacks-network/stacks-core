@@ -1,7 +1,7 @@
 pub mod l1_observer;
 pub mod neon;
 
-use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
+use crate::{BurnchainController, BurnchainTip, ChainTip};
 
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -35,7 +35,6 @@ pub struct RunLoopCallbacks {
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
     on_new_stacks_chain_state:
         Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
-    on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
 }
 
 impl RunLoopCallbacks {
@@ -44,7 +43,6 @@ impl RunLoopCallbacks {
             on_burn_chain_initialized: None,
             on_new_burn_chain_state: None,
             on_new_stacks_chain_state: None,
-            on_new_tenure: None,
         }
     }
 
@@ -61,10 +59,6 @@ impl RunLoopCallbacks {
         callback: fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB),
     ) {
         self.on_new_stacks_chain_state = Some(callback);
-    }
-
-    pub fn on_new_tenure(&mut self, callback: fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)) {
-        self.on_new_tenure = Some(callback);
     }
 
     pub fn invoke_burn_chain_initialized(&self, burnchain: &mut Box<dyn BurnchainController>) {
@@ -125,18 +119,6 @@ impl RunLoopCallbacks {
 
         if let Some(cb) = self.on_new_stacks_chain_state {
             cb(round, burnchain_tip, chain_tip, chain_state, burn_dbconn);
-        }
-    }
-
-    pub fn invoke_new_tenure(
-        &self,
-        round: u64,
-        burnchain_tip: &BurnchainTip,
-        chain_tip: &ChainTip,
-        tenure: &mut Tenure,
-    ) {
-        if let Some(cb) = self.on_new_tenure {
-            cb(round, burnchain_tip, chain_tip, tenure);
         }
     }
 }

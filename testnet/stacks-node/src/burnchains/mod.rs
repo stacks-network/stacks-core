@@ -213,7 +213,7 @@ pub fn burnchain_from_config(
     burn_db_path: &str,
     config: &BurnchainConfig,
 ) -> Result<Burnchain, burnchains::Error> {
-    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
+    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain)?;
     burnchain.first_block_hash = BurnchainHeaderHash::sentinel();
     burnchain.first_block_height = config.first_burn_header_height;
     burnchain.first_block_timestamp = 0;

@@ -42,15 +42,8 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
-    conf.burnchain.burn_fee_cap = 20000;
     conf.burnchain.chain = "mockstack".into();
-    conf.burnchain.mode = "hyperchain".into();
-    conf.burnchain.username = Some("neon-tester".into());
-    conf.burnchain.password = Some("neon-tester-pass".into());
     conf.burnchain.peer_host = "127.0.0.1".into();
-    conf.burnchain.local_mining_public_key =
-        Some(keychain.generate_op_signer().get_public_key().to_hex());
-    conf.burnchain.commit_anchor_block_within = 0;
     conf.burnchain.contract_identifier = QualifiedContractIdentifier::transient();
 
     conf.burnchain.poll_time_secs = 1;
@@ -512,12 +505,7 @@ fn mockstack_integration_test() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-        &conf.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
 
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
@@ -598,12 +586,7 @@ fn mockstack_wait_for_first_block() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-        &conf.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -790,12 +773,7 @@ fn faucet_test() {
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-        &conf.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
@@ -945,12 +923,7 @@ fn no_contract_calls_forking_integration_test() {
 
     test_observer::spawn();
 
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-        &conf.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -1072,12 +1045,7 @@ fn transactions_in_block_and_microblock() {
     );
     test_observer::spawn();
 
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-        &conf.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 

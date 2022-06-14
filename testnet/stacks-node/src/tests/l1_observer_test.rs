@@ -319,7 +319,6 @@ fn l1_basic_listener_test() {
     let mut config = super::new_test_conf();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -339,12 +338,7 @@ fn l1_basic_listener_test() {
     thread::sleep(Duration::from_millis(45000));
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (_, burndb) = burnchain.open_db(true).unwrap();
     let tip = burndb
         .get_canonical_chain_tip()
@@ -378,7 +372,6 @@ fn l1_integration_test() {
 
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -401,12 +394,7 @@ fn l1_integration_test() {
     // Give the run loop time to start.
     thread::sleep(Duration::from_millis(2_000));
 
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
@@ -562,7 +550,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -673,12 +660,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     println!("Submitted FT, NFT, and Hyperchain contracts!");
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
@@ -1292,7 +1274,6 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -1322,12 +1303,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Sleep to give the run loop time to start
     thread::sleep(Duration::from_millis(2_000));
 
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
@@ -1712,7 +1688,6 @@ fn l2_simple_contract_calls() {
 
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -1745,12 +1720,7 @@ fn l2_simple_contract_calls() {
     // Sleep to give the run loop time to start
     thread::sleep(Duration::from_millis(2_000));
 
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain,
-        &config.burnchain.mode,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, _) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
