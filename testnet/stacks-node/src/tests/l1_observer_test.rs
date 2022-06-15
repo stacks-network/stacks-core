@@ -1547,31 +1547,12 @@ fn l2_simple_contract_calls() {
 
     // Start Stacks L1.
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
-    let l1_rpc_origin = "http://127.0.0.1:20443";
-
-    let nft_trait_name = "nft-trait-standard";
-    let ft_trait_name = "ft-trait-standard";
 
     // Start the L2 run loop.
-    let mut config = super::new_test_conf();
-    config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
+    let mut config = super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_2, &*MOCKNET_PRIVATE_KEY_1);
+    let miner_account = to_addr(&*MOCKNET_PRIVATE_KEY_2);
 
-    config.burnchain.first_burn_header_height = 1;
-    config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.rpc_ssl = false;
-    config.burnchain.rpc_port = 20443;
-    config.burnchain.peer_host = "127.0.0.1".into();
-    config.node.wait_time_for_microblocks = 10_000;
-    config.node.rpc_bind = "127.0.0.1:30443".into();
-    config.node.p2p_bind = "127.0.0.1:30444".into();
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
-
-    config.burnchain.contract_identifier = QualifiedContractIdentifier::new(
-        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
-        "hyperchain-controller".into(),
-    );
-
-    config.node.miner = true;
 
     let user_addr = to_addr(&MOCKNET_PRIVATE_KEY_1);
     config.add_initial_balance(user_addr.to_string(), 10000000);
@@ -1600,39 +1581,7 @@ fn l2_simple_contract_calls() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
-    // Publish the NFT/FT traits
-    let ft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
-    let ft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        0,
-        1_000_000,
-        &ft_trait_name,
-        &ft_trait_content,
-    );
-    let nft_trait_content =
-        include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
-    let nft_trait_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        1,
-        1_000_000,
-        &nft_trait_name,
-        &nft_trait_content,
-    );
-    // Publish the default hyperchains contract on the L1 chain
-    let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
-    let hc_contract_publish = make_contract_publish(
-        &MOCKNET_PRIVATE_KEY_1,
-        2,
-        1_000_000,
-        config.burnchain.contract_identifier.name.as_str(),
-        &contract_content,
-    );
-
-    submit_tx(l1_rpc_origin, &ft_trait_publish);
-    submit_tx(l1_rpc_origin, &nft_trait_publish);
-    submit_tx(l1_rpc_origin, &hc_contract_publish);
-    println!("Submitted FT, NFT, and Hyperchain contracts!");
+    publish_hc_contracts_to_l1(0, &config, miner_account.clone().into());
 
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
