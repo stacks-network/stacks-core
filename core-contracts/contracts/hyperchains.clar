@@ -5,13 +5,14 @@
 ;; Error codes
 (define-constant ERR_BLOCK_ALREADY_COMMITTED 1)
 (define-constant ERR_INVALID_MINER 2)
-(define-constant ERR_VALIDATION_FAILED 3)
-(define-constant ERR_CONTRACT_CALL_FAILED 4)
-(define-constant ERR_TRANSFER_FAILED 5)
-(define-constant ERR_DISALLOWED_ASSET 6)
-(define-constant ERR_ASSET_ALREADY_ALLOWED 7)
+(define-constant ERR_CONTRACT_CALL_FAILED 3)
+(define-constant ERR_TRANSFER_FAILED 4)
+(define-constant ERR_DISALLOWED_ASSET 5)
+(define-constant ERR_ASSET_ALREADY_ALLOWED 6)
+(define-constant ERR_MERKLE_ROOT_DOES_NOT_MATCH 7)
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
+(define-constant ERR_VALIDATION_FAILED 10)
 ;;; The value supplied for `target-chain-tip` does not match the current chain tip.
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height 1.
