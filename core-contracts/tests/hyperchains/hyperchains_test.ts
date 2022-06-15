@@ -12,7 +12,7 @@ Clarinet.test({
         const bob = accounts.get("wallet_2")!;
         const charlie = accounts.get("wallet_3")!;
 
-        const id_header_hash1 = chain.callReadOnlyFn('hyperchains', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const id_header_hash1 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
 
         let block = chain.mineBlock([
           // Successfully commit block at height 0 with alice.
