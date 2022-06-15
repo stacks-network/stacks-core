@@ -1,7 +1,9 @@
 use std::fmt::Display;
 
+use stacks_common::util::hash;
+
 use super::error::LexerError;
-use crate::vm::representations::Span;
+use crate::vm::{representations::Span, types::UTF8Data};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
@@ -17,8 +19,8 @@ pub enum Token {
     Int(String),
     Uint(String),
     AsciiString(String),
-    Utf8String(Vec<Vec<u8>>),
-    Bytes(Vec<u8>),
+    Utf8String(String),
+    Bytes(String),
     Principal(String),
     Ident(String),
     TraitIdent(String),
@@ -31,7 +33,7 @@ pub enum Token {
     Greater,
     GreaterEqual,
     Comment(String),
-    Placeholder, // used to continue parsing after errors
+    Placeholder(String), // used to continue parsing after errors
 }
 
 #[derive(Clone, Debug)]
@@ -70,7 +72,42 @@ impl Display for Token {
             Greater => write!(f, ">"),
             GreaterEqual => write!(f, ">="),
             Comment(_) => write!(f, "comment"),
-            Placeholder => write!(f, "placeholder"),
+            Placeholder(_) => write!(f, "placeholder"),
+        }
+    }
+}
+
+impl Token {
+    pub fn reproduce(&self) -> String {
+        use self::Token::*;
+        match self {
+            Eof => "".to_string(),
+            Whitespace => " ".to_string(),
+            Lparen => "(".to_string(),
+            Rparen => ")".to_string(),
+            Lbrace => "{{".to_string(),
+            Rbrace => "}}".to_string(),
+            Colon => ":".to_string(),
+            Comma => ",".to_string(),
+            Dot => ".".to_string(),
+            Int(s) => s.to_string(),
+            Uint(s) => format!("u{}", s),
+            AsciiString(s) => format!("\"{}\"", s),
+            Utf8String(s) => s.to_string(),
+            Bytes(s) => format!("0x{}", s),
+            Principal(s) => format!("'{}", s),
+            Ident(s) => s.to_string(),
+            TraitIdent(s) => format!("<{}>", s),
+            Plus => "+".to_string(),
+            Minus => "-".to_string(),
+            Multiply => "*".to_string(),
+            Divide => "/".to_string(),
+            Less => "<".to_string(),
+            LessEqual => "<=".to_string(),
+            Greater => ">".to_string(),
+            GreaterEqual => ">=".to_string(),
+            Comment(c) => format!(";; {}", c),
+            Placeholder(s) => s.to_string(),
         }
     }
 }

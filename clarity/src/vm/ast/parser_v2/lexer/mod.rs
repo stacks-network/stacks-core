@@ -42,6 +42,13 @@ fn is_separator(ch: char) -> bool {
     }
 }
 
+fn is_string_terminator(ch: char) -> bool {
+    match ch {
+        '"' | '\n' | EOF => true,
+        _ => false,
+    }
+}
+
 impl<'a> Lexer<'a> {
     pub fn new(input: &'a str, fail_fast: bool) -> LexResult<Self> {
         let mut s = Self {
@@ -151,24 +158,61 @@ impl<'a> Lexer<'a> {
         Ok(line)
     }
 
-    fn proceed_through_error(&mut self, err: LexerError) -> LexResult<()> {
+    fn proceed_through_error(
+        &mut self,
+        mut skipped: String,
+        err: Option<LexerError>,
+    ) -> LexResult<String> {
         let start_line = self.line as u32;
         let start_column = self.column as u32;
         while !is_separator(self.next) {
+            skipped.push(self.next);
             self.read_char()?;
         }
-        self.add_diagnostic(
-            err,
-            Span {
-                start_line,
-                start_column,
-                end_line: self.last_line as u32,
-                end_column: self.last_column as u32,
-            },
-        )
+        if let Some(err) = err {
+            self.add_diagnostic(
+                err,
+                Span {
+                    start_line,
+                    start_column,
+                    end_line: self.last_line as u32,
+                    end_column: self.last_column as u32,
+                },
+            )?;
+        }
+        Ok(skipped)
     }
 
-    fn read_identifier(&mut self, first: Option<char>) -> LexResult<String> {
+    fn proceed_through_error_string(
+        &mut self,
+        mut skipped: String,
+        err: Option<LexerError>,
+    ) -> LexResult<String> {
+        let start_line = self.line as u32;
+        let start_column = self.column as u32;
+        while !is_string_terminator(self.next) {
+            skipped.push(self.next);
+            self.read_char()?;
+        }
+        while !is_separator(self.next) {
+            skipped.push(self.next);
+            self.read_char()?;
+        }
+        if let Some(err) = err {
+            self.add_diagnostic(
+                err,
+                Span {
+                    start_line,
+                    start_column,
+                    end_line: self.last_line as u32,
+                    end_column: self.last_column as u32,
+                },
+            )?;
+        }
+        Ok(skipped)
+    }
+
+    fn read_identifier(&mut self, first: Option<char>) -> LexResult<Token> {
         let mut ident = String::new();
         if let Some(first) = first {
             ident.push(first);
@@ -190,19 +234,21 @@ impl<'a> Lexer<'a> {
                 | '/'
                 | '*' => ident.push(self.next),
                 _ => {
-                    if is_separator(self.next) {
-                        return Ok(ident);
-                    } else {
-                        self.proceed_through_error(LexerError::InvalidCharIdent(self.next))?;
-                        return Ok(ident);
+                    if !is_separator(self.next) {
+                        return Ok(Token::Placeholder(self.proceed_through_error(
+                            ident,
+                            Some(LexerError::InvalidCharIdent(self.next)),
+                        )?));
                     }
+
+                    return Ok(Token::Ident(ident));
                 }
             }
             self.read_char()?;
         }
     }
 
-    fn read_trait_identifier(&mut self) -> LexResult<String> {
+    fn read_trait_identifier(&mut self) -> LexResult<Token> {
         let start_line = self.last_line as u32;
         let start_column = self.last_column as u32;
         let mut ident = String::new();
@@ -210,39 +256,41 @@ impl<'a> Lexer<'a> {
         loop {
             match self.next {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => ident.push(self.next),
-                '>' => return Ok(ident),
+                '>' => return Ok(Token::TraitIdent(ident)),
                 _ => {
-                    if is_separator(self.next) {
-                        self.add_diagnostic(
-                            LexerError::ExpectedClosing('>'),
-                            Span {
-                                start_line: self.line as u32,
-                                start_column: self.column as u32,
-                                end_line: self.line as u32,
-                                end_column: self.column as u32,
-                            },
-                        )?;
-                        self.add_diagnostic(
-                            LexerError::NoteToMatchThis('<'),
-                            Span {
-                                start_line,
-                                start_column,
-                                end_line: start_line,
-                                end_column: start_column,
-                            },
-                        )?;
-                        return Ok(ident);
-                    } else {
-                        self.proceed_through_error(LexerError::InvalidCharTraitIdent(self.next))?;
-                        return Ok(ident);
+                    if !is_separator(self.next) {
+                        return Ok(Token::Placeholder(self.proceed_through_error(
+                            format!("<{}", ident),
+                            Some(LexerError::InvalidCharTraitIdent(self.next)),
+                        )?));
                     }
+
+                    self.add_diagnostic(
+                        LexerError::ExpectedClosing('>'),
+                        Span {
+                            start_line: self.line as u32,
+                            start_column: self.column as u32,
+                            end_line: self.line as u32,
+                            end_column: self.column as u32,
+                        },
+                    )?;
+                    self.add_diagnostic(
+                        LexerError::NoteToMatchThis('<'),
+                        Span {
+                            start_line,
+                            start_column,
+                            end_line: start_line,
+                            end_column: start_column,
+                        },
+                    )?;
+                    return Ok(Token::Placeholder(format!("<{}", ident)));
                 }
             }
             self.read_char()?;
         }
     }
 
-    fn read_principal(&mut self) -> LexResult<String> {
+    fn read_principal(&mut self) -> LexResult<Token> {
         let mut principal = String::new();
 
         loop {
@@ -253,62 +301,77 @@ impl<'a> Lexer<'a> {
                     principal.push(self.next)
                 }
                 _ => {
-                    if is_separator(self.next) {
-                        return Ok(principal);
-                    } else {
-                        self.proceed_through_error(LexerError::InvalidCharPrincipal(self.next))?;
-                        return Ok(principal);
+                    if !is_separator(self.next) {
+                        return Ok(Token::Placeholder(self.proceed_through_error(
+                            format!("'{}", principal),
+                            Some(LexerError::InvalidCharPrincipal(self.next)),
+                        )?));
                     }
+                    return Ok(Token::Principal(principal));
                 }
             }
         }
     }
 
-    fn read_unsigned(&mut self) -> LexResult<String> {
+    fn read_unsigned(&mut self) -> LexResult<Token> {
         let mut num = String::new();
         while self.next.is_ascii_digit() {
             num.push(self.next);
             self.read_char()?;
         }
         if !is_separator(self.next) {
-            self.proceed_through_error(LexerError::InvalidCharUint(self.next))?;
+            return Ok(Token::Placeholder(self.proceed_through_error(
+                format!("u{}", num),
+                Some(LexerError::InvalidCharUint(self.next)),
+            )?));
         }
-        Ok(num)
+        Ok(Token::Uint(num))
     }
 
-    fn read_integer(&mut self) -> LexResult<String> {
+    fn read_integer(&mut self, negate: bool) -> LexResult<Token> {
         let mut num = String::new();
+        if negate {
+            num.push('-');
+        }
+
         while self.next.is_ascii_digit() {
             num.push(self.next);
             self.read_char()?;
         }
         if !is_separator(self.next) {
-            self.proceed_through_error(LexerError::InvalidCharInt(self.next))?;
+            return Ok(Token::Placeholder(self.proceed_through_error(
+                num,
+                Some(LexerError::InvalidCharInt(self.next)),
+            )?));
         }
-        Ok(num)
+        Ok(Token::Int(num))
     }
 
-    fn read_hex(&mut self) -> LexResult<Vec<u8>> {
+    fn read_hex(&mut self) -> LexResult<Token> {
         let start_line = self.line as u32;
         let start_column = (self.column - 1) as u32;
-        let mut bytes = vec![];
+        let mut bytes = String::new();
         loop {
             self.read_char()?;
 
             let f = self.next;
             if !f.is_ascii_hexdigit() {
                 if !is_separator(f) {
-                    self.proceed_through_error(LexerError::InvalidCharBuffer(f))?;
+                    return Ok(Token::Placeholder(self.proceed_through_error(
+                        format!("0x{}", bytes),
+                        Some(LexerError::InvalidCharBuffer(f)),
+                    )?));
                 }
-                return Ok(bytes);
+                return Ok(Token::Bytes(bytes));
             }
+            bytes.push(f);
 
             self.read_char()?;
             let s = self.next;
             if !s.is_ascii_hexdigit() {
                 if is_separator(s) {
                     self.add_diagnostic(
-                        LexerError::InvalidBufferLength(bytes.len() * 2 + 1),
+                        LexerError::InvalidBufferLength(bytes.len()),
                         Span {
                             start_line,
                             start_column,
@@ -316,17 +379,19 @@ impl<'a> Lexer<'a> {
                             end_column: self.last_column as u32,
                         },
                     )?;
+                    return Ok(Token::Placeholder(format!("0x{}", bytes)));
                 } else {
-                    self.proceed_through_error(LexerError::InvalidCharBuffer(s))?;
+                    return Ok(Token::Placeholder(self.proceed_through_error(
+                        format!("0x{}", bytes),
+                        Some(LexerError::InvalidCharBuffer(s)),
+                    )?));
                 }
-                return Ok(bytes);
             }
-
-            bytes.push((f.to_digit(16).unwrap() * 0x10 + s.to_digit(16).unwrap()) as u8);
+            bytes.push(s);
         }
     }
 
-    fn read_ascii_string(&mut self) -> LexResult<String> {
+    fn read_ascii_string(&mut self) -> LexResult<Token> {
         let start_line = self.line as u32;
         let start_column = self.column as u32;
         let mut s = String::new();
@@ -351,7 +416,9 @@ impl<'a> Lexer<'a> {
                                 end_column: self.column as u32,
                             },
                         )?;
-                        '?'
+                        return Ok(Token::Placeholder(
+                            self.proceed_through_error_string(format!("\"{}\\", s), None)?,
+                        ));
                     }
                 };
                 s.push(ch);
@@ -360,9 +427,9 @@ impl<'a> Lexer<'a> {
                 match self.next {
                     '"' => {
                         self.read_char()?;
-                        return Ok(s);
+                        return Ok(Token::AsciiString(s));
                     }
-                    '\\' => escaped = !escaped,
+                    '\\' => escaped = true,
                     EOF | '\n' => {
                         self.add_diagnostic(
                             LexerError::ExpectedClosing('"'),
@@ -382,7 +449,7 @@ impl<'a> Lexer<'a> {
                                 end_column: start_column,
                             },
                         )?;
-                        return Ok(s);
+                        return Ok(Token::Placeholder(format!("\"{}", s)));
                     }
                     _ => {
                         if !self.next.is_ascii() {
@@ -395,6 +462,9 @@ impl<'a> Lexer<'a> {
                                     end_column: self.column as u32,
                                 },
                             )?;
+                            return Ok(Token::Placeholder(
+                                self.proceed_through_error_string(format!("\"{}", s), None)?,
+                            ));
                         } else {
                             s.push(self.next);
                         }
@@ -406,13 +476,11 @@ impl<'a> Lexer<'a> {
     }
 
     /// Read `X` in `\u{X}` in a UTF8 string
-    fn read_utf8_encoding(&mut self) -> LexResult<String> {
-        // Red exclamation mark
-        const error_string: &str = "2757";
-
+    fn read_utf8_encoding(&mut self) -> LexResult<Result<String, String>> {
         self.read_char()?;
         let start_line = self.line as u32;
         let start_column = self.column as u32;
+        let mut code = String::new();
 
         if self.next != '{' {
             self.add_diagnostic(
@@ -424,10 +492,9 @@ impl<'a> Lexer<'a> {
                     end_column: self.column as u32,
                 },
             )?;
-            return Ok(error_string.to_string());
+            return Ok(Err(code));
         }
 
-        let mut code = String::new();
         loop {
             self.read_char()?;
             match self.next {
@@ -443,22 +510,10 @@ impl<'a> Lexer<'a> {
                             },
                         )?;
                         self.read_char()?;
-                        return Ok(error_string.to_string());
+                        return Ok(Err("{}".to_string()));
                     }
                     self.read_char()?;
-                    return Ok(code);
-                }
-                EOF => {
-                    self.add_diagnostic(
-                        LexerError::UnterminatedUTF8Encoding,
-                        Span {
-                            start_line: self.line as u32,
-                            start_column: self.column as u32,
-                            end_line: self.line as u32,
-                            end_column: self.column as u32,
-                        },
-                    )?;
-                    return Ok(error_string.to_string());
+                    return Ok(Ok(code));
                 }
                 '"' => {
                     self.add_diagnostic(
@@ -479,7 +534,28 @@ impl<'a> Lexer<'a> {
                             end_column: start_column,
                         },
                     )?;
-                    return Ok(error_string.to_string());
+                    return Ok(Err(format!("{{{}", code)));
+                }
+                EOF => {
+                    self.add_diagnostic(
+                        LexerError::UnterminatedUTF8Encoding,
+                        Span {
+                            start_line: self.line as u32,
+                            start_column: self.column as u32,
+                            end_line: self.line as u32,
+                            end_column: self.column as u32,
+                        },
+                    )?;
+                    self.add_diagnostic(
+                        LexerError::NoteToMatchThis('}'),
+                        Span {
+                            start_line,
+                            start_column,
+                            end_line: start_line,
+                            end_column: start_column,
+                        },
+                    )?;
+                    return Ok(Err(format!("{{{}", code)));
                 }
                 _ => {
                     if self.next.is_ascii_hexdigit() {
@@ -494,33 +570,41 @@ impl<'a> Lexer<'a> {
                                 end_column: self.column as u32,
                             },
                         )?;
+                        return Ok(Err(format!("{{{}", code)));
                     }
                 }
             }
         }
     }
 
-    fn read_utf8_string(&mut self) -> LexResult<Vec<Vec<u8>>> {
+    fn read_utf8_string(&mut self) -> LexResult<Token> {
         let start_line = self.last_line as u32;
         let start_column = self.last_column as u32;
-        let mut data: Vec<Vec<u8>> = vec![];
+        let mut s = String::new();
         let mut escaped = false;
         let mut advance = true;
         self.read_char()?;
         loop {
             if escaped {
-                match self.next {
-                    '\\' => data.push("\\".to_string().into_bytes()),
-                    '\"' => data.push("\"".to_string().into_bytes()),
-                    'n' => data.push("\n".to_string().into_bytes()),
-                    't' => data.push("\t".to_string().into_bytes()),
-                    'r' => data.push("\r".to_string().into_bytes()),
-                    '0' => data.push("\0".to_string().into_bytes()),
+                let ch = match self.next {
+                    '\\' => '\\',
+                    '\"' => '\"',
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    '0' => '\0',
                     'u' => {
-                        const error_char: char = '\u{2757}';
                         let code_start_line = self.line as u32;
                         let code_start_column = self.column as u32;
-                        let encode_str = self.read_utf8_encoding()?;
+                        let encode_str = match self.read_utf8_encoding()? {
+                            Ok(code) => code,
+                            Err(bad) => {
+                                return Ok(Token::Placeholder(self.proceed_through_error_string(
+                                    format!("u\"{}\\u{}", s, bad),
+                                    None,
+                                )?));
+                            }
+                        };
                         let unicode_char = {
                             let u = match u32::from_str_radix(&encode_str, 16) {
                                 Ok(u) => u,
@@ -534,10 +618,15 @@ impl<'a> Lexer<'a> {
                                             end_column: self.column as u32,
                                         },
                                     )?;
-                                    error_char as u32
+                                    return Ok(Token::Placeholder(
+                                        self.proceed_through_error_string(
+                                            format!("u\"{}\\u{{{}}}", s, encode_str),
+                                            None,
+                                        )?,
+                                    ));
                                 }
                             };
-                            let c = match char::from_u32(u) {
+                            match char::from_u32(u) {
                                 Some(c) => c,
                                 None => {
                                     self.add_diagnostic(
@@ -549,15 +638,17 @@ impl<'a> Lexer<'a> {
                                             end_column: self.column as u32,
                                         },
                                     )?;
-                                    error_char
+                                    return Ok(Token::Placeholder(
+                                        self.proceed_through_error_string(
+                                            format!("u\"{}\\u{{{}}}", s, encode_str),
+                                            None,
+                                        )?,
+                                    ));
                                 }
-                            };
-                            let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
-                            c.encode_utf8(&mut encoded_char[..]);
-                            encoded_char
+                            }
                         };
-                        data.push(unicode_char);
                         advance = false;
+                        unicode_char
                     }
                     _ => {
                         self.add_diagnostic(
@@ -569,17 +660,20 @@ impl<'a> Lexer<'a> {
                                 end_column: self.column as u32,
                             },
                         )?;
-                        data.push("?".to_string().into_bytes());
+                        return Ok(Token::Placeholder(
+                            self.proceed_through_error_string(format!("u\"{}\\", s), None)?,
+                        ));
                     }
                 };
+                s.push(ch);
                 escaped = false;
             } else {
                 match self.next {
                     '"' => {
                         self.read_char()?;
-                        return Ok(data);
+                        return Ok(Token::Utf8String(s));
                     }
-                    '\\' => escaped = !escaped,
+                    '\\' => escaped = true,
                     EOF | '\n' => {
                         self.add_diagnostic(
                             LexerError::ExpectedClosing('"'),
@@ -599,10 +693,10 @@ impl<'a> Lexer<'a> {
                                 end_column: start_column + 1,
                             },
                         )?;
-                        return Ok(data);
+                        return Ok(Token::Placeholder(format!("u\"{}", s)));
                     }
                     _ => {
-                        data.push(self.next.to_string().into_bytes());
+                        s.push(self.next);
                     }
                 }
             }
@@ -635,7 +729,7 @@ impl<'a> Lexer<'a> {
                 advance = false;
                 self.read_char()?;
                 if self.next.is_ascii_digit() {
-                    Token::Int(format!("-{}", self.read_integer()?))
+                    self.read_integer(true)?
                 } else {
                     Token::Minus
                 }
@@ -645,7 +739,7 @@ impl<'a> Lexer<'a> {
                 if self.next == '=' {
                     Token::LessEqual
                 } else if self.next.is_ascii_alphabetic() {
-                    Token::TraitIdent(self.read_trait_identifier()?)
+                    self.read_trait_identifier()?
                 } else {
                     advance = false;
                     Token::Less
@@ -683,17 +777,17 @@ impl<'a> Lexer<'a> {
             }
             '\'' => {
                 advance = false;
-                Token::Principal(self.read_principal()?)
+                self.read_principal()?
             }
             'u' => {
                 advance = false;
                 self.read_char()?;
                 if self.next.is_ascii_digit() {
-                    Token::Uint(self.read_unsigned()?)
+                    self.read_unsigned()?
                 } else if self.next == '"' {
-                    Token::Utf8String(self.read_utf8_string()?)
+                    self.read_utf8_string()?
                 } else {
-                    Token::Ident(self.read_identifier(Some('u'))?)
+                    self.read_identifier(Some('u'))?
                 }
             }
             ' ' | '\t' | '\r' | '\n' => {
@@ -703,29 +797,31 @@ impl<'a> Lexer<'a> {
             }
             '"' => {
                 advance = false;
-                Token::AsciiString(self.read_ascii_string()?)
+                self.read_ascii_string()?
             }
             '0' => {
                 advance = false;
                 self.read_char()?;
                 if self.next == 'x' {
-                    Token::Bytes(self.read_hex()?)
+                    self.read_hex()?
                 } else if self.next.is_ascii_digit() {
-                    Token::Int(self.read_integer()?)
+                    self.read_integer(false)?
                 } else if is_separator(self.next) {
                     Token::Int("0".to_string())
                 } else {
-                    self.proceed_through_error(LexerError::InvalidCharInt(self.next))?;
-                    Token::Int("0".to_string())
+                    Token::Placeholder(self.proceed_through_error(
+                        "0".to_string(),
+                        Some(LexerError::InvalidCharInt(self.next)),
+                    )?)
                 }
             }
             _ => {
                 if self.next.is_ascii_alphabetic() {
                     advance = false;
-                    Token::Ident(self.read_identifier(None)?)
+                    self.read_identifier(None)?
                 } else if self.next.is_ascii_digit() {
                     advance = false;
-                    Token::Int(self.read_integer()?)
+                    self.read_integer(false)?
                 } else {
                     self.add_diagnostic(
                         LexerError::UnknownSymbol(self.next),
@@ -736,7 +832,7 @@ impl<'a> Lexer<'a> {
                             end_column: self.column as u32,
                         },
                     )?;
-                    Token::Placeholder
+                    Token::Placeholder(self.next.to_string())
                 }
             }
         };
@@ -784,8 +880,6 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::types::UTF8Data;
-
     use super::*;
 
     #[test]
@@ -864,7 +958,7 @@ mod tests {
         lexer = Lexer::new("0a", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Int("0".to_string())
+            Token::Placeholder("0a".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharInt('a'));
@@ -872,13 +966,16 @@ mod tests {
         lexer = Lexer::new("test\0", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Ident("test".to_string())
+            Token::Placeholder("test\u{0}".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharIdent('\0'));
 
         let mut lexer = Lexer::new("👎", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::Placeholder);
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Placeholder("👎".to_string())
+        );
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::NonASCIIChar('👎'));
         assert_eq!(lexer.diagnostics[1].e, LexerError::UnknownSymbol('👎'));
@@ -886,10 +983,18 @@ mod tests {
         lexer = Lexer::new("56789*", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Int("56789".to_string())
+            Token::Placeholder("56789*".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharInt('*'));
+
+        lexer = Lexer::new("-89+", false).unwrap();
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Placeholder("-89+".to_string())
+        );
+        assert_eq!(lexer.diagnostics.len(), 1);
+        assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharInt('+'));
 
         lexer = Lexer::new("u123", false).unwrap();
         assert_eq!(
@@ -900,7 +1005,7 @@ mod tests {
         lexer = Lexer::new("u1a", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Uint("1".to_string())
+            Token::Placeholder("u1a".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharUint('a'));
@@ -936,15 +1041,23 @@ mod tests {
         lexer = Lexer::new("\"\\x\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::AsciiString("?".to_string())
+            Token::Placeholder("\"\\x\"".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownEscapeChar('x'));
 
+        lexer = Lexer::new("\"\\z\"a", false).unwrap();
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Placeholder("\"\\z\"a".to_string())
+        );
+        assert_eq!(lexer.diagnostics.len(), 1);
+        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownEscapeChar('z'));
+
         lexer = Lexer::new("\"open", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::AsciiString("open".to_string())
+            Token::Placeholder("\"open".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::ExpectedClosing('"'));
@@ -953,7 +1066,7 @@ mod tests {
         lexer = Lexer::new("\"👎\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::AsciiString("".to_string())
+            Token::Placeholder("\"👎\"".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::NonASCIIChar('👎'));
@@ -962,106 +1075,105 @@ mod tests {
         lexer = Lexer::new("\"\\u{1F600}\"", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::AsciiString("?{1F600}".to_string())
+            Token::Placeholder("\"\\u{1F600}\"".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownEscapeChar('u'));
 
         lexer = Lexer::new("u\"hello\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Utf8String(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"hello\"");
+        assert_eq!(data, "hello");
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("u\"\\u{1F600}\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Utf8String(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{f09f9880}\"");
+        assert_eq!(data, "😀");
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("u\"quote \\\"this\\\"\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Utf8String(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"quote \\\"this\\\"\"");
+        assert_eq!(data, "quote \"this\"");
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("u\"\\n\\r\\t\\0\\\\ ok\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Utf8String(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\n\\r\\t\\x00\\\\ ok\"");
+        assert_eq!(data, "\n\r\t\u{0}\\ ok");
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("u\"\\x\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"?\"");
+        assert_eq!(data, "u\"\\x\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownEscapeChar('x'));
 
         lexer = Lexer::new("u\"open", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"open\"");
+        assert_eq!(data, "u\"open");
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::ExpectedClosing('"'));
         assert_eq!(lexer.diagnostics[1].e, LexerError::NoteToMatchThis('"'));
 
         lexer = Lexer::new("u\"\\uabc\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{e29d97}abc\"");
+        assert_eq!(data, "u\"\\uabc\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
 
         lexer = Lexer::new("u\"\\u{1234567}\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{e29d97}\"");
+        assert_eq!(data, "u\"\\u{1234567}\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
 
         lexer = Lexer::new("u\"\\u{123456789}\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{e29d97}\"");
+        assert_eq!(data, "u\"\\u{123456789}\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidUTF8Encoding);
 
         lexer = Lexer::new("u\"a \\u{", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"a \\u{e29d97}\"");
-        assert_eq!(lexer.diagnostics.len(), 3);
+        assert_eq!(data, "u\"a \\u{");
+        assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnterminatedUTF8Encoding);
-        assert_eq!(lexer.diagnostics[1].e, LexerError::ExpectedClosing('"'));
-        assert_eq!(lexer.diagnostics[2].e, LexerError::NoteToMatchThis('"'));
+        assert_eq!(lexer.diagnostics[1].e, LexerError::NoteToMatchThis('}'));
 
         lexer = Lexer::new("u\"\\u{}\"", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{e29d97}\"");
+        assert_eq!(data, "u\"\\u{}\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::EmptyUTF8Encoding);
         assert_eq!(
@@ -1076,20 +1188,20 @@ mod tests {
 
         lexer = Lexer::new("u\"a \\u{\" foo", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"a \\u{e29d97}\"");
+        assert_eq!(data, "u\"a \\u{\"");
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnterminatedUTF8Encoding);
         assert_eq!(lexer.diagnostics[1].e, LexerError::NoteToMatchThis('}'));
 
         lexer = Lexer::new("u\"\\u{24gb}\" foo", false).unwrap();
         let data = match lexer.read_token().unwrap().token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Placeholder(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"\\u{c98b}\"");
+        assert_eq!(data, "u\"\\u{24gb}\"");
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(
             lexer.diagnostics[0].e,
@@ -1112,20 +1224,16 @@ mod tests {
         assert_eq!(lexer.read_token().unwrap().token, Token::Eof);
 
         lexer = Lexer::new("0x123abc", false).unwrap();
-        if let Token::Bytes(v) = lexer.read_token().unwrap().token {
-            assert_eq!(v.len(), 3);
-            assert_eq!(v[0], 0x12);
-            assert_eq!(v[1], 0x3a);
-            assert_eq!(v[2], 0xbc);
+        if let Token::Bytes(s) = lexer.read_token().unwrap().token {
+            assert_eq!(s, "123abc");
         } else {
             assert!(false);
         }
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("0xdefg", false).unwrap();
-        if let Token::Bytes(v) = lexer.read_token().unwrap().token {
-            assert_eq!(v.len(), 1);
-            assert_eq!(v[0], 0xde);
+        if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
+            assert_eq!(s, "0xdefg");
         } else {
             assert!(false);
         }
@@ -1133,9 +1241,8 @@ mod tests {
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharBuffer('g'));
 
         lexer = Lexer::new("0xdef", false).unwrap();
-        if let Token::Bytes(v) = lexer.read_token().unwrap().token {
-            assert_eq!(v.len(), 1);
-            assert_eq!(v[0], 0xde);
+        if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
+            assert_eq!(s, "0xdef");
         } else {
             assert!(false);
         }
@@ -1143,9 +1250,8 @@ mod tests {
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidBufferLength(3));
 
         lexer = Lexer::new("0x00p5", false).unwrap();
-        if let Token::Bytes(v) = lexer.read_token().unwrap().token {
-            assert_eq!(v.len(), 1);
-            assert_eq!(v[0], 0x0);
+        if let Token::Placeholder(s) = lexer.read_token().unwrap().token {
+            assert_eq!(s, "0x00p5");
         } else {
             assert!(false);
         }
@@ -1153,10 +1259,8 @@ mod tests {
         assert_eq!(lexer.diagnostics[0].e, LexerError::InvalidCharBuffer('p'));
 
         lexer = Lexer::new("0xdef0 ", false).unwrap();
-        if let Token::Bytes(v) = lexer.read_token().unwrap().token {
-            assert_eq!(v.len(), 2);
-            assert_eq!(v[0], 0xde);
-            assert_eq!(v[1], 0xf0);
+        if let Token::Bytes(s) = lexer.read_token().unwrap().token {
+            assert_eq!(s, "def0");
         } else {
             assert!(false);
         }
@@ -1179,7 +1283,7 @@ mod tests {
         lexer = Lexer::new("baz👍buz", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Ident("baz".to_string())
+            Token::Placeholder("baz👍buz".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::NonASCIIChar('👍'));
@@ -1258,7 +1362,7 @@ mod tests {
         lexer = Lexer::new("'1234567890aBCDEFG", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Principal("1234567890".to_string())
+            Token::Placeholder("'1234567890aBCDEFG".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(
@@ -1269,7 +1373,7 @@ mod tests {
         lexer = Lexer::new("'123456789OABCDEFG", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Principal("123456789".to_string())
+            Token::Placeholder("'123456789OABCDEFG".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(
@@ -1278,7 +1382,10 @@ mod tests {
         );
 
         lexer = Lexer::new("~", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::Placeholder);
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Placeholder("~".to_string())
+        );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));
     }
@@ -1662,10 +1769,10 @@ mod tests {
 
         token = lexer.read_token().unwrap();
         let data = match token.token {
-            Token::Utf8String(data) => UTF8Data { data },
+            Token::Utf8String(s) => s,
             _ => panic!("failed to parse utf8 string"),
         };
-        assert_eq!(format!("{}", data), "u\"world\"");
+        assert_eq!(data, "world");
         assert_eq!(
             token.span,
             Span {
@@ -1689,8 +1796,8 @@ mod tests {
         );
 
         token = lexer.read_token().unwrap();
-        if let Token::Bytes(v) = token.token {
-            assert_eq!(v.len(), 16);
+        if let Token::Bytes(s) = token.token {
+            assert_eq!(s, "0123456789abcdeffedcba9876543210");
         } else {
             assert!(false);
         }
@@ -2035,7 +2142,7 @@ mod tests {
         lexer = Lexer::new("<illegal*name>", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::TraitIdent("illegal".to_string())
+            Token::Placeholder("<illegal*name>".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(
@@ -2055,7 +2162,7 @@ mod tests {
         lexer = Lexer::new("<not-closed ", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::TraitIdent("not-closed".to_string())
+            Token::Placeholder("<not-closed".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 2);
         assert_eq!(lexer.diagnostics[0].e, LexerError::ExpectedClosing('>'));

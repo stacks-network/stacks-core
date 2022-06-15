@@ -21,8 +21,8 @@ use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTra
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
-    Atom, AtomValue, FieldIdentifier, List, SugaredContractIdentifier, SugaredFieldIdentifier,
-    TraitReference, Tuple,
+    Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
+    SugaredFieldIdentifier, TraitReference, Tuple,
 };
 use crate::vm::representations::{ClarityName, PreSymbolicExpression};
 use crate::vm::types::Value;
@@ -291,7 +291,9 @@ impl<'a> DefinitionSorter {
             AtomValue(_)
             | FieldIdentifier(_)
             | SugaredContractIdentifier(_)
-            | SugaredFieldIdentifier(_, _) => Ok(()),
+            | SugaredFieldIdentifier(_, _)
+            | Comment(_)
+            | Placeholder(_) => Ok(()),
         }
     }
 

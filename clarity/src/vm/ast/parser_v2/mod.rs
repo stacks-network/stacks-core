@@ -1,6 +1,7 @@
 pub mod lexer;
 
 use std::convert::TryFrom;
+use std::num::ParseIntError;
 
 use self::lexer::error::LexerError;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
@@ -258,8 +259,7 @@ impl<'a> Parser<'a> {
                     // Create a placeholder value so that parsing can continue,
                     // then return.
                     self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
-                    let mut placeholder =
-                        PreSymbolicExpression::atom(ClarityName::from("placeholder"));
+                    let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
                     placeholder.span = token.span.clone();
                     nodes.push(placeholder); // Placeholder value
                     let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
@@ -284,8 +284,7 @@ impl<'a> Parser<'a> {
                     // then return.
                     let eof_span = self.tokens[self.next_token - 1].span.clone();
                     self.add_diagnostic(ParseErrors::TupleValueExpected, token.span.clone())?;
-                    let mut placeholder =
-                        PreSymbolicExpression::atom(ClarityName::from("placeholder"));
+                    let mut placeholder = PreSymbolicExpression::placeholder("".to_string());
                     placeholder.span = eof_span;
                     nodes.push(placeholder); // Placeholder value
                     let mut e = PreSymbolicExpression::tuple(nodes.into_boxed_slice());
@@ -301,7 +300,289 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Returns some valid expression. When None is returned, check the current token.
+    fn read_principal(
+        &mut self,
+        addr: String,
+        mut span: Span,
+    ) -> ParseResult<PreSymbolicExpression> {
+        let principal = match PrincipalData::parse_standard_principal(&addr) {
+            Ok(principal) => principal,
+            _ => {
+                self.add_diagnostic(ParseErrors::InvalidPrincipalLiteral, span.clone())?;
+                let mut placeholder = PreSymbolicExpression::placeholder(format!("'{}", addr));
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+        };
+
+        // Peek ahead for a '.', indicating a contract identifier
+        if self.tokens[self.next_token].token == Token::Dot {
+            let dot = self.next_token().unwrap(); // skip over the dot
+            let (name, contract_span) = match self.next_token() {
+                Some(PlacedToken {
+                    span: contract_span,
+                    token: Token::Ident(ident),
+                }) => {
+                    span.end_line = contract_span.end_line;
+                    span.end_column = contract_span.end_column;
+                    (ident, contract_span)
+                }
+                Some(PlacedToken {
+                    span: token_span,
+                    token,
+                }) => {
+                    span.end_line = token_span.end_line;
+                    span.end_column = token_span.end_column;
+                    self.add_diagnostic(
+                        ParseErrors::ExpectedContractIdentifier,
+                        token_span.clone(),
+                    )?;
+                    let mut placeholder = PreSymbolicExpression::placeholder(format!(
+                        "'{}.{}",
+                        principal,
+                        token.reproduce()
+                    ));
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+                None => {
+                    self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, dot.span.clone())?;
+                    let mut placeholder =
+                        PreSymbolicExpression::placeholder(format!("'{}.", principal));
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+            };
+
+            if name.len() > MAX_CONTRACT_NAME_LEN {
+                self.add_diagnostic(
+                    ParseErrors::ContractNameTooLong(name.clone()),
+                    contract_span.clone(),
+                )?;
+                let mut placeholder =
+                    PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+            let contract_name = match ContractName::try_from(name.clone()) {
+                Ok(id) => id,
+                Err(_) => {
+                    self.add_diagnostic(
+                        ParseErrors::IllegalContractName(name.clone()),
+                        contract_span.clone(),
+                    )?;
+                    let mut placeholder =
+                        PreSymbolicExpression::placeholder(format!("'{}.{}", principal, name));
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+            };
+            let contract_id = QualifiedContractIdentifier::new(principal, contract_name);
+
+            // Peek ahead for a '.', indicating a trait identifier
+            if self.tokens[self.next_token].token == Token::Dot {
+                let dot = self.next_token().unwrap(); // skip over the dot
+                let (name, trait_span) = match self.next_token() {
+                    Some(PlacedToken {
+                        span: trait_span,
+                        token: Token::Ident(ident),
+                    }) => {
+                        span.end_line = trait_span.end_line;
+                        span.end_column = trait_span.end_column;
+                        (ident, trait_span)
+                    }
+                    Some(PlacedToken {
+                        span: token_span,
+                        token,
+                    }) => {
+                        self.add_diagnostic(
+                            ParseErrors::ExpectedTraitIdentifier,
+                            token_span.clone(),
+                        )?;
+                        let mut placeholder = PreSymbolicExpression::placeholder(format!(
+                            "'{}.{}",
+                            contract_id,
+                            token.reproduce(),
+                        ));
+                        span.end_line = token_span.end_line;
+                        span.end_column = token_span.end_column;
+                        placeholder.span = span;
+                        return Ok(placeholder);
+                    }
+                    None => {
+                        self.add_diagnostic(
+                            ParseErrors::ExpectedTraitIdentifier,
+                            dot.span.clone(),
+                        )?;
+                        let mut placeholder =
+                            PreSymbolicExpression::placeholder(format!("'{}.", contract_id));
+                        span.end_line = dot.span.end_line;
+                        span.end_column = dot.span.end_column;
+                        placeholder.span = span;
+                        return Ok(placeholder);
+                    }
+                };
+                if name.len() > MAX_STRING_LEN {
+                    self.add_diagnostic(
+                        ParseErrors::NameTooLong(name.clone()),
+                        trait_span.clone(),
+                    )?;
+                    let mut placeholder =
+                        PreSymbolicExpression::placeholder(format!("'{}.{}", contract_id, name,));
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+                let trait_name = match ClarityName::try_from(name.clone()) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        self.add_diagnostic(
+                            ParseErrors::IllegalTraitName(name.clone()),
+                            trait_span.clone(),
+                        )?;
+                        let mut placeholder = PreSymbolicExpression::placeholder(format!(
+                            "'{}.{}",
+                            contract_id, name,
+                        ));
+                        placeholder.span = span;
+                        return Ok(placeholder);
+                    }
+                };
+                let trait_id = TraitIdentifier {
+                    name: trait_name,
+                    contract_identifier: contract_id,
+                };
+                let mut expr = PreSymbolicExpression::field_identifier(trait_id);
+                expr.span = span;
+                Ok(expr)
+            } else {
+                let contract_principal = PrincipalData::Contract(contract_id);
+                let mut expr =
+                    PreSymbolicExpression::atom_value(Value::Principal(contract_principal));
+                expr.span = span;
+                Ok(expr)
+            }
+        } else {
+            let mut expr = PreSymbolicExpression::atom_value(Value::Principal(
+                PrincipalData::Standard(principal),
+            ));
+            expr.span = span;
+            Ok(expr)
+        }
+    }
+
+    fn read_sugared_principal(&mut self, mut span: Span) -> ParseResult<PreSymbolicExpression> {
+        let (name, contract_span) = match self.next_token() {
+            Some(PlacedToken {
+                span: contract_span,
+                token: Token::Ident(ident),
+            }) => {
+                span.end_line = contract_span.end_line;
+                span.end_column = contract_span.end_column;
+                (ident, contract_span)
+            }
+            Some(PlacedToken {
+                span: token_span,
+                token,
+            }) => {
+                self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, token_span.clone())?;
+                let mut placeholder =
+                    PreSymbolicExpression::placeholder(format!(".{}", token.reproduce()));
+                span.end_line = token_span.end_line;
+                span.end_column = token_span.end_column;
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+            None => {
+                self.add_diagnostic(ParseErrors::ExpectedContractIdentifier, span.clone())?;
+                let mut placeholder = PreSymbolicExpression::placeholder(".".to_string());
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+        };
+
+        let contract_name = match ContractName::try_from(name.clone()) {
+            Ok(id) => id,
+            Err(_) => {
+                self.add_diagnostic(
+                    ParseErrors::IllegalContractName(name.clone()),
+                    contract_span.clone(),
+                )?;
+                let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+        };
+
+        // Peek ahead for a '.', indicating a trait identifier
+        if self.tokens[self.next_token].token == Token::Dot {
+            let dot = self.next_token().unwrap(); // skip over the dot
+            let (name, trait_span) = match self.next_token() {
+                Some(PlacedToken {
+                    span: trait_span,
+                    token: Token::Ident(ident),
+                }) => {
+                    span.end_line = trait_span.end_line;
+                    span.end_column = trait_span.end_column;
+                    (ident, trait_span)
+                }
+                Some(PlacedToken {
+                    span: token_span,
+                    token,
+                }) => {
+                    self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, token_span.clone())?;
+                    let mut placeholder = PreSymbolicExpression::placeholder(format!(
+                        ".{}.{}",
+                        contract_name,
+                        token.reproduce(),
+                    ));
+                    span.end_line = token_span.end_line;
+                    span.end_column = token_span.end_column;
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+                None => {
+                    self.add_diagnostic(ParseErrors::ExpectedTraitIdentifier, dot.span.clone())?;
+                    let mut placeholder =
+                        PreSymbolicExpression::placeholder(format!(".{}.", contract_name));
+                    span.end_line = dot.span.end_line;
+                    span.end_column = dot.span.end_column;
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+            };
+            if name.len() > MAX_STRING_LEN {
+                self.add_diagnostic(ParseErrors::NameTooLong(name.clone()), trait_span.clone())?;
+                let mut placeholder =
+                    PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
+                placeholder.span = span;
+                return Ok(placeholder);
+            }
+            let trait_name = match ClarityName::try_from(name.clone()) {
+                Ok(id) => id,
+                Err(_) => {
+                    self.add_diagnostic(
+                        ParseErrors::IllegalTraitName(name.clone()),
+                        trait_span.clone(),
+                    )?;
+                    let mut placeholder =
+                        PreSymbolicExpression::placeholder(format!(".{}.{}", contract_name, name));
+                    placeholder.span = span;
+                    return Ok(placeholder);
+                }
+            };
+            let mut expr =
+                PreSymbolicExpression::sugared_field_identifier(contract_name, trait_name);
+            expr.span = span;
+            Ok(expr)
+        } else {
+            let mut expr = PreSymbolicExpression::sugared_contract_identifier(contract_name);
+            expr.span = span;
+            Ok(expr)
+        }
+    }
+
+    /// Returns some valid expression. When None is returned, check the current
+    /// token from the caller.
     pub fn parse_node(&mut self) -> ParseResult<Option<PreSymbolicExpression>> {
         self.ignore_whitespace();
         let token = self.next_token();
@@ -309,313 +590,131 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
         let token = token.unwrap();
-        // let mut comment = None;
-        let node = match token.token {
+        let node = match &token.token {
             Token::Lparen => Some(self.parse_list(token)?),
             Token::Lbrace => Some(self.parse_tuple(token)?),
             Token::Int(val_string) => {
-                let val = match val_string.parse::<i128>() {
-                    Ok(val) => val,
+                let mut expr = match val_string.parse::<i128>() {
+                    Ok(val) => PreSymbolicExpression::atom_value(Value::Int(val)),
                     Err(_) => {
                         self.add_diagnostic(
-                            ParseErrors::FailedParsingIntValue(val_string),
+                            ParseErrors::FailedParsingIntValue(val_string.clone()),
                             token.span.clone(),
                         )?;
-                        0
+                        PreSymbolicExpression::placeholder(token.token.reproduce())
                     }
                 };
-                let mut e = PreSymbolicExpression::atom_value(Value::Int(val));
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
             Token::Uint(val_string) => {
-                let val = match val_string.parse::<u128>() {
-                    Ok(val) => val,
+                let mut expr = match val_string.parse::<u128>() {
+                    Ok(val) => PreSymbolicExpression::atom_value(Value::UInt(val)),
                     Err(_) => {
                         self.add_diagnostic(
-                            ParseErrors::FailedParsingUIntValue(val_string),
+                            ParseErrors::FailedParsingUIntValue(val_string.clone()),
                             token.span.clone(),
                         )?;
-                        0
+                        PreSymbolicExpression::placeholder(token.token.reproduce())
                     }
                 };
-                let mut e = PreSymbolicExpression::atom_value(Value::UInt(val));
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
             Token::AsciiString(val) => {
-                let str_val = match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
-                    Ok(s) => s,
+                let mut expr = match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
+                    Ok(s) => PreSymbolicExpression::atom_value(s),
                     Err(_) => {
                         self.add_diagnostic(
-                            ParseErrors::IllegalASCIIString(val),
+                            ParseErrors::IllegalASCIIString(val.clone()),
                             token.span.clone(),
                         )?;
-                        Value::string_ascii_from_bytes("placeholder".as_bytes().to_vec()).unwrap()
+                        PreSymbolicExpression::placeholder(token.token.reproduce())
                     }
                 };
-                let mut e = PreSymbolicExpression::atom_value(str_val);
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
-            Token::Utf8String(data) => {
-                let str_val =
-                    Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data })));
-                let mut e = PreSymbolicExpression::atom_value(str_val);
-                e.span = token.span;
-                Some(e)
+            Token::Utf8String(s) => {
+                let mut data: Vec<Vec<u8>> = Vec::new();
+                for ch in s.chars() {
+                    let mut bytes = vec![0; ch.len_utf8()];
+                    ch.encode_utf8(&mut bytes);
+                    data.push(bytes);
+                }
+                let val = Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data { data })));
+                let mut expr = PreSymbolicExpression::atom_value(val);
+                expr.span = token.span;
+                Some(expr)
             }
-            Token::Ident(mut name) => {
-                if name.len() > MAX_STRING_LEN {
+            Token::Ident(name) => {
+                let mut expr = if name.len() > MAX_STRING_LEN {
                     self.add_diagnostic(
                         ParseErrors::NameTooLong(name.clone()),
                         token.span.clone(),
                     )?;
-                    // Continue with a placeholder name
-                    name = "placeholder".to_string();
-                }
-                let cname = match ClarityName::try_from(name.clone()) {
-                    Ok(name) => name,
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::IllegalClarityName(name.clone()),
-                            token.span.clone(),
-                        )?;
-                        ClarityName::try_from("placeholder").unwrap()
+                    PreSymbolicExpression::placeholder(token.token.reproduce())
+                } else {
+                    match ClarityName::try_from(name.clone()) {
+                        Ok(name) => PreSymbolicExpression::atom(name),
+                        Err(_) => {
+                            self.add_diagnostic(
+                                ParseErrors::IllegalClarityName(name.clone()),
+                                token.span.clone(),
+                            )?;
+                            PreSymbolicExpression::placeholder(token.token.reproduce())
+                        }
                     }
                 };
-                let mut e = PreSymbolicExpression::atom(cname);
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
-            Token::TraitIdent(mut name) => {
-                if name.len() > MAX_STRING_LEN {
+            Token::TraitIdent(name) => {
+                let mut expr = if name.len() > MAX_STRING_LEN {
                     self.add_diagnostic(
                         ParseErrors::NameTooLong(name.clone()),
                         token.span.clone(),
                     )?;
-                    // Continue with a placeholder name
-                    name = "placeholder".to_string();
-                }
-                let cname = match ClarityName::try_from(name.clone()) {
-                    Ok(name) => name,
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::IllegalTraitName(name.clone()),
-                            token.span.clone(),
-                        )?;
-                        ClarityName::try_from("placeholder").unwrap()
+                    PreSymbolicExpression::placeholder(token.token.reproduce())
+                } else {
+                    match ClarityName::try_from(name.clone()) {
+                        Ok(name) => PreSymbolicExpression::trait_reference(name),
+                        Err(_) => {
+                            self.add_diagnostic(
+                                ParseErrors::IllegalTraitName(name.clone()),
+                                token.span.clone(),
+                            )?;
+                            PreSymbolicExpression::placeholder(token.token.reproduce())
+                        }
                     }
                 };
-                let mut e = PreSymbolicExpression::trait_reference(cname);
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
             Token::Bytes(data) => {
-                let value = match Value::buff_from(data) {
-                    Ok(value) => value,
-                    _ => {
+                let mut expr = match decode_hex(data) {
+                    Ok(bytes) => match Value::buff_from(bytes) {
+                        Ok(value) => PreSymbolicExpression::atom_value(value),
+                        _ => {
+                            self.add_diagnostic(ParseErrors::InvalidBuffer, token.span.clone())?;
+                            PreSymbolicExpression::placeholder(token.token.reproduce())
+                        }
+                    },
+                    Err(_) => {
                         self.add_diagnostic(ParseErrors::InvalidBuffer, token.span.clone())?;
-                        Value::buff_from_byte(0)
+                        PreSymbolicExpression::placeholder(token.token.reproduce())
                     }
                 };
-                let mut e = PreSymbolicExpression::atom_value(value);
-                e.span = token.span;
-                Some(e)
+                expr.span = token.span;
+                Some(expr)
             }
             Token::Principal(addr) => {
-                let principal = match PrincipalData::parse_standard_principal(&addr) {
-                    Ok(principal) => principal,
-                    _ => {
-                        self.add_diagnostic(
-                            ParseErrors::InvalidPrincipalLiteral,
-                            token.span.clone(),
-                        )?;
-                        StandardPrincipalData::transient()
-                    }
-                };
-
-                // Peek ahead for a '.', indicating a contract identifier
-                if self.tokens[self.next_token].token == Token::Dot {
-                    let mut span = token.span.clone();
-                    self.next_token(); // skip over the dot
-                    let mut name = match self.next_token() {
-                        Some(PlacedToken {
-                            span: contract_span,
-                            token: Token::Ident(ident),
-                        }) => {
-                            span.end_line = contract_span.end_line;
-                            span.end_column = contract_span.end_column;
-                            ident
-                        }
-                        _ => {
-                            self.add_diagnostic(
-                                ParseErrors::ExpectedContractIdentifier,
-                                self.tokens[self.next_token - 1].span.clone(),
-                            )?;
-                            "placeholder".to_string()
-                        }
-                    };
-
-                    if name.len() > MAX_CONTRACT_NAME_LEN {
-                        self.add_diagnostic(
-                            ParseErrors::ContractNameTooLong(name),
-                            self.tokens[self.next_token - 1].span.clone(),
-                        )?;
-                        // Continue with a placeholder name
-                        name = "placeholder".to_string();
-                    }
-                    let contract_name = match ContractName::try_from(name.clone()) {
-                        Ok(id) => id,
-                        Err(_) => {
-                            self.add_diagnostic(
-                                ParseErrors::IllegalContractName(name.clone()),
-                                self.tokens[self.next_token - 1].span.clone(),
-                            )?;
-                            ContractName::try_from("placeholder".to_string()).unwrap()
-                        }
-                    };
-                    let contract_id = QualifiedContractIdentifier::new(principal, contract_name);
-
-                    // Peek ahead for a '.', indicating a trait identifier
-                    if self.tokens[self.next_token].token == Token::Dot {
-                        let mut span = token.span.clone();
-                        self.next_token(); // skip over the dot
-                        let mut name = match self.next_token() {
-                            Some(PlacedToken {
-                                span: contract_span,
-                                token: Token::Ident(ident),
-                            }) => {
-                                span.end_line = contract_span.end_line;
-                                span.end_column = contract_span.end_column;
-                                ident
-                            }
-                            _ => {
-                                self.add_diagnostic(
-                                    ParseErrors::ExpectedTraitIdentifier,
-                                    self.tokens[self.next_token - 1].span.clone(),
-                                )?;
-                                "placeholder".to_string()
-                            }
-                        };
-                        if name.len() > MAX_STRING_LEN {
-                            self.add_diagnostic(
-                                ParseErrors::NameTooLong(name.clone()),
-                                self.tokens[self.next_token - 1].span.clone(),
-                            )?;
-                            // Continue with a placeholder name
-                            name = "placeholder".to_string();
-                        }
-                        let trait_name = match ClarityName::try_from(name.clone()) {
-                            Ok(id) => id,
-                            Err(_) => {
-                                self.add_diagnostic(
-                                    ParseErrors::IllegalTraitName(name),
-                                    self.tokens[self.next_token - 1].span.clone(),
-                                )?;
-                                ClarityName::try_from("placeholder".to_string()).unwrap()
-                            }
-                        };
-                        let trait_id = TraitIdentifier {
-                            name: trait_name,
-                            contract_identifier: contract_id,
-                        };
-                        let mut e = PreSymbolicExpression::field_identifier(trait_id);
-                        e.span = span;
-                        Some(e)
-                    } else {
-                        let contract_principal = PrincipalData::Contract(contract_id);
-                        let mut e =
-                            PreSymbolicExpression::atom_value(Value::Principal(contract_principal));
-                        e.span = span;
-                        Some(e)
-                    }
-                } else {
-                    let mut e = PreSymbolicExpression::atom_value(Value::Principal(
-                        PrincipalData::Standard(principal),
-                    ));
-                    e.span = token.span;
-                    Some(e)
-                }
+                let expr = self.read_principal(addr.clone(), token.span.clone())?;
+                Some(expr)
             }
             Token::Dot => {
-                let mut span = token.span.clone();
-                let name = match self.next_token() {
-                    Some(PlacedToken {
-                        span: contract_span,
-                        token: Token::Ident(ident),
-                    }) => {
-                        span.end_line = contract_span.end_line;
-                        span.end_column = contract_span.end_column;
-                        ident
-                    }
-                    _ => {
-                        self.add_diagnostic(
-                            ParseErrors::ExpectedContractIdentifier,
-                            self.tokens[self.next_token - 1].span.clone(),
-                        )?;
-                        "placeholder".to_string()
-                    }
-                };
-                let contract_name = match ContractName::try_from(name.clone()) {
-                    Ok(id) => id,
-                    Err(_) => {
-                        self.add_diagnostic(
-                            ParseErrors::IllegalContractName(name),
-                            self.tokens[self.next_token - 1].span.clone(),
-                        )?;
-                        ContractName::try_from("placeholder".to_string()).unwrap()
-                    }
-                };
-
-                // Peek ahead for a '.', indicating a trait identifier
-                if self.tokens[self.next_token].token == Token::Dot {
-                    let mut span = token.span.clone();
-                    self.next_token(); // skip over the dot
-                    let mut name = match self.next_token() {
-                        Some(PlacedToken {
-                            span: contract_span,
-                            token: Token::Ident(ident),
-                        }) => {
-                            span.end_line = contract_span.end_line;
-                            span.end_column = contract_span.end_column;
-                            ident
-                        }
-                        _ => {
-                            self.add_diagnostic(
-                                ParseErrors::ExpectedTraitIdentifier,
-                                self.tokens[self.next_token - 1].span.clone(),
-                            )?;
-                            "placeholder".to_string()
-                        }
-                    };
-                    if name.len() > MAX_STRING_LEN {
-                        self.add_diagnostic(
-                            ParseErrors::NameTooLong(name.clone()),
-                            self.tokens[self.next_token - 1].span.clone(),
-                        )?;
-                        // Continue with a placeholder name
-                        name = "placeholder".to_string();
-                    }
-                    let trait_name = match ClarityName::try_from(name.clone()) {
-                        Ok(id) => id,
-                        Err(_) => {
-                            self.add_diagnostic(
-                                ParseErrors::IllegalTraitName(name),
-                                self.tokens[self.next_token - 1].span.clone(),
-                            )?;
-                            ClarityName::try_from("placeholder".to_string()).unwrap()
-                        }
-                    };
-                    let mut e =
-                        PreSymbolicExpression::sugared_field_identifier(contract_name, trait_name);
-                    e.span = span;
-                    Some(e)
-                } else {
-                    let mut e = PreSymbolicExpression::sugared_contract_identifier(contract_name);
-                    e.span = span;
-                    Some(e)
-                }
+                let expr = self.read_sugared_principal(token.span.clone())?;
+                Some(expr)
             }
             Token::Plus
             | Token::Minus
@@ -625,8 +724,13 @@ impl<'a> Parser<'a> {
             | Token::LessEqual
             | Token::Greater
             | Token::GreaterEqual => {
-                let name = ClarityName::try_from(format!("{}", token.token)).unwrap();
+                let name = ClarityName::try_from(token.token.to_string()).unwrap();
                 let mut e = PreSymbolicExpression::atom(name);
+                e.span = token.span;
+                Some(e)
+            }
+            Token::Placeholder(s) => {
+                let mut e = PreSymbolicExpression::placeholder(s.to_string());
                 e.span = token.span;
                 Some(e)
             }
@@ -714,6 +818,13 @@ pub fn parse_collect_diagnostics(
     (stmts, diagnostics, parser.success)
 }
 
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::vm::{
@@ -766,7 +877,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("42g ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::Int(42)) = stmts[0].match_atom_value() {
+        if let Some("42g") = stmts[0].match_placeholder() {
         } else {
             panic!("failed to parse int value with error");
         }
@@ -799,10 +910,10 @@ mod tests {
             parse_collect_diagnostics("340282366920938463463374607431768211456 ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::Int(0)) = stmts[0].match_atom_value() {
-        } else {
-            panic!("failed to parse int value with error");
-        }
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "340282366920938463463374607431768211456"
+        );
         assert_eq!(
             stmts[0].span,
             Span {
@@ -852,7 +963,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\n u2*3");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::UInt(2)) = stmts[0].match_atom_value() {
+        if let Some("u2*3") = stmts[0].match_placeholder() {
         } else {
             panic!("failed to parse uint value with error");
         }
@@ -885,11 +996,10 @@ mod tests {
             parse_collect_diagnostics("u340282366920938463463374607431768211457 ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        println!("{:?}", stmts);
-        if let Some(Value::UInt(0)) = stmts[0].match_atom_value() {
-        } else {
-            panic!("failed to parse uint value with error");
-        }
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "u340282366920938463463374607431768211457"
+        );
         assert_eq!(
             stmts[0].span,
             Span {
@@ -940,8 +1050,8 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\"👎 nope\"");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(v) = stmts[0].match_atom_value() {
-            assert_eq!(v.clone().expect_ascii(), " nope");
+        if let Some(s) = stmts[0].match_placeholder() {
+            assert_eq!(s, "\"👎 nope\"");
         } else {
             panic!("failed to parse ascii value with error");
         }
@@ -1013,15 +1123,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("u\"\\m nope\"");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(v) = stmts[0].match_atom_value() {
-            let s = match v {
-                Value::Sequence(SequenceData::String(CharType::UTF8(data))) => format!("{}", data),
-                _ => panic!("failed to parse UTF8 string "),
-            };
-            assert_eq!(s, "u\"? nope\"");
-        } else {
-            panic!("failed to parse utf8 string with error");
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(), "u\"\\m nope\"");
         assert_eq!(
             stmts[0].span,
             Span {
@@ -1759,11 +1861,7 @@ mod tests {
                 end_column: 4
             }
         );
-        if let Some(name) = list[1].match_atom() {
-            assert_eq!(name.as_str(), "placeholder");
-        } else {
-            panic!("failed to parse identifier");
-        }
+        assert_eq!(list[1].match_placeholder().unwrap(), "");
         assert_eq!(
             list[1].span,
             Span {
@@ -2011,11 +2109,7 @@ mod tests {
                 end_column: 4
             }
         );
-        if let Some(name) = list[1].match_atom() {
-            assert_eq!(name.as_str(), "placeholder");
-        } else {
-            panic!("failed to parse identifier");
-        }
+        assert_eq!(list[1].match_placeholder().unwrap(), "");
         assert_eq!(
             list[1].span,
             Span {
@@ -2115,8 +2209,7 @@ mod tests {
                 end_column: 1
             }
         );
-        let value = stmts[0].match_atom_value();
-        assert!(value.is_some());
+        assert_eq!(stmts[0].match_placeholder().unwrap(), "'");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "invalid principal literal");
         assert_eq!(
@@ -2163,17 +2256,10 @@ mod tests {
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.123");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::Principal(data)) = stmts[0].match_atom_value() {
-            match data {
-                PrincipalData::Contract(data) => {
-                    assert_eq!(
-                        data.to_string(),
-                        "ST000000000000000000002AMW42H.placeholder"
-                    )
-                }
-                _ => panic!("failed to parse principal"),
-            }
-        }
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "'ST000000000000000000002AMW42H.123"
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "expected contract identifier");
         assert_eq!(
@@ -2190,17 +2276,10 @@ mod tests {
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.illegal?name ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::Principal(data)) = stmts[0].match_atom_value() {
-            match data {
-                PrincipalData::Contract(data) => {
-                    assert_eq!(
-                        data.to_string(),
-                        "ST000000000000000000002AMW42H.placeholder"
-                    )
-                }
-                _ => panic!("failed to parse principal"),
-            }
-        }
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "'ST000000000000000000002AMW42H.illegal?name"
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
@@ -2220,17 +2299,7 @@ mod tests {
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        if let Some(Value::Principal(data)) = stmts[0].match_atom_value() {
-            match data {
-                PrincipalData::Contract(data) => {
-                    assert_eq!(
-                        data.to_string(),
-                        "ST000000000000000000002AMW42H.placeholder"
-                    )
-                }
-                _ => panic!("failed to parse principal"),
-            }
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(), "'ST000000000000000000002AMW42H.this-name-is-way-too-many-characters-to-be-a-legal-contract-name");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
@@ -2269,12 +2338,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".123");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        match &stmts[0].pre_expr {
-            PreSymbolicExpressionType::SugaredContractIdentifier(name) => {
-                assert_eq!(name.as_str(), "placeholder")
-            }
-            _ => panic!("failed to parse principal"),
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(), ".123");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "expected contract identifier");
         assert_eq!(
@@ -2290,12 +2354,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".illegal?name ");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        match &stmts[0].pre_expr {
-            PreSymbolicExpressionType::SugaredContractIdentifier(name) => {
-                assert_eq!(name.as_str(), "placeholder")
-            }
-            _ => panic!("failed to parse principal"),
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(), ".illegal?name");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
             diagnostics[0].message,
@@ -2339,15 +2398,10 @@ mod tests {
             parse_collect_diagnostics("'ST000000000000000000002AMW42H.foo.123");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        match &stmts[0].pre_expr {
-            PreSymbolicExpressionType::FieldIdentifier(trait_id) => {
-                assert_eq!(
-                    format!("{}", trait_id),
-                    "ST000000000000000000002AMW42H.foo.placeholder"
-                );
-            }
-            _ => panic!("failed to parse trait identifier"),
-        }
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            "'ST000000000000000000002AMW42H.foo.123"
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "expected trait identifier");
         assert_eq!(
@@ -2384,13 +2438,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.123");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        match &stmts[0].pre_expr {
-            PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, trait_name) => {
-                assert_eq!(contract_name.as_str(), "foo");
-                assert_eq!(trait_name.as_str(), "placeholder");
-            }
-            _ => panic!("failed to parse sugared trait identifier"),
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(), ".foo.123");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "expected trait identifier");
         assert_eq!(
@@ -2406,13 +2454,7 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics(".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 1);
-        match &stmts[0].pre_expr {
-            PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, trait_name) => {
-                assert_eq!(contract_name.as_str(), "foo");
-                assert_eq!(trait_name.as_str(), "placeholder");
-            }
-            _ => panic!("failed to parse sugared trait identifier"),
-        }
+        assert_eq!(stmts[0].match_placeholder().unwrap(),".foo.veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong");
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "illegal name (too long), 'veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong'");
         assert_eq!(
@@ -2450,8 +2492,8 @@ mod tests {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("\n\t<foo-bar 1");
         assert_eq!(success, false);
         assert_eq!(stmts.len(), 2);
-        if let Some(name) = stmts[0].match_trait_reference() {
-            assert_eq!(name.as_str(), "foo-bar");
+        if let Some(s) = stmts[0].match_placeholder() {
+            assert_eq!(s, "<foo-bar");
         } else {
             panic!("failed to parse trait reference");
         }
@@ -2519,9 +2561,10 @@ mod tests {
                 end_column: 1
             }
         );
-        match stmts[1].match_atom_value() {
-            Some(Value::Int(123)) => (),
-            _ => panic!("failed to parse int with errors"),
+        if let Some(s) = stmts[1].match_placeholder() {
+            assert_eq!(s, "123>");
+        } else {
+            panic!("failed to parse trait reference");
         }
         assert_eq!(
             stmts[1].span,
@@ -2858,7 +2901,7 @@ mod tests {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics(" # here is a python comment\n\n    # and another\n(foo)");
         assert_eq!(success, false);
-        assert_eq!(stmts.len(), 8);
+        assert_eq!(stmts.len(), 10);
     }
 
     #[test]
