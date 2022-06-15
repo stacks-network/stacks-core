@@ -5,23 +5,40 @@
 (define-constant ERR_NOT_ENOUGH_SIGNERS 102)
 (define-constant ERR_INVALID_SIGNATURE 103)
 (define-constant ERR_UNAUTHORIZED_CONTRACT_CALLER 104)
+(define-constant ERR_MINER_ALREADY_SET 105)
 
+;; SIP-018 Constants
+(define-constant sip18-prefix 0x534950303138)
+;; (define-constant (sha256 (unwrap-panic (to-consensus-buff { name: "hyperchain-multi-miner", version: "1.0.0", chain-id: u1 }))))
+(define-constant sip18-domain-hash 0x81c24181e24119f609a28023c4943d3a41592656eb90560c15ee02b8e1ce19b8)
+(define-constant sip18-data-prefix (concat sip18-prefix sip18-domain-hash))
 
 ;; Required number of signers
 (define-constant signers-required u2)
 
 ;; List of miners
-(define-constant miners
-    (list  'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP
-           'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
-           'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP
-           'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
+(define-data-var miners (optional (list 10 principal)) none)
+
+(define-private (get-miners)
+    (unwrap-panic (var-get miners)))
+
+;; Set the hc miners for this contract. Can be called by *anyone*
+;;  before the miner is set. This is an unsafe way to initialize the
+;;  contract, because a re-org could allow someone to reinitialize
+;;  this field. Instead, authors should initialize the variable
+;;  directly at the data-var instantiation. This is used for testing
+;;  purposes only. 
+(define-public (set-miners (miners-to-set (list 10 principal)))
+    (match (var-get miners) existing-miner (err ERR_MINER_ALREADY_SET) 
+        (begin 
+            (var-set miners (some miners-to-set))
+            (ok true))))
 
 (define-private (index-of-miner (to-check principal))
-    (index-of miners to-check))
+    (index-of (get-miners) to-check))
 
 (define-private (test-is-none (to-check (optional uint)))
-    (is-none to-check))
+    (is-some to-check))
 
 (define-private (unique-helper (item (optional uint)) (accum { all-unique: bool,  priors: (list 10 uint)}))
     (if (not (get all-unique accum))
@@ -38,9 +55,15 @@
          (asserts! (>= (len provided-checked) signers-required) (err ERR_NOT_ENOUGH_SIGNERS))
          (ok true)))
 
+;; Remove this function in 2.1
+(define-private (to-consensus-buff (block-data { block: (buff 32), withdrawal-root: (buff 32), multi-contract: principal })) (ok 0x00))
+
 (define-private (make-block-commit-hash (block-data { block: (buff 32), withdrawal-root: (buff 32) }))
-    ;; todo: use 2.1 to-consensus-hash
-    0x0000000000000000000000000000000000000000000000000000000000000000)
+    (let ((data-buff (unwrap-panic (to-consensus-buff (merge block-data { multi-contract: CONTRACT_ADDRESS }))))
+          (data-hash (sha256 data-buff))
+          ;; in 2.0, this is a constant: 0xe2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9
+          (structured-hash (sha256 (concat sip18-data-prefix data-hash))))
+          structured-hash))
 
 (define-private (verify-sign-helper (curr-signature (buff 65))
                                     (accum (response { block-hash: (buff 32), signers: (list 9 principal) } int)))
@@ -52,7 +75,7 @@
                               signers: (unwrap-panic (as-max-len? (append (get signers prior-okay) curr-signer) u9)) }))
         prior-err (err prior-err)))
 
-(define-public (commmit-block (block-data { block: (buff 32), withdrawal-root: (buff 32) })
+(define-public (commit-block  (block-data { block: (buff 32), withdrawal-root: (buff 32) })
                               (signatures (list 9 (buff 65))))
     (let ((block-data-hash (make-block-commit-hash block-data))
           (signer-principals (try! (fold verify-sign-helper signatures (ok { block-hash: block-data-hash, signers: (list) })))))

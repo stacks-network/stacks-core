@@ -16,16 +16,17 @@ use stacks::core::CHAIN_ID_TESTNET;
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
+use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util_lib::strings::StacksString;
 use stacks::vm::database::BurnStateDB;
-use stacks::vm::types::PrincipalData;
+use stacks::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::vm::{ClarityName, ContractName, Value};
 use stacks::{address::AddressHashMode, util::hash::to_hex};
 
 use super::Config;
 
-// mod mempool;
 pub mod forking;
+pub mod l1_multiparty;
 pub mod l1_observer_test;
 #[allow(dead_code)]
 pub mod neon_integrations;
@@ -222,6 +223,32 @@ pub fn make_contract_publish_microblock_only(
         tx_fee,
         TransactionAnchorMode::OffChainOnly,
     )
+}
+
+/// Configures a frequently used config for hyperchain test nodes which
+///  listen to l1 events from a mocknet l1 node.
+pub fn new_l1_test_conf(
+    mining_key: &Secp256k1PrivateKey,
+    broadcast_key: &Secp256k1PrivateKey,
+) -> Config {
+    let mut config = new_test_conf();
+    config.node.mining_key = Some(mining_key.clone());
+
+    config.burnchain.first_burn_header_height = 1;
+    config.burnchain.chain = "stacks_layer_1".to_string();
+    config.burnchain.rpc_ssl = false;
+    config.burnchain.rpc_port = 20443;
+    config.burnchain.peer_host = "127.0.0.1".into();
+    config.node.wait_time_for_microblocks = 10_000;
+    config.node.rpc_bind = "127.0.0.1:30443".into();
+    config.node.p2p_bind = "127.0.0.1:30444".into();
+
+    config.burnchain.contract_identifier =
+        QualifiedContractIdentifier::new(to_addr(&broadcast_key).into(), "hyperchains".into());
+
+    config.node.miner = true;
+
+    config
 }
 
 pub fn new_test_conf() -> Config {

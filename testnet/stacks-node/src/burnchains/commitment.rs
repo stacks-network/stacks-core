@@ -4,7 +4,7 @@ use stacks::chainstate::stacks::{
     TransactionContractCall, TransactionPostConditionMode, TransactionSpendingCondition,
     TransactionVersion,
 };
-use stacks::vm::types::QualifiedContractIdentifier;
+use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::ClarityName;
 use stacks::vm::Value as ClarityValue;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
@@ -13,6 +13,30 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use crate::config::BurnchainConfig;
 use crate::operations::BurnchainOpSigner;
 
+use super::ClaritySignature;
+
+pub trait Layer1Committer {
+    fn commit_required_signatures(&self) -> u8;
+    fn make_commit_tx(
+        &self,
+        committed_block_hash: BlockHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        signatures: Vec<ClaritySignature>,
+        attempt: u64,
+        op_signer: &mut BurnchainOpSigner,
+    ) -> Result<StacksTransaction, Error>;
+}
+
+pub struct DirectCommitter {
+    pub config: BurnchainConfig,
+}
+
+pub struct MultiPartyCommitter {
+    pub config: BurnchainConfig,
+    required_signers: u8,
+    contract: QualifiedContractIdentifier,
+}
+
 /// Represents the returned JSON
 ///  from the L1 /v2/accounts endpoint
 #[derive(Deserialize)]
@@ -20,6 +44,13 @@ struct RpcAccountResponse {
     nonce: u64,
     #[allow(dead_code)]
     balance: String,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    AlreadyCommitted,
+    NonceGetFailure(String),
+    BadCommitment,
 }
 
 fn l1_addr_from_signer(is_mainnet: bool, signer: &BurnchainOpSigner) -> StacksAddress {
@@ -42,17 +73,6 @@ fn l1_get_nonce(l1_rpc_interface: &str, address: &StacksAddress) -> Result<u64, 
     Ok(response_json.nonce)
 }
 
-pub struct DirectCommitter {
-    pub config: BurnchainConfig,
-}
-
-#[derive(Debug)]
-pub enum Error {
-    AlreadyCommitted,
-    NonceGetFailure(String),
-    BadCommitment,
-}
-
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -62,6 +82,169 @@ impl std::fmt::Display for Error {
             Error::NonceGetFailure(e) => write!(f, "Failed to obtain miner's nonce: {}", e),
             Error::BadCommitment => write!(f, "Submitted commitment contents are not valid"),
         }
+    }
+}
+
+impl MultiPartyCommitter {
+    pub fn new(
+        config: &BurnchainConfig,
+        required_signers: u8,
+        contract: &QualifiedContractIdentifier,
+    ) -> Self {
+        Self {
+            config: config.clone(),
+            required_signers,
+            contract: contract.clone(),
+        }
+    }
+
+    fn make_mine_contract_call(
+        &self,
+        sender: &StacksPrivateKey,
+        sender_nonce: u64,
+        tx_fee: u64,
+        commit_to: BlockHeaderHash,
+        withdrawal_root: Sha512Trunc256Sum,
+        signatures: Vec<ClaritySignature>,
+    ) -> Result<StacksTransaction, Error> {
+        let QualifiedContractIdentifier {
+            issuer: contract_addr,
+            name: contract_name,
+        } = self.contract.clone();
+        let version = if self.config.is_mainnet() {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+
+        let block_val = ClarityValue::buff_from(commit_to.as_bytes().to_vec())
+            .map_err(|_| Error::BadCommitment)?;
+        let withdrawal_root_val = ClarityValue::buff_from(withdrawal_root.as_bytes().to_vec())
+            .map_err(|_| Error::BadCommitment)?;
+        let signatures_val = ClarityValue::list_from(
+            signatures
+                .into_iter()
+                .map(|s| {
+                    ClarityValue::buff_from(s.0.to_vec())
+                        .expect("Failed to construct length 65 buffer")
+                })
+                .collect(),
+        )
+        .map_err(|_| Error::BadCommitment)?;
+
+        let block_data_val = TupleData::from_data(vec![
+            ("block".into(), block_val),
+            ("withdrawal-root".into(), withdrawal_root_val),
+        ])
+        .map_err(|_| Error::BadCommitment)?;
+
+        let payload = TransactionContractCall {
+            address: contract_addr.into(),
+            contract_name,
+            function_name: ClarityName::from("commit-block"),
+            function_args: vec![block_data_val.into(), signatures_val],
+        };
+
+        let mut sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+        sender_spending_condition.set_nonce(sender_nonce);
+        sender_spending_condition.set_tx_fee(tx_fee);
+        let auth = TransactionAuth::Standard(sender_spending_condition);
+
+        let mut unsigned_tx = StacksTransaction::new(version, auth, payload.into());
+        unsigned_tx.anchor_mode = self.config.anchor_mode.clone();
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = self.config.chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer.sign_origin(sender).unwrap();
+
+        Ok(tx_signer
+            .get_tx()
+            .expect("Failed to get signed transaction from signer"))
+    }
+
+    pub fn make_commit_tx(
+        &self,
+        committed_block_hash: BlockHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        signatures: Vec<ClaritySignature>,
+        attempt: u64,
+        op_signer: &mut BurnchainOpSigner,
+    ) -> Result<StacksTransaction, Error> {
+        // todo: think about enabling replace-by-nonce?
+        if attempt > 1 {
+            return Err(Error::AlreadyCommitted);
+        }
+
+        // step 1: figure out the miner's nonce
+        let miner_address = l1_addr_from_signer(self.config.is_mainnet(), op_signer);
+        let nonce = l1_get_nonce(&self.config.get_rpc_url(), &miner_address).map_err(|e| {
+            error!("Failed to obtain miner nonce: {}", e);
+            e
+        })?;
+
+        // step 2: fee estimate (todo: #issue)
+        let fee = 100_000;
+        self.make_mine_contract_call(
+            op_signer.get_sk(),
+            nonce,
+            fee,
+            committed_block_hash,
+            withdrawal_merkle_root,
+            signatures,
+        )
+        .map_err(|e| {
+            error!("Failed to construct contract call operation: {}", e);
+            e
+        })
+    }
+}
+
+impl Layer1Committer for MultiPartyCommitter {
+    fn commit_required_signatures(&self) -> u8 {
+        self.required_signers
+    }
+
+    fn make_commit_tx(
+        &self,
+        committed_block_hash: BlockHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        signatures: Vec<ClaritySignature>,
+        attempt: u64,
+        op_signer: &mut BurnchainOpSigner,
+    ) -> Result<StacksTransaction, Error> {
+        self.make_commit_tx(
+            committed_block_hash,
+            withdrawal_merkle_root,
+            signatures,
+            attempt,
+            op_signer,
+        )
+    }
+}
+
+impl Layer1Committer for DirectCommitter {
+    fn commit_required_signatures(&self) -> u8 {
+        0
+    }
+
+    fn make_commit_tx(
+        &self,
+        committed_block_hash: BlockHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        _signatures: Vec<ClaritySignature>,
+        attempt: u64,
+        op_signer: &mut BurnchainOpSigner,
+    ) -> Result<StacksTransaction, Error> {
+        self.make_commit_tx(
+            committed_block_hash,
+            withdrawal_merkle_root,
+            attempt,
+            op_signer,
+        )
     }
 }
 

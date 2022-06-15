@@ -16,10 +16,12 @@ use stacks::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 
+use super::commitment::{Layer1Committer, MultiPartyCommitter};
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
 
 use crate::burnchains::commitment::DirectCommitter;
+use crate::config::CommitStrategy;
 use crate::operations::BurnchainOpSigner;
 use crate::util::hash::Sha512Trunc256Sum;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -42,7 +44,7 @@ pub struct L1Controller {
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
 
-    committer: DirectCommitter,
+    committer: Box<dyn Layer1Committer + Send>,
 }
 
 impl L1Channel {
@@ -90,8 +92,18 @@ impl L1Controller {
             true,
         )?;
         let burnchain = burnchain_from_config(&config.get_burn_db_path(), &config.burnchain)?;
-        let committer = DirectCommitter {
-            config: config.burnchain.clone(),
+        let committer: Box<dyn Layer1Committer + Send> = match &config.burnchain.commit_strategy {
+            CommitStrategy::Direct => Box::new(DirectCommitter {
+                config: config.burnchain.clone(),
+            }),
+            CommitStrategy::MultiMiner {
+                required_signers,
+                contract,
+            } => Box::new(MultiPartyCommitter::new(
+                &config.burnchain,
+                *required_signers,
+                contract,
+            )),
         };
         Ok(L1Controller {
             burnchain,
@@ -233,13 +245,14 @@ impl BurnchainController for L1Controller {
         &mut self,
         committed_block_hash: BlockHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
-        _signatures: Vec<super::ClaritySignature>,
+        signatures: Vec<super::ClaritySignature>,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
     ) -> Result<Txid, Error> {
         let tx = self.committer.make_commit_tx(
             committed_block_hash,
             withdrawal_merkle_root,
+            signatures,
             attempt,
             op_signer,
         )?;
