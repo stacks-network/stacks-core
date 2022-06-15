@@ -57,7 +57,7 @@ Clarinet.test({
         // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[0].result
             .expectErr()
-            .expectInt(3);
+            .expectInt(2);
 
         // Successfully commit block at height 1 with valid miner.
         const id_header_hash3 = chain.callReadOnlyFn('hyperchains', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
