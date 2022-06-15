@@ -724,7 +724,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             Value::UInt(1),
             Value::Principal(user_addr.into()),
             Value::none(),
-            Value::Principal(PrincipalData::Contract(ft_contract_id)),
+            Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(hc_ft_contract_id.clone())),
         ],
     );

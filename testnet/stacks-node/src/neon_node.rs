@@ -1953,7 +1953,7 @@ impl StacksNode {
         let op = inner_generate_block_commit_op(
             anchored_block.block_hash(),
             burn_block.burn_header_hash.clone(),
-        anchored_block.header.withdrawal_merkle_root,
+            anchored_block.header.withdrawal_merkle_root,
         );
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())

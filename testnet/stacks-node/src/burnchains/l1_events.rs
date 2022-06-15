@@ -274,8 +274,7 @@ impl L1Controller {
             contract_name,
             function_name: ClarityName::from("commit-block"),
             function_args: vec![
-                ClarityValue::buff_from(committed_block.clone())
-                    .map_err(|_| Error::BadCommitment)?,
+                ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
             ],
