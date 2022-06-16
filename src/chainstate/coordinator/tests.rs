@@ -880,7 +880,7 @@ fn test_check_chainstate_db_versions() {
             .unwrap();
     let chainstate_v1 = StacksChainState::open_db_without_migrations(
         false,
-        CHAIN_ID_TESTNET,
+        LAYER_1_CHAIN_ID_TESTNET,
         &StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
             .to_str()
             .unwrap(),

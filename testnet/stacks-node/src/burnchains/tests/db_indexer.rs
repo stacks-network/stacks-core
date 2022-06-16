@@ -4,12 +4,14 @@ use crate::burnchains::tests::{make_test_new_block, random_sortdb_test_dir};
 use crate::config::BurnchainConfig;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
+use stacks::core::LAYER_1_CHAIN_ID_MAINNET;
 use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {
     let mut config = BurnchainConfig::default();
     config.chain = "stacks_layer_1".to_string();
+    config.chain_id = LAYER_1_CHAIN_ID_MAINNET;
     config.mode = "hyperchain".to_string();
     config.first_burn_header_height = 1;
     config.first_burn_header_hash =

@@ -14,9 +14,9 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::StacksEpoch;
+use stacks::core::{StacksEpoch, NETWORK_ID_TESTNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    LAYER_1_CHAIN_ID_MAINNET, LAYER_1_CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
@@ -439,9 +439,9 @@ impl Config {
                 BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
-                        CHAIN_ID_MAINNET
+                        LAYER_1_CHAIN_ID_MAINNET
                     } else {
-                        CHAIN_ID_TESTNET
+                        LAYER_1_CHAIN_ID_TESTNET
                     },
                     observer_port: burnchain
                         .observer_port
@@ -970,7 +970,10 @@ pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
     pub observer_port: u16,
+    /// Indexes into the burnchain module.
     pub chain_id: u32,
+    /// Indexes into the networking code.
+    pub network_id: u32,
     pub peer_version: u32,
     pub commit_anchor_block_within: u64,
     pub burn_fee_cap: u64,
@@ -1011,7 +1014,8 @@ impl Default for BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             mode: "mocknet".to_string(),
-            chain_id: CHAIN_ID_TESTNET,
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
+            network_id: NETWORK_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             burn_fee_cap: 20000,
             observer_port: DEFAULT_L1_OBSERVER_PORT,
@@ -1050,7 +1054,7 @@ impl BurnchainConfig {
 
     /// Is the L1 chain itself mainnet or testnet?
     pub fn is_mainnet(&self) -> bool {
-        self.chain_id == CHAIN_ID_MAINNET
+        self.chain_id == LAYER_1_CHAIN_ID_MAINNET
     }
 
     pub fn get_rpc_url(&self) -> String {
@@ -1072,6 +1076,7 @@ impl BurnchainConfig {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
+    /// String-valued unique identifier, e.g., "mainnet", "testnet".
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
     pub observer_port: Option<u16>,
@@ -1102,6 +1107,8 @@ pub struct BurnchainConfigFile {
 #[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
+    /// u32-valued index of the chain. This is also the `network_id` for L2.
+    pub chain_id: u32,
     /// Value to initialize the keychain, only used if `mining_key` is not set.
     pub seed: Vec<u8>,
     pub working_dir: String,
@@ -1411,6 +1418,7 @@ impl NodeConfig {
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("0.0.0.0:{}", rpc_port),

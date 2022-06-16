@@ -30,6 +30,7 @@ use stacks::clarity_vm::withdrawal::{
     convert_withdrawal_key_to_bytes, create_withdrawal_merkle_tree, generate_key_from_event,
 };
 use stacks::codec::StacksMessageCodec;
+use stacks::core::LAYER_1_CHAIN_ID_TESTNET;
 use stacks::net::CallReadOnlyRequestBody;
 use stacks::net::RPCPeerInfoData;
 use stacks::util::hash::hex_bytes;
@@ -364,6 +365,7 @@ fn l1_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         0,
         1_000_000,
         &ft_trait_name,
@@ -373,6 +375,7 @@ fn l1_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         1,
         1_000_000,
         &nft_trait_name,
@@ -383,6 +386,7 @@ fn l1_integration_test() {
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         2,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -491,6 +495,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &ft_trait_name,
@@ -501,6 +506,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &nft_trait_name,
@@ -511,6 +517,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let ft_content = include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
     let ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "simple-ft",
@@ -522,6 +529,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let nft_content = include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
     let nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "simple-nft",
@@ -535,6 +543,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -598,6 +607,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     ";
     let hyperchain_ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         "simple-ft",
@@ -624,6 +634,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     ";
     let hyperchain_nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         "simple-nft",
@@ -636,6 +647,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Mint a ft-token for user on L1 chain (amount = 1)
     let l1_mint_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -647,6 +659,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Mint a nft-token for user on L1 chain (ID = 1)
     let l1_mint_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -659,6 +672,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -712,6 +726,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     let l1_deposit_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -728,6 +743,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     l1_nonce += 1;
     let l1_deposit_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -845,6 +861,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Withdraw the ft on the L2
     let l2_withdraw_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -856,6 +873,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Withdraw the nft on the L2
     let l2_withdraw_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -1059,6 +1077,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     let l1_withdraw_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1077,6 +1096,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     l1_nonce += 1;
     let l1_withdraw_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1230,6 +1250,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "ft-trait-standard",
@@ -1241,6 +1262,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "nft-trait-standard",
@@ -1251,6 +1273,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -1290,6 +1313,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     ";
     let hyperchain_stx_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         default_fee,
         "simple-stx",
@@ -1302,6 +1326,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         default_fee,
         &user_addr,
@@ -1331,6 +1356,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     let l1_deposit_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1363,6 +1389,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Call the withdraw stx function on the L2 from unauthorized user
     let l2_withdraw_stx_tx_unauth = make_contract_call(
         &MOCKNET_PRIVATE_KEY_3,
+        config.node.chain_id,
         0,
         1_000_000,
         &user_addr,
@@ -1385,6 +1412,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Call the withdraw stx function on the L2 from the correct user
     let l2_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -1468,6 +1496,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     let l1_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1583,6 +1612,7 @@ fn l2_simple_contract_calls() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         0,
         1_000_000,
         &ft_trait_name,
@@ -1592,6 +1622,7 @@ fn l2_simple_contract_calls() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         1,
         1_000_000,
         &nft_trait_name,
@@ -1601,6 +1632,7 @@ fn l2_simple_contract_calls() {
     let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         2,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -1620,6 +1652,7 @@ fn l2_simple_contract_calls() {
     {
         let hyperchain_small_contract_publish = make_contract_publish(
             &MOCKNET_PRIVATE_KEY_1,
+            config.node.chain_id,
             l2_nonce,
             1000,
             "small-contract",
@@ -1635,6 +1668,7 @@ fn l2_simple_contract_calls() {
     for _ in 0..2 {
         let small_contract_call1 = make_contract_call(
             &MOCKNET_PRIVATE_KEY_1,
+            config.node.chain_id,
             l2_nonce,
             1000,
             &user_addr,

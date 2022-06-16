@@ -399,7 +399,7 @@ impl RunLoop {
 
         let (chain_state_db, receipts) = StacksChainState::open_and_exec(
             self.config.is_mainnet(),
-            self.config.burnchain.chain_id,
+            self.config.node.chain_id,
             &self.config.get_chainstate_path_str(),
             Some(&mut boot_data),
             Some(self.config.node.get_marf_opts()),
