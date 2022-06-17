@@ -846,6 +846,9 @@ pub struct StacksBlockBuilder {
     pub total_anchored_fees: u64,
     pub total_confirmed_streamed_fees: u64,
     pub total_streamed_fees: u64,
+    /// Receipts of confirmed microblocks. These must be included
+    /// when building the withdrawal merkle tree.
+    microblock_tx_receipts: Vec<StacksTransactionReceipt>,
     anchored_done: bool,
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,

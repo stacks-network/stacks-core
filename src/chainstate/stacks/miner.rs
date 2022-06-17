@@ -118,6 +118,32 @@ pub struct MinerEpochInfo<'a> {
     pub mainnet: bool,
 }
 
+/// Represents a proposed block from the 2-phase commit
+/// coordinator.
+pub struct Proposal {
+    /// This is the identifier for the parent L2 block of this
+    /// proposed block.
+    parent_block_hash: BlockHeaderHash,
+    parent_consensus_hash: ConsensusHash,
+    /// Block
+    block: StacksBlock,
+    /// These are all the microblocks that the proposed block
+    /// will confirm.
+    microblocks_confirmed: Vec<StacksMicroblock>,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    burn_tip: BurnchainHeaderHash,
+    /// This refers to the burn block that was the current tip
+    ///  at the time this proposal was constructed. In most cases,
+    ///  if this proposal is accepted, it will be "mined" in the next
+    ///  burn block.
+    burn_tip_height: u32,
+    /// Mainnet flag
+    is_mainnet: bool,
+}
+
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
     fn from(unconfirmed: &UnconfirmedState) -> MicroblockMinerRuntime {
         let considered = unconfirmed
@@ -1590,7 +1616,7 @@ impl StacksBlockBuilder {
     }
 
     fn load_parent_microblocks(
-        &mut self,
+        &self,
         chainstate: &mut StacksChainState,
         parent_consensus_hash: &ConsensusHash,
         parent_header_hash: &BlockHeaderHash,
@@ -1631,7 +1657,7 @@ impl StacksBlockBuilder {
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
     pub fn pre_epoch_begin<'a>(
-        &mut self,
+        &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
     ) -> Result<MinerEpochInfo<'a>, Error> {
@@ -1740,6 +1766,7 @@ impl StacksBlockBuilder {
             microblock_execution_cost,
             microblock_fees,
             matured_miner_rewards_opt,
+            microblock_txs_receipts,
             ..
         } = StacksChainState::setup_block(
             &mut info.chainstate_tx,
@@ -1755,6 +1782,7 @@ impl StacksBlockBuilder {
             info.mainnet,
             Some(self.miner_id),
         )?;
+        self.microblock_tx_receipts = microblock_txs_receipts;
         self.miner_payouts =
             matured_miner_rewards_opt.map(|(miner, users, parent, _)| (miner, users, parent));
         self.total_confirmed_streamed_fees += microblock_fees as u64;
@@ -2190,6 +2218,170 @@ impl StacksBlockBuilder {
             "block_size" => size,
             "execution_consumed" => %consumed,
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
+            "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
+                agg.saturating_add(tx.get_tx_fee())
+            })
+        );
+
+        Ok((block, consumed, size))
+    }
+}
+
+impl Proposal {
+    /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
+    ///   returns the assembled block, and the consumed execution budget.
+    pub fn validate(
+        &self,
+        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortitionDBConn,
+        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
+        proof: VRFProof, // proof over the burnchain's last seed
+        pubkey_hash: Hash160,
+    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        let expected_block_hash = self.block.block_hash();
+
+        let can_attach = StacksChainState::can_attach(
+            chainstate_handle.db(),
+            &self.parent_block_hash,
+            &self.parent_consensus_hash,
+        )?;
+        if !can_attach {
+            warn!("Rejected proposal";
+                  "reason" => "Block is not attachable",
+                  "parent_block_hash" => %self.parent_block_hash,
+                  "parent_consensus_hash" => %self.parent_consensus_hash);
+            return Err(Error::NoSuchBlockError);
+        }
+
+        let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
+            chainstate_handle.db(),
+            &self.parent_consensus_hash,
+            &self.parent_block_hash,
+        )?
+        .ok_or_else(|| Error::NoSuchBlockError)?;
+
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            parent_stacks_header.consensus_hash.clone(),
+            &self.parent_block_hash,
+            parent_stacks_header.stacks_block_height,
+        );
+
+        debug!(
+            "Validate block proposal {} off of {}/{} height {}",
+            &expected_block_hash, &tip_consensus_hash, &tip_block_hash, tip_height
+        );
+
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            &parent_stacks_header,
+            proof,
+            total_burn,
+            pubkey_hash,
+            &MessageSignatureList::empty(),
+        )?;
+
+        let ts_start = get_epoch_time_ms();
+
+        // check that no microblocks cross an epoch boundary
+        if !self.microblocks_confirmed.is_empty()
+            && StacksChainState::block_crosses_epoch_boundary(
+                chainstate.db(),
+                &self.parent_consensus_hash,
+                &self.parent_block_hash,
+            )?
+        {
+            warn!("Rejected proposal";
+                  "reason" => "Block confirms microblocks across epoch boundary",
+                  "parent_block_hash" => %self.parent_block_hash,
+                  "parent_consensus_hash" => %self.parent_consensus_hash);
+            return Err(Error::InvalidStacksBlock(
+                "Confirms microblocks across epoch boundary".into(),
+            ));
+        }
+
+        // Setup the MinerEpochInfo that would normally be done by pre_epoch_begin
+        // but we must do so manually because we use the provided parameters in the proposal
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin()?;
+
+        let mut miner_epoch_info = MinerEpochInfo {
+            chainstate_tx,
+            clarity_instance,
+            burn_tip: self.burn_tip,
+            burn_tip_height: self.burn_tip_height,
+            parent_microblocks: self.microblocks_confirmed.clone(),
+            mainnet: self.is_mainnet,
+        };
+
+        let (mut epoch_tx, _confirmed_mblock_cost) =
+            builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
+
+        for tx in self.block.txs.iter() {
+            if let Err(e) = builder.try_mine_tx(&mut epoch_tx, tx) {
+                warn!(
+                    "Rejected proposal";
+                    "reason" => "Transaction included with invalidating error",
+                    "parent_block_hash" => %tip_block_hash,
+                    "parent_consensus_hash" => %tip_consensus_hash,
+                    "block_hash" => %expected_block_hash,
+                    "txid" => %tx.txid(),
+                    "tx_error" => %e,
+                );
+                return Err(e);
+            }
+        }
+
+        // the prior do_rebuild logic wasn't necessary
+        // a transaction that caused a budget exception is rolled back in process_transaction
+
+        // save the block so we can build microblocks off of it
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
+        let consumed = builder.epoch_finish(epoch_tx);
+
+        let ts_end = get_epoch_time_ms();
+
+        let computed_block_hash = block.block_hash();
+        let computed_withdrawal_merkle_root = block.header.withdrawal_merkle_root;
+
+        if &computed_withdrawal_merkle_root != self.block.header.withdrawal_merkle_root {
+            warn!(
+                "Rejected proposal";
+                "reason" => "Withdrawal root is not as expected",
+                "expected_withdrawal_root" => %self.block.header.withdrawal_merkle_root,
+                "computed_withdrawal_root" => %computed_withdrawal_merkle_root,
+                "block_hash" => %expected_block_hash,
+            );
+            return Err(Error::InvalidStacksBlock(
+                "Withdrawal root is not as expected".into(),
+            ));
+        }
+
+        if &computed_block_hash != &expected_block_hash {
+            warn!(
+                "Rejected proposal";
+                "reason" => "Block hash is not as expected",
+                "expected_block_hash" => %expected_block_hash
+                "computed_block_hash" => %computed_block_hash,
+                "block_hash" => %expected_block_hash,
+            );
+            return Err(Error::InvalidStacksBlock(
+                "Withdrawal root is not as expected".into(),
+            ));
+        }
+
+        info!(
+            "Participant: validated anchored block";
+            "block_hash" => %block.block_hash(),
+            "height" => block.header.total_work.work,
+            "tx_count" => block.txs.len(),
+            "parent_stacks_block_hash" => %block.header.parent_block,
+            "parent_stacks_microblock" => %block.header.parent_microblock,
+            "parent_stacks_microblock_seq" => block.header.parent_microblock_sequence,
+            "block_size" => size,
+            "execution_consumed" => %consumed,
+            "validation_time_ms" => ts_end.saturating_sub(ts_start),
             "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
                 agg.saturating_add(tx.get_tx_fee())
             })
