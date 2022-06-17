@@ -300,6 +300,7 @@ pub mod test_observer {
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         MINED_BLOCKS.lock().unwrap().clear();
+        NEW_MICROBLOCKS.lock().unwrap().clear();
     }
 }
 
@@ -1500,9 +1501,7 @@ fn transactions_microblocks_then_block() {
                 _ => false,
             }
         });
-    // Uses `>=` instead of '==' in case of micro-block fork.
-    // TODO: Look for a way to make this an exact comparison.
-    assert!(small_contract_mb_calls.len() >= 3);
+    assert_eq!(3, small_contract_mb_calls.len());
 
     // The transaction was copied in 3 micro-blocks plus 2 blocks. These all get counted here so
     // expect 5 total.
