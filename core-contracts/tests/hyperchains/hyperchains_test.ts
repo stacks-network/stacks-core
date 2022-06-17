@@ -186,7 +186,7 @@ Clarinet.test({
 
         let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
-        // User should be able to withdraw NFT asset
+        // Miner should be able to withdraw NFT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -202,7 +202,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
@@ -214,7 +214,7 @@ Clarinet.test({
         assertEquals(nft_amount, 1);
 
 
-        // User should not be able to withdraw NFT asset a second time
+        // Miner should not be able to withdraw NFT asset a second time
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -230,7 +230,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
@@ -371,7 +371,7 @@ Clarinet.test({
 
         let ft_leaf_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let ft_sib_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
-        // User should be able to withdraw FT asset
+        // Miner should be able to withdraw FT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
@@ -388,7 +388,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
@@ -399,7 +399,7 @@ Clarinet.test({
         let ft_amount = assets[charlie.address];
         assertEquals(ft_amount, 1);
 
-        // User should not be able to withdraw FT asset a second time
+        // Miner should not be able to withdraw FT asset a second time
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
@@ -416,7 +416,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectErr()
@@ -498,7 +498,7 @@ Clarinet.test({
         let ft_leaf_hash = new Uint8Array([138, 192, 248, 99, 139, 224, 84, 8, 212, 163, 71, 126, 4, 78, 128, 221, 188, 251, 200, 121, 170, 234, 177, 85, 39, 95, 55, 167, 207, 115, 174, 75]);
         let ft_sib_hash = new Uint8Array([35, 129, 133, 124, 197, 102, 86, 12, 21, 202, 199, 152, 210, 112, 124, 66, 208, 189, 70, 136, 75, 125, 139, 188, 112, 151, 144, 212, 201, 40, 64, 149]);
 
-        // User should be able to withdraw FT asset
+        // Miner should be able to withdraw FT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
@@ -515,7 +515,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
@@ -526,7 +526,7 @@ Clarinet.test({
         ft_amount = assets[charlie.address];
         assertEquals(ft_amount, 3);
 
-        // User should be not be able to withdraw FT asset with same hash
+        // Miner should be not be able to withdraw FT asset with same hash
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
@@ -543,7 +543,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
@@ -701,7 +701,7 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        // User should be able to withdraw FT asset
+        // Miner should be able to withdraw FT asset
         let ft_leaf_hash = new Uint8Array([168, 206, 151, 196, 231, 103, 99, 34, 213, 247, 225, 237, 184, 34, 243, 125, 125, 213, 140, 199, 41, 34, 35, 208, 125, 174, 10, 55, 139, 82, 34, 213]);
         let ft_level_one_sib_hash = new Uint8Array([166, 126, 56, 176, 32, 46, 181, 232, 203, 157, 163, 237, 42, 69, 2, 20, 196, 115, 199, 233, 214, 168, 217, 10, 100, 144, 59, 114, 68, 88, 116, 34]);
         let ft_level_two_sib_hash = new Uint8Array([125, 135, 145, 128, 20, 186, 79, 199, 225, 200, 112, 161, 40, 176, 202, 130, 69, 245, 254, 231, 47, 73, 129, 255, 238, 48, 165, 14, 175, 180, 192, 121]);
@@ -725,13 +725,13 @@ Clarinet.test({
                         })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
 
-        // User should be able to withdraw STX
+        // Miner should be able to withdraw STX
         let stx_leaf_hash = new Uint8Array([166, 126, 56, 176, 32, 46, 181, 232, 203, 157, 163, 237, 42, 69, 2, 20, 196, 115, 199, 233, 214, 168, 217, 10, 100, 144, 59, 114, 68, 88, 116, 34]);
         let stx_level_one_sib_hash = new Uint8Array([168, 206, 151, 196, 231, 103, 99, 34, 213, 247, 225, 237, 184, 34, 243, 125, 125, 213, 140, 199, 41, 34, 35, 208, 125, 174, 10, 55, 139, 82, 34, 213]);
         let stx_level_two_sib_hash = new Uint8Array([125, 135, 145, 128, 20, 186, 79, 199, 225, 200, 112, 161, 40, 176, 202, 130, 69, 245, 254, 231, 47, 73, 129, 255, 238, 48, 165, 14, 175, 180, 192, 121]);
@@ -752,13 +752,13 @@ Clarinet.test({
                         })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
 
-        // User should be able to withdraw NFT asset
+        // Miner should be able to withdraw NFT asset
         let nft_leaf_hash = new Uint8Array([8, 0, 211, 114, 10, 69, 44, 38, 38, 104, 140, 88, 105, 75, 97, 72, 218, 204, 55, 225, 59, 120, 37, 235, 204, 33, 229, 37, 45, 39, 75, 116]);
         let nft_level_one_sib_hash = new Uint8Array([8, 0, 211, 114, 10, 69, 44, 38, 38, 104, 140, 88, 105, 75, 97, 72, 218, 204, 55, 225, 59, 120, 37, 235, 204, 33, 229, 37, 45, 39, 75, 116]);
         let nft_level_two_sib_hash = new Uint8Array([94, 66, 211, 71, 239, 174, 90, 87, 146, 231, 42, 206, 116, 57, 31, 8, 128, 148, 191, 242, 102, 223, 86, 35, 241, 182, 144, 23, 12, 76, 40, 102]);
@@ -781,7 +781,7 @@ Clarinet.test({
                     })
                     ])
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
@@ -798,7 +798,7 @@ Clarinet.test({
         nft_amount = nft_assets[charlie.address];
         assertEquals(nft_amount, 1);
 
-        // For safety, check that user can't withdraw FT asset a second time with same key
+        // For safety, check that miner can't withdraw FT asset a second time with same key
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
@@ -819,14 +819,14 @@ Clarinet.test({
                         })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
             .expectErr()
             .expectInt(9);
 
-        // For safety, check that user can't withdraw STX asset a second time with same key
+        // For safety, check that miner can't withdraw STX asset a second time with same key
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-stx",
                 [
@@ -844,14 +844,14 @@ Clarinet.test({
                         })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
             .expectErr()
             .expectInt(9);
 
-        // For safety, check that user can't withdraw NFT asset a second time with same key
+        // For safety, check that miner can't withdraw NFT asset a second time with same key
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -870,7 +870,7 @@ Clarinet.test({
                     })
                     ])
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
@@ -932,7 +932,7 @@ Clarinet.test({
         let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
-        // User should be not able to withdraw NFT asset since it already exists on the L1
+        // Miner should be not able to withdraw NFT asset since it already exists on the L1
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -948,7 +948,7 @@ Clarinet.test({
                     })])
 
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_MINT_FAILED)
         block.receipts[0].result
@@ -1005,7 +1005,7 @@ Clarinet.test({
         let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
-        // User should be able to withdraw NFT asset
+        // Miner should be able to withdraw NFT asset
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -1020,7 +1020,7 @@ Clarinet.test({
                         "is-left-side": types.bool(true)
                     })])
                 ],
-                charlie.address),
+                alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
@@ -1030,7 +1030,7 @@ Clarinet.test({
         let nft_amount = assets[charlie.address];
         assertEquals(nft_amount, 1);
 
-        // User should not be able to withdraw NFT asset a second time
+        // Miner should not be able to withdraw NFT asset a second time
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
@@ -1045,7 +1045,7 @@ Clarinet.test({
                         "is-left-side": types.bool(true)
                     })])
                 ],
-                charlie.address),
+                alice.address),
         ]);
         // should return (err ERR_WITHDRAWAL_ALREADY_PROCESSED)
         block.receipts[0].result
