@@ -117,7 +117,7 @@ impl BurnchainParameters {
 
     pub fn hyperchain_mocknet() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_MOCKSTACK,
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             network_id: NETWORK_ID_MAINNET,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
@@ -131,7 +131,7 @@ impl BurnchainParameters {
 
     pub fn bitcoin_mainnet() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_BITCOIN,
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             network_id: 0,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
@@ -145,7 +145,7 @@ impl BurnchainParameters {
 
     pub fn bitcoin_testnet() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_BITCOIN,
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             network_id: 1,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
@@ -159,7 +159,7 @@ impl BurnchainParameters {
 
     pub fn bitcoin_regtest() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_BITCOIN,
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             network_id: 2,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,
