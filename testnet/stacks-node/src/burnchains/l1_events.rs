@@ -24,6 +24,7 @@ use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
