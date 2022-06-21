@@ -19,9 +19,7 @@ use stacks::chainstate::stacks::{
 use stacks::clarity::vm::Value as ClarityValue;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
+use stacks::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
@@ -29,7 +27,7 @@ use stacks::vm::ClarityName;
 
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
-use crate::config::BurnchainConfig;
+
 use crate::operations::BurnchainOpSigner;
 use crate::util::hash::Sha512Trunc256Sum;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -433,12 +431,7 @@ impl BurnchainController for L1Controller {
         let burnchain = self.get_burnchain();
 
         self.indexer.connect(true)?;
-        burnchain.connect_db(
-            &self.indexer,
-            true,
-            self.indexer.get_first_block_header_hash()?,
-            self.indexer.get_first_block_header_timestamp()?,
-        )?;
+        burnchain.connect_db(&self.indexer, true)?;
         Ok(())
     }
 

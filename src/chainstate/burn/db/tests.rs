@@ -27,11 +27,7 @@ use super::sortdb::*;
 
 #[test]
 fn test_instantiate() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
-    let _db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    let _db = SortitionDB::connect_test(123).unwrap();
 }
 
 fn random_sortdb_test_dir() -> String {
@@ -42,55 +38,8 @@ fn random_sortdb_test_dir() -> String {
 }
 
 #[test]
-fn test_v1_to_v2_migration() {
-    let db_path_dir = random_sortdb_test_dir();
-    let first_block_height = 123;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
-
-    // create a v1 sortition DB
-    let db = SortitionDB::connect_v1(
-        &db_path_dir,
-        first_block_height,
-        &first_burn_hash,
-        get_epoch_time_secs(),
-        true,
-    )
-    .unwrap();
-    let res = SortitionDB::get_stacks_epoch(db.conn(), first_block_height);
-    assert!(res.is_err());
-    assert!(format!("{:?}", res).contains("no such table: epochs"));
-
-    assert!(SortitionDB::open(&db_path_dir, true).is_err());
-
-    // create a v2 sortition DB at the same path as the v1 DB.
-    // the schema migration should be successfully applied, and the epochs table should exist.
-    let db = SortitionDB::connect(
-        &db_path_dir,
-        first_block_height,
-        &first_burn_hash,
-        get_epoch_time_secs(),
-        &StacksEpoch::unit_test_2_05(first_block_height),
-        true,
-    )
-    .unwrap();
-    // assert that an epoch is returned
-    SortitionDB::get_stacks_epoch(db.conn(), first_block_height)
-        .expect("Database should not error querying epochs")
-        .expect("Database should have an epoch entry");
-
-    assert!(SortitionDB::open(&db_path_dir, true).is_ok());
-}
-
-#[test]
 fn test_tx_begin_end() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
-    let mut db = SortitionDB::connect_test(123, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(123).unwrap();
     let tx = db.tx_begin().unwrap();
     tx.commit().unwrap();
 }
@@ -126,10 +75,6 @@ pub fn test_append_snapshot(
 fn test_insert_block_commit() {
     let block_height = 123;
     let vtxindex = 456;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
 
     let block_commit = LeaderBlockCommitOp {
         block_header_hash: BlockHeaderHash([0x22; 32]),
@@ -142,7 +87,7 @@ fn test_insert_block_commit() {
         burn_header_hash: BurnchainHeaderHash([0x03; 32]),
     };
 
-    let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(block_height).unwrap();
 
     let snapshot = test_append_snapshot(&mut db, BurnchainHeaderHash([0x01; 32]), &vec![]);
 
@@ -230,23 +175,19 @@ fn test_insert_block_commit() {
 #[test]
 fn is_fresh_consensus_hash() {
     let consensus_hash_lifetime = 24;
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "10000000000000000000000000000000000000000000000000000000000000ff",
-    )
-    .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         for i in 0..255 {
             let sortition_id = SortitionId([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, i as u8,
             ]);
             let parent_sortition_id = if i == 0 {
                 last_snapshot.sortition_id.clone()
             } else {
                 SortitionId([
-                    0,
+                    1,
                     0,
                     0,
                     0,
@@ -288,14 +229,14 @@ fn is_fresh_consensus_hash() {
                 block_height: i as u64 + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i as u8,
                 ])
                 .unwrap(),
                 sortition_id,
                 parent_sortition_id,
                 parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                    (if i == 0 { 0x10 } else { 0 }) as u8,
+                    (if i == 0 { 0x00 } else { 1 }) as u8,
                     0,
                     0,
                     0,
@@ -326,11 +267,11 @@ fn is_fresh_consensus_hash() {
                     0,
                     0,
                     0,
-                    (if i == 0 { 0xff } else { i - 1 }) as u8,
+                    (if i == 0 { 0 } else { i - 1 }) as u8,
                 ])
                 .unwrap(),
                 consensus_hash: ConsensusHash::from_bytes(&[
-                    0,
+                    1,
                     0,
                     0,
                     0,
@@ -353,7 +294,7 @@ fn is_fresh_consensus_hash() {
                 ])
                 .unwrap(),
                 ops_hash: OpsHash::from_bytes(&[
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i as u8,
                 ])
                 .unwrap(),
@@ -389,10 +330,10 @@ fn is_fresh_consensus_hash() {
     let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
     let ch_fresh =
-        ConsensusHash::from_bytes(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255])
+        ConsensusHash::from_bytes(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255])
             .unwrap();
     let ch_oldest_fresh = ConsensusHash::from_bytes(&[
-        0,
+        1,
         0,
         0,
         0,
@@ -415,7 +356,7 @@ fn is_fresh_consensus_hash() {
     ])
     .unwrap();
     let ch_newest_stale = ConsensusHash::from_bytes(&[
-        0,
+        1,
         0,
         0,
         0,
@@ -438,7 +379,7 @@ fn is_fresh_consensus_hash() {
     ])
     .unwrap();
     let ch_missing =
-        ConsensusHash::from_bytes(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255])
+        ConsensusHash::from_bytes(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 255])
             .unwrap();
 
     let mut ic = SortitionHandleTx::begin(&mut db, &tip.sortition_id).unwrap();
@@ -469,23 +410,19 @@ fn is_fresh_consensus_hash() {
 
 #[test]
 fn get_consensus_at() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "10000000000000000000000000000000000000000000000000000000000000ff",
-    )
-    .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         for i in 0..256u64 {
             let sortition_id = SortitionId([
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, i as u8,
             ]);
             let parent_sortition_id = if i == 0 {
                 last_snapshot.sortition_id.clone()
             } else {
                 SortitionId([
-                    0,
+                    1,
                     0,
                     0,
                     0,
@@ -527,14 +464,14 @@ fn get_consensus_at() {
                 block_height: i as u64 + 1,
                 burn_header_timestamp: get_epoch_time_secs(),
                 burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i as u8,
                 ])
                 .unwrap(),
                 sortition_id,
                 parent_sortition_id,
                 parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                    (if i == 0 { 0x10 } else { 0 }) as u8,
+                    (if i == 0 { 0 } else { 1 }) as u8,
                     0,
                     0,
                     0,
@@ -565,11 +502,11 @@ fn get_consensus_at() {
                     0,
                     0,
                     0,
-                    (if i == 0 { 0xff } else { i - 1 }) as u8,
+                    (if i == 0 { 0 } else { i - 1 }) as u8,
                 ])
                 .unwrap(),
                 consensus_hash: ConsensusHash::from_bytes(&[
-                    0,
+                    1,
                     0,
                     0,
                     0,
@@ -592,7 +529,7 @@ fn get_consensus_at() {
                 ])
                 .unwrap(),
                 ops_hash: OpsHash::from_bytes(&[
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, i as u8,
                 ])
                 .unwrap(),
@@ -631,11 +568,13 @@ fn get_consensus_at() {
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
 
-    for i in 0..256 {
+    // start lookups from height = 1, start height is 0, so it will always
+    //  return the "initial" burn block
+    for i in 1..256 {
         // should succeed within the conn
         let ic = db.index_handle(&tip.sortition_id);
         let expected_ch = ConsensusHash::from_bytes(&[
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
         ])
         .unwrap();
         let ch = ic.get_consensus_at(i).unwrap().unwrap();
@@ -649,7 +588,7 @@ fn get_last_snapshot_with_sortition() {
     let total_burn_sortition = 100;
     let total_burn_no_sortition = 200;
     let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "0000000000000000000000000000000000000000000000000000000000000000",
+        "1000000000000000000000000000000000000000000000000000000000000000",
     )
     .unwrap();
 
@@ -660,9 +599,9 @@ fn get_last_snapshot_with_sortition() {
         burn_header_timestamp: get_epoch_time_secs(),
         burn_header_hash: first_burn_hash.clone(),
         sortition_id: SortitionId(first_burn_hash.0.clone()),
-        parent_sortition_id: SortitionId(first_burn_hash.0.clone()),
+        parent_sortition_id: SortitionId([0; 32]),
         parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
-        consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000")
+        consensus_hash: ConsensusHash::from_hex("1000000000000000000000000000000000000000")
             .unwrap(),
         ops_hash: OpsHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000000",
@@ -680,7 +619,7 @@ fn get_last_snapshot_with_sortition() {
         )
         .unwrap(),
         index_root: TrieHash([0u8; 32]),
-        num_sortitions: 0,
+        num_sortitions: 1,
         stacks_block_accepted: false,
         stacks_block_height: 0,
         arrival_index: 0,
@@ -733,7 +672,7 @@ fn get_last_snapshot_with_sortition() {
         )
         .unwrap(),
         index_root: TrieHash([1u8; 32]),
-        num_sortitions: 1,
+        num_sortitions: 2,
         stacks_block_accepted: false,
         stacks_block_height: 0,
         arrival_index: 0,
@@ -756,15 +695,8 @@ fn get_last_snapshot_with_sortition() {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 1,
         ]),
-        parent_sortition_id: SortitionId([
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ]),
-        parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ])
-        .unwrap(),
+        parent_sortition_id: SortitionId(first_burn_hash.0.clone()),
+        parent_burn_header_hash: first_burn_hash.clone(),
         consensus_hash: ConsensusHash::from_bytes(&[
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
         ])
@@ -786,7 +718,7 @@ fn get_last_snapshot_with_sortition() {
         )
         .unwrap(),
         index_root: TrieHash([2u8; 32]),
-        num_sortitions: 0,
+        num_sortitions: 1,
         stacks_block_accepted: false,
         stacks_block_height: 0,
         arrival_index: 0,
@@ -795,10 +727,18 @@ fn get_last_snapshot_with_sortition() {
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
     };
 
-    let mut db = SortitionDB::connect_test(block_height - 2, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(block_height - 3).unwrap();
+
+    {
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        let mut tx = SortitionHandleTx::begin(&mut db, &chain_tip.sortition_id).unwrap();
+
+        tx.append_chain_tip_snapshot(&chain_tip, &first_snapshot, &vec![], None, None)
+            .unwrap();
+        tx.commit().unwrap();
+    }
 
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
-
     let initial_snapshot = {
         let ic = db.index_handle(&chain_tip.sortition_id);
         ic.get_last_snapshot_with_sortition(block_height - 2)
@@ -918,7 +858,7 @@ fn test_chain_reorg() {
     let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
     let first_block_height = 100;
 
-    let mut db = SortitionDB::connect_test(first_block_height, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(first_block_height).unwrap();
 
     // make an initial fork
     let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
@@ -1293,11 +1233,7 @@ fn test_chain_reorg() {
 
 #[test]
 fn test_get_stacks_header_hashes() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "10000000000000000000000000000000000000000000000000000000000000ff",
-    )
-    .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
     {
         let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
         let mut total_burn = 0;
@@ -1310,56 +1246,59 @@ fn test_get_stacks_header_hashes() {
                     block_height: i + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
                     sortition_id: SortitionId([
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ]),
                     parent_sortition_id: last_snapshot.sortition_id.clone(),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                        (if i == 0 { 0x10 } else { 0 }) as u8,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        (if i == 0 { 0xff } else { i - 1 }) as u8,
-                    ])
-                    .unwrap(),
+                    parent_burn_header_hash: if i == 0 {
+                        BurnchainHeaderHash([0; 32])
+                    } else {
+                        BurnchainHeaderHash([
+                            1,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            (i - 1) as u8,
+                        ])
+                    },
                     consensus_hash: ConsensusHash::from_bytes(&[
                         1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
                     ops_hash: OpsHash::from_bytes(&[
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
@@ -1386,56 +1325,59 @@ fn test_get_stacks_header_hashes() {
                     block_height: i + 1,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
                     sortition_id: SortitionId([
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ]),
                     parent_sortition_id: last_snapshot.sortition_id.clone(),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[
-                        (if i == 0 { 0x10 } else { 0 }) as u8,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        (if i == 0 { 0xff } else { i - 1 }) as u8,
-                    ])
-                    .unwrap(),
+                    parent_burn_header_hash: if i == 0 {
+                        BurnchainHeaderHash([0; 32])
+                    } else {
+                        BurnchainHeaderHash([
+                            1,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            (i - 1) as u8,
+                        ])
+                    },
                     consensus_hash: ConsensusHash::from_bytes(&[
                         1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
                     ops_hash: OpsHash::from_bytes(&[
-                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, i as u8,
                     ])
                     .unwrap(),
@@ -1671,6 +1613,11 @@ fn make_fork_run(
 ) -> () {
     let mut last_snapshot = start_snapshot.clone();
     for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
+        info!(
+            "Producing block height {}, with consensus_hash = {:x}",
+            i,
+            (i + 1) as u8 | bit_pattern
+        );
         let snapshot = BlockSnapshot {
             accumulated_coinbase_ustx: 0,
             pox_valid: true,
@@ -1711,28 +1658,28 @@ fn make_fork_run(
 
 #[test]
 fn test_set_stacks_block_accepted() {
-    let first_burn_hash = BurnchainHeaderHash::from_hex(
-        "10000000000000000000000000000000000000000000000000000000000000ff",
-    )
-    .unwrap();
-    let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+    let mut db = SortitionDB::connect_test(0).unwrap();
 
     let mut last_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
 
     // seed a single fork
-    make_fork_run(&mut db, &last_snapshot, 5, 0);
+    make_fork_run(&mut db, &last_snapshot, 5, 0x60);
 
     // set some blocks as processed
     for i in 0..5 {
-        let consensus_hash = ConsensusHash([(i + 1) as u8; 20]);
-        let parent_stacks_block_hash = if i == 0 {
+        let consensus_hash = ConsensusHash([(i + 1) | 0x60; 20]);
+        let parent_stacks_block_hash = if i <= 1 {
             FIRST_STACKS_BLOCK_HASH.clone()
         } else {
-            BlockHeaderHash([(i - 1) as u8; 32])
+            BlockHeaderHash([(i - 1) | 0x60 as u8; 32])
         };
 
-        let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
-        let height = i;
+        let stacks_block_hash = if i == 0 {
+            FIRST_STACKS_BLOCK_HASH.clone()
+        } else {
+            BlockHeaderHash([i | 0x60 as u8; 32])
+        };
+        let height = i as u64;
 
         {
             let mut tx = db.tx_begin_at_tip();
@@ -1747,30 +1694,35 @@ fn test_set_stacks_block_accepted() {
         }
 
         // chain tip is memoized to the current burn chain tip
+        info!("Storing {} at {}", &stacks_block_hash, &consensus_hash);
         let (block_consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
+        info!("Stored {} at {}", &block_bhh, &block_consensus_hash);
         assert_eq!(block_consensus_hash, consensus_hash);
         assert_eq!(block_bhh, stacks_block_hash);
     }
 
     // materialize all block arrivals in the MARF
-    last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x04; 32]))
+    last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x64; 32]))
         .unwrap()
         .unwrap();
-    make_fork_run(&mut db, &last_snapshot, 1, 0);
+    make_fork_run(&mut db, &last_snapshot, 1, 0x60);
 
     // verify that all Stacks block in this fork can be looked up from this chain tip
     last_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
     {
         let ic = db.index_conn();
-        for i in 0..5 {
-            let parent_stacks_block_hash = BlockHeaderHash([i as u8; 32]);
+        for i in 1..5 {
+            let parent_stacks_block_hash = if i == 0 {
+                FIRST_STACKS_BLOCK_HASH.clone()
+            } else {
+                BlockHeaderHash([i | 0x60; 32])
+            };
             let parent_key = db_keys::stacks_block_index(&parent_stacks_block_hash);
 
-            test_debug!(
+            info!(
                 "Look up '{}' off of {}",
-                &parent_key,
-                &last_snapshot.burn_header_hash
+                &parent_key, &last_snapshot.burn_header_hash
             );
             let value_opt = ic
                 .get_indexed(&last_snapshot.sortition_id, &parent_key)
@@ -1793,17 +1745,17 @@ fn test_set_stacks_block_accepted() {
     assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
     assert_eq!(
         last_snapshot.canonical_stacks_tip_hash,
-        BlockHeaderHash([0x04; 32])
+        BlockHeaderHash([0x64; 32])
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_consensus_hash,
-        ConsensusHash([0x05; 20])
+        ConsensusHash([0x65; 20])
     );
 
     // accept blocks 5 and 7 in one fork, and 6, 8, 9 in another.
     // Stacks fork 1,2,3,4,5,7 will be the longest fork.
     // Stacks fork 1,2,3,4 will overtake it when blocks 6,8,9 are processed.
-    let mut parent_stacks_block_hash = BlockHeaderHash([0x04; 32]);
+    let mut parent_stacks_block_hash = BlockHeaderHash([0x64; 32]);
     for (i, height) in [5, 7].iter().zip([5, 6].iter()) {
         let consensus_hash = ConsensusHash([((i + 1) | 0x80) as u8; 20]);
         let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
@@ -1849,7 +1801,7 @@ fn test_set_stacks_block_accepted() {
     // block 7.  The two stacks forks will be:
     // * 1,2,3,4,5,7
     // * 1,2,3,4,6,8
-    parent_stacks_block_hash = BlockHeaderHash([4u8; 32]);
+    parent_stacks_block_hash = BlockHeaderHash([0x64; 32]);
     for (i, height) in [6, 8].iter().zip([5, 6].iter()) {
         let consensus_hash = ConsensusHash([((i + 1) | 0x80) as u8; 20]);
         let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
@@ -1897,10 +1849,17 @@ fn test_set_stacks_block_accepted() {
         }
 
         // we've overtaken the longest fork with a different longest fork on this burn chain fork
+        info!(
+            "Canonical snapshot: {} < {}",
+            SortitionDB::get_canonical_burn_chain_tip(db.conn())
+                .unwrap()
+                .canonical_stacks_tip_height,
+            height
+        );
         let (block_consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
-        assert_eq!(block_consensus_hash, consensus_hash);
         assert_eq!(block_bhh, stacks_block_hash);
+        assert_eq!(block_consensus_hash, consensus_hash);
     }
 
     // canonical stacks chain tip is now stacks block 9
@@ -1927,20 +1886,20 @@ fn test_set_stacks_block_accepted() {
     //
     // stx:      1,    2,    3,    4
     // burn:  0x01, 0x02, 0x03, 0x04, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b
-    last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x04; 32]))
+    last_snapshot = SortitionDB::get_block_snapshot(db.conn(), &SortitionId([0x64; 32]))
         .unwrap()
         .unwrap();
     assert_eq!(
         last_snapshot.burn_header_hash,
-        BurnchainHeaderHash([0x04; 32])
+        BurnchainHeaderHash([0x64; 32])
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_consensus_hash,
-        ConsensusHash([0x05; 20])
+        ConsensusHash([0x65; 20])
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_hash,
-        BlockHeaderHash([0x04; 32])
+        BlockHeaderHash([0x64; 32])
     );
 
     make_fork_run(&mut db, &last_snapshot, 7, 0x40);
@@ -1954,11 +1913,11 @@ fn test_set_stacks_block_accepted() {
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_consensus_hash,
-        ConsensusHash([0x05; 20])
+        ConsensusHash([0x65; 20])
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_hash,
-        BlockHeaderHash([0x04; 32])
+        BlockHeaderHash([0x64; 32])
     );
     assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
 
@@ -1967,7 +1926,7 @@ fn test_set_stacks_block_accepted() {
         let mut tx = db.tx_begin_at_tip();
         tx.set_stacks_block_accepted(
             &ConsensusHash([0x4c; 20]),
-            &BlockHeaderHash([0x04; 32]),
+            &BlockHeaderHash([0x64; 32]),
             &BlockHeaderHash([0x4b; 32]),
             5,
         )
@@ -2015,11 +1974,11 @@ fn test_set_stacks_block_accepted() {
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_consensus_hash,
-        ConsensusHash([0x05; 20])
+        ConsensusHash([0x65; 20])
     );
     assert_eq!(
         last_snapshot.canonical_stacks_tip_hash,
-        BlockHeaderHash([0x04; 32])
+        BlockHeaderHash([0x64; 32])
     );
     assert_eq!(last_snapshot.canonical_stacks_tip_height, 4);
 
@@ -2044,7 +2003,7 @@ fn test_set_stacks_block_accepted() {
         let mut tx = db.tx_handle_begin(&SortitionId([0x2a; 32])).unwrap();
         tx.set_stacks_block_accepted(
             &ConsensusHash([0x2a; 20]),
-            &BlockHeaderHash([0x04; 32]),
+            &BlockHeaderHash([0x64; 32]),
             &BlockHeaderHash([0x29; 32]),
             5,
         )
@@ -2111,7 +2070,7 @@ fn test_set_stacks_block_accepted() {
         let mut tx = db.tx_begin_at_tip();
         tx.set_stacks_block_accepted(
             &ConsensusHash([0x46; 20]),
-            &BlockHeaderHash([0x04; 32]),
+            &BlockHeaderHash([0x64; 32]),
             &BlockHeaderHash([0x45; 32]),
             5,
         )
@@ -2229,8 +2188,6 @@ fn test_epoch_switch() {
     let mut db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2287,8 +2244,6 @@ fn test_bad_epochs_discontinuous() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2325,8 +2280,6 @@ fn test_bad_epochs_overlapping() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2363,8 +2316,6 @@ fn test_bad_epochs_missing_past() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2401,8 +2352,6 @@ fn test_bad_epochs_missing_future() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
@@ -2439,8 +2388,6 @@ fn test_bad_epochs_invalid() {
     let db = SortitionDB::connect(
         &db_path_dir,
         3,
-        &BurnchainHeaderHash([0u8; 32]),
-        0,
         &vec![
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch10,
