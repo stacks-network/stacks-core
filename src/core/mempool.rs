@@ -182,6 +182,7 @@ pub enum MemPoolDropReason {
     TOO_EXPENSIVE,
 }
 
+#[derive(Debug)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -190,6 +191,7 @@ pub struct ConsiderTransaction {
     pub update_estimate: bool,
 }
 
+#[derive(Debug)]
 enum ConsiderTransactionResult {
     NoTransactions,
     UpdateNonces(Vec<StacksAddress>),
