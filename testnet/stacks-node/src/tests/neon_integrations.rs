@@ -1358,7 +1358,7 @@ fn transactions_microblocks_then_block() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    let mut btc_regtest_controller = MockController::new(conf, channel.clone());
+    let mut btc_regtest_controller = MockController::new(conf.clone(), channel.clone());
 
     thread::spawn(move || run_loop.start(None, 0));
     wait_for_runloop(&blocks_processed);
@@ -1390,7 +1390,7 @@ fn transactions_microblocks_then_block() {
     {
         let small_contract = "(define-public (return-one) (ok 1))";
         let publish_tx =
-            make_contract_publish(&contract_sk, 0, 1000, "small-contract", small_contract);
+            make_contract_publish(&contract_sk, conf.node.chain_id,0, 1000, "small-contract", small_contract);
         submit_tx_and_wait(&http_origin, &publish_tx);
     }
 
@@ -1410,6 +1410,7 @@ fn transactions_microblocks_then_block() {
     {
         let contract_call_tx = make_contract_call(
             &sk_2,
+            conf.node.chain_id,
             0,
             1000,
             &to_addr(&contract_sk),
@@ -1440,6 +1441,7 @@ fn transactions_microblocks_then_block() {
             {
                 let contract_call_tx = make_contract_call_mblock_only(
                     &sk_2,
+                    conf.node.chain_id,
                     1,
                     1000,
                     &to_addr(&contract_sk),
@@ -1454,6 +1456,7 @@ fn transactions_microblocks_then_block() {
             {
                 let contract_call_tx = make_contract_call_mblock_only(
                     &sk_2,
+                    conf.node.chain_id,
                     2,
                     1000,
                     &to_addr(&contract_sk),
@@ -1468,6 +1471,7 @@ fn transactions_microblocks_then_block() {
             {
                 let contract_call_tx = make_contract_call_mblock_only(
                     &sk_2,
+                    conf.node.chain_id,
                     3,
                     1000,
                     &to_addr(&contract_sk),
@@ -1489,6 +1493,7 @@ fn transactions_microblocks_then_block() {
     {
         let contract_call_tx = make_contract_call(
             &sk_2,
+            conf.node.chain_id,
             4,
             1000,
             &to_addr(&contract_sk),

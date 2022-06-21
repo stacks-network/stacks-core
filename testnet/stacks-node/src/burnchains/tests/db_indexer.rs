@@ -14,9 +14,6 @@ fn make_test_config() -> BurnchainConfig {
     config.chain_id = LAYER_1_CHAIN_ID_MAINNET;
     config.mode = "hyperchain".to_string();
     config.first_burn_header_height = 1;
-    config.first_burn_header_hash =
-        "0101010101010101010101010101010101010101010101010101010101010101".to_string();
-    config.first_burn_header_timestamp = 0u64;
     config
 }
 
@@ -202,10 +199,8 @@ fn test_drop_headers() {
 /// that will be the first block we record.
 #[test]
 fn test_first_header_hash_requires_waiting() {
-    let mut config = make_test_config();
+    let config = make_test_config();
 
-    config.first_burn_header_hash =
-        "0303030303030303030303030303030303030303030303030303030303030303".to_string();
     let mut indexer = DBBurnchainIndexer::new(&random_sortdb_test_dir(), config, true)
         .expect("Couldn't create indexer.");
 
@@ -239,21 +234,10 @@ fn test_db_sync_with_indexer() {
     let config = make_test_config();
     let burnchain_dir = random_sortdb_test_dir();
 
-    let first_burn_header_hash = BurnchainHeaderHash(
-        StacksBlockId::from_hex(&config.first_burn_header_hash)
-            .expect("Could not parse `first_burn_header_hash`.")
-            .0,
-    );
-
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
     let _ = burnchain
-        .connect_db(
-            &indexer,
-            true,
-            first_burn_header_hash,
-            config.first_burn_header_timestamp,
-        )
+        .connect_db(&indexer, true)
         .expect("Could not connect burnchain.");
 
     let (_receivers, channels) = CoordinatorCommunication::instantiate();
@@ -301,21 +285,10 @@ fn test_db_sync_with_indexer_short_sequence() {
     config.first_burn_header_height = 0;
     let burnchain_dir = random_sortdb_test_dir();
 
-    let first_burn_header_hash = BurnchainHeaderHash(
-        StacksBlockId::from_hex(&config.first_burn_header_hash)
-            .expect("Could not parse `first_burn_header_hash`.")
-            .0,
-    );
-
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
     let (_sortition_db, burn_db) = burnchain
-        .connect_db(
-            &indexer,
-            true,
-            first_burn_header_hash,
-            config.first_burn_header_timestamp,
-        )
+        .connect_db(&indexer, true)
         .expect("Could not connect burnchain.");
 
     let (_receivers, channels) = CoordinatorCommunication::instantiate();
@@ -400,21 +373,10 @@ fn test_db_sync_with_indexer_long_fork_repeated_calls() {
     config.first_burn_header_height = 0;
     let burnchain_dir = random_sortdb_test_dir();
 
-    let first_burn_header_hash = BurnchainHeaderHash(
-        StacksBlockId::from_hex(&config.first_burn_header_hash)
-            .expect("Could not parse `first_burn_header_hash`.")
-            .0,
-    );
-
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
     let (_sortition_db, burn_db) = burnchain
-        .connect_db(
-            &indexer,
-            true,
-            first_burn_header_hash,
-            config.first_burn_header_timestamp,
-        )
+        .connect_db(&indexer, true)
         .expect("Could not connect burnchain.");
 
     let (_receivers, channels) = CoordinatorCommunication::instantiate();
@@ -484,21 +446,10 @@ fn test_db_sync_with_indexer_long_fork_call_at_end() {
     let config = make_test_config();
     let burnchain_dir = random_sortdb_test_dir();
 
-    let first_burn_header_hash = BurnchainHeaderHash(
-        StacksBlockId::from_hex(&config.first_burn_header_hash)
-            .expect("Could not parse `first_burn_header_hash`.")
-            .0,
-    );
-
     let mut burnchain =
         burnchain_from_config(&burnchain_dir, &config).expect("Could not create Burnchain.");
     let (_sortition_db, burn_db) = burnchain
-        .connect_db(
-            &indexer,
-            true,
-            first_burn_header_hash,
-            config.first_burn_header_timestamp,
-        )
+        .connect_db(&indexer, true)
         .expect("Could not connect burnchain.");
 
     let (_receivers, channels) = CoordinatorCommunication::instantiate();
