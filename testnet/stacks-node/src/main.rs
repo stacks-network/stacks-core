@@ -113,16 +113,23 @@ fn main() {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
-            match ConfigFile::from_path(&config_path) {
-                Ok(config_file) => {
-                    info!("Loaded config!");
-                    process::exit(0);
-                },
+            let config_file = match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => config_file,
                 Err(e) => {
                     warn!("Invalid config file: {}", e);
                     process::exit(1);
                 }
-            }
+            };
+            let conf = match Config::from_config_file(config_file) {
+                Ok(conf) => {
+                    info!("Loaded config!");
+                    process::exit(0);
+                },
+                Err(e) => {
+                    warn!("Invalid config: {}", e);
+                    process::exit(1);
+                }
+            };
         }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
