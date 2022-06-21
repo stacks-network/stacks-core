@@ -82,8 +82,10 @@ mod tests {
                     [node]
                     seed = "invalid-hex-value"
                     "#,
-                ).unwrap()
-            ).unwrap_err()
+                )
+                .unwrap()
+            )
+            .unwrap_err()
         );
 
         assert_eq!(
@@ -94,8 +96,10 @@ mod tests {
                     [node]
                     local_peer_seed = "invalid-hex-value"
                     "#,
-                ).unwrap()
-            ).unwrap_err()
+                )
+                .unwrap()
+            )
+            .unwrap_err()
         );
 
         assert_eq!(
@@ -391,7 +395,8 @@ impl Config {
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("[node]seed should be a hex encoded string"))?,
+                        Some(seed) => hex_bytes(&seed)
+                            .map_err(|e| format!("[node]seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -405,7 +410,9 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("[node]local_peer_seed should be a hex encoded string"))?,
+                        Some(seed) => hex_bytes(&seed).map_err(|e| {
+                            format!("[node]local_peer_seed should be a hex encoded string")
+                        })?,
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
@@ -499,11 +506,16 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut sock_addrs = format!("{}::1", &peer_host).to_socket_addrs().map_err(|e| format!("Invalid [burnchain]peer_host: {}", &e))?;
+                            let mut sock_addrs = format!("{}::1", &peer_host)
+                                .to_socket_addrs()
+                                .map_err(|e| format!("Invalid [burnchain]peer_host: {}", &e))?;
                             let sock_addr = match sock_addrs.next() {
                                 Some(addr) => addr,
                                 None => {
-                                    return Err(format!("No IP address could be queried for '{}'", &peer_host));
+                                    return Err(format!(
+                                        "No IP address could be queried for '{}'",
+                                        &peer_host
+                                    ));
                                 }
                             };
                             format!("{}", sock_addr.ip())

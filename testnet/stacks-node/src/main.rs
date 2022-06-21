@@ -124,7 +124,7 @@ fn main() {
                 Ok(conf) => {
                     info!("Loaded config!");
                     process::exit(0);
-                },
+                }
                 Err(e) => {
                     warn!("Invalid config: {}", e);
                     process::exit(1);
@@ -151,7 +151,9 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(ConfigFile::from_path(&config_path).unwrap()).unwrap();
+                    let conf =
+                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
+                            .unwrap();
                     args.finish().unwrap();
                     conf.node.seed
                 } else {
