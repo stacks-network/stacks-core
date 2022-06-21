@@ -67,7 +67,7 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.node.wait_before_first_anchored_block = 5_000;
 
     conf.node.chain_id = rng.gen_range(0u32, u32::MAX);
-    error!("Using random L2 chain_id {}", conf.node.chain_id);
+    info!("Using random L2 chain_id {}", conf.node.chain_id);
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 

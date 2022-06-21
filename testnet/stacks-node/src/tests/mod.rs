@@ -254,7 +254,7 @@ pub fn new_test_conf() -> Config {
     conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
 
     conf.node.chain_id = rng.gen_range(0u32, u32::MAX);
-    error!("Using random L2 chain_id: {}", conf.node.chain_id);
+    info!("Using random L2 chain_id: {}", conf.node.chain_id);
 
     conf.node.wait_before_first_anchored_block = 1_000;
 
