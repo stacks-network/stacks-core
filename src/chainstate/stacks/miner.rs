@@ -236,6 +236,7 @@ impl TransactionResult {
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
+            "payload" => %tx.payload.name(),
         );
     }
 
@@ -247,6 +248,7 @@ impl TransactionResult {
             "reason" => %err,
             "tx_id" => %tx.txid(),
             "event_type" => "error",
+            "payload" => %tx.payload.name(),
         );
     }
 
@@ -258,6 +260,7 @@ impl TransactionResult {
             "event_name" => "transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => "skip",
+            "payload" => %tx.payload.name(),
             "reason" => %err,
         );
     }
@@ -1977,8 +1980,10 @@ impl StacksBlockBuilder {
         let ts_start = get_epoch_time_ms();
 
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
+
         let stacks_epoch_id = epoch_tx.get_epoch();
         let block_limit = epoch_tx
             .block_limit()
@@ -2175,7 +2180,7 @@ impl StacksBlockBuilder {
             );
         }
 
-        debug!(
+        info!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,

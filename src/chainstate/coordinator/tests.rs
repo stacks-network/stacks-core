@@ -178,8 +178,6 @@ pub fn setup_states(
         let sortition_db = SortitionDB::connect(
             &burnchain.get_db_path(),
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            burnchain.first_block_timestamp.into(),
             &epochs,
             true,
         )
@@ -188,8 +186,6 @@ pub fn setup_states(
         let burnchain_blocks_db = BurnchainDB::connect(
             &burnchain.get_burnchaindb_path(),
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            burnchain.first_block_timestamp as u64,
             true,
         )
         .unwrap();
@@ -838,6 +834,7 @@ fn preprocess_block(
         )
         .unwrap();
 }
+<<<<<<< HEAD
 
 #[test]
 fn test_check_chainstate_db_versions() {
@@ -913,3 +910,5 @@ fn test_check_chainstate_db_versions() {
             .unwrap()
     );
 }
+=======
+>>>>>>> master

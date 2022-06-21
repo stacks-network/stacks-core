@@ -2651,8 +2651,6 @@ pub mod test {
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
                 config.burnchain.first_block_height,
-                &config.burnchain.first_block_hash,
-                0,
                 &epochs,
                 true,
             )
@@ -2664,8 +2662,6 @@ pub mod test {
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
                 first_burnchain_block_height,
-                &first_burnchain_block_hash,
-                0,
                 true,
             )
             .unwrap();

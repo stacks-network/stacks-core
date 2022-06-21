@@ -297,7 +297,8 @@ fn test_db_sync_with_indexer() {
 #[test]
 fn test_db_sync_with_indexer_short_sequence() {
     let mut indexer = make_test_indexer();
-    let config = make_test_config();
+    let mut config = make_test_config();
+    config.first_burn_header_height = 0;
     let burnchain_dir = random_sortdb_test_dir();
 
     let first_burn_header_hash = BurnchainHeaderHash(
@@ -395,7 +396,8 @@ fn test_db_sync_with_indexer_short_sequence() {
 #[test]
 fn test_db_sync_with_indexer_long_fork_repeated_calls() {
     let mut indexer = make_test_indexer();
-    let config = make_test_config();
+    let mut config = make_test_config();
+    config.first_burn_header_height = 0;
     let burnchain_dir = random_sortdb_test_dir();
 
     let first_burn_header_hash = BurnchainHeaderHash(

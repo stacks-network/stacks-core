@@ -374,8 +374,6 @@ impl PeerNetwork {
         }
 
         let first_block_height = burnchain.first_block_height;
-        let first_burn_header_hash = burnchain.first_block_hash.clone();
-        let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut network = PeerNetwork {
             peer_version: peer_version,
@@ -384,11 +382,7 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            burnchain_tip: BlockSnapshot::initial(
-                first_block_height,
-                &first_burn_header_hash,
-                first_burn_header_ts as u64,
-            ),
+            burnchain_tip: BlockSnapshot::initial(first_block_height),
 
             peerdb: peerdb,
             atlasdb: atlasdb,

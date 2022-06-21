@@ -48,15 +48,11 @@ use stacks_common::types::chainstate::TrieHash;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
-    pub fn initial(
-        first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
-    ) -> BlockSnapshot {
+    pub fn initial(first_block_height: u64) -> BlockSnapshot {
         BlockSnapshot {
             block_height: first_block_height,
-            burn_header_hash: first_burn_header_hash.clone(),
-            burn_header_timestamp: first_burn_header_timestamp,
+            burn_header_hash: BurnchainHeaderHash::zero(),
+            burn_header_timestamp: 0,
             parent_burn_header_hash: BurnchainHeaderHash::sentinel(),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
@@ -73,8 +69,8 @@ impl BlockSnapshot {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             canonical_stacks_tip_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            sortition_id: SortitionId::new(first_burn_header_hash),
-            parent_sortition_id: SortitionId::new(first_burn_header_hash),
+            sortition_id: SortitionId::zero(),
+            parent_sortition_id: SortitionId::sentinel(),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
         }
@@ -102,7 +98,7 @@ impl BlockSnapshot {
     ) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let parent_block_hash = parent_snapshot.burn_header_hash.clone();
 
         let non_winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -169,15 +165,23 @@ impl BlockSnapshot {
         _block_burn_total: Option<u64>,
         initial_mining_bonus_ustx: u128,
     ) -> Result<BlockSnapshot, db_error> {
-        assert_eq!(
-            parent_snapshot.burn_header_hash,
-            block_header.parent_block_hash
-        );
+        if parent_snapshot.block_height == burnchain.first_block_height {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                BurnchainHeaderHash([0; 32])
+            );
+        } else {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                block_header.parent_block_hash
+            );
+        }
         assert_eq!(parent_snapshot.block_height + 1, block_header.block_height);
 
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
-        let parent_block_hash = block_header.parent_block_hash.clone();
+        let parent_block_hash = parent_snapshot.burn_header_hash.clone();
+
         let first_block_height = burnchain.first_block_height;
 
         let last_sortition_hash = parent_snapshot.sortition_hash.clone();

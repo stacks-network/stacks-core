@@ -2336,8 +2336,6 @@ mod test {
         let sortdb = SortitionDB::connect(
             &sortdb_path,
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             true,
         )
@@ -4031,7 +4029,7 @@ mod test {
         )
         .unwrap();
 
-        let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut sortdb_1 = SortitionDB::connect_test(12300).unwrap();
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
 

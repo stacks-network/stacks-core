@@ -7,7 +7,6 @@ use crate::neon;
 use crate::tests::neon_integrations::{get_account, submit_tx, test_observer};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
-use clarity::util::get_epoch_time_secs;
 use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
 use clarity::vm::database::ClaritySerializable;
 use clarity::vm::events::NFTEventType::NFTWithdrawEvent;
@@ -16,7 +15,7 @@ use clarity::vm::events::STXWithdrawEventData;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, TypeSignature};
 use clarity::vm::Value;
-use reqwest::Response;
+
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
@@ -32,7 +31,7 @@ use stacks::clarity_vm::withdrawal::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::LAYER_1_CHAIN_ID_TESTNET;
 use stacks::net::CallReadOnlyRequestBody;
-use stacks::net::RPCPeerInfoData;
+
 use stacks::util::hash::hex_bytes;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::events::FTEventType::FTWithdrawEvent;
@@ -42,8 +41,8 @@ use stacks::vm::ClarityName;
 use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
 use std::time::{Duration, Instant};
 
 #[derive(std::fmt::Debug)]
@@ -253,8 +252,6 @@ fn l1_basic_listener_test() {
 
     // Start the L2 run loop.
     let mut config = super::new_test_conf();
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -317,8 +314,6 @@ fn l1_integration_test() {
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -352,7 +347,7 @@ fn l1_integration_test() {
     .unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
@@ -455,8 +450,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -1049,7 +1042,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let nft_path = withdrawal_tree.path(&nft_withdrawal_key_bytes).unwrap();
 
     let mut ft_sib_data = Vec::new();
-    for (i, sib) in ft_path.iter().enumerate() {
+    for sib in ft_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -1061,7 +1054,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         ft_sib_data.push(sib_tuple);
     }
     let mut nft_sib_data = Vec::new();
-    for (i, sib) in nft_path.iter().enumerate() {
+    for sib in nft_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -1111,7 +1104,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             Value::list_from(nft_sib_data).unwrap(),
         ],
     );
-    l1_nonce += 1;
     // Withdraw ft-token from hyperchains contract on L1
     submit_tx(&l1_rpc_origin, &l1_withdraw_ft_tx);
     // Withdraw nft-token from hyperchains contract on L1
@@ -1201,8 +1193,6 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     config.add_initial_balance(miner_account.to_string(), l2_starting_account_balance);
     config.add_initial_balance(alt_user_addr.to_string(), l2_starting_account_balance);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();
@@ -1320,8 +1310,6 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         hyperchain_simple_stx,
     );
     l2_nonce += 1;
-    let hc_stx_contract_id =
-        QualifiedContractIdentifier::new(user_addr.into(), ContractName::from("simple-stx"));
 
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
@@ -1482,7 +1470,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     let stx_path = withdrawal_tree.path(&stx_withdrawal_key_bytes).unwrap();
 
     let mut stx_sib_data = Vec::new();
-    for (i, sib) in stx_path.iter().enumerate() {
+    for sib in stx_path.iter() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -1555,8 +1543,6 @@ fn l2_simple_contract_calls() {
     let mut config = super::new_test_conf();
     config.node.mining_key = Some(MOCKNET_PRIVATE_KEY_2.clone());
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.mode = "hyperchain".to_string();

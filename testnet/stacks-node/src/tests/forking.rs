@@ -61,7 +61,7 @@ fn add_sortition_link(
     grandparent_hash_byte: u8,
 ) {
     let parent_height = height - 1;
-    let mut ic = SortitionHandleTx::begin(db, &SortitionId([1; 32])).unwrap();
+    let mut ic = SortitionHandleTx::begin(db, &SortitionId([parent_hash_byte; 32])).unwrap();
     let _ = ic
         .append_chain_tip_snapshot(
             &make_test_block_snapshot(parent_height, parent_hash_byte, grandparent_hash_byte),
@@ -75,15 +75,13 @@ fn add_sortition_link(
 }
 
 // Make a SortitionDB with the following implied tree.
-//     / 3  -> 2 -> 1
-//   5
-//     \ 4
+//       / 3  -> 2 -> 1
+// 0 -> 5
+//       \ 4
 fn make_sortition_db_for_fork_tests() -> SortitionDB {
     let mut db = SortitionDB::connect(
         &random_sortdb_test_dir(),
-        1,
-        &BurnchainHeaderHash([5; 32]),
-        get_epoch_time_secs(),
+        0,
         &[StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -94,7 +92,7 @@ fn make_sortition_db_for_fork_tests() -> SortitionDB {
         true,
     )
     .unwrap();
-
+    add_sortition_link(&mut db, 1, 5, 0, 0);
     add_sortition_link(&mut db, 2, 3, 5, 0);
     add_sortition_link(&mut db, 3, 2, 3, 5);
     add_sortition_link(&mut db, 4, 1, 2, 3);
