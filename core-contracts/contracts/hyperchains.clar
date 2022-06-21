@@ -15,7 +15,7 @@
 (define-constant ERR_VALIDATION_FAILED 10)
 ;;; The value supplied for `target-chain-tip` does not match the current chain tip.
 (define-constant ERR_INVALID_CHAIN_TIP 11)
-;;; The contract was called before reaching this-chain height 1.
+;;; The contract was called before reaching this-chain height reaches 1.
 (define-constant ERR_CALLED_TOO_EARLY 12)
 
 ;; Map from Stacks block height to block commit
