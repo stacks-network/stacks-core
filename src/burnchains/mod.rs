@@ -145,7 +145,7 @@ impl BurnchainParameters {
 
     pub fn bitcoin_testnet() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_MAINNET,
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
             network_id: 1,
             stable_confirmations: 7,
             consensus_hash_lifetime: 24,
@@ -159,7 +159,7 @@ impl BurnchainParameters {
 
     pub fn bitcoin_regtest() -> BurnchainParameters {
         BurnchainParameters {
-            chain_id: LAYER_1_CHAIN_ID_MAINNET,
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
             network_id: 2,
             stable_confirmations: 1,
             consensus_hash_lifetime: 24,

@@ -970,9 +970,9 @@ pub struct BurnchainConfig {
     pub chain: String,
     pub mode: String,
     pub observer_port: u16,
-    /// Indexes into the burnchain module.
+    /// This is the chain identifier of the burnchain.
     pub chain_id: u32,
-    /// Indexes into the networking code.
+    /// This is the network identifier of the burnchain.
     pub network_id: u32,
     pub peer_version: u32,
     pub commit_anchor_block_within: u64,
@@ -1107,7 +1107,7 @@ pub struct BurnchainConfigFile {
 #[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
-    /// u32-valued index of the chain. This is also the `network_id` for L2.
+    /// u32-valued identifier of the chain. This is also the `network_id` for L2.
     pub chain_id: u32,
     /// Value to initialize the keychain, only used if `mining_key` is not set.
     pub seed: Vec<u8>,
