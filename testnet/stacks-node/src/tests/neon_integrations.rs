@@ -28,8 +28,8 @@ use crate::tests::l1_observer_test::MOCKNET_PRIVATE_KEY_1;
 use crate::tests::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, SK_1, SK_2, SK_3,
 };
-use crate::{Config, ConfigFile, Keychain};
-use std::convert::{TryFrom, TryInto};
+use crate::{Config, Keychain};
+use std::convert::TryFrom;
 
 use super::make_contract_call_mblock_only;
 
@@ -58,8 +58,6 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000001".to_string();
     conf.burnchain.first_burn_header_height = 1;
 
     conf.node.wait_before_first_anchored_block = 5_000;
@@ -621,14 +619,10 @@ fn mockstack_integration_test() {
 #[ignore]
 fn mockstack_wait_for_first_block() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
-    conf.burnchain.first_burn_header_hash =
-        "0000000000000000000000000000000000000000000000000000000000000010".to_string();
     conf.burnchain.first_burn_header_height = 16;
-
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -650,7 +644,7 @@ fn mockstack_wait_for_first_block() {
 
     // Walk up 16 + 1 blocks.
     btc_regtest_controller.next_block(None);
-    for i in 0..16 {
+    for _i in 0..16 {
         btc_regtest_controller.next_block(None);
     }
 
@@ -937,7 +931,7 @@ fn faucet_test() {
 fn no_contract_calls_forking_integration_test() {
     reset_static_burnblock_simulator_channel();
 
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     conf.node.prometheus_bind = Some(prom_bind.clone());
     conf.node.miner = true;
@@ -946,7 +940,6 @@ fn no_contract_calls_forking_integration_test() {
     conf.add_initial_balance(user_addr.to_string(), 10000000);
 
     test_observer::spawn();
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let burnchain = Burnchain::new(
         &conf.get_burn_db_path(),
@@ -959,7 +952,6 @@ fn no_contract_calls_forking_integration_test() {
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
-    let l2_rpc_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let mut btc_regtest_controller = MockController::new(conf, channel.clone());
 
@@ -1009,7 +1001,7 @@ fn no_contract_calls_forking_integration_test() {
     }
 
     let mut cursor = common_ancestor;
-    for i in 0..3 {
+    for _i in 0..3 {
         cursor = btc_regtest_controller.next_block(Some(cursor));
     }
 
@@ -1048,7 +1040,7 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
 #[ignore]
 fn transactions_in_block_and_microblock() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();

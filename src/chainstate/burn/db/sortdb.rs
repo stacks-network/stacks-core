@@ -557,7 +557,6 @@ pub struct SortitionDB {
     pub readwrite: bool,
     pub marf: MARF<SortitionId>,
     pub first_block_height: u64,
-    pub first_burn_header_hash: BurnchainHeaderHash,
 }
 
 #[derive(Clone)]
@@ -1528,7 +1527,6 @@ impl SortitionDB {
             marf,
             readwrite,
             first_block_height: first_snapshot.block_height,
-            first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
         };
 
         db.check_schema_version_or_error()?;
@@ -1540,8 +1538,6 @@ impl SortitionDB {
     pub fn connect(
         path: &str,
         first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
         epochs: &[StacksEpoch],
         readwrite: bool,
     ) -> Result<SortitionDB, db_error> {
@@ -1575,26 +1571,20 @@ impl SortitionDB {
             marf,
             readwrite,
             first_block_height,
-            first_burn_header_hash: first_burn_hash.clone(),
         };
 
         if create_flag {
             // instantiate!
-            db.instantiate(
-                first_block_height,
-                first_burn_hash,
-                first_burn_header_timestamp,
-                epochs,
-            )?;
+            db.instantiate(first_block_height, epochs)?;
         } else {
             // validate -- must contain the given first block and first block hash
             let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
             if !snapshot.is_initial()
                 || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
+                || snapshot.burn_header_hash != BurnchainHeaderHash::zero()
             {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
+                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}",
+                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height);
                 return Err(db_error::Corruption);
             }
         }
@@ -1608,10 +1598,7 @@ impl SortitionDB {
 
     /// Open a burn database at random tmp dir (used for testing)
     #[cfg(test)]
-    pub fn connect_test(
-        first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-    ) -> Result<SortitionDB, db_error> {
+    pub fn connect_test(first_block_height: u64) -> Result<SortitionDB, db_error> {
         use crate::core::StacksEpochExtension;
         use stacks_common::util::get_epoch_time_secs;
 
@@ -1626,75 +1613,9 @@ impl SortitionDB {
         SortitionDB::connect(
             &db_path_dir,
             first_block_height,
-            first_burn_hash,
-            get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(first_block_height),
             true,
         )
-    }
-
-    #[cfg(test)]
-    pub fn connect_v1(
-        path: &str,
-        first_block_height: u64,
-        first_burn_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
-        readwrite: bool,
-    ) -> Result<SortitionDB, db_error> {
-        let create_flag = match fs::metadata(path) {
-            Err(e) => {
-                if e.kind() == ErrorKind::NotFound {
-                    // need to create
-                    if readwrite {
-                        true
-                    } else {
-                        return Err(db_error::NoDBError);
-                    }
-                } else {
-                    return Err(db_error::IOError(e));
-                }
-            }
-            Ok(_md) => false,
-        };
-
-        let index_path = db_mkdirs(path)?;
-        debug!(
-            "Connect/Open {} sortdb '{}' as '{}'",
-            if create_flag { "(create)" } else { "" },
-            index_path,
-            if readwrite { "readwrite" } else { "readonly" }
-        );
-
-        let marf = SortitionDB::open_index(&index_path)?;
-
-        let mut db = SortitionDB {
-            marf,
-            readwrite,
-            first_block_height,
-            first_burn_header_hash: first_burn_hash.clone(),
-        };
-
-        if create_flag {
-            // instantiate!
-            db.instantiate_v1(
-                first_block_height,
-                first_burn_hash,
-                first_burn_header_timestamp,
-            )?;
-        } else {
-            // validate -- must contain the given first block and first block hash
-            let snapshot = SortitionDB::get_first_block_snapshot(db.conn())?;
-            if !snapshot.is_initial()
-                || snapshot.block_height != first_block_height
-                || snapshot.burn_header_hash != *first_burn_hash
-            {
-                error!("Invalid genesis snapshot: sn.is_initial = {}, sn.block_height = {}, sn.burn_hash = {}, expect.block_height = {}, expect.burn_hash = {}",
-                       snapshot.is_initial(), snapshot.block_height, &snapshot.burn_header_hash, first_block_height, first_burn_hash);
-                return Err(db_error::Corruption);
-            }
-        }
-
-        Ok(db)
     }
 
     /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
@@ -1738,8 +1659,6 @@ impl SortitionDB {
     fn instantiate(
         &mut self,
         first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
         epochs_ref: &[StacksEpoch],
     ) -> Result<(), db_error> {
         debug!("Instantiate sortition DB");
@@ -1750,18 +1669,8 @@ impl SortitionDB {
         let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
         // create first (sentinel) snapshot
-        debug!("Make first snapshot");
-        let mut first_snapshot = BlockSnapshot::initial(
-            first_block_height,
-            first_burn_header_hash,
-            first_burn_header_timestamp,
-        );
-
-        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
-        assert_eq!(
-            first_snapshot.parent_burn_header_hash,
-            BurnchainHeaderHash::sentinel()
-        );
+        let mut first_snapshot = BlockSnapshot::initial(first_block_height);
+        info!("Make first snapshot"; "sortition_id" => %first_snapshot.sortition_id, "burn_header_hash" => %first_snapshot.burn_header_hash, "height" => %first_snapshot.block_height);
 
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
@@ -1820,61 +1729,6 @@ impl SortitionDB {
                 args
             )?;
         }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn instantiate_v1(
-        &mut self,
-        first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
-    ) -> Result<(), db_error> {
-        debug!("Instantiate SortDB");
-
-        sql_pragma(self.conn(), "journal_mode", &"WAL")?;
-        sql_pragma(self.conn(), "foreign_keys", &true)?;
-
-        let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
-
-        // create first (sentinel) snapshot
-        debug!("Make first snapshot");
-        let mut first_snapshot = BlockSnapshot::initial(
-            first_block_height,
-            first_burn_header_hash,
-            first_burn_header_timestamp,
-        );
-
-        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
-        assert_eq!(
-            first_snapshot.parent_burn_header_hash,
-            BurnchainHeaderHash::sentinel()
-        );
-
-        for row_text in SORTITION_DB_INITIAL_SCHEMA {
-            db_tx.execute_batch(row_text)?;
-        }
-
-        db_tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &[&"1"],
-        )?;
-
-        db_tx.instantiate_index()?;
-
-        let mut first_sn = first_snapshot.clone();
-        first_sn.sortition_id = SortitionId::sentinel();
-        let index_root =
-            db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None)?;
-        first_snapshot.index_root = index_root;
-
-        db_tx.insert_block_snapshot(&first_snapshot)?;
-        db_tx.store_transition_ops(
-            &first_snapshot.sortition_id,
-            &BurnchainStateTransition::noop(),
-        )?;
-
-        db_tx.commit()?;
         Ok(())
     }
 
@@ -2041,7 +1895,6 @@ impl SortitionDB {
                 readwrite: true,
                 // not used by migration logic
                 first_block_height: 0,
-                first_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             };
             db.check_schema_version_and_update(epochs)
         } else {
@@ -2332,20 +2185,29 @@ impl SortitionDB {
         next_pox_info: Option<RewardCycleInfo>,
         announce_to: F,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), BurnchainError> {
-        let parent_sort_id = self
-            .get_sortition_id(&burn_header.parent_block_hash, from_tip)?
-            .ok_or_else(|| {
-                warn!("Unknown block {:?}", burn_header.parent_block_hash);
-                BurnchainError::MissingParentBlock
-            })?;
+        let is_parent_first_block = burn_header.block_height == self.first_block_height + 1;
+
+        let parent_sort_id = if is_parent_first_block {
+            SortitionDB::get_first_block_snapshot(self.conn())?.sortition_id
+        } else {
+            self.get_sortition_id(&burn_header.parent_block_hash, from_tip)?
+                .ok_or_else(|| {
+                    warn!("Unknown block {:?}", burn_header.parent_block_hash);
+                    BurnchainError::MissingParentBlock
+                })?
+        };
 
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
-        let parent_snapshot = sortition_db_handle
-            .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
-            .ok_or_else(|| {
-                warn!("Missing block snapshot in sortition"; "burn_hash" => %burn_header.parent_block_hash, "sortition_id" => %parent_sort_id);
-                BurnchainError::MissingParentBlock
-            })?;
+        let parent_snapshot = if is_parent_first_block {
+            SortitionDB::get_first_block_snapshot(&sortition_db_handle)?
+        } else {
+            sortition_db_handle
+                .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
+                .ok_or_else(|| {
+                    warn!("Missing block snapshot in sortition"; "burn_hash" => %burn_header.parent_block_hash, "sortition_id" => %parent_sort_id);
+                    BurnchainError::MissingParentBlock
+                })?
+        };
 
         let reward_set_info = None;
 
@@ -2551,30 +2413,58 @@ impl SortitionDB {
         }
     }
 
+    /// Get ops between `start_block`  and `ancestor` using `get_ops_in_block` to
+    /// find ops in each block. This is inclusive of both `start_block` and `ancestor`.
+    ///
+    /// Ops will be in the order that they were broadcasted on L1 (i.e., going from
+    /// the ancestor to the current block).
     pub fn get_ops_between<F, Op>(
         conn: &Connection,
-        parent_l1_block_id: &BurnchainHeaderHash,
-        l1_block_id: &BurnchainHeaderHash,
+        ancestor: &BurnchainHeaderHash,
+        start_block: &BurnchainHeaderHash,
         get_ops_in_block: F,
     ) -> Result<Vec<Op>, db_error>
     where
         F: Fn(&Connection, &BurnchainHeaderHash) -> Result<Vec<Op>, db_error>,
     {
-        let mut curr_block_id = l1_block_id.clone();
-        let mut ops = get_ops_in_block(conn, &curr_block_id)?;
-        let mut curr_sortition_id = SortitionId::new(&curr_block_id);
+        // create a vec of vecs: each entry in the vec is all the operations
+        //  at a particular block. this vec of vecs is then flattened for the
+        //  return. This is done so that the returned operations can be returned
+        //  in the order that they appeared on L1, even though they are fetched in
+        //  reverse block order (but the correct direction within the blocks).
+        let mut ops = vec![];
+        let mut curr_block_id = start_block.clone();
+        let mut curr_sortition_id = SortitionId::new(&start_block);
 
-        while curr_block_id != *parent_l1_block_id {
-            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
-                .ok_or(db_error::NotFoundError)?;
-            curr_block_id = curr_snapshot.parent_burn_header_hash;
+        loop {
+            if curr_block_id == BurnchainHeaderHash::zero() {
+                debug!("L1 block is at `first_burn_height`, no ops are recorded at that height");
+                break;
+            }
+
             let curr_ops = get_ops_in_block(conn, &curr_block_id)?;
-            ops.extend(curr_ops.into_iter());
+            ops.push(curr_ops);
 
+            if &curr_block_id == ancestor {
+                break;
+            }
+
+            let curr_snapshot = SortitionDB::get_block_snapshot(conn, &curr_sortition_id)?
+                .ok_or_else(|| {
+                    warn!("Could not find snapshot in `get_ops_between` traversal";
+                          "start_block" => %start_block,
+                          "ancestor" => %ancestor,
+                          "current_block" => %curr_block_id,
+                          "sortition_id" => %curr_sortition_id);
+                    db_error::NotFoundError
+                })?;
+            curr_block_id = curr_snapshot.parent_burn_header_hash;
             curr_sortition_id = curr_snapshot.parent_sortition_id;
         }
 
-        Ok(ops)
+        ops.reverse();
+
+        Ok(ops.into_iter().flatten().collect())
     }
 
     pub fn get_deposit_stx_ops(
@@ -3023,10 +2913,17 @@ impl<'a> SortitionHandleTx<'a> {
         _reward_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
-        assert_eq!(
-            snapshot.parent_burn_header_hash,
-            parent_snapshot.burn_header_hash
-        );
+        if parent_snapshot.block_height == self.context.first_block_height {
+            assert_eq!(
+                parent_snapshot.burn_header_hash,
+                BurnchainHeaderHash::zero(),
+            );
+        } else {
+            assert_eq!(
+                snapshot.parent_burn_header_hash,
+                parent_snapshot.burn_header_hash
+            );
+        }
         assert_eq!(snapshot.parent_sortition_id, parent_snapshot.sortition_id);
         assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
         if snapshot.sortition {
@@ -3365,10 +3262,17 @@ impl<'a> SortitionHandleTx<'a> {
         initialize_bonus: Option<InitialMiningBonus>,
     ) -> Result<TrieHash, db_error> {
         if !snapshot.is_initial() {
-            assert_eq!(
-                snapshot.parent_burn_header_hash,
-                parent_snapshot.burn_header_hash
-            );
+            if parent_snapshot.block_height == self.context.first_block_height {
+                assert_eq!(
+                    parent_snapshot.burn_header_hash,
+                    BurnchainHeaderHash([0; 32])
+                );
+            } else {
+                assert_eq!(
+                    snapshot.parent_burn_header_hash,
+                    parent_snapshot.burn_header_hash
+                );
+            }
             assert_eq!(&parent_snapshot.sortition_id, &self.context.chain_tip);
         }
 

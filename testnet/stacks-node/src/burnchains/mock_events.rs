@@ -43,7 +43,6 @@ pub struct MockController {
     /// This is the simulated contract identifier
     contract_identifier: QualifiedContractIdentifier,
     burnchain: Burnchain,
-    config: Config,
     indexer: DBBurnchainIndexer,
 
     db: Option<SortitionDB>,
@@ -192,7 +191,6 @@ impl MockController {
         MockController {
             contract_identifier,
             burnchain,
-            config,
             indexer,
             db: None,
             burnchain_db: None,
@@ -492,12 +490,7 @@ impl BurnchainController for MockController {
 
     fn connect_dbs(&mut self) -> Result<(), Error> {
         let burnchain = self.get_burnchain();
-        burnchain.connect_db(
-            &self.indexer,
-            true,
-            self.indexer.get_first_block_header_hash()?,
-            self.indexer.get_first_block_header_timestamp()?,
-        )?;
+        burnchain.connect_db(&self.indexer, true)?;
         Ok(())
     }
 
