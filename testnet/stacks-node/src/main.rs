@@ -109,16 +109,32 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::mainnet()
         }
+        "check-config" => {
+            let config_path: String = args.value_from_str("--config").unwrap();
+            args.finish().unwrap();
+            info!("Loading config at path {}", config_path);
+            match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => {
+                    info!("Loaded config!");
+                    process::exit(0);
+                },
+                Err(e) => {
+                    warn!("Invalid config file: {}", e);
+                    process::exit(1);
+                }
+            }
+        }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
-            let config_file_result = ConfigFile::from_path(&config_path);
-            if config_file_result.is_err() {
-                warn!("Invalid config file: {}", config_file_result.err().unwrap());
-                process::exit(1);        
+            match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => config_file,
+                Err(e) => {
+                    warn!("Invalid config file: {}", e);
+                    process::exit(1);
+                }
             }
-            config_file_result.unwrap()
         }
         "version" => {
             println!("{}", &version());
@@ -156,12 +172,13 @@ fn main() {
         }
     };
 
-    let conf_result = Config::from_config_file(config_file);
-    if conf_result.is_err() {
-        warn!("Invalid config: {}", conf_result.err().unwrap());
-        process::exit(1);
-    }
-    let conf = conf_result.unwrap();
+    let conf = match Config::from_config_file(config_file) {
+        Ok(conf) => conf,
+        Err(e) => {
+            warn!("Invalid config: {}", e);
+            process::exit(1);
+        }
+    };
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);

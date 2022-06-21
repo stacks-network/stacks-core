@@ -60,33 +60,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn check_invalid_config_files() {
-        ConfigFile::from_path("some_path").expect_err("path does not exist");
-        ConfigFile::from_str("//[node]").expect_err("invalid toml comment");
+    fn test_config_file() {
+        assert_eq!(
+            format!("Invalid path: No such file or directory (os error 2)"),
+            ConfigFile::from_path("some_path").unwrap_err()
+        );
+        assert_eq!(
+            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            ConfigFile::from_str("//[node]").unwrap_err()
+        );
+        assert!(ConfigFile::from_str("").is_ok());
     }
 
     #[test]
-    fn check_invalid_configs() {
-        Config::from_config_file(ConfigFile::from_str(
-            r#"
-            [node]
-            seed = "invalid-hex-value"
-            "#
-        ).unwrap()).expect_err("invalid [node]seed hex encoding");
+    fn test_config() {
+        assert_eq!(
+            format!("[node]seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    seed = "invalid-hex-value"
+                    "#,
+                ).unwrap()
+            ).unwrap_err()
+        );
 
-        Config::from_config_file(ConfigFile::from_str(
-            r#"
-            [node]
-            local_peer_seed = "invalid-hex-value"
-            "#
-        ).unwrap()).expect_err("invalid [node]local_peer_seed hex encoding");
+        assert_eq!(
+            format!("[node]local_peer_seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    local_peer_seed = "invalid-hex-value"
+                    "#,
+                ).unwrap()
+            ).unwrap_err()
+        );
 
-        Config::from_config_file(ConfigFile::from_str(
-            r#"
-            [burnchain]
-            peer_host = "bitcoin2.blockstack.com"
-            "#
-        ).unwrap()).expect_err("invalid [burnchain].peer_host");
+        assert_eq!(
+            format!("Invalid [burnchain]peer_host: failed to lookup address information: nodename nor servname provided, or not known"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [burnchain]
+                    peer_host = "bitcoin2.blockstack.com"
+                    "#,
+                ).unwrap()
+            ).unwrap_err()
+        );
+
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
     }
 
     #[test]
@@ -137,19 +161,13 @@ mod tests {
 
 impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
-        let content_str = fs::read_to_string(path);
-        if content_str.is_err() {
-            return Err(format!("Invalid path"));
-        }
-        Self::from_str(&content_str.unwrap())
+        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
+        Self::from_str(&content)
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
-        let toml_result = toml::from_str(content);
-        if toml_result.is_err() {
-            return Err(format!("Invalid toml: {}", toml_result.err().unwrap()));
-        }
-        let mut config: ConfigFile = toml_result.unwrap();
+        let mut config: ConfigFile =
+            toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
         let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
         if let Some(mstx_balance) = legacy_config.mstx_balance {
             warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
@@ -373,14 +391,7 @@ impl Config {
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => {
-                            match hex_bytes(&seed) {
-                                Err(_error) => {
-                                    return Err(format!("[node]seed should be a hex encoded string"));
-                                }
-                                Ok(seed) => seed,
-                            }
-                        }
+                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("[node]seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -394,14 +405,7 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => {
-                            match hex_bytes(&seed) {
-                                Err(_error) => {
-                                    return Err(format!("[node]local_peer_seed should be a hex encoded string"));
-                                }
-                                Ok(seed) => seed,
-                            }
-                        }
+                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("[node]local_peer_seed should be a hex encoded string"))?,
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
@@ -452,11 +456,15 @@ impl Config {
                         burnchain.magic_bytes = mainnet_magic.clone();
                     }
                     if burnchain.magic_bytes != mainnet_magic {
-                        return Err(format!("Attempted to run mainnet node with bad magic bytes '{}'",
-                            burnchain.magic_bytes.as_ref().unwrap()));
+                        return Err(format!(
+                            "Attempted to run mainnet node with bad magic bytes '{}'",
+                            burnchain.magic_bytes.as_ref().unwrap()
+                        ));
                     }
                     if node.use_test_genesis_chainstate == Some(true) {
-                        return Err(format!("Attempted to run mainnet node with `use_test_genesis_chainstate`"));
+                        return Err(format!(
+                            "Attempted to run mainnet node with `use_test_genesis_chainstate`"
+                        ));
                     }
                     if let Some(ref balances) = config_file.ustx_balance {
                         if balances.len() > 0 {
@@ -491,11 +499,13 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let addrs_iter = format!("{}:1", peer_host).to_socket_addrs();
-                            if addrs_iter.is_err() {
-                                return Err(format!("Invalid [burnchain].peer_host"));
-                            }
-                            let sock_addr = addrs_iter.unwrap().next().unwrap();
+                            let mut sock_addrs = format!("{}::1", &peer_host).to_socket_addrs().map_err(|e| format!("Invalid [burnchain]peer_host: {}", &e))?;
+                            let sock_addr = match sock_addrs.next() {
+                                Some(addr) => addr,
+                                None => {
+                                    return Err(format!("No IP address could be queried for '{}'", &peer_host));
+                                }
+                            };
                             format!("{}", sock_addr.ip())
                         }
                         None => default_burnchain_config.peer_host,
@@ -576,8 +586,10 @@ impl Config {
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
-            return Err(format!("Setting burnchain.network not supported (should be: {})",
-                supported_modes.join(", ")));
+            return Err(format!(
+                "Setting burnchain.network not supported (should be: {})",
+                supported_modes.join(", ")
+            ));
         }
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
