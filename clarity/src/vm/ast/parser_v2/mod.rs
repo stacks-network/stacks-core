@@ -20,7 +20,6 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     tokens: Vec<PlacedToken>,
     next_token: usize,
-    comments: Vec<String>,
     diagnostics: Vec<PlacedError>,
     success: bool,
     // `fail_fast` mode indicates that the parser should not report warnings
@@ -42,7 +41,6 @@ impl<'a> Parser<'a> {
             lexer,
             tokens: vec![],
             next_token: 0,
-            comments: vec![],
             diagnostics: vec![],
             success: true,
             fail_fast,
@@ -92,11 +90,6 @@ impl<'a> Parser<'a> {
     }
 
     fn next_token(&mut self) -> Option<PlacedToken> {
-        // Early exit in fail_fast mode.
-        if !self.success && self.fail_fast {
-            return None;
-        }
-
         if self.next_token >= self.tokens.len() {
             return None;
         }
@@ -117,12 +110,29 @@ impl<'a> Parser<'a> {
                     self.next_token += 1;
                     found = true;
                 }
-                Token::Comment(comment) => {
-                    self.comments.push(comment.clone());
-                    self.next_token += 1;
-                    found = true;
-                }
                 _ => return found,
+            }
+        }
+    }
+
+    fn ignore_whitespace_and_comments(&mut self) -> Vec<PreSymbolicExpression> {
+        let mut comments = Vec::new();
+        loop {
+            if self.next_token >= self.tokens.len() {
+                return comments;
+            }
+            let token = &self.tokens[self.next_token];
+            match &token.token {
+                Token::Whitespace => {
+                    self.next_token += 1;
+                }
+                Token::Comment(comment) => {
+                    let mut comment = PreSymbolicExpression::comment(comment.to_string());
+                    comment.span = token.span.clone();
+                    comments.push(comment);
+                    self.next_token += 1;
+                }
+                _ => return comments,
             }
         }
     }
@@ -133,7 +143,7 @@ impl<'a> Parser<'a> {
         let mut whitespace = true;
         loop {
             if let Some(node) = self.parse_node()? {
-                if !whitespace {
+                if !whitespace && !node.match_comment().is_some() {
                     self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span.clone())?;
                 }
                 nodes.push(node);
@@ -183,7 +193,9 @@ impl<'a> Parser<'a> {
         let mut first = true;
 
         loop {
-            self.ignore_whitespace();
+            let mut comments = self.ignore_whitespace_and_comments();
+            nodes.append(&mut comments);
+
             let token = self.tokens[self.next_token].clone();
             match token.token {
                 Token::Comma => {
@@ -211,7 +223,9 @@ impl<'a> Parser<'a> {
             }
 
             // A comma is allowed after the last pair in the tuple -- check for this case.
-            self.ignore_whitespace();
+            let mut comments = self.ignore_whitespace_and_comments();
+            nodes.append(&mut comments);
+
             let token = self.tokens[self.next_token].clone();
             match token.token {
                 Token::Rbrace => {
@@ -224,6 +238,9 @@ impl<'a> Parser<'a> {
                 }
                 _ => (),
             }
+
+            let mut comments = self.ignore_whitespace_and_comments();
+            nodes.append(&mut comments);
 
             // Parse key
             let node = match self.parse_node_or_eof()? {
@@ -248,7 +265,9 @@ impl<'a> Parser<'a> {
             nodes.push(node);
 
             // Look for ':'
-            self.ignore_whitespace();
+            let mut comments = self.ignore_whitespace_and_comments();
+            nodes.append(&mut comments);
+
             let token = self.tokens[self.next_token].clone();
             match token.token {
                 Token::Colon => {
@@ -274,6 +293,9 @@ impl<'a> Parser<'a> {
                     self.add_diagnostic(ParseErrors::TupleColonExpectedv2, token.span.clone())?;
                 }
             }
+
+            let mut comments = self.ignore_whitespace_and_comments();
+            nodes.append(&mut comments);
 
             // Parse value
             let node = match self.parse_node_or_eof()? {
@@ -734,12 +756,11 @@ impl<'a> Parser<'a> {
                 e.span = token.span;
                 Some(e)
             }
-            // TODO: For now, comments are being treated as whitespace. In the future,
-            //       they should be attached to the following expression
-            // Token::Comment(comment) => {
-            //     self.comments.push(comment);
-            //     None
-            // }
+            Token::Comment(comment) => {
+                let mut e = PreSymbolicExpression::comment(comment.to_string());
+                e.span = token.span;
+                Some(e)
+            }
             Token::Eof => None,
             _ => None, // Other tokens should be dealt with by the caller
         };
@@ -1344,6 +1365,87 @@ mod tests {
         );
         let exprs = stmts[0].match_list().unwrap();
         assert_eq!(exprs.len(), 3);
+    }
+
+    #[test]
+    fn test_parse_list_comment() {
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            "(foo ;; first comment\n  bar\n  ;; second comment\n  baz;; no space\n)",
+        );
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 5,
+                end_column: 1
+            }
+        );
+        let exprs = stmts[0].match_list().unwrap();
+        assert_eq!(exprs.len(), 6);
+        assert_eq!(exprs[0].match_atom().unwrap().as_str(), "foo");
+        assert_eq!(
+            exprs[0].span,
+            Span {
+                start_line: 1,
+                start_column: 2,
+                end_line: 1,
+                end_column: 4
+            }
+        );
+        assert_eq!(exprs[1].match_comment().unwrap(), "first comment");
+        assert_eq!(
+            exprs[1].span,
+            Span {
+                start_line: 1,
+                start_column: 6,
+                end_line: 1,
+                end_column: 21
+            }
+        );
+        assert_eq!(exprs[2].match_atom().unwrap().as_str(), "bar");
+        assert_eq!(
+            exprs[2].span,
+            Span {
+                start_line: 2,
+                start_column: 3,
+                end_line: 2,
+                end_column: 5
+            }
+        );
+        assert_eq!(exprs[3].match_comment().unwrap(), "second comment");
+        assert_eq!(
+            exprs[3].span,
+            Span {
+                start_line: 3,
+                start_column: 3,
+                end_line: 3,
+                end_column: 19
+            }
+        );
+        assert_eq!(exprs[4].match_atom().unwrap().as_str(), "baz");
+        assert_eq!(
+            exprs[4].span,
+            Span {
+                start_line: 4,
+                start_column: 3,
+                end_line: 4,
+                end_column: 5
+            }
+        );
+        assert_eq!(exprs[5].match_comment().unwrap(), "no space");
+        assert_eq!(
+            exprs[5].span,
+            Span {
+                start_line: 4,
+                start_column: 6,
+                end_line: 4,
+                end_column: 16
+            }
+        );
     }
 
     #[test]
@@ -2137,6 +2239,138 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_tuple_comments() {
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("{ ;; before the key\n  foo ;; before the colon\n  : ;; after the colon\n  ;; comment on newline\n  bar ;; before comma\n  ,\n  ;; after comma\n baz : qux ;; before closing\n}");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 9,
+                end_column: 1
+            }
+        );
+        let list: &[PreSymbolicExpression] = match stmts[0].pre_expr {
+            PreSymbolicExpressionType::Tuple(ref list) => list,
+            _ => panic!("failed to parse tuple"),
+        };
+        assert_eq!(list.len(), 11);
+        assert_eq!(list[0].match_comment().unwrap(), "before the key");
+        assert_eq!(
+            list[0].span,
+            Span {
+                start_line: 1,
+                start_column: 3,
+                end_line: 1,
+                end_column: 19,
+            }
+        );
+        assert_eq!(list[1].match_atom().unwrap().as_str(), "foo");
+        assert_eq!(
+            list[1].span,
+            Span {
+                start_line: 2,
+                start_column: 3,
+                end_line: 2,
+                end_column: 5
+            }
+        );
+        assert_eq!(list[2].match_comment().unwrap(), "before the colon");
+        assert_eq!(
+            list[2].span,
+            Span {
+                start_line: 2,
+                start_column: 7,
+                end_line: 2,
+                end_column: 25,
+            }
+        );
+        assert_eq!(list[3].match_comment().unwrap(), "after the colon");
+        assert_eq!(
+            list[3].span,
+            Span {
+                start_line: 3,
+                start_column: 5,
+                end_line: 3,
+                end_column: 22,
+            }
+        );
+        assert_eq!(list[4].match_comment().unwrap(), "comment on newline");
+        assert_eq!(
+            list[4].span,
+            Span {
+                start_line: 4,
+                start_column: 3,
+                end_line: 4,
+                end_column: 23,
+            }
+        );
+        assert_eq!(list[5].match_atom().unwrap().as_str(), "bar");
+        assert_eq!(
+            list[5].span,
+            Span {
+                start_line: 5,
+                start_column: 3,
+                end_line: 5,
+                end_column: 5
+            }
+        );
+        assert_eq!(list[6].match_comment().unwrap(), "before comma");
+        assert_eq!(
+            list[6].span,
+            Span {
+                start_line: 5,
+                start_column: 7,
+                end_line: 5,
+                end_column: 21,
+            }
+        );
+        assert_eq!(list[7].match_comment().unwrap(), "after comma");
+        assert_eq!(
+            list[7].span,
+            Span {
+                start_line: 7,
+                start_column: 3,
+                end_line: 7,
+                end_column: 16,
+            }
+        );
+        assert_eq!(list[8].match_atom().unwrap().as_str(), "baz");
+        assert_eq!(
+            list[8].span,
+            Span {
+                start_line: 8,
+                start_column: 2,
+                end_line: 8,
+                end_column: 4
+            }
+        );
+        assert_eq!(list[9].match_atom().unwrap().as_str(), "qux");
+        assert_eq!(
+            list[9].span,
+            Span {
+                start_line: 8,
+                start_column: 8,
+                end_line: 8,
+                end_column: 10
+            }
+        );
+        assert_eq!(list[10].match_comment().unwrap(), "before closing");
+        assert_eq!(
+            list[10].span,
+            Span {
+                start_line: 8,
+                start_column: 12,
+                end_line: 8,
+                end_column: 28,
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_bad() {
         let (stmts, diagnostics, success) = parse_collect_diagnostics("(1, 3)");
         assert_eq!(success, false);
@@ -2905,12 +3139,15 @@ mod tests {
     }
 
     #[test]
-    fn test_consume_comments_with_whitespace() {
+    fn test_handle_comments() {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics(" ;; here is a comment\n\n    ;; and another\n(foo)");
         assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
+        assert_eq!(stmts.len(), 3);
         assert_eq!(diagnostics.len(), 0);
+        assert_eq!(stmts[0].match_comment().unwrap(), "here is a comment");
+        assert_eq!(stmts[1].match_comment().unwrap(), "and another");
+        stmts[2].match_list().unwrap();
     }
 
     #[test]
@@ -2921,6 +3158,13 @@ mod tests {
         assert_eq!(success, true);
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 0);
+        let exprs = stmts[0].match_list().unwrap();
+        println!("{:?}", exprs);
+        assert_eq!(exprs.len(), 4);
+        assert_eq!(exprs[0].match_atom().unwrap().as_str(), "foo");
+        assert_eq!(exprs[1].match_comment().unwrap(), "comment after");
+        assert_eq!(exprs[2].match_comment().unwrap(), "comment on its own line");
+        assert_eq!(exprs[3].match_atom().unwrap().as_str(), "bar");
     }
 
     #[test]

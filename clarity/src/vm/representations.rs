@@ -348,6 +348,14 @@ impl PreSymbolicExpression {
             None
         }
     }
+
+    pub fn match_comment(&self) -> Option<&str> {
+        if let PreSymbolicExpressionType::Comment(ref s) = self.pre_expr {
+            Some(s.as_str())
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
