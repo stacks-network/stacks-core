@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn test_config() {
         assert_eq!(
-            format!("[node]seed should be a hex encoded string"),
+            format!("node.seed should be a hex encoded string"),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
@@ -89,7 +89,7 @@ mod tests {
         );
 
         assert_eq!(
-            format!("[node]local_peer_seed should be a hex encoded string"),
+            format!("node.local_peer_seed should be a hex encoded string"),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
@@ -103,7 +103,7 @@ mod tests {
         );
 
         assert_eq!(
-            format!("Invalid [burnchain]peer_host: failed to lookup address information: nodename nor servname provided, or not known"),
+            format!("Invalid burnchain.peer_host: failed to lookup address information: nodename nor servname provided, or not known"),
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
@@ -396,7 +396,7 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => hex_bytes(&seed)
-                            .map_err(|e| format!("[node]seed should be a hex encoded string"))?,
+                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -411,7 +411,7 @@ impl Config {
                     },
                     local_peer_seed: match node.local_peer_seed {
                         Some(seed) => hex_bytes(&seed).map_err(|e| {
-                            format!("[node]local_peer_seed should be a hex encoded string")
+                            format!("node.local_peer_seed should be a hex encoded string")
                         })?,
                         None => default_node_config.local_peer_seed,
                     },
@@ -508,7 +508,7 @@ impl Config {
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
                             let mut sock_addrs = format!("{}::1", &peer_host)
                                 .to_socket_addrs()
-                                .map_err(|e| format!("Invalid [burnchain]peer_host: {}", &e))?;
+                                .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
                             let sock_addr = match sock_addrs.next() {
                                 Some(addr) => addr,
                                 None => {
