@@ -1389,8 +1389,14 @@ fn transactions_microblocks_then_block() {
 
     {
         let small_contract = "(define-public (return-one) (ok 1))";
-        let publish_tx =
-            make_contract_publish(&contract_sk, conf.node.chain_id,0, 1000, "small-contract", small_contract);
+        let publish_tx = make_contract_publish(
+            &contract_sk,
+            conf.node.chain_id,
+            0,
+            1000,
+            "small-contract",
+            small_contract,
+        );
         submit_tx_and_wait(&http_origin, &publish_tx);
     }
 
