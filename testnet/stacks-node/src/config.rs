@@ -42,19 +42,19 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 #[derive(Clone, Deserialize, Default)]
 #[deny(missing_docs)]
 /// Top-level struct representing the parsed config file
-pub struct ConfigFile {    
+pub struct ConfigFile {
     /// Configuration related to the blockchain that the stacks-node binds to on the backend for proof-of-transfer (BTC).
     pub burnchain: Option<BurnchainConfigFile>,
     /// Configuration related to the stacks-node.
     pub node: Option<NodeConfigFile>,
-    /// 
+    ///
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    /// Contains options for watching events emitted by a local stacks-blockchain-api service. 
+    /// Contains options for watching events emitted by a local stacks-blockchain-api service.
     /// This section can be repeated multiple times.
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
     /// Specifies configuration options for others connecting to the stacks node.
     pub connection_options: Option<ConnectionOptionsFile>,
-    /// 
+    ///
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     ///
     pub miner: Option<MinerConfigFile>,
@@ -1066,7 +1066,7 @@ pub struct BurnchainConfigFile {
     ///
     pub max_rbf: Option<u64>,
     ///
-    pub epochs: Option<Vec<StacksEpoch>>,    
+    pub epochs: Option<Vec<StacksEpoch>>,
 }
 
 #[derive(Clone, Debug, Default)]
