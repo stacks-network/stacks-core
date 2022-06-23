@@ -40,13 +40,23 @@ const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default)]
-pub struct ConfigFile {
+#[deny(missing_docs)]
+/// Top-level struct representing the parsed config file
+pub struct ConfigFile {    
+    /// Configuration related to the blockchain that the stacks-node binds to on the backend for proof-of-transfer (BTC).
     pub burnchain: Option<BurnchainConfigFile>,
+    /// Configuration related to the stacks-node.
     pub node: Option<NodeConfigFile>,
+    /// 
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
+    /// Contains options for watching events emitted by a local stacks-blockchain-api service. 
+    /// This section can be repeated multiple times.
     pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    /// Specifies configuration options for others connecting to the stacks node.
     pub connection_options: Option<ConnectionOptionsFile>,
+    /// 
     pub fee_estimation: Option<FeeEstimationConfigFile>,
+    ///
     pub miner: Option<MinerConfigFile>,
 }
 
@@ -1012,28 +1022,51 @@ impl BurnchainConfig {
 }
 
 #[derive(Clone, Deserialize, Default)]
+#[deny(missing_docs)]
+///
 pub struct BurnchainConfigFile {
+    ///
     pub chain: Option<String>,
+    ///
     pub burn_fee_cap: Option<u64>,
+    ///
     pub mode: Option<String>,
+    ///
     pub commit_anchor_block_within: Option<u64>,
+    ///
     pub peer_host: Option<String>,
+    ///
     pub peer_port: Option<u16>,
+    ///
     pub rpc_port: Option<u16>,
+    ///
     pub rpc_ssl: Option<bool>,
+    ///
     pub username: Option<String>,
+    ///
     pub password: Option<String>,
+    ///
     pub timeout: Option<u32>,
+    ///
     pub magic_bytes: Option<String>,
+    ///
     pub local_mining_public_key: Option<String>,
+    ///
     pub process_exit_at_block_height: Option<u64>,
+    ///
     pub poll_time_secs: Option<u64>,
+    ///
     pub satoshis_per_byte: Option<u64>,
+    ///
     pub leader_key_tx_estimated_size: Option<u64>,
+    ///
     pub block_commit_tx_estimated_size: Option<u64>,
+    ///
     pub rbf_fee_increment: Option<u64>,
+    ///
     pub max_rbf: Option<u64>,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    ///
+    pub epochs: Option<Vec<StacksEpoch>>,    
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1450,81 +1483,154 @@ impl MinerConfig {
 }
 
 #[derive(Clone, Default, Deserialize)]
+#[deny(missing_docs)]
+///
 pub struct ConnectionOptionsFile {
+    ///
     pub inbox_maxlen: Option<usize>,
+    ///
     pub outbox_maxlen: Option<usize>,
+    ///
     pub connect_timeout: Option<u64>,
+    ///
     pub handshake_timeout: Option<u64>,
+    ///
     pub timeout: Option<u64>,
+    ///
     pub idle_timeout: Option<u64>,
+    ///
     pub heartbeat: Option<u32>,
+    ///
     pub private_key_lifetime: Option<u64>,
+    ///
     pub num_neighbors: Option<u64>,
+    ///
     pub num_clients: Option<u64>,
+    ///
     pub max_http_clients: Option<u64>,
+    ///
     pub soft_num_neighbors: Option<u64>,
+    ///
     pub soft_num_clients: Option<u64>,
+    ///
     pub max_neighbors_per_host: Option<u64>,
+    ///
     pub max_clients_per_host: Option<u64>,
+    ///
     pub soft_max_neighbors_per_host: Option<u64>,
+    ///
     pub soft_max_neighbors_per_org: Option<u64>,
+    ///
     pub soft_max_clients_per_host: Option<u64>,
+    ///
     pub max_sockets: Option<u64>,
+    ///
     pub walk_interval: Option<u64>,
+    ///
     pub dns_timeout: Option<u64>,
+    ///
     pub max_inflight_blocks: Option<u64>,
+    ///
     pub max_inflight_attachments: Option<u64>,
+    ///
     pub read_only_call_limit_write_length: Option<u64>,
+    ///
     pub read_only_call_limit_read_length: Option<u64>,
+    ///
     pub read_only_call_limit_write_count: Option<u64>,
+    ///
     pub read_only_call_limit_read_count: Option<u64>,
+    ///
     pub read_only_call_limit_runtime: Option<u64>,
+    ///
     pub maximum_call_argument_size: Option<u32>,
+    ///
     pub download_interval: Option<u64>,
+    ///
     pub inv_sync_interval: Option<u64>,
+    ///
     pub full_inv_sync_interval: Option<u64>,
+    ///
     pub inv_reward_cycles: Option<u64>,
+    ///
     pub public_ip_address: Option<String>,
+    ///
     pub disable_inbound_walks: Option<bool>,
+    ///
     pub disable_inbound_handshakes: Option<bool>,
+    ///
     pub disable_block_download: Option<bool>,
+    ///
     pub force_disconnect_interval: Option<u64>,
+    ///
     pub antientropy_public: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default)]
+#[deny(missing_docs)]
+///
 pub struct NodeConfigFile {
+    ///
     pub name: Option<String>,
+    ///
     pub seed: Option<String>,
+    ///
     pub deny_nodes: Option<String>,
+    ///
     pub working_dir: Option<String>,
+    ///
     pub rpc_bind: Option<String>,
+    ///
     pub p2p_bind: Option<String>,
+    ///
     pub p2p_address: Option<String>,
+    ///
     pub data_url: Option<String>,
+    ///
     pub bootstrap_node: Option<String>,
+    ///
     pub local_peer_seed: Option<String>,
+    ///
     pub miner: Option<bool>,
+    ///
     pub mock_mining: Option<bool>,
+    ///
     pub mine_microblocks: Option<bool>,
+    ///
     pub microblock_frequency: Option<u64>,
+    ///
     pub max_microblocks: Option<u64>,
+    ///
     pub wait_time_for_microblocks: Option<u64>,
+    ///
     pub prometheus_bind: Option<String>,
+    ///
     pub marf_cache_strategy: Option<String>,
+    ///
     pub marf_defer_hashing: Option<bool>,
+    ///
     pub pox_sync_sample_secs: Option<u64>,
+    ///
     pub use_test_genesis_chainstate: Option<bool>,
 }
 
 #[derive(Clone, Deserialize)]
+#[deny(missing_docs)]
+///
 pub struct FeeEstimationConfigFile {
+    ///
     pub cost_estimator: Option<String>,
+    ///
     pub fee_estimator: Option<String>,
+    ///
     pub cost_metric: Option<String>,
+    ///
     pub disabled: Option<bool>,
+    ///
     pub log_error: Option<bool>,
+    ///
     pub fee_rate_fuzzer_fraction: Option<f64>,
+    ///
     pub fee_rate_window_size: Option<u64>,
 }
 
@@ -1543,17 +1649,28 @@ impl Default for FeeEstimationConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default)]
+#[deny(missing_docs)]
+///
 pub struct MinerConfigFile {
+    ///
     pub min_tx_fee: Option<u64>,
+    ///
     pub first_attempt_time_ms: Option<u64>,
+    ///
     pub subsequent_attempt_time_ms: Option<u64>,
+    ///
     pub microblock_attempt_time_ms: Option<u64>,
+    ///
     pub probability_pick_no_estimate_tx: Option<u8>,
 }
 
 #[derive(Clone, Deserialize, Default)]
+#[deny(missing_docs)]
+///
 pub struct EventObserverConfigFile {
+    ///
     pub endpoint: String,
+    ///
     pub events_keys: Vec<String>,
 }
 
@@ -1642,7 +1759,11 @@ pub struct InitialBalance {
 }
 
 #[derive(Clone, Deserialize, Default)]
+#[deny(missing_docs)]
+///
 pub struct InitialBalanceFile {
+    ///
     pub address: String,
+    ///
     pub amount: u64,
 }

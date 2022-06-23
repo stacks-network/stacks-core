@@ -1,0 +1,12 @@
+FROM rust:bullseye
+
+WORKDIR /src
+
+COPY ./rust-toolchain .
+COPY ./Cargo.toml .
+
+RUN rustup component add rust-docs
+
+COPY . .
+
+RUN cargo rustdoc -p stacks-node
