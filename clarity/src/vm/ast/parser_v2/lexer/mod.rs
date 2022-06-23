@@ -37,7 +37,7 @@ pub struct Lexer<'a> {
 
 fn is_separator(ch: char) -> bool {
     match ch {
-        '(' | ')' | '{' | '}' | ',' | ':' | '.' | EOF => true,
+        '(' | ')' | '{' | '}' | ',' | ':' | '.' | ';' | EOF => true,
         _ => ch.is_ascii_whitespace(),
     }
 }
@@ -955,6 +955,13 @@ mod tests {
         );
         assert_eq!(lexer.diagnostics.len(), 0);
 
+        lexer = Lexer::new("okay", false).unwrap();
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Ident("okay".to_string())
+        );
+        assert_eq!(lexer.diagnostics.len(), 0);
+
         lexer = Lexer::new("0a", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
@@ -1388,6 +1395,17 @@ mod tests {
         );
         assert_eq!(lexer.diagnostics.len(), 1);
         assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));
+
+        lexer = Lexer::new("okay;; comment", false).unwrap();
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Ident("okay".to_string())
+        );
+        assert_eq!(
+            lexer.read_token().unwrap().token,
+            Token::Comment("comment".to_string())
+        );
+        assert_eq!(lexer.diagnostics.len(), 0);
     }
 
     #[test]
