@@ -1,10 +1,11 @@
+;; This is like `simple-nft.clar`, but does not support minting.
+
 (define-constant CONTRACT_OWNER tx-sender)
 (define-constant CONTRACT_ADDRESS (as-contract tx-sender))
 
 (define-constant ERR_NOT_AUTHORIZED (err u1001))
 
 (impl-trait .trait-standards.nft-trait)
-;; (impl-trait .trait-standards.mint-from-hyperchain-trait)
 
 (define-data-var lastId uint u0)
 (define-map CFG_BASE_URI bool (string-ascii 256))
