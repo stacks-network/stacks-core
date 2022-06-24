@@ -134,9 +134,16 @@ impl<'a> DefinitionSorter {
                 Ok(())
             }
             List(ref exprs) => {
+                // Filter comments out of the list of expressions.
+                let filtered_exprs: Vec<&PreSymbolicExpression> = exprs
+                    .iter()
+                    .filter(|expr| expr.match_comment().is_none())
+                    .collect();
+
                 // Avoid looking for dependencies in tuples
                 // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
-                if let Some((function_name, function_args)) = exprs.split_first() {
+                if let Some((function_name, rest)) = filtered_exprs.split_first() {
+                    let function_args = rest.to_vec();
                     if let Some(function_name) = function_name.match_atom() {
                         if let Some(define_function) =
                             DefineFunctions::lookup_by_name(function_name)
@@ -244,7 +251,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
                                     if function_args.len() > 1 {
                                         if let Some(bindings) = function_args[0].match_list() {
-                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings, tle_index, version)?;
+                                            self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
                                         }
                                         for expr in
                                             function_args[1..function_args.len()].into_iter()
@@ -279,7 +286,7 @@ impl<'a> DefinitionSorter {
                         }
                     }
                 }
-                for expr in exprs.into_iter() {
+                for expr in filtered_exprs.into_iter() {
                     self.probe_for_dependencies(expr, tle_index, version)?;
                 }
                 Ok(())
@@ -328,8 +335,9 @@ impl<'a> DefinitionSorter {
             // 2. (define-public (func_name (arg uint) ...) body)
             // The goal here is to traverse case 2, looking for trait references
             if let Some((_, pairs)) = func_sig.split_first() {
+                let pairs_vec: Vec<&PreSymbolicExpression> = pairs.iter().collect();
                 self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
-                    pairs, tle_index, version,
+                    pairs_vec, tle_index, version,
                 )?;
             }
         }
@@ -338,7 +346,7 @@ impl<'a> DefinitionSorter {
 
     fn probe_for_dependencies_in_list_of_wrapped_key_value_pairs(
         &mut self,
-        pairs: &[PreSymbolicExpression],
+        pairs: Vec<&PreSymbolicExpression>,
         tle_index: usize,
         version: ClarityVersion,
     ) -> ParseResult<()> {
