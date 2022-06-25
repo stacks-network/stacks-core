@@ -3216,4 +3216,12 @@ mod tests {
             Err(e) => assert_eq!(e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
         }
     }
+
+    #[test]
+    fn test_empty_contract() {
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 0);
+        assert_eq!(diagnostics.len(), 0);
+    }
 }
