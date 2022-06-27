@@ -565,9 +565,9 @@ impl StacksBlock {
         }
     }
 
-    /// Verify that all transactions are supported in the current epoch
+    /// Verify that all transactions are supported in the given epoch, as indicated by `epoch_id`
     pub fn validate_transactions_static_epoch(
-        txs: &Vec<StacksTransaction>,
+        txs: &[StacksTransaction],
         epoch_id: StacksEpochId,
     ) -> bool {
         if epoch_id < StacksEpochId::Epoch21 {
@@ -578,7 +578,7 @@ impl StacksBlock {
                 if let TransactionPayload::Coinbase(_, ref contract_opt) = &tx.payload {
                     if contract_opt.is_some() {
                         // not supported
-                        error!("Coinbase pay-to-contract not supported before Stacks 2.1");
+                        error!("Coinbase pay-to-contract not supported before Stacks 2.1"; "txid" => %tx.txid());
                         return false;
                     }
                 }
