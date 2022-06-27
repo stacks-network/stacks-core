@@ -1475,7 +1475,7 @@ be the same `principal` that received the block reward, since Stacks 2.1 support
 the address of the `principal` that produced the block.
 
 `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
+which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
 New in Stacks 2.1:
