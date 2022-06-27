@@ -1009,8 +1009,8 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None if we
-    ///  hit an error that wasn't transaction specific.
+    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
+    ///  that iteration through the mempool should be halted.
     ///
     /// `output_events` is modified in place, adding all substantive transaction events output by `todo`.
     pub fn iterate_candidates<F, E, C>(
