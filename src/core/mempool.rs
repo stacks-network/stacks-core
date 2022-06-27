@@ -1012,7 +1012,8 @@ impl MemPoolDB {
     ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
     ///  that iteration through the mempool should be halted.
     ///
-    /// `output_events` is modified in place, adding all substantive transaction events output by `todo`.
+    /// `output_events` is modified in place, adding all substantive transaction events (success and error
+    /// events, but not skipped) output by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
@@ -1090,7 +1091,14 @@ impl MemPoolDB {
                     // Run `todo` on the transaction.
                     match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
                         Some(tx_event) => {
-                            output_events.push(tx_event);
+                            match tx_event {
+                                TransactionEvent::Skipped(_) => {
+                                    // don't push `Skipped` events to the observer
+                                }
+                                _ => {
+                                    output_events.push(tx_event);
+                                }
+                            }
                         }
                         None => {
                             debug!("Mempool iteration early exit from iterator");
