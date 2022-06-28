@@ -39,9 +39,3 @@
     (nft-mint? nft-token newId recipient)
   )
 )
-
-(define-public (gift-nft (recipient principal) (id uint))
-  (begin
-    (nft-mint? nft-token id recipient)
-  )
-)
