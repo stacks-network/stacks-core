@@ -584,7 +584,7 @@ pub enum TransactionPayload {
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload, Option<QualifiedContractIdentifier>),
+    Coinbase(CoinbasePayload, Option<PrincipalData>),
 }
 
 impl TransactionPayload {
@@ -607,7 +607,7 @@ pub enum TransactionPayloadID {
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
-    CoinbaseToContract = 5,
+    CoinbaseToAltRecipient = 5,
 }
 
 /// Encoding of an asset type identifier
@@ -1159,7 +1159,15 @@ pub mod test {
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
-                Some(QualifiedContractIdentifier::transient()),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
         ];
