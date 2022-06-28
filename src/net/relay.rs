@@ -4335,10 +4335,10 @@ mod test {
                     miner,
                     parent_tip.stacks_block_height as usize,
                     0,
-                    Some(
+                    Some(PrincipalData::Contract(
                         QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns")
                             .unwrap(),
-                    ),
+                    )),
                 );
 
                 let mut mblock_pubkey_hash_bytes = [0u8; 20];
