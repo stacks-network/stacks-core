@@ -132,7 +132,7 @@ pub struct StacksAccount {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerPaymentSchedule {
     pub address: StacksAddress,
-    pub recipient_contract: Option<QualifiedContractIdentifier>,
+    pub recipient: PrincipalData,
     pub block_hash: BlockHeaderHash,
     pub consensus_hash: ConsensusHash,
     pub parent_block_hash: BlockHeaderHash,
@@ -751,7 +751,7 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
     -- parent and child blocks determine the full reward for the parent block.
     CREATE TABLE matured_rewards(
         address TEXT NOT NULL,      -- address of the miner who produced the block
-        recipient_contract TEXT,    -- who received the reward (if different from the miner)
+        recipient TEXT,             -- who received the reward (if different from the miner)
         vtxindex INTEGER NOT NULL,  -- will be 0 if this is the miner, >0 if this is a user burn support
         coinbase TEXT NOT NULL,
         tx_fees_anchored TEXT NOT NULL,
@@ -766,9 +766,9 @@ const CHAINSTATE_SCHEMA_3: &'static [&'static str] = &[
         PRIMARY KEY(parent_index_block_hash,child_index_block_hash,coinbase)
     );"#,
     r#"
-    -- Add a `recipient_contract` column so that in Stacks 2.1, the block reward can be sent to someone besides the miner (e.g. a contract).
+    -- Add a `recipient` column so that in Stacks 2.1, the block reward can be sent to someone besides the miner (e.g. a contract).
     -- If NULL, then the payment goes to the `address`.
-    ALTER TABLE payments ADD COLUMN recipient_contract TEXT;
+    ALTER TABLE payments ADD COLUMN recipient TEXT;
     "#,
     r#"
     CREATE INDEX IF NOT EXISTS index_matured_rewards_by_vtxindex ON matured_rewards(parent_index_block_hash,child_index_block_hash,vtxindex);
