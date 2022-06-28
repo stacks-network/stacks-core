@@ -1284,7 +1284,6 @@ fn transactions_microblocks_then_block() {
     let burnchain = Burnchain::new(
         &conf.get_burn_db_path(),
         &conf.burnchain.chain,
-        &conf.burnchain.mode,
     )
     .unwrap();
     let mut run_loop = neon::RunLoop::new(conf.clone());
