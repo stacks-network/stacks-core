@@ -1015,16 +1015,14 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RunTenure => {
-                    let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                    let burn_tenure_snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-                    let burn_header_hash = burn_chain_sn.burn_header_hash.clone();
+                    let burn_header_hash = burn_tenure_snapshot.burn_header_hash.clone();
 
-                    let burn_chain_tip = burn_chain_sn
+                    let burn_chain_tip = burn_tenure_snapshot
                         .burn_header_hash
                         .clone();
-
-                    let burn_tenure_snapshot = burn_chain_sn;
 
                     let tenure_begin = get_epoch_time_ms();
                     fault_injection_long_tenure();

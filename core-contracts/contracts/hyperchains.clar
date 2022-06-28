@@ -168,9 +168,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user calls this function to withdraw the specified NFT from this contract. 
 ;; In order for this withdrawal to go through, the given withdrawal must have been included 
@@ -247,9 +249,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user can call this function to withdraw some amount of a fungible token asset from the 
 ;; contract and send it to a recipient. 
