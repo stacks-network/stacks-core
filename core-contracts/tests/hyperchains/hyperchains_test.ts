@@ -1099,7 +1099,7 @@ Clarinet.test({
         let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
-        // Miner should be able to withdraw NFT asset
+        // Miner should not be able to withdraw NFT asset because the contract doesn't own it.
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
                 [
@@ -1116,6 +1116,7 @@ Clarinet.test({
                 miner.address),
         ]);
 
+        // ERR_NFT_NOT_OWNED_BY_CONTRACT
         block.receipts[0].result
             .expectErr()
             .expectInt(15);
