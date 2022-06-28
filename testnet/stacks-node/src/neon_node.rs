@@ -71,7 +71,7 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
-use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::types::PrincipalData;
 
 use crate::operations::BurnchainOpSigner;
 
@@ -181,15 +181,12 @@ fn fault_injection_delay_transactions(
     true
 }
 
-fn get_coinbase_pay_to_contract(
-    config: &Config,
-    epoch_id: StacksEpochId,
-) -> Option<QualifiedContractIdentifier> {
-    if epoch_id < StacksEpochId::Epoch21 && config.miner.pay_to_contract.is_some() {
+fn get_coinbase_with_recipient(config: &Config, epoch_id: StacksEpochId) -> Option<PrincipalData> {
+    if epoch_id < StacksEpochId::Epoch21 && config.miner.block_reward_recipient.is_some() {
         warn!("Coinbase pay-to-contract is not supported in the current epoch");
         None
     } else {
-        config.miner.pay_to_contract.clone()
+        config.miner.block_reward_recipient.clone()
     }
 }
 
@@ -323,7 +320,7 @@ fn inner_generate_coinbase_tx(
     nonce: u64,
     is_mainnet: bool,
     chain_id: u32,
-    pay_to_contract_id: Option<QualifiedContractIdentifier>,
+    alt_recipient: Option<PrincipalData>,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
@@ -336,7 +333,7 @@ fn inner_generate_coinbase_tx(
     let mut tx = StacksTransaction::new(
         version,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), pay_to_contract_id),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), alt_recipient),
     );
     tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1990,8 +1987,8 @@ impl StacksNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
-        let coinbase_contract_id = get_coinbase_pay_to_contract(&config, stacks_epoch.epoch_id);
-        if let Some(id) = coinbase_contract_id.as_ref() {
+        let coinbase_recipient_id = get_coinbase_with_recipient(&config, stacks_epoch.epoch_id);
+        if let Some(id) = coinbase_recipient_id.as_ref() {
             debug!("Send coinbase rewards to {}", &id);
         }
 
@@ -2000,7 +1997,7 @@ impl StacksNode {
             coinbase_nonce,
             config.is_mainnet(),
             config.burnchain.chain_id,
-            coinbase_contract_id,
+            coinbase_recipient_id,
         );
 
         // find the longest microblock tail we can build off of
