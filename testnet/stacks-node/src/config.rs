@@ -519,9 +519,9 @@ impl Config {
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
-                pay_to_contract: miner.pay_to_contract.as_ref().map(|c| {
-                    QualifiedContractIdentifier::parse(&c)
-                        .expect(&format!("FATAL: not a valid contract identifier: {}", c))
+                block_reward_recipient: miner.block_reward_recipient.as_ref().map(|c| {
+                    PrincipalData::parse(&c)
+                        .expect(&format!("FATAL: not a valid principal identifier: {}", c))
                 }),
             },
             None => miner_default_config,
@@ -1439,7 +1439,7 @@ pub struct MinerConfig {
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
-    pub pay_to_contract: Option<QualifiedContractIdentifier>,
+    pub block_reward_recipient: Option<PrincipalData>,
 }
 
 impl MinerConfig {
@@ -1450,7 +1450,7 @@ impl MinerConfig {
             subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
-            pay_to_contract: None,
+            block_reward_recipient: None,
         }
     }
 }
@@ -1556,7 +1556,7 @@ pub struct MinerConfigFile {
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
-    pub pay_to_contract: Option<String>,
+    pub block_reward_recipient: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Default)]
