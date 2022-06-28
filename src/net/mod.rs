@@ -2075,7 +2075,7 @@ pub mod test {
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
     use crate::chainstate::stacks::miner::*;
-    use crate::chainstate::stacks::tests::miner::*;
+    use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::chainstate::*;
