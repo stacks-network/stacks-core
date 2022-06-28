@@ -135,20 +135,17 @@ impl StacksMessageCodec for TransactionPayload {
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(ref buf, ref contract_id_opt) => {
-                match contract_id_opt {
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
+                match recipient_opt {
                     None => {
                         // stacks 2.05 and earlier only use this path
                         write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
                         write_next(fd, buf)?;
                     }
-                    Some(contract_id) => {
-                        write_next(fd, &(TransactionPayloadID::CoinbaseToContract as u8))?;
+                    Some(recipient) => {
+                        write_next(fd, &(TransactionPayloadID::CoinbaseToAltRecipient as u8))?;
                         write_next(fd, buf)?;
-                        write_next(fd, &contract_id.issuer.0)?;
-                        fd.write_all(&contract_id.issuer.1)
-                            .map_err(|e| codec_error::WriteError(e))?;
-                        write_next(fd, &contract_id.name)?;
+                        write_next(fd, &Value::Principal(recipient.clone()))?;
                     }
                 }
             }
@@ -198,19 +195,17 @@ impl StacksMessageCodec for TransactionPayload {
                 let payload: CoinbasePayload = read_next(fd)?;
                 TransactionPayload::Coinbase(payload, None)
             }
-            x if x == TransactionPayloadID::CoinbaseToContract as u8 => {
+            x if x == TransactionPayloadID::CoinbaseToAltRecipient as u8 => {
                 let payload: CoinbasePayload = read_next(fd)?;
-                let addr_version: u8 = read_next(fd)?;
-                let mut addr_bytes = [0u8; 20];
-                fd.read_exact(&mut addr_bytes)
-                    .map_err(|e| codec_error::ReadError(e))?;
-                let name: ContractName = read_next(fd)?;
-
-                let contract_id = QualifiedContractIdentifier {
-                    issuer: StandardPrincipalData(addr_version, addr_bytes),
-                    name: name,
+                let principal_value: Value = read_next(fd)?;
+                let recipient = match principal_value {
+                    Value::Principal(recipient_principal) => recipient_principal,
+                    _ => {
+                        return Err(codec_error::DeserializeError("Failed to parse coinbase transaction -- did not receive a recipient principal value".to_string()));
+                    }
                 };
-                TransactionPayload::Coinbase(payload, Some(contract_id))
+
+                TransactionPayload::Coinbase(payload, Some(recipient))
             }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
@@ -527,12 +522,10 @@ impl StacksTransaction {
     }
 
     /// Try to convert to a coinbase payload
-    pub fn try_as_coinbase(
-        &self,
-    ) -> Option<(&CoinbasePayload, Option<&QualifiedContractIdentifier>)> {
+    pub fn try_as_coinbase(&self) -> Option<(&CoinbasePayload, Option<&PrincipalData>)> {
         match &self.payload {
-            TransactionPayload::Coinbase(ref payload, ref contract_opt) => {
-                Some((payload, contract_opt.as_ref()))
+            TransactionPayload::Coinbase(ref payload, ref recipient_opt) => {
+                Some((payload, recipient_opt.as_ref()))
             }
             _ => None,
         }
@@ -1498,12 +1491,12 @@ mod test {
                 corrupt_h2.sequence += 1;
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
-            TransactionPayload::Coinbase(ref buf, ref contract_id_opt) => {
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
                 let mut corrupt_buf_bytes = buf.as_bytes().clone();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf, contract_id_opt.clone())
+                TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
