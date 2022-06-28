@@ -537,8 +537,11 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
