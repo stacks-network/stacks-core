@@ -73,6 +73,9 @@ pub mod index;
 pub mod miner;
 pub mod transaction;
 
+#[cfg(test)]
+pub mod tests;
+
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 pub use stacks_common::address::{
