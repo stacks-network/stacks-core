@@ -46,6 +46,8 @@ pub const BURNCHAIN_NAME_STACKS_MAINNET_L1: &str = "stacks_layer_1::mainnet";
 pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
 pub const DEFAULT_L1_OBSERVER_PORT: u16 = 50303;
 
+pub const HYPERCHAIN_SUBDIR_NAME: &str = "hyperchain";
+
 #[derive(Clone, Deserialize, Default)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
@@ -637,14 +639,14 @@ impl Config {
 
     fn get_burnchain_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
-        path.push("hyperchain");
+        path.push(HYPERCHAIN_SUBDIR_NAME);
         path.push("burnchain");
         path
     }
 
     pub fn get_chainstate_path(&self) -> PathBuf {
         let mut path = PathBuf::from(&self.node.working_dir);
-        path.push("hyperchain");
+        path.push(HYPERCHAIN_SUBDIR_NAME);
         path.push("chainstate");
         path
     }
