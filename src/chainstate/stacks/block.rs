@@ -575,10 +575,10 @@ impl StacksBlock {
             // Expand this list of things to check for as needed.
             // * no pay-to-contract coinbases
             for tx in txs.iter() {
-                if let TransactionPayload::Coinbase(_, ref contract_opt) = &tx.payload {
-                    if contract_opt.is_some() {
+                if let TransactionPayload::Coinbase(_, ref recipient_opt) = &tx.payload {
+                    if recipient_opt.is_some() {
                         // not supported
-                        error!("Coinbase pay-to-contract not supported before Stacks 2.1"; "txid" => %tx.txid());
+                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
                         return false;
                     }
                 }
@@ -1703,7 +1703,9 @@ mod test {
             origin_auth.clone(),
             TransactionPayload::Coinbase(
                 CoinbasePayload([1u8; 32]),
-                Some(QualifiedContractIdentifier::transient()),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
             ),
         );
 
