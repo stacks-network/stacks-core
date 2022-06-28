@@ -1281,11 +1281,7 @@ fn transactions_microblocks_then_block() {
 
     test_observer::spawn();
 
-    let burnchain = Burnchain::new(
-        &conf.get_burn_db_path(),
-        &conf.burnchain.chain,
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&conf.get_burn_db_path(), &conf.burnchain.chain).unwrap();
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
 
