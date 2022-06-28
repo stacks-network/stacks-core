@@ -1,0 +1,75 @@
+name: Build Alpine Images
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+        description: "semver tag for alpine images"
+      docker_platforms:
+        required: true
+        description: "Arch to buid alpine images"
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_PASSWORD:
+        required: true
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set Vars
+        if: ${{ inputs.tag != '' }}
+        run: |
+          echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        if: ${{ inputs.tag != '' }}
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        if: ${{ inputs.tag != '' }}
+        uses: docker/setup-buildx-action@v2
+
+      - name: Docker meta
+        if: ${{ inputs.tag != '' }}
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: |
+            wileyj/${{ github.event.repository.name }}
+          tags: |
+            type=raw,value=latest,enable=${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) )}}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=ref,enable=true,priority=600,event=tag
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: Login to DockerHub
+        if: ${{ inputs.tag != '' }}
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build Image
+        if: ${{ inputs.tag != '' }}
+        uses: docker/build-push-action@v3
+        with:
+          file: ./Dockerfile.alpine-binary
+          platforms: ${{ inputs.docker_platforms }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            TAG=${{ inputs.tag}}
+            STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+            BUILDKIT_PROGRESS=plain
+          push: true
