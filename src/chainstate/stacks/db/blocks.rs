@@ -71,7 +71,8 @@ use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
 };
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
@@ -4156,23 +4157,25 @@ impl StacksChainState {
         let miner_auth = coinbase_tx.get_origin();
         let miner_addr = miner_auth.get_address(mainnet);
 
-        let recipient_contract = if epoch_id >= StacksEpochId::Epoch21 {
+        let recipient = if epoch_id >= StacksEpochId::Epoch21 {
             // pay to tx-designated recipient, or if there is none, pay to the origin
             match coinbase_tx.try_as_coinbase() {
-                Some((_, contract_id_opt)) => contract_id_opt.cloned(),
-                None => None,
+                Some((_, recipient_opt)) => recipient_opt
+                    .cloned()
+                    .unwrap_or(miner_addr.to_account_principal()),
+                None => miner_addr.to_account_principal(),
             }
         } else {
             // pre-2.1, always pay to the origin
-            None
+            miner_addr.to_account_principal()
         };
 
         // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
-        // per the above check (and moreover, a Stacks block with a pay-to-contract coinbase would
+        // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
         // not become valid until after 2.1 activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
-            recipient_contract: recipient_contract,
+            recipient: recipient,
             block_hash: block.block_hash(),
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
@@ -4783,12 +4786,7 @@ impl StacksChainState {
                             // in 2.1 or later, the coinbase may optionally specify a contract into
                             // which the tokens get sent.  If this is not given, then they are sent 
                             // to the miner address.
-                            match &miner_reward.recipient_contract {
-                                Some(contract_id) => PrincipalData::Contract(contract_id.clone()),
-                                None => PrincipalData::Standard(StandardPrincipalData::from(
-                                    miner_reward.address.clone(),
-                                ))
-                            }
+                            miner_reward.recipient.clone()
                         }
                         else {
                             // pre-2.1, only the miner address can be paid
