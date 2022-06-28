@@ -5802,14 +5802,19 @@ pub mod test {
         burnchain_height: usize,
         contract: QualifiedContractIdentifier,
     ) -> StacksTransaction {
-        make_coinbase_with_nonce(miner, burnchain_height, miner.get_nonce(), Some(contract))
+        make_coinbase_with_nonce(
+            miner,
+            burnchain_height,
+            miner.get_nonce(),
+            Some(PrincipalData::Contract(contract)),
+        )
     }
 
     pub fn make_coinbase_with_nonce(
         miner: &mut TestMiner,
         burnchain_height: usize,
         nonce: u64,
-        recipient_contract: Option<QualifiedContractIdentifier>,
+        recipient: Option<PrincipalData>,
     ) -> StacksTransaction {
         // make a coinbase for this miner
         let mut tx_coinbase = StacksTransaction::new(
@@ -5817,7 +5822,7 @@ pub mod test {
             miner.as_transaction_auth().unwrap(),
             TransactionPayload::Coinbase(
                 CoinbasePayload([(burnchain_height % 256) as u8; 32]),
-                recipient_contract,
+                recipient,
             ),
         );
         tx_coinbase.chain_id = 0x80000000;
@@ -11510,6 +11515,15 @@ pub mod test {
 
     #[test]
     fn test_coinbase_pay_to_contract_v210() {
+        test_coinbase_pay_to_alt_recipient_v210(true)
+    }
+
+    #[test]
+    fn test_coinbase_pay_to_alt_principal_v210() {
+        test_coinbase_pay_to_alt_recipient_v210(false)
+    }
+
+    fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         let privk = StacksPrivateKey::from_hex(
             "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
         )
@@ -11518,6 +11532,7 @@ pub mod test {
             "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
         )
         .unwrap();
+        let privk_recipient = StacksPrivateKey::new();
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -11535,7 +11550,26 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new("test_coinbase_pay_to_contract_v210", 2024, 2025);
+        let addr_recipient = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk_recipient)],
+        )
+        .unwrap();
+
+        let mut peer_config = TestPeerConfig::new(
+            &format!(
+                "test_coinbase_pay_to_alt_recipient_{}_v210",
+                if pay_to_contract {
+                    "contract"
+                } else {
+                    "principal"
+                }
+            ),
+            2024,
+            2025,
+        );
         peer_config.initial_balances = vec![
             (addr.to_account_principal(), 1000000000),
             (addr_anchored.to_account_principal(), 1000000000),
@@ -11658,23 +11692,47 @@ pub mod test {
                         // fees and the child miner gets the confirmed streamed tx fees.
                         // BUT, pay to the contract if it exists
                         let recipient_contract_id = if tenure_id > 1 {
-                            Some(
+                            Some(PrincipalData::Contract(
                                 QualifiedContractIdentifier::parse(&format!(
                                     "{}.{}",
                                     &addr_anchored, contract_name
                                 ))
                                 .unwrap(),
-                            )
+                            ))
+                        } else {
+                            None
+                        };
+
+                        let alt_recipient_id = if tenure_id > 1 {
+                            Some(addr_recipient.to_account_principal())
                         } else {
                             None
                         };
 
                         if tenure_id % 2 == 0 {
                             coinbase_addresses.push(miner.origin_address().unwrap());
-                            if let Some(recipient_contract_id) = recipient_contract_id {
-                                make_coinbase_to_contract(miner, tenure_id, recipient_contract_id)
+                            if pay_to_contract {
+                                if let Some(recipient_contract_id) = recipient_contract_id {
+                                    make_coinbase_with_nonce(
+                                        miner,
+                                        tenure_id,
+                                        miner.get_nonce(),
+                                        Some(recipient_contract_id),
+                                    )
+                                } else {
+                                    make_coinbase(miner, tenure_id)
+                                }
                             } else {
-                                make_coinbase(miner, tenure_id)
+                                if let Some(alt_recipient) = alt_recipient_id {
+                                    make_coinbase_with_nonce(
+                                        miner,
+                                        tenure_id,
+                                        miner.get_nonce(),
+                                        Some(alt_recipient),
+                                    )
+                                } else {
+                                    make_coinbase(miner, tenure_id)
+                                }
                             }
                         } else {
                             let pk = StacksPrivateKey::new();
@@ -11692,7 +11750,11 @@ pub mod test {
                                 TransactionAuth::from_p2pkh(&pk).unwrap(),
                                 TransactionPayload::Coinbase(
                                     CoinbasePayload([0x00; 32]),
-                                    recipient_contract_id,
+                                    if pay_to_contract {
+                                        recipient_contract_id
+                                    } else {
+                                        alt_recipient_id
+                                    },
                                 ),
                             );
                             tx_coinbase.chain_id = 0x80000000;
@@ -11847,7 +11909,7 @@ pub mod test {
                 .unwrap();
         }
 
-        let mut contract_total_reward = 0;
+        let mut recipient_total_reward = 0;
         for i in 0..num_blocks {
             let sortdb = peer.sortdb.take().unwrap();
             let (consensus_hash, block_bhh) =
@@ -11855,7 +11917,7 @@ pub mod test {
             let stacks_block_id =
                 StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
 
-            // despite the block reward going to a contract address, the block reward is still
+            // despite the block reward going to an alt. recipient address, the block reward is still
             // reported correctly.
             peer
                 .chainstate()
@@ -11941,8 +12003,8 @@ pub mod test {
                             assert_eq!(block_reward_opt.clone().unwrap().expect_u128(), coinbase + tx_fees_anchored + tx_fees_streamed_produced + tx_fees_streamed_confirmed);
 
                             if i > 2 {
-                                eprintln!("contract_total_reward: {} = {} + {}", contract_total_reward + block_reward_opt.clone().unwrap().expect_u128(), contract_total_reward, block_reward_opt.clone().unwrap().expect_u128());
-                                contract_total_reward += block_reward_opt.clone().unwrap().expect_u128();
+                                eprintln!("recipient_total_reward: {} = {} + {}", recipient_total_reward + block_reward_opt.clone().unwrap().expect_u128(), recipient_total_reward, block_reward_opt.clone().unwrap().expect_u128());
+                                recipient_total_reward += block_reward_opt.clone().unwrap().expect_u128();
                             }
                         }
                         else {
@@ -11956,18 +12018,18 @@ pub mod test {
             peer.sortdb = Some(sortdb);
         }
 
-        // finally, verify that the contract got all the coinbases except the first one
+        // finally, verify that the alt. recipient got all the coinbases except the first one
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
 
-        // despite the block reward going to a contract address, the block reward is still
+        // despite the block reward going to an alt. recipient address, the block reward is still
         // reported correctly.
-        let contract_balance = peer
+        let recipient_balance = peer
             .chainstate()
             .with_read_only_clarity_tx(&sortdb.index_conn(), &stacks_block_id, |clarity_tx| {
-                let contract_balance_val = clarity_tx
+                let recipient_balance_val = clarity_tx
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
@@ -11975,14 +12037,18 @@ pub mod test {
                         None,
                         LimitedCostTracker::new_free(),
                         |env| {
-                            env.eval_raw(&format!(
-                                "(stx-get-balance '{}.{})",
-                                &addr_anchored, contract_name
-                            ))
+                            if pay_to_contract {
+                                env.eval_raw(&format!(
+                                    "(stx-get-balance '{}.{})",
+                                    &addr_anchored, contract_name
+                                ))
+                            } else {
+                                env.eval_raw(&format!("(stx-get-balance '{})", &addr_recipient))
+                            }
                         },
                     )
                     .unwrap();
-                contract_balance_val.expect_u128()
+                recipient_balance_val.expect_u128()
             })
             .unwrap();
 
@@ -11994,12 +12060,12 @@ pub mod test {
             + 480   // 3 * (200 + 100 * (7 - 1)) / 5
             + 320; // 2 * (200 + 100 * (7 - 1)) / 5
 
-        // N.B. the contract will not have received the tx fees from the stream produced in tenure
-        // 2, since tenures 0, 1, and 2 do not pay to a smart contract.
+        // N.B. the alt. recipient will not have received the tx fees from the stream produced in tenure
+        // 2, since tenures 0, 1, and 2 do not pay to the alt. recipient.
         let extra_tx_fees = 160; // 2 * (200 + 100 * (3 - 1)) / 5
         assert_eq!(
-            contract_balance,
-            contract_total_reward + additional_reward - extra_tx_fees
+            recipient_balance,
+            recipient_total_reward + additional_reward - extra_tx_fees
         );
     }
 
