@@ -244,13 +244,14 @@ fn inner_generate_poison_microblock_tx(
 /// Constructs and returns a LeaderBlockCommitOp out of the provided params
 fn inner_generate_block_commit_op(
     block_header_hash: BlockHeaderHash,
+    burn_header_hash: BurnchainHeaderHash,
     withdrawal_merkle_root: Sha512Trunc256Sum,
 ) -> BlockstackOperationType {
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
         block_header_hash,
         withdrawal_merkle_root,
         txid: Txid([0; 32]),
-        burn_header_hash: BurnchainHeaderHash([0; 32]),
+        burn_header_hash,
     })
 }
 
@@ -1905,6 +1906,7 @@ impl StacksNode {
         // let's commit
         let op = inner_generate_block_commit_op(
             anchored_block.block_hash(),
+            burn_block.burn_header_hash.clone(),
             anchored_block.header.withdrawal_merkle_root,
         );
 
