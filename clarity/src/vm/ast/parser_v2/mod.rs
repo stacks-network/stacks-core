@@ -929,6 +929,7 @@ mod tests {
             }
         );
 
+        // Exceed the range of a 128-bit integer.
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("340282366920938463463374607431768211456 ");
         assert_eq!(success, false);
@@ -1015,6 +1016,7 @@ mod tests {
             }
         );
 
+        // Exceed the range of a 128-bit unsigned integer.
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("u340282366920938463463374607431768211457 ");
         assert_eq!(success, false);
