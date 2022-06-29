@@ -1154,6 +1154,7 @@ impl StacksBlockBuilder {
             burn_header_timestamp: genesis_burn_header_timestamp,
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
+            withdrawal_tree: MerkleTree::empty(),
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
@@ -1480,7 +1481,8 @@ impl StacksBlockBuilder {
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
 
-        let withdrawal_tree = create_withdrawal_merkle_tree(&self.tx_receipts);
+        let withdrawal_tree =
+            create_withdrawal_merkle_tree(&mut self.tx_receipts, self.header.total_work.work);
         let withdrawal_merkle_root = withdrawal_tree.root();
         self.header.withdrawal_merkle_root = withdrawal_merkle_root;
 

@@ -27,6 +27,12 @@ use std::net::SocketAddr;
 use std::time::Instant;
 use std::{convert::TryFrom, fmt};
 
+use clarity::util::hash::MerklePathOrder;
+use clarity::util::hash::MerklePathPoint;
+use clarity::util::hash::MerkleTree;
+use clarity::util::hash::Sha512Trunc256Sum;
+use clarity::vm::types::AssetIdentifier;
+use clarity::vm::types::TupleData;
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
@@ -43,6 +49,7 @@ use crate::chainstate::stacks::db::{
 use crate::chainstate::stacks::Error as chain_error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::withdrawal;
 use crate::codec::StacksMessageCodec;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
@@ -79,6 +86,7 @@ use crate::net::StacksMessageType;
 use crate::net::UnconfirmedTransactionResponse;
 use crate::net::UnconfirmedTransactionStatus;
 use crate::net::UrlString;
+use crate::net::WithdrawalResponse;
 use crate::net::HTTP_REQUEST_ID_RESERVED;
 use crate::net::MAX_HEADERS;
 use crate::net::MAX_NEIGHBORS_DATA_LEN;
@@ -917,6 +925,142 @@ impl ConversationHttp {
         let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
         let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
         response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_get_withdrawal_stx_entry<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        canonical_tip: &StacksBlockId,
+        requested_block_height: u64,
+        sender: &PrincipalData,
+        withdrawal_id: u32,
+        amount: u128,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount);
+        Self::handle_get_generic_withdrawal_entry(
+            http,
+            fd,
+            req,
+            chainstate,
+            canonical_tip,
+            requested_block_height,
+            withdrawal_key,
+            canonical_stacks_tip_height,
+        )
+    }
+
+    fn handle_get_generic_withdrawal_entry<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        canonical_tip: &StacksBlockId,
+        requested_block_height: u64,
+        withdrawal_key: String,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        let requested_block = match chainstate
+            .index_conn()
+            .map_err(|_| {
+                warn!("Failed to start MARF connection");
+                net_error::ChainstateError("Could not start MARF connection ".into())
+            })?
+            .get_ancestor_block_hash(requested_block_height, canonical_tip)
+        {
+            Ok(Some(x)) => x,
+            Err(_) | Ok(None) => {
+                return HttpResponseType::NotFound(
+                    response_metadata,
+                    "Supplied block height not found".into(),
+                )
+                .send(http, fd)
+                .map(|_| ())
+            }
+        };
+
+        let block_info_result = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+            chainstate.db(),
+            &requested_block,
+        );
+        let withdrawal_tree = match block_info_result {
+            Ok(Some(block_info)) => block_info.withdrawal_tree,
+            Err(_) | Ok(None) => {
+                return HttpResponseType::NotFound(
+                    response_metadata,
+                    "Supplied block not found".into(),
+                )
+                .send(http, fd)
+                .map(|_| ())
+            }
+        };
+
+        let merkle_path = match withdrawal_tree.path(withdrawal_key.as_bytes()) {
+            Some(path) => path,
+            None => {
+                return HttpResponseType::NotFound(
+                    response_metadata,
+                    "Supplied withdrawal key not found".into(),
+                )
+                .send(http, fd)
+                .map(|_| ())
+            }
+        };
+
+        let tuple_vec: Vec<_> = merkle_path
+            .into_iter()
+            .map(|merkle_point| {
+                let MerklePathPoint {
+                    order,
+                    hash: sibling_hash,
+                } = merkle_point;
+                // the sibling hash is the left sibling if the merkle path point order is right
+                //  because the merkle path point order is in reference to the leaf
+                let is_sibling_left_side = order == MerklePathOrder::Right;
+                // make the clarity tuple
+                Value::Tuple(
+                    TupleData::from_data(vec![
+                        ("hash".into(), withdrawal::buffer_from_hash(sibling_hash)),
+                        ("is-left-side".into(), Value::Bool(is_sibling_left_side)),
+                    ])
+                    .expect("Failed to construct Clarity repr of merkle tree entry"),
+                )
+            })
+            .collect();
+
+        let sibling_hashes = match Value::list_from(tuple_vec) {
+            Ok(list) => list,
+            Err(_) => {
+                error!("Failed to construct a valid Clarity list type out of withdrawal merkle path";
+                       "l2_block_id" => %requested_block);
+                return HttpResponseType::NotFound(
+                    response_metadata,
+                    "Withdrawal merkle tree at this block height is invalid".into(),
+                )
+                .send(http, fd)
+                .map(|_| ());
+            }
+        };
+
+        let withdrawal_root = withdrawal::buffer_from_hash(withdrawal_tree.root());
+        let withdrawal_leaf_hash = withdrawal::buffer_from_hash(
+            MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(withdrawal_key.as_bytes()),
+        );
+
+        let response = WithdrawalResponse {
+            withdrawal_root: format!("0x{}", withdrawal_root.serialize()),
+            withdrawal_leaf_hash: format!("0x{}", withdrawal_leaf_hash.serialize()),
+            sibling_hashes: format!("0x{}", sibling_hashes.serialize()),
+        };
+
+        HttpResponseType::GetWithdrawal(response_metadata, response)
+            .send(http, fd)
+            .map(|_| ())
     }
 
     /// Handle a GET on an existing account, given the current chain tip.  Optionally supplies a
@@ -2497,6 +2641,37 @@ impl ConversationHttp {
                 response
                     .send(&mut self.connection.protocol, &mut reply)
                     .map(|_| ())?;
+                None
+            }
+            HttpRequestType::GetWithdrawalStx {
+                withdraw_block_height,
+                ref sender,
+                withdrawal_id,
+                amount,
+                ..
+            } => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    &TipRequest::UseLatestAnchoredTip,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_withdrawal_stx_entry(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        chainstate,
+                        &tip,
+                        withdraw_block_height,
+                        &sender.clone(),
+                        withdrawal_id,
+                        amount,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
                 None
             }
         };

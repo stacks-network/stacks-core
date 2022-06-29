@@ -308,6 +308,9 @@ impl Config {
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
+                    wait_before_first_anchored_block: node
+                        .wait_before_first_anchored_block
+                        .unwrap_or(default_node_config.wait_before_first_anchored_block),
                     ..default_node_config
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
@@ -1422,6 +1425,7 @@ pub struct NodeConfigFile {
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub wait_before_first_anchored_block: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,

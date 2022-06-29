@@ -373,7 +373,7 @@ impl DoubleSha256 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct MerkleTree<H: MerkleHashFunc> {
     // nodes[0] is the list of leaves
     // nodes[-1][0] is the root
@@ -386,6 +386,8 @@ pub struct MerklePathPoint<H: MerkleHashFunc> {
     pub hash: H,
 }
 
+/// Merkle proof path, starting from the leaf hash's sibling
+/// and ending with the root level sibling.
 pub type MerklePath<H> = Vec<MerklePathPoint<H>>;
 
 /// Merkle tree implementation with tagged nodes:
@@ -399,6 +401,10 @@ impl<H> MerkleTree<H>
 where
     H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
 {
+    pub fn empty() -> MerkleTree<H> {
+        MerkleTree { nodes: vec![] }
+    }
+
     pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
         if data.len() == 0 {
             return MerkleTree { nodes: vec![] };
@@ -542,14 +548,14 @@ where
 
     /// Get the path from the given data's leaf up to the root.
     /// will be None if the data isn't a leaf.
-    pub fn path(&self, data: &Vec<u8>) -> Option<MerklePath<H>> {
+    pub fn path(&self, data: &[u8]) -> Option<MerklePath<H>> {
+        if self.nodes.len() == 0 {
+            // tree is empty
+            return None;
+        }
+
         let leaf_hash = MerkleTree::get_leaf_hash(&data[..]);
-        let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
-            None => {
-                return None;
-            }
-            Some(i) => i,
-        };
+        let mut hash_index = self.find_hash_index(&leaf_hash, 0)?;
 
         let mut path: MerklePath<H> = vec![];
         path.reserve(self.nodes.len());
@@ -573,12 +579,7 @@ where
             }
 
             next_hash = MerkleTree::get_node_hash(&left, &right);
-            hash_index = match self.find_hash_index(&next_hash, i + 1) {
-                None => {
-                    return None;
-                }
-                Some(hi) => hi,
-            };
+            hash_index = self.find_hash_index(&next_hash, i + 1)?;
         }
 
         Some(path)

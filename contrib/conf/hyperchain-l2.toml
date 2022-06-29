@@ -1,0 +1,22 @@
+[node]
+working_dir = "/tmp/hyperchain-l1"
+rpc_bind = "127.0.0.1:19443"
+p2p_bind = "127.0.0.1:19444"
+seed = "1010101010101010101010101010101010101010101010101010101010101010"
+local_peer_seed = "2020202020202020202020202020202020202020202020202020202020202020"
+miner = true
+wait_time_for_microblocks = 1_000
+wait_before_first_anchored_block = 2_000
+data_url = "https://127.0.0.1:19443"
+p2p_address = "127.0.0.1:19444"
+mining_key = "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
+
+[burnchain]
+chain = "stacks_layer_1"
+mode = "hyperchain"
+rpc_ssl = false
+rpc_port = 20443
+peer_host = "127.0.0.1"
+first_burn_header_height = 1
+contract_identifier = "ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP.hyperchain"
+observer_port = 49303

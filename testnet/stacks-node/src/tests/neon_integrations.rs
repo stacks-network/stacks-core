@@ -8,7 +8,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
-use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData};
+use stacks::net::{AccountEntryResponse, ContractSrcResponse, RPCPeerInfoData, WithdrawalResponse};
 use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{hex_bytes, Hash160};
@@ -20,6 +20,8 @@ use stacks::{
     },
     net::RPCPoxInfoData,
 };
+
+use clarity::vm::Value as ClarityValue;
 
 use crate::burnchains::mock_events::{reset_static_burnblock_simulator_channel, MockController};
 use crate::config::{EventKeyType, EventObserverConfig};
@@ -651,6 +653,13 @@ pub struct Account {
     pub nonce: u64,
 }
 
+#[derive(Debug)]
+pub struct WithdrawalEntry {
+    pub leaf_hash: ClarityValue,
+    pub root_hash: ClarityValue,
+    pub siblings: ClarityValue,
+}
+
 pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Account {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/accounts/{}?proof=0", http_origin, account);
@@ -664,6 +673,33 @@ pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Acco
     Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         nonce: res.nonce,
+    }
+}
+
+pub fn get_withdrawal_entry<F: std::fmt::Display>(
+    http_origin: &str,
+    block_height: u64,
+    sender: F,
+    withdrawal_id: u64,
+    amount: u64,
+) -> WithdrawalEntry {
+    let client = reqwest::blocking::Client::new();
+    let path = format!(
+        "{}/v2/withdrawal/stx/{}/{}/{}/{}",
+        http_origin, block_height, sender, withdrawal_id, amount
+    );
+
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<WithdrawalResponse>()
+        .unwrap();
+    info!("Withdrawal response: {:#?}", res);
+    WithdrawalEntry {
+        leaf_hash: ClarityValue::try_deserialize_hex_untyped(&res.withdrawal_leaf_hash).unwrap(),
+        root_hash: ClarityValue::try_deserialize_hex_untyped(&res.withdrawal_root).unwrap(),
+        siblings: ClarityValue::try_deserialize_hex_untyped(&res.sibling_hashes).unwrap(),
     }
 }
 
@@ -1013,7 +1049,7 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
 #[ignore]
 fn transactions_in_block_and_microblock() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, _miner_account) = mockstack_test_conf();
+    let (mut conf, miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
@@ -1169,6 +1205,26 @@ fn transactions_in_block_and_microblock() {
     }
 
     channel.stop_chains_coordinator();
+}
+
+/// Iterate over all the events in supplied blocks, passing the block height and
+/// event JSON to a filter_mapper `test_fn`.
+pub fn filter_map_events<F, R>(blocks: &Vec<serde_json::Value>, test_fn: F) -> Vec<R>
+where
+    F: Fn(u64, &serde_json::Value) -> Option<R>,
+{
+    let mut result = vec![];
+    for block in blocks {
+        let height = block.get("block_height").unwrap().as_u64().unwrap();
+        let events = block.get("events").unwrap().as_array().unwrap();
+        for ev in events.iter() {
+            if let Some(v) = test_fn(height, ev) {
+                result.push(v);
+            }
+        }
+    }
+
+    return result;
 }
 
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that

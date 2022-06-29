@@ -145,6 +145,7 @@ fn make_block(
         burn_header_height: burn_height as u32,
         burn_header_timestamp: 0,
         anchored_block_size: 1,
+        withdrawal_tree: MerkleTree::empty(),
     };
 
     c_tx.commit_block();

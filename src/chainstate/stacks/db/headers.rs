@@ -145,6 +145,9 @@ impl StacksChainState {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
 
+        let withdrawal_tree = serde_json::to_string(&tip_info.withdrawal_tree)
+            .expect("Failed to serialize merkle tree");
+
         assert!(block_height < (i64::MAX as u64));
 
         let args: &[&dyn ToSql] = &[
@@ -171,6 +174,7 @@ impl StacksChainState {
             &block_size_str,
             parent_id,
             &header.miner_signatures,
+            &withdrawal_tree,
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -196,9 +200,10 @@ impl StacksChainState {
                     cost,
                     block_size,
                     parent_block_id, \
-                    miner_signatures \
+                    miner_signatures, \
+                    withdrawal_tree
                     ) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)", args)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())

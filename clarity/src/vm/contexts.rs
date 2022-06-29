@@ -1233,7 +1233,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         sender: PrincipalData,
         amount: u128,
     ) -> Result<()> {
-        let event_data = STXWithdrawEventData { sender, amount };
+        let event_data = STXWithdrawEventData {
+            sender,
+            amount,
+            withdrawal_id: None,
+        };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {
             batch.events.push(StacksTransactionEvent::STXEvent(
@@ -1315,6 +1319,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             sender,
             asset_identifier,
             value,
+            withdrawal_id: None,
         };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {
@@ -1401,6 +1406,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             sender,
             asset_identifier,
             amount,
+            withdrawal_id: None,
         };
 
         if let Some(batch) = self.global_context.event_batches.last_mut() {

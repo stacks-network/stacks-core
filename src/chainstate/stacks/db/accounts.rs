@@ -865,6 +865,7 @@ mod test {
             &ExecutionCost::zero(),
             123,
             false,
+            MerkleTree::empty(),
         )
         .unwrap();
         tx.commit().unwrap();
