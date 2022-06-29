@@ -2074,8 +2074,9 @@ pub mod test {
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::miner::test::*;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
+    use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::chainstate::*;
     use crate::core::NETWORK_P2P_PORT;
@@ -3470,6 +3471,13 @@ pub mod test {
                 &last_key,
                 parent_sortition_opt.as_ref(),
             );
+
+            // patch up block-commit -- these blocks all mine off of genesis
+            if stacks_block.header.parent_block == BlockHeaderHash([0u8; 32]) {
+                block_commit_op.parent_block_ptr = 0;
+                block_commit_op.parent_vtxindex = 0;
+            }
+
             let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
 
             // patch in reward set info

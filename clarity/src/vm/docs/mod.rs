@@ -1470,10 +1470,12 @@ from the block hash and the history of accepted PoX operations.  This is also th
 `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
-`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.
+`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
+be the same `principal` that received the block reward, since Stacks 2.1 supports coinbase transactions that pay the reward to a contract address.  This is merely
+the address of the `principal` that produced the block.
 
 `time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
+which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
 New in Stacks 2.1:

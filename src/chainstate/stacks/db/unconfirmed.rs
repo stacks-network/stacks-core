@@ -598,8 +598,8 @@ mod test {
     use crate::chainstate::stacks::index::marf::*;
     use crate::chainstate::stacks::index::node::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::miner::test::make_coinbase;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::make_coinbase;
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::chainstate::stacks::*;
     use crate::core::mempool::*;
