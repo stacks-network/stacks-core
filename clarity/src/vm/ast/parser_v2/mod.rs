@@ -3,6 +3,8 @@ pub mod lexer;
 use std::convert::TryFrom;
 use std::num::ParseIntError;
 
+use stacks_common::util::hash::hex_bytes;
+
 use self::lexer::error::LexerError;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
 use crate::vm::ast::parser_v2::lexer::token::{PlacedToken, Token};
@@ -721,7 +723,7 @@ impl<'a> Parser<'a> {
                 Some(expr)
             }
             Token::Bytes(data) => {
-                let mut expr = match decode_hex(data) {
+                let mut expr = match hex_bytes(data) {
                     Ok(bytes) => match Value::buff_from(bytes) {
                         Ok(value) => PreSymbolicExpression::atom_value(value),
                         _ => {
@@ -844,13 +846,6 @@ pub fn parse_collect_diagnostics(
         })
         .collect();
     (stmts, diagnostics, parser.success)
-}
-
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
 }
 
 #[cfg(test)]
