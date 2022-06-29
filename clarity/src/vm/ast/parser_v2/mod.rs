@@ -522,6 +522,13 @@ impl<'a> Parser<'a> {
             }
         };
 
+        if name.len() > MAX_CONTRACT_NAME_LEN {
+            self.add_diagnostic(ParseErrors::ContractNameTooLong(name.clone()), span.clone())?;
+            let mut placeholder = PreSymbolicExpression::placeholder(format!(".{}", name));
+            placeholder.span = span;
+            return Ok(placeholder);
+        }
+
         let contract_name = match ContractName::try_from(name.clone()) {
             Ok(id) => id,
             Err(_) => {
@@ -2682,6 +2689,27 @@ mod tests {
                 start_column: 6,
                 end_line: 1,
                 end_column: 8
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+            ".this-name-is-way-too-many-characters-to-be-a-legal-contract-name",
+        );
+        assert_eq!(success, false);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(
+            stmts[0].match_placeholder().unwrap(),
+            ".this-name-is-way-too-many-characters-to-be-a-legal-contract-name"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "contract name 'this-name-is-way-too-many-characters-to-be-a-legal-contract-name' is too long");
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 65
             }
         );
 
