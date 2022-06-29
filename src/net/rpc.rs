@@ -3602,7 +3602,7 @@ mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;

@@ -324,7 +324,7 @@ fn fee_rate_and_weight_from_receipt(
             // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
             metric.from_len(tx_size)
         }
-        TransactionPayload::Coinbase(_) => {
+        TransactionPayload::Coinbase(..) => {
             // Coinbase txs are "free", so they don't factor into the fee market.
             return None;
         }

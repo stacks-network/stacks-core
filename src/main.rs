@@ -756,7 +756,7 @@ simulating a miner.
         let mut coinbase_tx = StacksTransaction::new(
             TransactionVersion::Mainnet,
             tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         coinbase_tx.chain_id = chain_id;

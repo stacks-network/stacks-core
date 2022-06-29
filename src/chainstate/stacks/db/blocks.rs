@@ -71,7 +71,8 @@ use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
 };
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
@@ -3657,7 +3658,7 @@ impl StacksChainState {
     }
 
     /// Determine whether or not a block executed an epoch transition.  That is, did this block
-    /// call `initialize_epoch_2_05()` or similar when it was processed.
+    /// call `initialize_epoch_XYZ()` for some XYZ when it was processed.
     pub fn block_crosses_epoch_boundary(
         block_conn: &DBConn,
         parent_consensus_hash: &ConsensusHash,
@@ -3694,7 +3695,7 @@ impl StacksChainState {
     ) -> Result<Option<(u64, u64)>, Error> {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
-        let (block_commit, stacks_chain_tip) = match db_handle
+        let (block_commit, parent_stacks_chain_tip) = match db_handle
             .get_block_snapshot_of_parent_stacks_block(consensus_hash, &block_hash)
         {
             Ok(Some(bc)) => bc,
@@ -3743,7 +3744,7 @@ impl StacksChainState {
             &penultimate_sortition_snapshot,
             &leader_key,
             &block_commit,
-            &stacks_chain_tip,
+            &parent_stacks_chain_tip,
         ) {
             Ok(_) => {}
             Err(_) => {
@@ -3756,12 +3757,25 @@ impl StacksChainState {
             }
         };
 
+        // NEW in 2.1: pass the current epoch, since this determines when new transaction types
+        // become valid (such as coinbase-pay-to-contract)
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(db_handle.deref(), burn_chain_tip.block_height)?
+                .expect("FATAL: no epoch defined for current Stacks block");
+
+        test_debug!(
+            "Block {}/{} in epoch {}",
+            &consensus_hash,
+            &block_hash,
+            &cur_epoch.epoch_id
+        );
+
         // static checks on transactions all pass
-        let valid = block.validate_transactions_static(mainnet, chain_id);
+        let valid = block.validate_transactions_static(mainnet, chain_id, cur_epoch.epoch_id);
         if !valid {
             warn!(
-                "Invalid block, transactions failed static checks: {}/{}",
-                consensus_hash, block_hash
+                "Invalid block, transactions failed static checks: {}/{} (epoch {})",
+                consensus_hash, block_hash, cur_epoch.epoch_id
             );
             return Ok(None);
         }
@@ -3772,16 +3786,16 @@ impl StacksChainState {
         // their parents' microblocks.
         if StacksChainState::block_crosses_epoch_boundary(
             blocks_conn,
-            &stacks_chain_tip.consensus_hash,
-            &stacks_chain_tip.winning_stacks_block_hash,
+            &parent_stacks_chain_tip.consensus_hash,
+            &parent_stacks_chain_tip.winning_stacks_block_hash,
         )? {
             if block.has_microblock_parent() {
                 warn!(
                     "Invalid block {}/{}: its parent {}/{} crossed the epoch boundary but this block confirmed its microblocks",
                     &consensus_hash,
                     &block.block_hash(),
-                    &stacks_chain_tip.consensus_hash,
-                    &stacks_chain_tip.winning_stacks_block_hash
+                    &parent_stacks_chain_tip.consensus_hash,
+                    &parent_stacks_chain_tip.winning_stacks_block_hash
                 );
                 return Ok(None);
             }
@@ -3804,6 +3818,13 @@ impl StacksChainState {
     ///
     /// (New in 2.05+) If the anchored block descends from a parent anchored block in a different
     /// system epoch, then it *must not* have a parent microblock stream.
+    ///
+    /// (New in 2.1+) A block must contain only transactions that are valid in the parent block's
+    /// epoch.  If not, then this method will *not* preprocess or store the block.
+    ///
+    /// Returns Ok(true) if the block was stored to the staging DB.
+    /// Returns Ok(false) if not (i.e. the block is invalid, or already stored)
+    /// Returns Err(..) on database errors
     ///
     /// sort_ic: an indexed connection to a sortition DB
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
@@ -3889,15 +3910,22 @@ impl StacksChainState {
                 );
                 warn!("{}", &msg);
 
-                // orphan it
-                StacksChainState::set_block_processed(
+                // orphan it if it's already stored
+                match StacksChainState::set_block_processed(
                     &mut block_tx,
                     None,
                     &blocks_path,
                     consensus_hash,
                     &block.block_hash(),
                     false,
-                )?;
+                ) {
+                    Ok(_) => Ok(()),
+                    Err(Error::DBError(db_error::NotFoundError)) => {
+                        // no record of this block in the DB, so this is fine
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                }?;
 
                 block_tx.commit()?;
                 return Err(Error::InvalidStacksBlock(msg));
@@ -4110,6 +4138,7 @@ impl StacksChainState {
     ///    accumulated rewards from missed sortitions or initial mining rewards.
     fn make_scheduled_miner_reward(
         mainnet: bool,
+        epoch_id: StacksEpochId,
         parent_block_hash: &BlockHeaderHash,
         parent_consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -4126,14 +4155,27 @@ impl StacksChainState {
             "No coinbase transaction".to_string(),
         ))?;
         let miner_auth = coinbase_tx.get_origin();
-        let miner_addr = if mainnet {
-            miner_auth.address_mainnet()
+        let miner_addr = miner_auth.get_address(mainnet);
+
+        let recipient = if epoch_id >= StacksEpochId::Epoch21 {
+            // pay to tx-designated recipient, or if there is none, pay to the origin
+            match coinbase_tx.try_as_coinbase() {
+                Some((_, recipient_opt)) => recipient_opt
+                    .cloned()
+                    .unwrap_or(miner_addr.to_account_principal()),
+                None => miner_addr.to_account_principal(),
+            }
         } else {
-            miner_auth.address_testnet()
+            // pre-2.1, always pay to the origin
+            miner_addr.to_account_principal()
         };
 
+        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
+        // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
+        // not become valid until after 2.1 activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
+            recipient: recipient,
             block_hash: block.block_hash(),
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
@@ -4729,20 +4771,36 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         miner_reward: &MinerReward,
     ) -> Result<(), Error> {
+        let evaluated_epoch = clarity_tx.get_epoch();
         let miner_reward_total = miner_reward.total();
         clarity_tx
             .connection()
             .as_transaction(|x| {
                 x.with_clarity_db(|ref mut db| {
-                    let miner_principal = PrincipalData::Standard(StandardPrincipalData::from(
-                        miner_reward.address.clone(),
-                    ));
-                    let mut snapshot = db.get_stx_balance_snapshot(&miner_principal);
+                    let recipient_principal =
+                        // strictly speaking this check is defensive. It will never be the case
+                        // that a `miner_reward` has a `recipient_contract` that is `Some(..)`
+                        // unless the block was mined in Epoch 2.1.  But you can't be too
+                        // careful... 
+                        if evaluated_epoch >= StacksEpochId::Epoch21 {
+                            // in 2.1 or later, the coinbase may optionally specify a contract into
+                            // which the tokens get sent.  If this is not given, then they are sent 
+                            // to the miner address.
+                            miner_reward.recipient.clone()
+                        }
+                        else {
+                            // pre-2.1, only the miner address can be paid
+                            PrincipalData::Standard(StandardPrincipalData::from(
+                                    miner_reward.address.clone(),
+                            ))
+                        };
+
+                    let mut snapshot = db.get_stx_balance_snapshot(&recipient_principal);
                     snapshot.credit(miner_reward_total);
 
                     debug!(
                         "Balance available for {} is {} uSTX (earned {} uSTX)",
-                        &miner_reward.address,
+                        &recipient_principal,
                         snapshot.get_available_balance(),
                         miner_reward_total
                     );
@@ -5574,6 +5632,7 @@ impl StacksChainState {
             // calculate reward for this block's miner
             let scheduled_miner_reward = StacksChainState::make_scheduled_miner_reward(
                 mainnet,
+                evaluated_epoch,
                 &parent_block_hash,
                 &parent_consensus_hash,
                 &block,
@@ -6556,7 +6615,7 @@ impl StacksChainState {
                     ));
                 }
             }
-            TransactionPayload::Coinbase(_) => return Err(MemPoolRejection::NoCoinbaseViaMempool),
+            TransactionPayload::Coinbase(..) => return Err(MemPoolRejection::NoCoinbaseViaMempool),
         };
 
         Ok(())
@@ -6575,9 +6634,9 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::miner::test::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::Error as chainstate_error;
     use crate::chainstate::stacks::*;
     use crate::core::mempool::*;
@@ -6612,7 +6671,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -6677,7 +6736,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -10591,7 +10650,7 @@ pub mod test {
                     let mut mempool =
                         MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
                     let coinbase_tx =
-                        make_coinbase_with_nonce(miner, tenure_id as usize, tenure_id.into());
+                        make_coinbase_with_nonce(miner, tenure_id as usize, tenure_id.into(), None);
 
                     let microblock_privkey = StacksPrivateKey::new();
                     let microblock_pubkeyhash = Hash160::from_node_public_key(
