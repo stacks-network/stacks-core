@@ -1768,8 +1768,8 @@ mod test {
     use crate::burnchains::test::TestMiner;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
-    use crate::chainstate::stacks::miner::test::make_coinbase_with_nonce;
     use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::tests::make_coinbase_with_nonce;
     use crate::chainstate::stacks::*;
     use crate::chainstate::stacks::*;
     use crate::net::asn::*;

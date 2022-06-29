@@ -2574,8 +2574,8 @@ pub mod test {
 
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
-    use crate::chainstate::stacks::miner::test::*;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
     use crate::net::inv::*;

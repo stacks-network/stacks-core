@@ -40,7 +40,7 @@ use crate::{
     burnchains::Burnchain,
     chainstate::{
         burn::db::sortdb::SortitionDB,
-        stacks::{events::TransactionOrigin, miner::test::make_coinbase},
+        stacks::{events::TransactionOrigin, tests::make_coinbase},
     },
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     net::test::TestEventObserver,
