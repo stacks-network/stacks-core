@@ -1,4 +1,4 @@
-;; This is like `simple-nft.clar`, but does not support minting.
+;; This is like `simple-nft.clar`, but does not support minting from hyperchain.
 
 (define-constant CONTRACT_OWNER tx-sender)
 (define-constant CONTRACT_ADDRESS (as-contract tx-sender))
@@ -37,5 +37,11 @@
     ((newId (+ (var-get lastId) u1)))
     (var-set lastId newId)
     (nft-mint? nft-token newId recipient)
+  )
+)
+
+(define-public (gift-nft (recipient principal) (id uint))
+  (begin
+    (nft-mint? nft-token id recipient)
   )
 )
