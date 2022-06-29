@@ -962,6 +962,24 @@ mod tests {
                 end_column: 39
             }
         );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("0000000000123");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        if let Some(Value::Int(123)) = stmts[0].match_atom_value() {
+        } else {
+            panic!("failed to parse int value");
+        }
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 13
+            }
+        );
     }
 
     #[test]
@@ -1047,6 +1065,24 @@ mod tests {
                 start_column: 1,
                 end_line: 1,
                 end_column: 40
+            }
+        );
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics("u00000000123");
+        assert_eq!(success, true);
+        assert_eq!(stmts.len(), 1);
+        assert_eq!(diagnostics.len(), 0);
+        if let Some(Value::UInt(123)) = stmts[0].match_atom_value() {
+        } else {
+            panic!("failed to parse int value");
+        }
+        assert_eq!(
+            stmts[0].span,
+            Span {
+                start_line: 1,
+                start_column: 1,
+                end_line: 1,
+                end_column: 12
             }
         );
     }
