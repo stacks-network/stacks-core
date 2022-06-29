@@ -328,10 +328,10 @@ impl<'a> Lexer<'a> {
         Ok(Token::Uint(num))
     }
 
-    fn read_integer(&mut self, negate: bool) -> LexResult<Token> {
+    fn read_integer(&mut self, prefix: Option<char>) -> LexResult<Token> {
         let mut num = String::new();
-        if negate {
-            num.push('-');
+        if let Some(ch) = prefix {
+            num.push(ch);
         }
 
         while self.next.is_ascii_digit() {
@@ -729,7 +729,7 @@ impl<'a> Lexer<'a> {
                 advance = false;
                 self.read_char()?;
                 if self.next.is_ascii_digit() {
-                    self.read_integer(true)?
+                    self.read_integer(Some('-'))?
                 } else {
                     Token::Minus
                 }
@@ -805,7 +805,7 @@ impl<'a> Lexer<'a> {
                 if self.next == 'x' {
                     self.read_hex()?
                 } else if self.next.is_ascii_digit() {
-                    self.read_integer(false)?
+                    self.read_integer(Some('0'))?
                 } else if is_separator(self.next) {
                     Token::Int("0".to_string())
                 } else {
@@ -821,7 +821,7 @@ impl<'a> Lexer<'a> {
                     self.read_identifier(None)?
                 } else if self.next.is_ascii_digit() {
                     advance = false;
-                    self.read_integer(false)?
+                    self.read_integer(None)?
                 } else {
                     self.add_diagnostic(
                         LexerError::UnknownSymbol(self.next),
@@ -944,7 +944,7 @@ mod tests {
         lexer = Lexer::new("0123", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Int("123".to_string())
+            Token::Int("0123".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 0);
 
