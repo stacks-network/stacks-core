@@ -15,13 +15,13 @@ build_platform () {
 case $DIST_TARGET_FILTER in
   (*[![:blank:]]*)
     case $DIST_TARGET_FILTER in
-      linux-x64)      build_platform linux-x64 ;;
-      linux-musl-x64) build_platform linux-musl-x64 ;;
-      linux-armv7)    build_platform linux-armv7 ;;
-      linux-arm64)    build_platform linux-arm64 ;;
-      windows-x64)    build_platform windows-x64 ;;
-      macos-x64)      build_platform macos-x64 ;;
-      macos-arm64)    build_platform macos-arm64 ;;
+      linux-glibc-x64)      build_platform linux-glibc-x64 ;;
+      linux-glibc-arm64)    build_platform linux-glibc-arm64 ;;
+      linux-musl-x64)       build_platform linux-musl-x64 ;;
+      linux-musl-arm64)     build_platform linux-musl-arm64 ;;
+      windows-x64)          build_platform windows-x64 ;;
+      macos-x64)            build_platform macos-x64 ;;
+      macos-arm64)          build_platform macos-arm64 ;;
       *)
         echo "Invalid dist target filter '$DIST_TARGET_FILTER'"
         exit 1
@@ -30,10 +30,10 @@ case $DIST_TARGET_FILTER in
     ;;
   (*)
     echo "Building distrubtions for all targets."
-    build_platform linux-x64
+    build_platform linux-glibc-x64
+    build_platform linux-glibc-arm64
     build_platform linux-musl-x64
-    build_platform linux-armv7
-    build_platform linux-arm64
+    build_platform linux-musl-arm64
     build_platform windows-x64
     build_platform macos-x64
     build_platform macos-arm64

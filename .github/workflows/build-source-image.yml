@@ -56,7 +56,7 @@ jobs:
       - name: Build/Tag/Push Image
         uses: docker/build-push-action@v3
         with:
-          file: Dockerfile.debian-source
+          file: ./github/actions/dockerhub/Dockerfile.debian
           platforms: ${{ inputs.docker_platforms }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

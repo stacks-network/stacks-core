@@ -4,21 +4,23 @@ ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 ENV BUILD_DIR=/build
-ENV TARGET=x86_64-pc-windows-gnu
+ENV TARGET=aarch64-unknown-linux-gnu
 WORKDIR /src
 
 COPY . .
 
-RUN apt-get update && apt-get install -y git gcc-mingw-w64-x86-64
+RUN apt-get update && apt-get install -y git gcc-aarch64-linux-gnu
 
 RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
-    && CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc \
-    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
+    && CC=aarch64-linux-gnu-gcc \
+    CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
     cargo build --release --workspace --target ${TARGET} --features monitoring_prom,slog_json \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
+
 FROM scratch AS export-stage
-COPY --from=build /out/stacks-inspect.exe /out/blockstack-cli.exe /out/clarity-cli.exe /out/stacks-node.exe /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /

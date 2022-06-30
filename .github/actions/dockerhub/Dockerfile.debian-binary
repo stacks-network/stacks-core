@@ -1,0 +1,20 @@
+FROM --platform=${TARGETPLATFORM} alpine as builder
+
+ARG TAG
+ARG BIN_ARCH
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+RUN case ${TARGETARCH} in \
+    "amd64")  BIN_ARCH=linux-musl-x64  ;; \
+    "arm64")  BIN_ARCH=linux-musl-arm64  ;; \
+    esac \
+    && echo "wget  -q https://github.com/wileyj/stacks-blockchain/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
+    && wget  -q https://github.com/wileyj/stacks-blockchain/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
+    && unzip ${BIN_ARCH}.zip -d /out
+
+FROM --platform=${TARGETPLATFORM} debian:bullseye
+COPY --from=builder /out/ /bin/
+CMD ["stacks-node", "mainnet"]

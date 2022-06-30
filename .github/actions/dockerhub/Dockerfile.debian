@@ -1,0 +1,22 @@
+
+FROM rust:bullseye as build
+
+ARG STACKS_NODE_VERSION="No Version Info"
+ARG GIT_BRANCH='No Branch Info'
+ARG GIT_COMMIT='No Commit Info'
+ENV BUILD_DIR=/build
+
+WORKDIR /src
+
+COPY . .
+
+RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
+    && cd ${BUILD_DIR} \
+    && rustup target add x86_64-unknown-linux-gnu \
+    && cargo build --release --workspace --target x86_64-unknown-linux-gnu
+
+RUN mkdir -p /out && cp -R ${BUILD_DIR}/target/x86_64-unknown-linux-gnu/release/. /out
+
+FROM --platform=${TARGETPLATFORM} debian:bullseye
+COPY --from=build /out/ /bin/
+CMD ["stacks-node", "mainnet"]

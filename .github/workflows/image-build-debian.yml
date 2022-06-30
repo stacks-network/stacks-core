@@ -75,7 +75,7 @@ jobs:
         if: ${{ inputs.tag != '' }}
         uses: docker/build-push-action@v3
         with:
-          file: ./Dockerfile.debian-binary
+          file: ./github/actions/dockerhub/Dockerfile.debian-binary
           platforms: ${{ inputs.docker_platforms }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
