@@ -21,6 +21,8 @@ on:
 
 jobs:
   dist:
+    # disable for testing
+    if: ${{ false }}
     runs-on: ubuntu-latest
     env:
       ROBOT_BRANCH: ${{ format('auto/clarity-ref-{0}', github.sha) }}
