@@ -1,19 +1,22 @@
-name: Build Debian Source Image
+name: Build Linux Source Image
 
 on:
   workflow_call:
     inputs:
       docker_platforms:
         required: true
-        description: "Arch to buid debian images"
+        description: "Arch to buid images"
         type: string
+      linux_version:
+        required: true
+        description: "Linux image to build"
+        type: string
+        default: debian
     secrets:
       DOCKERHUB_USERNAME:
         required: true
       DOCKERHUB_PASSWORD:
         required: true
-env:
-  LINUX_VERSION: debian
 
 jobs:
   image:
@@ -26,6 +29,7 @@ jobs:
         run: |
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       # extract branch name NOT a pull request
       - name: Extract branch name
         if: ${{ github.event_name != 'pull_request' }}
@@ -45,7 +49,7 @@ jobs:
           images: |
             wileyj/${{ github.event.repository.name }}
           tags: |
-            type=raw,value=${{ env.BRANCH_NAME }}-${{ env.LINUX_VERSION }}
+            type=raw,value=${{ env.BRANCH_NAME }}-${{ inputs.linux_version }}
             type=ref,event=pr
 
       - name: Login to DockerHub
@@ -59,7 +63,7 @@ jobs:
         id: docker_build
         uses: docker/build-push-action@v3
         with:
-          file: ./.github/actions/dockerhub/Dockerfile.debian-source
+          file: ./.github/actions/dockerhub/Dockerfile.${{ inputs.linux_version }}-source
           platforms: ${{ inputs.docker_platforms }}
           tags: ${{ steps.docker_metadata.outputs.tags }}
           labels: ${{ steps.docker_metadata.outputs.labels }}

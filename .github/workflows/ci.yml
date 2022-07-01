@@ -29,7 +29,7 @@ jobs:
   build-source:
     # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/build-source-binary.yml@master
+    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/build-source-binary.yml@master
     uses: ./.github/workflows/build-source-binary.yml
     needs: release-tests
     with:
@@ -37,24 +37,27 @@ jobs:
       parallel_jobs: 4
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
-
+      # arch: >-
+      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64"]
   github-release:
     # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/github-release.yml@master
+    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/github-release.yml@master
     uses: ./.github/workflows/github-release.yml
     needs: build-source
     with:
       tag: ${{ inputs.tag }}
+      arch: >-
+        ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
       # arch: >-
-      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
+      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64"]
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
   docker-alpine:
     # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/image-build-alpine.yml@master
+    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/image-build-alpine.yml@master
     uses: ./.github/workflows/image-build-alpine.yml
     needs: github-release
     with:
@@ -67,12 +70,13 @@ jobs:
   docker-debian:
     # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/image-build-debian.yml@master
+    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/image-build-debian.yml@master
     uses: ./.github/workflows/image-build-debian.yml
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
       docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
+      linux_version: debian
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
@@ -83,10 +87,11 @@ jobs:
   build-branch:
     # Only run if (a tag was NOT passed in) or (we're building a non-master branch which isn't a PR)
     if: ${{ inputs.tag == '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/build-source-image.yml@master
+    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/build-source-image.yml@master
     uses: ./.github/workflows/build-source-image.yml
     with:
-      docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
+      docker_platforms: linux/amd64
+      linux_version: debian
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
