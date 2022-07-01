@@ -15,7 +15,7 @@ on:
         required: true
 jobs:
   create-release:
-    if: ${{ github.event.inputs.tag != '' }}
+    if: ${{ inputs.tag != '' }}
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
@@ -30,7 +30,7 @@ jobs:
           path: dist/
 
       - name: Artifact Checksums
-        id: artifact_checksum
+        id: create_checksum
         uses: tristan-weil/ghaction-checksum-sign-artifact@v1
         with:
           checksum_format: gnu
@@ -42,8 +42,8 @@ jobs:
           # sign_keyserver: 'keys.openpgp.org'
           # sign_output: checksum_detach
 
-      - name: Create Release
-        id: create_release
+      - name: Upload Release
+        id: upload_release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -55,4 +55,16 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             ./dist/artifact/${{ matrix.platform }}.zip
-            ${{ steps.artifact_checksum.outputs.generated-files }}
+
+      # This is needed because overwriting the CHECKSUM file can cause a 422 error on occasion
+      - name: Upload Checksum
+        id: upload_checksum
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          name: Release ${{ github.event.inputs.tag || github.ref }}
+          tag_name: ${{ github.event.inputs.tag || github.ref }}
+          fail_on_unmatched_files: false
+          files: |
+            ./${{ steps.create_checksum.outputs.generated-files }}

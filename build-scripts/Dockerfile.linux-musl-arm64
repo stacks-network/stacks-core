@@ -3,15 +3,14 @@ FROM messense/rust-musl-cross:aarch64-musl as build
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
-ENV BUILD_DIR=/build
-ENV TARGET=aarch64-unknown-linux-musl
+ARG BUILD_DIR=/build
+ARG TARGET=aarch64-unknown-linux-musl
 WORKDIR /src
 
 COPY . .
 
 RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
-    && rustup update stable \
     && rustup target add ${TARGET} \
     && cargo build --release --workspace --target ${TARGET} --features monitoring_prom,slog_json \
     && mkdir -p /out \

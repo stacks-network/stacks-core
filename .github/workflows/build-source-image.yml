@@ -1,4 +1,4 @@
-name: Build Source Debian
+name: Build Debian Source Image
 
 on:
   workflow_call:
@@ -16,29 +16,30 @@ env:
   LINUX_VERSION: debian
 
 jobs:
-  debian:
+  image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
       - name: Set Vars
+        id: set_vars
         run: |
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
       # extract branch name NOT a pull request
       - name: Extract branch name
         if: ${{ github.event_name != 'pull_request' }}
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
         id: extract_branch
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
 
       # extract branch name on pull request
       - name: PR branch name
         if: ${{ github.event_name == 'pull_request' }}
+        id: pr_extract_branch
         run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
 
-      - name: Docker meta
-        id: meta
+      - name: Docker Metadata
+        id: docker_metadata
         uses: docker/metadata-action@v4
         with:
           images: |
@@ -48,18 +49,20 @@ jobs:
             type=ref,event=pr
 
       - name: Login to DockerHub
+        id: docker_login
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Build/Tag/Push Image
+      - name: Build Image
+        id: docker_build
         uses: docker/build-push-action@v3
         with:
-          file: ./github/actions/dockerhub/Dockerfile.debian
+          file: ./.github/actions/dockerhub/Dockerfile.debian-source
           platforms: ${{ inputs.docker_platforms }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.docker_metadata.outputs.tags }}
+          labels: ${{ steps.docker_metadata.outputs.labels }}
           build-args: |
             STACKS_NODE_VERSION=${{ env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}

@@ -15,8 +15,8 @@ on:
         required: true
         type: string
 jobs:
-  asset:
-    if: ${{ github.event.inputs.tag != '' }}
+  artifact:
+    if: ${{ inputs.tag != '' }}
     runs-on: ubuntu-latest
     strategy:
       max-parallel: ${{ inputs.parallel_jobs}}
@@ -26,12 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set Vars
+        id: set_vars
         run: |
           echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
           echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        id: setup_buildx
+        uses: docker/setup-buildx-action@v2
 
       - name: Build Binaries
         id: build_binaries

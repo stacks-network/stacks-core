@@ -3,9 +3,9 @@ FROM rust:bullseye as build
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
-ENV BUILD_DIR=/build
-ENV OSXCROSS="https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
-ENV TARGET=x86_64-apple-darwin
+ARG BUILD_DIR=/build
+ARG OSXCROSS="https://github.com/hirosystems/docker-osxcross-rust/releases/download/MacOSX12.0.sdk/osxcross-d904031_MacOSX12.0.sdk.tar.zst"
+ARG TARGET=x86_64-apple-darwin
 WORKDIR /src
 
 COPY . .

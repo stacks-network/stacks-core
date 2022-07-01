@@ -3,8 +3,8 @@ FROM rust:bullseye as build
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
-ENV BUILD_DIR=/build
-ENV TARGET=x86_64-pc-windows-gnu
+ARG BUILD_DIR=/build
+ARG TARGET=x86_64-pc-windows-gnu
 WORKDIR /src
 
 COPY . .

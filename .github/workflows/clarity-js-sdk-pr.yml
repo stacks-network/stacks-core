@@ -37,6 +37,8 @@ jobs:
         run: sed -i "s@CORE_SDK_TAG = \".*\"@CORE_SDK_TAG = \"$RELEASE_VERSION\"@g" packages/clarity-native-bin/src/index.ts
 
       - name: Create Pull Request
+        # disable this step for now
+        if: ${{ false }}
         uses: peter-evans/create-pull-request@v4
         with:
           token: ${{ secrets.GH_TOKEN }}

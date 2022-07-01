@@ -30,6 +30,7 @@ jobs:
           name: integration-image.tar
           path: integration-image.tar
   # Run integration tests using sampled genesis block
+
   sampled-genesis:
     runs-on: ubuntu-latest
     needs:
@@ -74,23 +75,33 @@ jobs:
           - tests::epoch_205::bigger_microblock_streams_in_2_05
     steps:
       - uses: actions/checkout@v3
+
       - name: Download docker image
+        id: docker_download_image
         uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
+
       - name: Load docker image
+        id: docker_load_image
         run: docker load -i integration-image.tar && rm integration-image.tar
+
       - name: All integration tests with sampled genesis
+        id: bitcoin_integration_tests
         timeout-minutes: 30
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v3
+
+      - name: Code Coverage
+        id: code_coverage
+        uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
           fail_ci_if_error: true
+
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -104,19 +115,28 @@ jobs:
           - tests::neon_integrations::atlas_stress_integration_test
     steps:
       - uses: actions/checkout@v3
+
       - name: Download docker image
+        id: docker_download_image
         uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
+
       - name: Load docker image
+        id: docker_load_image
         run: docker load -i integration-image.tar && rm integration-image.tar
+
       - name: Atlas integration tests
+        id: atlas_integration_tests
         timeout-minutes: 40
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v3
+
+      - name: Code Coverage
+        id: code_coverage
+        uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
