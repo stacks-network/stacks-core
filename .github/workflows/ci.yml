@@ -35,8 +35,6 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       parallel_jobs: 4
-      # arch: >-
-      #   ["linux-glibc-x64", "linux-musl-x64"]
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
 
@@ -49,9 +47,7 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       # arch: >-
-      #   ["linux-glibc-x64", "linux-musl-x64"]
-      arch: >-
-        ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
+      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 

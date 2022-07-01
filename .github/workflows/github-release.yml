@@ -6,10 +6,6 @@ on:
       tag:
         required: true
         type: string
-      arch:
-        description: "Stringified JSON object listing of platform matrix"
-        required: true
-        type: string
     secrets:
       GH_TOKEN:
         required: true
@@ -17,30 +13,24 @@ jobs:
   create-release:
     if: ${{ inputs.tag != '' }}
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 4
-      matrix:
-        platform: ${{fromJson(inputs.arch)}}
-
     steps:
       - name: Download Artifacts
         id: download_artifacts
         uses: actions/download-artifact@v3
         with:
-          path: dist/
+          name: artifact
+          path: release
 
-      - name: Artifact Checksums
-        id: create_checksum
-        uses: tristan-weil/ghaction-checksum-sign-artifact@v1
+      - name: Generate Checksums
+        uses: jmgilman/actions-generate-checksum@v1
         with:
-          checksum_format: gnu
-          checksum_output: one_file
-          path: dist/artifact/*.zip
-          # sign_key: '${{ secrets.SIGN_KEY }}'
-          # sign_key_passphrase: '${{ secrets.SIGN_KEY_PASSPHRASE }}'
-          # sign_key_fingerprint: 'ABCD1234'
-          # sign_keyserver: 'keys.openpgp.org'
-          # sign_output: checksum_detach
+          output: CHECKSUMS.txt
+          patterns: |
+            release/*.zip
+
+      - name: Display artifact files
+        run: ls -R
+        working-directory: release
 
       - name: Upload Release
         id: upload_release
@@ -54,17 +44,5 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            ./dist/artifact/${{ matrix.platform }}.zip
-
-      # This is needed because overwriting the CHECKSUM file can cause a 422 error on occasion
-      - name: Upload Checksum
-        id: upload_checksum
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          name: Release ${{ github.event.inputs.tag || github.ref }}
-          tag_name: ${{ github.event.inputs.tag || github.ref }}
-          fail_on_unmatched_files: false
-          files: |
-            ./${{ steps.create_checksum.outputs.generated-files }}
+            release/*.zip
+            CHECKSUMS.txt

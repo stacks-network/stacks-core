@@ -49,7 +49,6 @@ jobs:
             type=ref,enable=true,priority=600,event=tag
             type=ref,event=branch
             type=ref,event=pr
-
       - name: Login to DockerHub
         id: docker_login
         uses: docker/login-action@v2
