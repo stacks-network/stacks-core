@@ -125,6 +125,13 @@ pub fn set_last_execution_cost_observed(
     }
 }
 
+/// Log the number of transactions in the latest block.
+#[allow(unused_variables)]
+pub fn set_last_block_transaction_count(transactions_in_block: u64) {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_BLOCK_TRANSACTION_COUNT.set(transactions_in_block as f64);
+}
+
 pub fn increment_btc_ops_sent_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::BTC_OPS_SENT_COUNTER.inc();
