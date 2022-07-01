@@ -1,0 +1,24 @@
+[node]
+working_dir = "/tmp/hyperchain-l1-follower"
+rpc_bind = "127.0.0.1:15443"
+p2p_bind = "127.0.0.1:15444"
+data_url = "https://127.0.0.1:15443"
+p2p_address = "127.0.0.1:15444"
+seed = "4040404040404040404040404040404040404040404040404040404040404040"
+local_peer_seed = "3030303030303030303030303030303030303030303030303030303030303030"
+miner = false
+wait_time_for_microblocks = 1_000
+wait_before_first_anchored_block = 2_000
+mining_key = "0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101"
+# This is the peer key from hyperchain-l2.toml
+bootstrap_node = "03187db77a59f1c5f3cfd2296f87ebd7e829226b0f628d9efe4b9f221414e3b967@localhost:19444"
+
+[burnchain]
+chain = "stacks_layer_1"
+mode = "hyperchain"
+rpc_ssl = false
+rpc_port = 20443
+peer_host = "127.0.0.1"
+first_burn_header_height = 1
+contract_identifier = "ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP.hyperchain"
+observer_port = 47303

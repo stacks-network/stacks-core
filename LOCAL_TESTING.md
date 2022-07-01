@@ -136,7 +136,8 @@ curl -s localhost:19443/v2/withdrawal/stx/14/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFE
 Perform the withdrawal on layer-1
 
 ```js
-let json_merkle_entry = await fetch("http://localhost:19443/v2/withdrawal/stx/45/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8/0/50000").then(x => x.json())
+let withdrawUrl = "http://localhost:19443/v2/withdrawal/stx/14/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8/0/50000";
+let json_merkle_entry = await fetch(withdrawUrl).then(x => x.json())
 let cv_merkle_entry = {
     withdrawal_leaf_hash: transactions.deserializeCV(json_merkle_entry.withdrawal_leaf_hash),
     withdrawal_root: transactions.deserializeCV(json_merkle_entry.withdrawal_root),

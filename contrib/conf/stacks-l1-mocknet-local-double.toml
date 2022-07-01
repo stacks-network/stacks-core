@@ -1,0 +1,43 @@
+[node]
+# working_dir = "/dir/to/save/chainstate"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+seed = "0000000000000000000000000000000000000000000000000000000000000000"
+local_peer_seed = "0000000000000000000000000000000000000000000000000000000000000000"
+miner = true
+use_test_genesis_chainstate = true
+
+[burnchain]
+commit_anchor_block_within = 10_000
+chain = "bitcoin"
+mode = "mocknet"
+
+[[ustx_balance]]
+# secret key = aaf57b4730f713cf942bc63f0801c4a62abe5a6ac8e3da10389f9ca3420b0dc701
+address = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8"
+amount = 100000000000000
+
+[[ustx_balance]]
+# secret key = 0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101
+# this is also a miner present in the sample hyperchains contract
+address = "ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP"
+amount = 100000000000000
+
+[[ustx_balance]]
+# secret key = 374b6734eaff979818c5f1367331c685459b03b1a2053310906d1408dc928a0001
+address = "STB2BWB0K5XZGS3FXVTG3TKS46CQVV66NAK3YVN8"
+amount = 100000000000000
+
+[[ustx_balance]]
+address = "STSTW15D618BSZQB85R058DS46THH86YQQY6XCB7"
+amount = 100000000000000
+
+[[events_observer]]
+endpoint = "localhost:49303"
+retry_count = 255
+events_keys = ["*"]
+
+[[events_observer]]
+endpoint = "localhost:47303"
+retry_count = 255
+events_keys = ["*"]

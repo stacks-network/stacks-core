@@ -85,18 +85,6 @@ jobs:
           name: open-api-bundle
           path: |
             dist
-  # Run net-tests
-  nettest:
-    # disable this job/test for now, since we haven't seen this pass
-    #  on github actions in a while, and the failures can take > 4 hours
-    if: ${{ false }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run network relay tests
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
   # rustfmt checking
   rustfmt:

@@ -18,7 +18,7 @@ RUN cp target/release/hyperchain-node /out
 
 FROM alpine:latest
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl musl
 
 COPY --from=build /out/ /bin/
 

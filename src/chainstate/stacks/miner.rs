@@ -1130,6 +1130,7 @@ impl StacksBlockBuilder {
             miner_privkey: StacksPrivateKey::new(), // caller should overwrite this, or refrain from mining microblocks
             miner_payouts: None,
             miner_id: miner_id,
+            microblock_tx_receipts: vec![],
         }
     }
 
@@ -1657,7 +1658,7 @@ impl StacksBlockBuilder {
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
     pub fn pre_epoch_begin<'a>(
-        &self,
+        &mut self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionDBConn,
     ) -> Result<MinerEpochInfo<'a>, Error> {
@@ -2345,7 +2346,7 @@ impl Proposal {
         let computed_block_hash = block.block_hash();
         let computed_withdrawal_merkle_root = block.header.withdrawal_merkle_root;
 
-        if &computed_withdrawal_merkle_root != self.block.header.withdrawal_merkle_root {
+        if &computed_withdrawal_merkle_root != &self.block.header.withdrawal_merkle_root {
             warn!(
                 "Rejected proposal";
                 "reason" => "Withdrawal root is not as expected",
@@ -2362,7 +2363,7 @@ impl Proposal {
             warn!(
                 "Rejected proposal";
                 "reason" => "Block hash is not as expected",
-                "expected_block_hash" => %expected_block_hash
+                "expected_block_hash" => %expected_block_hash,
                 "computed_block_hash" => %computed_block_hash,
                 "block_hash" => %expected_block_hash,
             );
