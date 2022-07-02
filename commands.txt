@@ -2,3 +2,4 @@ tar -xf ~/Downloads/mainnet.tar.gz
 
 find . | grep gz | xargs -n 1 gunzip --verbose
 
+cargo build --bin stacks-inspect --release && ./target/release/stacks-inspect try-mine ~/spaces/d1

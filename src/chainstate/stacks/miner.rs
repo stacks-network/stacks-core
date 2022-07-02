@@ -1988,9 +1988,13 @@ impl StacksBlockBuilder {
                 &mut epoch_tx,
                 mempool_settings.clone(),
                 true
-            );
+            )?;
 
-            info!("{:?}", vector_result);
+            info!("vector_result: {:?}", vector_result.len());
+
+            if vector_result.len() == 0 {
+                break;
+            }
         }
 
 
