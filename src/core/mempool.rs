@@ -1191,23 +1191,6 @@ impl MemPoolDB {
                     total_considered += 1;
 
                     output_transactions.push(consider.clone());
-                    // // Run `todo` on the transaction.
-                    // match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                    //     Some(tx_event) => {
-                    //         match tx_event {
-                    //             TransactionEvent::Skipped(_) => {
-                    //                 // don't push `Skipped` events to the observer
-                    //             }
-                    //             _ => {
-                    //                 output_events.push(tx_event);
-                    //             }
-                    //         }
-                    //     }
-                    //     None => {
-                    //         debug!("Mempool iteration early exit from iterator");
-                    //         break;
-                    //     }
-                    // }
 
                     if do_bump_last {
                         self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
