@@ -801,6 +801,20 @@ simulating a miner.
             max_time
         );
 
+        if let Ok((block, execution_cost, size)) = result {
+            let mut total_fees = 0;
+            for tx in block.txs.iter() {
+                total_fees += tx.get_tx_fee();
+            }
+            println!(
+                "Block {}: {} uSTX, {} bytes, cost {:?}",
+                block.block_hash(),
+                total_fees,
+                size,
+                &execution_cost
+            );
+        }
+
         process::exit(0);
     }
 

@@ -26,54 +26,50 @@ use std::time::Instant;
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
+use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
-use rusqlite::NO_PARAMS;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::types::ToSql;
+use rusqlite::NO_PARAMS;
 use siphasher::sip::SipHasher;
 
 use clarity::vm::types::PrincipalData;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
-    Error as ChainstateError, index::Error as MarfError, StacksTransaction,
-};
-use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::StacksBlock;
+use crate::chainstate::stacks::{
+    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, db::TxStreamData,
+    index::Error as MarfError, Error as ChainstateError, StacksTransaction,
+};
+use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
 use crate::core::ExecutionCost;
+use crate::core::StacksEpochId;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::core::StacksEpochId;
 use crate::cost_estimates;
-use crate::cost_estimates::CostEstimator;
-use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::metrics::UnitMetric;
+use crate::cost_estimates::CostEstimator;
+use crate::cost_estimates::EstimatorError;
 use crate::cost_estimates::UnitEstimator;
 use crate::monitoring;
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::MemPoolSyncData;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
-use crate::util_lib::db::{Error, query_row};
-use crate::util_lib::db::{DBConn, DBTx, FromRow, sql_pragma};
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::query_int;
 use crate::util_lib::db::query_row_columns;
 use crate::util_lib::db::query_rows;
@@ -82,6 +78,10 @@ use crate::util_lib::db::table_exists;
 use crate::util_lib::db::tx_begin_immediate;
 use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::u64_to_sql;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::FromColumn;
+use crate::util_lib::db::{query_row, Error};
+use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 
 // this is SipHash-2-4
 
@@ -469,8 +469,8 @@ impl<'a> MemPoolTx<'a> {
     }
 
     pub fn with_bloom_state<F, R>(tx: &mut MemPoolTx<'a>, f: F) -> R
-        where
-            F: FnOnce(&mut DBTx<'a>, &mut BloomCounter<BloomNodeHasher>) -> R,
+    where
+        F: FnOnce(&mut DBTx<'a>, &mut BloomCounter<BloomNodeHasher>) -> R,
     {
         let mut bc = tx
             .bloom_counter
@@ -1021,14 +1021,14 @@ impl MemPoolDB {
         settings: MemPoolWalkSettings,
         mut todo: F,
     ) -> Result<u64, E>
-        where
-            C: ClarityConnection,
-            F: FnMut(
-                &mut C,
-                &ConsiderTransaction,
-                &mut dyn CostEstimator,
-            ) -> Result<Option<TransactionEvent>, E>,
-            E: From<db_error> + From<ChainstateError>,
+    where
+        C: ClarityConnection,
+        F: FnMut(
+            &mut C,
+            &ConsiderTransaction,
+            &mut dyn CostEstimator,
+        ) -> Result<Option<TransactionEvent>, E>,
+        E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
         let mut total_considered = 0;
@@ -1126,13 +1126,13 @@ impl MemPoolDB {
         &mut self,
         clarity_tx: &mut C,
         settings: MemPoolWalkSettings,
-        do_bump_last:bool,
+        do_bump_last: bool,
     ) -> Result<Vec<ConsiderTransaction>, Error>
-        where
-            C: ClarityConnection,
+    where
+        C: ClarityConnection,
     {
         let start_time = Instant::now();
-        let mut total_considered:i32 = 0;
+        let mut total_considered: i32 = 0;
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
@@ -1228,7 +1228,7 @@ impl MemPoolDB {
             "SELECT 1 FROM mempool WHERE txid = ?1",
             &[txid as &dyn ToSql],
         )
-            .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
+        .and_then(|row_opt: Option<i64>| Ok(row_opt.is_some()))
     }
 
     pub fn get_tx(conn: &DBConn, txid: &Txid) -> Result<Option<MemPoolTxInfo>, db_error> {
@@ -1534,18 +1534,18 @@ impl MemPoolDB {
             0,
             (i64::MAX - 1) as u64,
         )
-            .unwrap_or(vec![])
-            .into_iter()
-            .map(|tx_info| {
-                test_debug!(
+        .unwrap_or(vec![])
+        .into_iter()
+        .map(|tx_info| {
+            test_debug!(
                 "Mempool poll {} at {}/{}",
                 &tx_info.tx.txid(),
                 consensus_hash,
                 block_hash
             );
-                tx_info.tx
-            })
-            .collect()
+            tx_info.tx
+        })
+        .collect()
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
