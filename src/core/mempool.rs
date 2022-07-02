@@ -1122,15 +1122,14 @@ impl MemPoolDB {
     }
 
     /// Returns the candidates in a once-through order.
-    pub fn enumerate_candidates<F, E, C>(
+    pub fn enumerate_candidates<C>(
         &mut self,
         clarity_tx: &mut C,
         settings: MemPoolWalkSettings,
         do_bump_last:bool,
-    ) -> Result<Vec<ConsiderTransaction>, E>
+    ) -> Result<Vec<ConsiderTransaction>, Error>
         where
             C: ClarityConnection,
-            E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
         let mut total_considered:i32 = 0;
