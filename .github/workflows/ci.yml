@@ -91,6 +91,16 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
 
+  # clippy linting
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run clippy check
+        env:
+          DOCKER_BUILDKIT: 1
+        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.clippy .
+
   # Create distributions
   dist:
     runs-on: ubuntu-latest

@@ -1,0 +1,13 @@
+FROM rust:bullseye
+
+WORKDIR /src
+
+COPY ./rust-toolchain .
+COPY ./Cargo.toml .
+
+RUN rustup component add clippy
+
+COPY . .
+
+RUN cargo clippy -p stacks-node -- -A warnings --no-deps
+# RUN cargo clippy -- -A warnings
