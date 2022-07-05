@@ -102,15 +102,18 @@ mod tests {
             .unwrap_err()
         );
 
-        let expected_err_prefix = "Invalid burnchain.peer_host: failed to lookup address information:";
+        let expected_err_prefix =
+            "Invalid burnchain.peer_host: failed to lookup address information:";
         let actual_err_msg = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
                 [burnchain]
                 peer_host = "bitcoin2.blockstack.com"
                 "#,
-            ).unwrap()
-        ).unwrap_err();
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
         assert_eq!(
             expected_err_prefix,
             &actual_err_msg[..expected_err_prefix.len()]
