@@ -102,21 +102,16 @@ mod tests {
             .unwrap_err()
         );
 
-        let expected_err_prefix =
-            "Invalid burnchain.peer_host: failed to lookup address information:";
-        let actual_err_msg = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                peer_host = "bitcoin2.blockstack.com"
-                "#,
-            )
-            .unwrap(),
-        )
-        .unwrap_err();
         assert_eq!(
-            expected_err_prefix,
-            &actual_err_msg[..expected_err_prefix.len()]
+            format!("Invalid burnchain.peer_host: failed to lookup address information: nodename nor servname provided, or not known"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [burnchain]
+                    peer_host = "bitcoin2.blockstack.com"
+                    "#,
+                ).unwrap()
+            ).unwrap_err()
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
@@ -511,7 +506,7 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut sock_addrs = format!("{}::1", &peer_host)
+                            let mut sock_addrs = format!("{}:1", &peer_host)
                                 .to_socket_addrs()
                                 .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
                             let sock_addr = match sock_addrs.next() {
