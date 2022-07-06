@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
-
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -42,7 +41,8 @@ const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
-pub const BURNCHAIN_NAME_STACKS_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_STACKS_TESTNET_L1: &str = "stacks_layer_1";
+pub const BURNCHAIN_NAME_STACKS_MAINNET_L1: &str = "stacks_layer_1::mainnet";
 pub const BURNCHAIN_NAME_MOCKSTACK: &str = "mockstack";
 pub const DEFAULT_L1_OBSERVER_PORT: u16 = 50303;
 
@@ -134,7 +134,6 @@ impl ConfigFile {
 
     pub fn mainnet() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
-
             rpc_port: Some(8332),
             peer_port: Some(8333),
             peer_host: Some("bitcoin.blockstack.com".to_string()),
@@ -327,9 +326,9 @@ impl Config {
                 BurnchainConfig {
                     chain: chain.clone(),
                     chain_id: if &chain == BURNCHAIN_NAME_STACKS_MAINNET_L1 {
-                        CHAIN_ID_MAINNET
+                        LAYER_1_CHAIN_ID_MAINNET
                     } else {
-                        CHAIN_ID_TESTNET
+                        LAYER_1_CHAIN_ID_TESTNET
                     },
                     observer_port: burnchain
                         .observer_port
@@ -799,7 +798,6 @@ pub struct BurnchainConfig {
     /// The name of the L1 chain that this hyperchain runs on: this is either "stacks_layer_1" or
     /// "mockstack".
     pub chain: String,
-    pub mode: String,
     /// This controls the listening port that this node's L1 event observer will run on. This is how
     /// the hyperchain node receives events from L1.
     pub observer_port: u16,
@@ -847,9 +845,9 @@ impl Default for BurnchainConfig {
     fn default() -> Self {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            mode: "mocknet".to_string(),
             chain_id: LAYER_1_CHAIN_ID_TESTNET,
-            network_id: NETWORK_ID_TESTNET,
+            // TODO: is this right?
+            network_id: LAYER_1_CHAIN_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             observer_port: DEFAULT_L1_OBSERVER_PORT,
             peer_host: "0.0.0.0".to_string(),
