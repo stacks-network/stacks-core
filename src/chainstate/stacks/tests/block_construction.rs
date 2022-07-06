@@ -3189,3 +3189,341 @@ fn test_build_microblock_stream_forks_with_descendants() {
         .unwrap();
     }
 }
+
+#[test]
+fn test_contract_call_across_clarity_versions() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let privk_anchored = StacksPrivateKey::from_hex(
+        "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
+    )
+    .unwrap();
+
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+
+    let addr_anchored = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk_anchored)],
+    )
+    .unwrap();
+
+    let mut peer_config =
+        TestPeerConfig::new("test_contract_call_across_clarity_versions", 2024, 2025);
+    peer_config.initial_balances = vec![
+        (addr.to_account_principal(), 1000000000),
+        (addr_anchored.to_account_principal(), 1000000000),
+    ];
+
+    let epochs = vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1, // NOTE: the first 25 burnchain blocks have no sortition
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2, // NOTE: the first 25 burnchain blocks have no sortition
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2, // effectively already in 2.1
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ];
+    peer_config.epochs = Some(epochs);
+
+    let num_blocks = 10;
+    let mut anchored_sender_nonce = 0;
+
+    let mut mblock_privks = vec![];
+    for _ in 0..num_blocks {
+        let mblock_privk = StacksPrivateKey::new();
+        mblock_privks.push(mblock_privk);
+    }
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    for tenure_id in 0..num_blocks {
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let mut anchored_txs = vec![coinbase_tx];
+
+                if tenure_id > 0 {
+                    let (contract_tx, contract_call_tx) = if tenure_id == 1 {
+                        // send the first-ever Clarity1 smart contract 
+                        let contract = format!("
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1, func: \"test-func\" }})
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1, func: \"test-cc-func\" }})
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        ",
+                        tenure_id,
+                        tenure_id);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
+                        (contract_tx, None)
+                    }
+                    else if tenure_id % 2 == 0 {
+                        // send a clarity2 contract that calls the last tenure's contract's test
+                        // method
+                        let contract = format!("
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                ;; this only works in clarity2
+                                (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-func\" }})
+                                (unwrap-panic (contract-call? .test-{} test-func))
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                ;; this only works in clarity2
+                                (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-cc-func\" }})
+                                (unwrap-panic (contract-call? .test-{} test-cc-func))
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        (contract-call? .test-{} test-func)
+                        ",
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity2);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        (contract_tx, Some(cc_tx))
+                    }
+                    else {
+                        // send a clarity1 contract that calls the last tenure's contract's test
+                        // method
+                        let contract = format!("
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1 }})
+                                (unwrap-panic (contract-call? .test-{} test-cc-func))
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1 }})
+                                (unwrap-panic (contract-call? .test-{} test-func))
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        (contract-call? .test-{} test-func)
+                        ",
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        (contract_tx, Some(cc_tx))
+                    };
+
+                    anchored_sender_nonce += 1;
+                    anchored_txs.push(contract_tx);
+
+                    if let Some(cc_tx) = contract_call_tx {
+                        anchored_sender_nonce += 1;
+                        anchored_txs.push(cc_tx);
+                    }
+                }
+
+                let sort_ic = sortdb.index_conn();
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrf_proof,
+                    tip.total_burn,
+                    Hash160([tenure_id as u8; 20])
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sort_ic,
+                    anchored_txs,
+                )
+                .unwrap();
+
+                // coinbase
+                (anchored_block.0, vec![])
+            },
+        );
+
+        test_debug!("Process tenure {}", tenure_id);
+
+        // should always succeed
+        peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+            .unwrap();
+    }
+
+    // all contracts deployed and called the right number of times, indicating that
+    // cross-clarity-version contract calls are doable
+    let sortdb = peer.sortdb.take().unwrap();
+    let (consensus_hash, block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+
+    peer.chainstate().with_read_only_clarity_tx(
+        &sortdb.index_conn(),
+        &stacks_block_id,
+        |clarity_tx| {
+            for tenure_id in 1..num_blocks {
+                clarity_tx
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity2,
+                        PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap(),
+                        Some(PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap()),
+                        LimitedCostTracker::new_free(),
+                        |env| {
+                            test_debug!("check tenure {}", tenure_id);
+
+                            // .contract-call? worked
+                            let call_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-call-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = call_count_value.expect_u128();
+                            assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
+
+                            // contract-call transaction worked
+                            let call_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-cc-call-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = call_count_value.expect_u128();
+                            assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            }
+        },
+    );
+}
