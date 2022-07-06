@@ -956,7 +956,7 @@ fn epoch_21_test_all_testnet() {
     epoch_21_test_all(false)
 }
 
-fn test_cost_contract_short_circuits(use_mainnet: bool) {
+fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: ClarityVersion) {
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1024,7 +1024,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
         ]
         .iter()
         {
-            block_conn.as_transaction(|tx| {
+            block_conn.as_transaction(clarity_version, |tx| {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
@@ -1174,15 +1174,17 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
 
 #[test]
 fn test_cost_contract_short_circuits_mainnet() {
-    test_cost_contract_short_circuits(true)
+    test_cost_contract_short_circuits(true, ClarityVersion::Clarity1);
+    test_cost_contract_short_circuits(true, ClarityVersion::Clarity2);
 }
 
 #[test]
 fn test_cost_contract_short_circuits_testnet() {
-    test_cost_contract_short_circuits(false)
+    test_cost_contract_short_circuits(false, ClarityVersion::Clarity1);
+    test_cost_contract_short_circuits(false, ClarityVersion::Clarity2);
 }
 
-fn test_cost_voting_integration(use_mainnet: bool) {
+fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersion) {
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
@@ -1287,7 +1289,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
         ]
         .iter()
         {
-            block_conn.as_transaction(|tx| {
+            block_conn.as_transaction(clarity_version, |tx| {
                 let (ast, analysis) = tx
                     .analyze_smart_contract(contract_name, contract_src)
                     .unwrap();
@@ -1579,5 +1581,6 @@ fn test_cost_voting_integration(use_mainnet: bool) {
 
 #[test]
 fn test_cost_voting_integration_testnet() {
-    test_cost_voting_integration(false)
+    test_cost_voting_integration(false, ClarityVersion::Clarity1);
+    test_cost_voting_integration(false, ClarityVersion::Clarity2);
 }
