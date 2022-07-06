@@ -116,7 +116,7 @@ lazy_static! {
         "`execution_cost_runtime` for the last block observed."
     )).unwrap();
 
-    pub static ref LAST_BLOCK_TRANSACTION_COUNT: IntGauge = register_gauge!(opts!(
+    pub static ref LAST_BLOCK_TRANSACTION_COUNT: IntGauge = register_int_gauge!(opts!(
         "stacks_node_last_block_transaction_count",
         "Number of transactions in the last block."
     )).unwrap();
