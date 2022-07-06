@@ -49,6 +49,7 @@ use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use clarity::vm::ClarityVersion;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -585,7 +586,7 @@ impl_byte_array_serde!(TokenTransferMemo);
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract),
+    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload, Option<PrincipalData>),
 }
@@ -611,6 +612,7 @@ pub enum TransactionPayloadID {
     PoisonMicroblock = 3,
     Coinbase = 4,
     CoinbaseToAltRecipient = 5,
+    VersionedSmartContract = 6,
 }
 
 /// Encoding of an asset type identifier
@@ -880,6 +882,7 @@ pub mod test {
     use crate::net::codec::*;
     use crate::net::*;
     use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::ClarityVersion;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
@@ -1155,10 +1158,27 @@ pub mod test {
                 function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(hello_contract_name).unwrap(),
-                code_body: StacksString::from_str(hello_contract_body).unwrap(),
-            }),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
