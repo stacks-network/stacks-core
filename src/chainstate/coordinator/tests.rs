@@ -57,6 +57,7 @@ use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::ClarityVersion;
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
@@ -271,22 +272,24 @@ pub fn setup_states(
             let contract = boot_code_id("pox", false);
             let sender = PrincipalData::from(contract.clone());
 
-            clarity_tx.connection().as_transaction(|conn| {
-                conn.run_contract_call(
-                    &sender,
-                    None,
-                    &contract,
-                    "set-burnchain-parameters",
-                    &[
-                        Value::UInt(burnchain.first_block_height as u128),
-                        Value::UInt(burnchain.pox_constants.prepare_length as u128),
-                        Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
-                        Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
-                    ],
-                    |_, _| false,
-                )
-                .expect("Failed to set burnchain parameters in PoX contract");
-            });
+            clarity_tx
+                .connection()
+                .as_transaction(ClarityVersion::Clarity1, |conn| {
+                    conn.run_contract_call(
+                        &sender,
+                        None,
+                        &contract,
+                        "set-burnchain-parameters",
+                        &[
+                            Value::UInt(burnchain.first_block_height as u128),
+                            Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                            Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                            Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                        ],
+                        |_, _| false,
+                    )
+                    .expect("Failed to set burnchain parameters in PoX contract");
+                });
         };
 
         boot_data.post_flight_callback = Some(Box::new(post_flight_callback));
@@ -983,6 +986,7 @@ fn missed_block_commits() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1153,6 +1157,7 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1460,6 +1465,7 @@ fn test_sortition_with_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1702,6 +1708,7 @@ fn test_sortition_with_burner_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1955,6 +1962,7 @@ fn test_pox_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2247,6 +2255,7 @@ fn test_stx_transfer_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2475,6 +2484,7 @@ fn test_initial_coinbase_reward_distributions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3502,6 +3512,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
+                    ClarityVersion::Clarity1,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),
