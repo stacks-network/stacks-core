@@ -623,8 +623,8 @@ impl<'a> OwnedEnvironment<'a> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
+        version: ClarityVersion,
     ) -> OwnedEnvironment<'a> {
-        let version = ClarityVersion::default_for_epoch(epoch_id);
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -647,8 +647,8 @@ impl<'a> OwnedEnvironment<'a> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
+        version: ClarityVersion,
     ) -> OwnedEnvironment<'a> {
-        let version = ClarityVersion::default_for_epoch(epoch_id);
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             default_contract: ContractContext::new(
@@ -720,6 +720,7 @@ impl<'a> OwnedEnvironment<'a> {
     pub fn initialize_contract_from_ast(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
         contract_content: &ContractAST,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
@@ -730,6 +731,7 @@ impl<'a> OwnedEnvironment<'a> {
             |exec_env| {
                 exec_env.initialize_contract_from_ast(
                     contract_identifier,
+                    clarity_version,
                     contract_content,
                     contract_string,
                 )
@@ -1162,14 +1164,20 @@ impl<'a, 'b> Environment<'a, 'b> {
             &contract_identifier,
             contract_content,
             self,
-            clarity_version,
+            clarity_version.clone(),
         )?;
-        self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
+        self.initialize_contract_from_ast(
+            contract_identifier,
+            clarity_version,
+            &contract_ast,
+            &contract_content,
+        )
     }
 
     pub fn initialize_contract_from_ast(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
+        contract_version: ClarityVersion,
         contract_content: &ContractAST,
         contract_string: &str,
     ) -> Result<()> {
@@ -1203,16 +1211,12 @@ impl<'a, 'b> Environment<'a, 'b> {
             let memory_use = contract_string.len() as u64;
             self.add_memory(memory_use)?;
 
-            let version = ClarityVersion::default_for_epoch(
-                self.global_context.database.get_clarity_epoch_version(),
-            );
-
             let result = Contract::initialize_from_ast(
                 contract_identifier.clone(),
                 contract_content,
                 self.sponsor.clone(),
                 &mut self.global_context,
-                version,
+                contract_version,
             );
             self.drop_memory(memory_use);
             result
