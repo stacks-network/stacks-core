@@ -4619,21 +4619,23 @@ impl StacksChainState {
                 burn_header_hash,
                 ..
             } = stack_stx_op;
-            let result = clarity_tx.connection().as_transaction(|tx| {
-                tx.run_contract_call(
-                    &sender.into(),
-                    None,
-                    &boot_code_id("pox", mainnet),
-                    "stack-stx",
-                    &[
-                        Value::UInt(stacked_ustx),
-                        reward_addr.as_clarity_tuple().into(),
-                        Value::UInt(u128::from(block_height)),
-                        Value::UInt(u128::from(num_cycles)),
-                    ],
-                    |_, _| false,
-                )
-            });
+            let result = clarity_tx
+                .connection()
+                .as_transaction(ClarityVersion::Clarity1, |tx| {
+                    tx.run_contract_call(
+                        &sender.into(),
+                        None,
+                        &boot_code_id("pox", mainnet),
+                        "stack-stx",
+                        &[
+                            Value::UInt(stacked_ustx),
+                            reward_addr.as_clarity_tuple().into(),
+                            Value::UInt(u128::from(block_height)),
+                            Value::UInt(u128::from(num_cycles)),
+                        ],
+                        |_, _| false,
+                    )
+                });
             match result {
                 Ok((value, _, events)) => {
                     if let Value::Response(ref resp) = value {
@@ -4703,7 +4705,7 @@ impl StacksChainState {
                             memo,
                             ..
                         } = transfer_stx_op;
-                        let result = clarity_tx.connection().as_transaction(|tx| {
+                        let result = clarity_tx.connection().as_transaction(ClarityVersion::Clarity1, |tx| {
                             tx.run_stx_transfer(
                                 &sender.into(),
                                 &recipient.into(),
@@ -4775,7 +4777,7 @@ impl StacksChainState {
         let miner_reward_total = miner_reward.total();
         clarity_tx
             .connection()
-            .as_transaction(|x| {
+            .as_transaction(ClarityVersion::Clarity1, |x| {
                 x.with_clarity_db(|ref mut db| {
                     let recipient_principal =
                         // strictly speaking this check is defensive. It will never be the case
@@ -4843,7 +4845,7 @@ impl StacksChainState {
         let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
-            .as_transaction(|tx_connection| {
+            .as_transaction(ClarityVersion::Clarity1, |tx_connection| {
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
                     let res = db.fetch_entry_unknown_descriptor(
@@ -6407,7 +6409,7 @@ impl StacksChainState {
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
-    /// Used when mining transactions.
+    /// Used when determining whether a transaction can be added to the mempool.
     fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
@@ -6579,7 +6581,10 @@ impl StacksChainState {
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }
-            TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
+            TransactionPayload::SmartContract(
+                TransactionSmartContract { name, code_body: _ },
+                version_opt,
+            ) => {
                 let contract_identifier =
                     QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
 
@@ -6588,6 +6593,15 @@ impl StacksChainState {
 
                 if exists {
                     return Err(MemPoolRejection::ContractAlreadyExists(contract_identifier));
+                }
+
+                if let Some(_version) = version_opt.as_ref() {
+                    if clarity_connection.get_epoch() < StacksEpochId::Epoch21 {
+                        return Err(MemPoolRejection::Other(
+                            "Versioned smart contract transactions are not supported in this epoch"
+                                .to_string(),
+                        ));
+                    }
                 }
             }
             TransactionPayload::PoisonMicroblock(microblock_header_1, microblock_header_2) => {
@@ -6762,6 +6776,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                 &contract_16k.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -6848,6 +6863,7 @@ pub mod test {
                 TransactionPayload::new_smart_contract(
                     &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                     &contract_16k.to_string(),
+                    None,
                 )
                 .unwrap(),
             );
@@ -8493,6 +8509,7 @@ pub mod test {
                             TransactionPayload::new_smart_contract(
                                 &"name-contract".to_string(),
                                 &format!("conflicting smart contract {}", i),
+                                None,
                             )
                             .unwrap(),
                         );
