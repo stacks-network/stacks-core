@@ -144,7 +144,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
 struct EvalInput {
     marf_kv: MarfedKV,
@@ -428,6 +428,7 @@ where
         db,
         cost_track,
         DEFAULT_CLI_EPOCH,
+        ClarityVersion::Clarity2,
     );
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
@@ -811,6 +812,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     default_chain_id(mainnet),
                     db,
                     DEFAULT_CLI_EPOCH,
+                    ClarityVersion::Clarity2,
                 );
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content, None)
@@ -839,8 +841,13 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env =
-        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_free(
+        mainnet,
+        default_chain_id(mainnet),
+        db,
+        DEFAULT_CLI_EPOCH,
+        ClarityVersion::Clarity2,
+    );
     vm_env
         .execute_transaction(
             sender,
@@ -1140,6 +1147,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 default_chain_id(mainnet),
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
+                ClarityVersion::Clarity2,
             );
             let mut exec_env = vm_env.get_exec_environment(None, None);
             let mut analysis_marf = MemoryBackingStore::new();
@@ -1210,6 +1218,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 default_chain_id(true),
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
+                ClarityVersion::Clarity2,
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
