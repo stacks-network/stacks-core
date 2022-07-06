@@ -85,7 +85,7 @@ sed -ie "s#^(define-constant miners.*#(define-constant miners (list \'STFTX3F4XC
 Make the transactions -- you will need to set the private key of the contract publisher as an env var:
 
 ```bash
-export SENDER_KEY=<PRIVATEKEY>
+export CONTRACT_PUBLISH_KEY=<PRIVATEKEY>
 ```
 
 This is the private key from the first step.

@@ -31,14 +31,12 @@ pub mod node;
 pub mod operations;
 pub mod run_loop;
 pub mod syncctl;
-pub mod tenure;
 
 pub use self::burnchains::{BurnchainController, BurnchainTip};
 pub use self::config::{Config, ConfigFile};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::run_loop::neon;
-pub use self::tenure::Tenure;
 pub use node::ChainTip;
 
 use pico_args::Arguments;
@@ -94,10 +92,6 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::mocknet()
         }
-        "testnet" => {
-            args.finish().unwrap();
-            ConfigFile::xenon()
-        }
         "mainnet" => {
             args.finish().unwrap();
             ConfigFile::mainnet()
@@ -149,12 +143,8 @@ fn main() {
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
 
-    if conf.burnchain.mode == "mocknet" || conf.burnchain.mode == "hyperchain" {
-        let mut run_loop = neon::RunLoop::new(conf);
-        run_loop.start(None, mine_start.unwrap_or(0));
-    } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
-    }
+    let mut run_loop = neon::RunLoop::new(conf);
+    run_loop.start(None, mine_start.unwrap_or(0));
 }
 
 fn version() -> String {

@@ -13,13 +13,17 @@
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
 (define-constant ERR_VALIDATION_FAILED 10)
+;;; The value supplied for `target-chain-tip` does not match the current chain tip.
+(define-constant ERR_INVALID_CHAIN_TIP 11)
+;;; The contract was called before reaching this-chain height reaches 1.
+(define-constant ERR_CALLED_TOO_EARLY 12)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
 ;; Map recording withdrawal roots
 (define-map withdrawal-roots-map (buff 32) bool)
 ;; Map recording processed withdrawal leaves
-(define-map processed-withdrawal-leaves-map (buff 32) bool)
+(define-map processed-withdrawal-leaves-map { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) } bool)
 
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
@@ -65,12 +69,19 @@
         (is-none fold-result)
    ))
 
-;; Helper function: determines whether the commit-block operation can be carried out
+;; Helper function: determines whether the commit-block operation satisfies pre-conditions
+;; listed in `commit-block`.
 ;; Returns response<bool, int>
-(define-private (can-commit-block? (commit-block-height uint))
+(define-private (can-commit-block? (commit-block-height uint)  (target-chain-tip (buff 32)))
     (begin
         ;; check no block has been committed at this height
         (asserts! (is-none (map-get? block-commits commit-block-height)) (err ERR_BLOCK_ALREADY_COMMITTED))
+
+        ;; check that `target-chain-tip` matches the burn chain tip
+        (asserts! (is-eq 
+            target-chain-tip 
+            (unwrap! (get-block-info? id-header-hash (- block-height u1)) (err ERR_CALLED_TOO_EARLY)) )
+            (err ERR_INVALID_CHAIN_TIP)) 
 
         ;; check that the tx sender is one of the miners
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
@@ -90,15 +101,21 @@
     )
 )
 
-;; Subnets miners call this to commit a block at a particular height
-;; Returns response<(buff 32), int>
-(define-public (commit-block (block (buff 32)) (withdrawal-root (buff 32)))
+;; Subnets miners call this to commit a block at a particular height.
+;; `block` is the hash of the block being submitted.
+;; `target-chain-tip` is the `id-header-hash` of the burn block (i.e., block on this chain) that
+;;   the miner intends to build off.
+;;
+;; Fails if:
+;;  1) we have already committed at this block height
+;;  2) `target-chain-tip` is not the burn chain tip (i.e., on this chain)
+;;  3) the sender is not a miner
+(define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)) (withdrawal-root (buff 32)))
     (let ((commit-block-height block-height))
-        (try! (can-commit-block? commit-block-height))
+        (try! (can-commit-block? commit-block-height target-chain-tip))
         (inner-commit-block block commit-block-height withdrawal-root)
     )
 )
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR NFT ASSET TRANSFERS
@@ -151,9 +168,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user calls this function to withdraw the specified NFT from this contract. 
 ;; In order for this withdrawal to go through, the given withdrawal must have been included 
@@ -230,9 +249,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user can call this function to withdraw some amount of a fungible token asset from the 
 ;; contract and send it to a recipient. 
@@ -314,7 +335,9 @@
 
         (asserts! (try! (as-contract (inner-transfer-stx amount tx-sender recipient))) (err ERR_TRANSFER_FAILED))
 
-        (asserts! (finish-withdraw withdrawal-leaf-hash) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
         ;; Emit a print event 
         (print { event: "withdraw-stx", recipient: recipient, amount: amount })
@@ -367,7 +390,11 @@
         (asserts! (is-some (map-get? withdrawal-roots-map withdrawal-root)) (err ERR_INVALID_MERKLE_ROOT))
 
         ;; Check that this withdrawal leaf has not been processed before
-        (asserts! (is-none (map-get? processed-withdrawal-leaves-map withdrawal-leaf-hash)) (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        (asserts!
+            (is-none 
+             (map-get? processed-withdrawal-leaves-map
+                       { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
+            (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
         (let (
                 (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
@@ -385,6 +412,5 @@
 ;; It adds the withdrawal leaf hash to a map of processed leaves. This ensures that 
 ;; this withdrawal leaf can't be used again to withdraw additional funds. 
 ;; Returns bool
-(define-private (finish-withdraw (withdrawal-leaf-hash (buff 32)))
-    (map-insert processed-withdrawal-leaves-map withdrawal-leaf-hash true)
-)
+(define-private (finish-withdraw (withdraw-info { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) }))
+    (map-insert processed-withdrawal-leaves-map withdraw-info true))

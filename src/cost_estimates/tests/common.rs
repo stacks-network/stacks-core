@@ -4,7 +4,7 @@ use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
-use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::stacks::db::blocks::MessageSignatureList;
@@ -40,6 +40,7 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
             burn_header_height: 2,
             burn_header_timestamp: 2,
             anchored_block_size: 1,
+            withdrawal_tree: MerkleTree::empty(),
         },
         tx_receipts,
         matured_rewards: vec![],
