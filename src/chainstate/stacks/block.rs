@@ -574,11 +574,19 @@ impl StacksBlock {
             // nothing new since the start of the system is supported.
             // Expand this list of things to check for as needed.
             // * no pay-to-contract coinbases
+            // * no versioned smart contract payloads
             for tx in txs.iter() {
                 if let TransactionPayload::Coinbase(_, ref recipient_opt) = &tx.payload {
                     if recipient_opt.is_some() {
                         // not supported
                         error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                        return false;
+                    }
+                }
+                if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
+                    if version_opt.is_some() {
+                        // not supported
+                        error!("Versioned smart contracts not supported before Stacks 2.1");
                         return false;
                     }
                 }
@@ -1753,6 +1761,18 @@ mod test {
         );
         tx_transfer_bad_anchor.anchor_mode = TransactionAnchorMode::OffChainOnly;
 
+        let tx_versioned_smart_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello world\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+        );
+
         let dup_txs = vec![
             tx_coinbase.clone(),
             tx_transfer.clone(),
@@ -1763,6 +1783,7 @@ mod test {
         let offchain_txs = vec![tx_coinbase.clone(), tx_transfer_bad_anchor.clone()];
         let no_coinbase = vec![tx_transfer.clone()];
         let coinbase_contract = vec![tx_coinbase_contract.clone()];
+        let versioned_contract = vec![tx_versioned_smart_contract.clone()];
 
         assert!(!StacksBlock::validate_transactions_unique(&dup_txs));
         assert!(!StacksBlock::validate_transactions_network(
@@ -1782,6 +1803,15 @@ mod test {
 
         assert!(StacksBlock::validate_transactions_static_epoch(
             &coinbase_contract,
+            StacksEpochId::Epoch21
+        ));
+
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &versioned_contract,
+            StacksEpochId::Epoch2_05
+        ));
+        assert!(StacksBlock::validate_transactions_static_epoch(
+            &versioned_contract,
             StacksEpochId::Epoch21
         ));
     }
