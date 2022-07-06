@@ -1009,17 +1009,26 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  `todo` returns a boolean representing whether or not to keep iterating.
+    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
+    ///  that iteration through the mempool should be halted.
+    ///
+    /// `output_events` is modified in place, adding all substantive transaction events (success and error
+    /// events, but not skipped) output by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
+        output_events: &mut Vec<TransactionEvent>,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, &ConsiderTransaction, &mut dyn CostEstimator) -> Result<bool, E>,
+        F: FnMut(
+            &mut C,
+            &ConsiderTransaction,
+            &mut dyn CostEstimator,
+        ) -> Result<Option<TransactionEvent>, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
@@ -1079,9 +1088,22 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        debug!("Mempool iteration early exit from iterator");
-                        break;
+                    // Run `todo` on the transaction.
+                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                        Some(tx_event) => {
+                            match tx_event {
+                                TransactionEvent::Skipped(_) => {
+                                    // don't push `Skipped` events to the observer
+                                }
+                                _ => {
+                                    output_events.push(tx_event);
+                                }
+                            }
+                        }
+                        None => {
+                            debug!("Mempool iteration early exit from iterator");
+                            break;
+                        }
                     }
 
                     self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
