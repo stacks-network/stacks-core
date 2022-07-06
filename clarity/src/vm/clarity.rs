@@ -120,6 +120,7 @@ pub trait ClarityConnection {
         &mut self,
         mainnet: bool,
         chain_id: u32,
+        clarity_version: ClarityVersion,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
@@ -131,7 +132,12 @@ pub trait ClarityConnection {
         let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let mut vm_env = OwnedEnvironment::new_cost_limited(
-                mainnet, chain_id, clarity_db, cost_track, epoch_id,
+                mainnet,
+                chain_id,
+                clarity_db,
+                cost_track,
+                epoch_id,
+                clarity_version,
             );
             let result = vm_env
                 .execute_in_env(sender, sponsor, to_do)
@@ -163,16 +169,16 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
+    /// Get the version of Clarity this transaction supports
+    fn get_clarity_version(&self) -> ClarityVersion;
+
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
-        let epoch_id = self.get_epoch();
-
-        // ClarityVersionPragmaTodo: need to use contract's declared version or default
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+        let clarity_version = self.get_clarity_version();
 
         self.with_analysis_db(|db, mut cost_track| {
             let ast_result = ast::build_ast(
@@ -311,11 +317,13 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
     {
+        let clarity_version = self.get_clarity_version();
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),
+                        clarity_version,
                         contract_ast,
                         contract_str,
                         sponsor,
