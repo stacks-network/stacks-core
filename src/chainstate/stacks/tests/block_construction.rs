@@ -3324,9 +3324,32 @@ fn test_contract_call_across_clarity_versions() {
                 let mut anchored_txs = vec![coinbase_tx];
 
                 if tenure_id > 0 {
-                    let (contract_tx, contract_call_tx, at_block_tx, at_block_recursive_tx) = if tenure_id == 1 {
-                        // send the first-ever Clarity1 smart contract 
+                    let txs = if tenure_id == 1 {
+                        let chain_id_trait_v1 = "
+                        (define-trait trait-v1
+                            (
+                                (get-chain-info-v1 () (response { chain-id: uint } uint))
+                            )
+                        )
+                        ";
+                        let trait_v1_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * chain_id_trait_v1.len()) as u64, "chain-id-trait-v1", chain_id_trait_v1, ClarityVersion::Clarity1);
+
+                        let chain_id_trait_v2 = "
+                        (define-trait trait-v2
+                            (
+                                (get-chain-info-v2 () (response { chain-id: uint } uint))
+                            )
+                        )
+                        ";
+                        let trait_v2_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce + 1, (2 * chain_id_trait_v2.len()) as u64, "chain-id-trait-v2", chain_id_trait_v2, ClarityVersion::Clarity2);
+
                         let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
                         (define-data-var at-block-call-count uint u0)
@@ -3363,18 +3386,42 @@ fn test_contract_call_across_clarity_versions() {
                             (var-get at-block-call-count)
                         )
                         (define-read-only (get-chain-info)
-                            {{ chain-id: u0 }}
+                            u0
+                        )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
                         )
                         ",
                         tenure_id,
                         tenure_id);
-                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
-                        (contract_tx, None, None, None)
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce + 2, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
+                        vec![trait_v1_tx, trait_v2_tx, contract_tx]
                     }
                     else if tenure_id % 2 == 0 {
                         // send a clarity2 contract that calls the last tenure's contract's test
                         // methods
                         let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+                        
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
                         (define-data-var at-block-call-count uint u0)
@@ -3430,8 +3477,30 @@ fn test_contract_call_across_clarity_versions() {
                         )
                         (define-read-only (get-chain-info)
                             ;; this only works in clarity2
-                            {{ chain-id: chain-id }}
+                            chain-id
                         )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                ;; this only works in clarity2
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: chain-id }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                ;; this only works in clarity2
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: chain-id }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
+                        )
+                        (print (get-chain-info-dispatch-1 .test-{}))
+                        (print (get-chain-info-dispatch-2 .test-{}))
                         (contract-call? .test-{} test-func)
                         ",
                         tenure_id,
@@ -3446,17 +3515,31 @@ fn test_contract_call_across_clarity_versions() {
                         &parent_index_hash,
                         tenure_id,
                         tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
                         tenure_id - 1);
+
                         let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity2);
                         let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
                         let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
                         let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
-                        (contract_tx, Some(cc_tx), Some(at_block_tx), Some(at_block_recursive_tx))
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+
+                        vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
                     }
                     else {
                         // send a clarity1 contract that calls the last tenure's contract's test
                         // methods
                         let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+                        
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
                         (define-data-var at-block-call-count uint u0)
@@ -3507,8 +3590,28 @@ fn test_contract_call_across_clarity_versions() {
                             (var-get at-block-call-count)
                         )
                         (define-read-only (get-chain-info)
-                            {{ chain-id: u0 }}
+                            u0
                         )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
+                        )
+                        (print (get-chain-info-dispatch-1 .test-{}))
+                        (print (get-chain-info-dispatch-2 .test-{}))
                         (contract-call? .test-{} test-func)
                         ",
                         tenure_id,
@@ -3523,28 +3626,25 @@ fn test_contract_call_across_clarity_versions() {
                         &parent_index_hash,
                         tenure_id,
                         tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
                         tenure_id - 1);
+
                         let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
                         let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
                         let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
                         let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
-                        (contract_tx, Some(cc_tx), Some(at_block_tx), Some(at_block_recursive_tx))
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+
+                        vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
                     };
 
-                    anchored_sender_nonce += 1;
-                    anchored_txs.push(contract_tx);
-
-                    if let Some(cc_tx) = contract_call_tx {
+                    for tx in txs.into_iter() {
                         anchored_sender_nonce += 1;
-                        anchored_txs.push(cc_tx);
-                    }
-                    if let Some(at_block_tx) = at_block_tx {
-                        anchored_sender_nonce += 1;
-                        anchored_txs.push(at_block_tx);
-                    }
-                    if let Some(at_block_recursive_tx) = at_block_recursive_tx {
-                        anchored_sender_nonce += 1;
-                        anchored_txs.push(at_block_recursive_tx);
+                        anchored_txs.push(tx);
                     }
                 }
 
