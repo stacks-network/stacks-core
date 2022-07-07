@@ -868,6 +868,7 @@ impl StacksChainState {
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
 
+                // Note: run contract call.
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
                     &contract_id,
@@ -1137,6 +1138,7 @@ impl StacksChainState {
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
+        // Note: Process payload
         let tx_receipt =
             StacksChainState::process_transaction_payload(&mut transaction, tx, &origin_account)?;
 
