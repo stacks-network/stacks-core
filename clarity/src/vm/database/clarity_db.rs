@@ -1507,7 +1507,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
-        debug!("Fetching account balance"; "principal" => %principal.to_string());
+        // debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get(&key);
         match result {
             None => STXBalance::zero(),

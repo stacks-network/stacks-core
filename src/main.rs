@@ -767,52 +767,56 @@ simulating a miner.
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
-        let result = StacksBlockBuilder::build_anchored_block(
-            &chain_state,
-            &sort_db.index_conn(),
-            &mut mempool_db,
-            &parent_header,
-            chain_tip.total_burn,
-            VRFProof::empty(),
-            Hash160([0; 20]),
-            &coinbase_tx,
-            settings,
-            None,
-        );
-
-        let stop = get_epoch_time_ms();
-
-        println!(
-            "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
-            if result.is_ok() {
-                "Successfully"
-            } else {
-                "Failed to"
-            },
-            parent_header.stacks_block_height + 1,
-            StacksBlockHeader::make_index_block_hash(
-                &parent_header.consensus_hash,
-                &parent_header.anchored_header.block_hash()
-            ),
-            &parent_header.consensus_hash,
-            &parent_header.anchored_header.block_hash(),
-            stop.saturating_sub(start),
-            min_fee,
-            max_time
-        );
-
-        if let Ok((block, execution_cost, size)) = result {
-            let mut total_fees = 0;
-            for tx in block.txs.iter() {
-                total_fees += tx.get_tx_fee();
-            }
-            println!(
-                "Block {}: {} uSTX, {} bytes, cost {:?}",
-                block.block_hash(),
-                total_fees,
-                size,
-                &execution_cost
+        for i in 0..2 {
+            let result = StacksBlockBuilder::build_anchored_block(
+                &chain_state,
+                &sort_db.index_conn(),
+                &mut mempool_db,
+                &parent_header,
+                chain_tip.total_burn,
+                VRFProof::empty(),
+                Hash160([0; 20]),
+                &coinbase_tx,
+                settings.clone(),
+                None,
             );
+
+            let stop = get_epoch_time_ms();
+
+            info!("round {} finishes with: {:?}", i, &result);
+
+            println!(
+                "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
+                if result.is_ok() {
+                    "Successfully"
+                } else {
+                    "Failed to"
+                },
+                parent_header.stacks_block_height + 1,
+                StacksBlockHeader::make_index_block_hash(
+                    &parent_header.consensus_hash,
+                    &parent_header.anchored_header.block_hash()
+                ),
+                &parent_header.consensus_hash,
+                &parent_header.anchored_header.block_hash(),
+                stop.saturating_sub(start),
+                min_fee,
+                max_time
+            );
+
+            if let Ok((block, execution_cost, size)) = result {
+                let mut total_fees = 0;
+                for tx in block.txs.iter() {
+                    total_fees += tx.get_tx_fee();
+                }
+                println!(
+                    "Block {}: {} uSTX, {} bytes, cost {:?}",
+                    block.block_hash(),
+                    total_fees,
+                    size,
+                    &execution_cost
+                );
+            }
         }
 
         process::exit(0);

@@ -1053,7 +1053,7 @@ impl MemPoolDB {
                     remember_start_with_estimate = Some(start_with_no_estimate);
                     let mut last_addr = None;
                     for address in addresses.into_iter() {
-                        debug!("Update nonce"; "address" => %address);
+                        // debug!("Update nonce"; "address" => %address);
                         // do not recheck nonces if the sponsor == origin
                         if last_addr.as_ref() == Some(&address) {
                             continue;
