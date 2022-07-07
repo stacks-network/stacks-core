@@ -56,6 +56,7 @@ lazy_static! {
         "Total number of Stacks blocks served"
     )).unwrap();
 
+    // Note: TX received.
     pub static ref TXS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_transactions_received_total",
         "Total number of transactions received and relayed"
@@ -71,6 +72,7 @@ lazy_static! {
         "Total number of ops (key registrations, block commits, user burn supports) submitted to the burnchain"
     )).unwrap();
 
+    // Note: Blocks processed.
     pub static ref STX_BLOCKS_PROCESSED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_processed_total",
         "Total number of stacks blocks processed"
@@ -168,6 +170,7 @@ lazy_static! {
     ).unwrap();
 
 
+    // Note: Could be used with mempool outstanding tx, but would be complicated.
     pub static ref STX_MEMPOOL_GC: IntCounter = register_int_counter!(opts!(
         "stacks_node_mempool_gc_count",
         "Total count of all mempool garbage collections"
@@ -178,6 +181,8 @@ lazy_static! {
         "Total count of processed contract calls"
     )).unwrap();
 
+    // Note: Can use this one, but would be indirect.
+    // Note: Problem, it's going up.
     pub static ref MEMPOOL_OUTSTANDING_TXS: IntGauge = register_int_gauge!(opts!(
         "stacks_node_mempool_outstanding_txs",
         "Number of still-unprocessed transactions received by this node since it started",
