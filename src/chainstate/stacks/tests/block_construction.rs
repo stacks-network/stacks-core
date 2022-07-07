@@ -3324,11 +3324,12 @@ fn test_contract_call_across_clarity_versions() {
                 let mut anchored_txs = vec![coinbase_tx];
 
                 if tenure_id > 0 {
-                    let (contract_tx, contract_call_tx) = if tenure_id == 1 {
+                    let (contract_tx, contract_call_tx, at_block_tx, at_block_recursive_tx) = if tenure_id == 1 {
                         // send the first-ever Clarity1 smart contract 
                         let contract = format!("
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
                         (define-public (test-func)
                             (begin
                                 (print {{ tenure: u{}, version: u1, func: \"test-func\" }})
@@ -3343,24 +3344,40 @@ fn test_contract_call_across_clarity_versions() {
                                 (ok true)
                             )
                         )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (ok true)
+                        )
                         (define-read-only (get-call-count)
                             (var-get call-count)
                         )
                         (define-read-only (get-cc-call-count)
                             (var-get cc-call-count)
                         )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            {{ chain-id: u0 }}
+                        )
                         ",
                         tenure_id,
                         tenure_id);
                         let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
-                        (contract_tx, None)
+                        (contract_tx, None, None, None)
                     }
                     else if tenure_id % 2 == 0 {
                         // send a clarity2 contract that calls the last tenure's contract's test
-                        // method
+                        // methods
                         let contract = format!("
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
                         (define-public (test-func)
                             (begin
                                 ;; this only works in clarity2
@@ -3379,11 +3396,41 @@ fn test_contract_call_across_clarity_versions() {
                                 (ok true)
                             )
                         )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (print (at-block 0x{}
+                                    (begin
+                                        ;; this only works in clarity2
+                                        (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-v2\" }})
+                                        {{ chain-info: (contract-call? .test-{} get-chain-info), calls: (contract-call? .test-{} get-call-count), cc-calls: (contract-call? .test-{} get-cc-call-count) }}
+                                    )
+                                ))
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (at-block 0x{} 
+                                (begin
+                                    ;; this only works in clarity2
+                                    (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-recursive-v2\" }})
+                                    (contract-call? .test-{} test-at-block-recursive)
+                                )
+                            )
+                        )
+
                         (define-read-only (get-call-count)
                             (var-get call-count)
                         )
                         (define-read-only (get-cc-call-count)
                             (var-get cc-call-count)
+                        )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            ;; this only works in clarity2
+                            {{ chain-id: chain-id }}
                         )
                         (contract-call? .test-{} test-func)
                         ",
@@ -3391,17 +3438,28 @@ fn test_contract_call_across_clarity_versions() {
                         tenure_id - 1,
                         tenure_id,
                         tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
                         tenure_id - 1);
                         let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity2);
                         let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
-                        (contract_tx, Some(cc_tx))
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        (contract_tx, Some(cc_tx), Some(at_block_tx), Some(at_block_recursive_tx))
                     }
                     else {
                         // send a clarity1 contract that calls the last tenure's contract's test
-                        // method
+                        // methods
                         let contract = format!("
                         (define-data-var call-count uint u0)
                         (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
                         (define-public (test-func)
                             (begin
                                 (print {{ tenure: u{}, version: u1 }})
@@ -3418,11 +3476,38 @@ fn test_contract_call_across_clarity_versions() {
                                 (ok true)
                             )
                         )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (print (at-block 0x{}
+                                    (begin
+                                        (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-v1\" }})
+                                        {{ chain-info: (contract-call? .test-{} get-chain-info), calls: (contract-call? .test-{} get-call-count), cc-calls: (contract-call? .test-{} get-cc-call-count) }}
+                                    )
+                                ))
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (at-block 0x{} 
+                                (begin
+                                    (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-recursive-v1\" }})
+                                    (contract-call? .test-{} test-at-block-recursive)
+                                )
+                            )
+                        )
+                        
                         (define-read-only (get-call-count)
                             (var-get call-count)
                         )
                         (define-read-only (get-cc-call-count)
                             (var-get cc-call-count)
+                        )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            {{ chain-id: u0 }}
                         )
                         (contract-call? .test-{} test-func)
                         ",
@@ -3430,10 +3515,20 @@ fn test_contract_call_across_clarity_versions() {
                         tenure_id - 1,
                         tenure_id,
                         tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
                         tenure_id - 1);
                         let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
                         let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
-                        (contract_tx, Some(cc_tx))
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        (contract_tx, Some(cc_tx), Some(at_block_tx), Some(at_block_recursive_tx))
                     };
 
                     anchored_sender_nonce += 1;
@@ -3442,6 +3537,14 @@ fn test_contract_call_across_clarity_versions() {
                     if let Some(cc_tx) = contract_call_tx {
                         anchored_sender_nonce += 1;
                         anchored_txs.push(cc_tx);
+                    }
+                    if let Some(at_block_tx) = at_block_tx {
+                        anchored_sender_nonce += 1;
+                        anchored_txs.push(at_block_tx);
+                    }
+                    if let Some(at_block_recursive_tx) = at_block_recursive_tx {
+                        anchored_sender_nonce += 1;
+                        anchored_txs.push(at_block_recursive_tx);
                     }
                 }
 
@@ -3519,6 +3622,22 @@ fn test_contract_call_across_clarity_versions() {
                                 .unwrap();
                             let call_count = call_count_value.expect_u128();
                             assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
+
+                            // at-block transaction worked
+                            let at_block_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-at-block-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = at_block_count_value.expect_u128();
+
+                            if tenure_id < num_blocks - 1 {
+                                assert_eq!(call_count, 1);
+                            } else {
+                                assert_eq!(call_count, 0);
+                            }
+
                             Ok(())
                         },
                     )
