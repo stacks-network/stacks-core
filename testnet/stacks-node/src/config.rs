@@ -847,8 +847,7 @@ impl Default for BurnchainConfig {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
             chain_id: LAYER_1_CHAIN_ID_TESTNET,
-            // TODO: is this right?
-            network_id: LAYER_1_CHAIN_ID_TESTNET,
+            network_id: NETWORK_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             observer_port: DEFAULT_L1_OBSERVER_PORT,
             peer_host: "0.0.0.0".to_string(),
