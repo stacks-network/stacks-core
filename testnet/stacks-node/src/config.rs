@@ -38,11 +38,8 @@ use crate::burnchains::l1_events::L1Controller;
 use crate::burnchains::mock_events::MockController;
 use crate::BurnchainController;
 
-const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
-const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
-const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 pub const BURNCHAIN_NAME_STACKS_TESTNET_L1: &str = "stacks_layer_1";
@@ -136,47 +133,6 @@ impl ConfigFile {
         config
     }
 
-    pub fn xenon() -> ConfigFile {
-        let burnchain = BurnchainConfigFile {
-            rpc_port: Some(18332),
-            peer_port: Some(18333),
-            peer_host: Some("bitcoind.xenon.blockstack.org".to_string()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            bootstrap_node: Some("047435c194e9b01b3d7f7a2802d6684a3af68d05bbf4ec8f17021980d777691f1d51651f7f1d566532c804da506c117bbf79ad62eea81213ba58f8808b4d9504ad@xenon.blockstack.org:20444".to_string()),
-            miner: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        let balances = vec![
-            InitialBalanceFile {
-                address: "ST2QKZ4FKHAH1NQKYKYAYZPY440FEPK7GZ1R5HBP2".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST319CF5WV77KYR1H3GT0GZ7B8Q4AQPY42ETP1VPF".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST221Z6TDTC5E0BYR2V624Q2ST6R0Q71T78WTAX6H".to_string(),
-                amount: 10000000000000000,
-            },
-            InitialBalanceFile {
-                address: "ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B".to_string(),
-                amount: 10000000000000000,
-            },
-        ];
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
-            ustx_balance: Some(balances),
-            ..ConfigFile::default()
-        }
-    }
-
     pub fn mainnet() -> ConfigFile {
         let burnchain = BurnchainConfigFile {
             rpc_port: Some(8332),
@@ -200,36 +156,6 @@ impl ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
             ustx_balance: None,
-            ..ConfigFile::default()
-        }
-    }
-
-    pub fn helium() -> ConfigFile {
-        // ## Settings for local testnet, relying on a local bitcoind server
-        // ## running with the following bitcoin.conf:
-        // ##
-        // ##    chain=regtest
-        // ##    disablewallet=0
-        // ##    txindex=1
-        // ##    server=1
-        // ##    rpcuser=helium
-        // ##    rpcpassword=helium
-        // ##
-        let burnchain = BurnchainConfigFile {
-            rpc_port: Some(18443),
-            peer_port: Some(18444),
-            peer_host: Some("0.0.0.0".to_string()),
-            ..BurnchainConfigFile::default()
-        };
-
-        let node = NodeConfigFile {
-            miner: Some(false),
-            ..NodeConfigFile::default()
-        };
-
-        ConfigFile {
-            burnchain: Some(burnchain),
-            node: Some(node),
             ..ConfigFile::default()
         }
     }
@@ -383,6 +309,9 @@ impl Config {
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
+                    wait_before_first_anchored_block: node
+                        .wait_before_first_anchored_block
+                        .unwrap_or(default_node_config.wait_before_first_anchored_block),
                     ..default_node_config
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
@@ -497,6 +426,7 @@ impl Config {
         if let Some(bootstrap_node) = bootstrap_node {
             node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
         }
+
         if let Some(deny_nodes) = deny_nodes {
             node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
         }
@@ -879,6 +809,8 @@ pub struct BurnchainConfig {
     /// blockchain that this hyperchain is running on top of.
     pub chain_id: u32,
     pub network_id: u32,
+    /// The peer version is used to determine network compatibility
+    /// for the net/p2p layer in the hyperchain network stack.
     pub peer_version: u32,
     /// This is the host IP address for the L1 node this hyperchain node communicates with
     pub peer_host: String,
