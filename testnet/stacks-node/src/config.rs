@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use rand::RngCore;
 
+use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -13,9 +14,9 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::TransactionAnchorMode;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::StacksEpoch;
+use stacks::core::{StacksEpoch, NETWORK_ID_TESTNET};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    LAYER_1_CHAIN_ID_MAINNET, LAYER_1_CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
@@ -326,9 +327,9 @@ impl Config {
                 BurnchainConfig {
                     chain: chain.clone(),
                     chain_id: if &chain == BURNCHAIN_NAME_STACKS_MAINNET_L1 {
-                        CHAIN_ID_MAINNET
+                        LAYER_1_CHAIN_ID_MAINNET
                     } else {
-                        CHAIN_ID_TESTNET
+                        LAYER_1_CHAIN_ID_TESTNET
                     },
                     observer_port: burnchain
                         .observer_port
@@ -807,6 +808,7 @@ pub struct BurnchainConfig {
     /// This configuration variable specifies the `chain_id` used in the L1
     /// blockchain that this hyperchain is running on top of.
     pub chain_id: u32,
+    pub network_id: u32,
     /// The peer version is used to determine network compatibility
     /// for the net/p2p layer in the hyperchain network stack.
     pub peer_version: u32,
@@ -844,7 +846,8 @@ impl Default for BurnchainConfig {
     fn default() -> Self {
         BurnchainConfig {
             chain: "bitcoin".to_string(),
-            chain_id: CHAIN_ID_TESTNET,
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
+            network_id: NETWORK_ID_TESTNET,
             peer_version: PEER_VERSION_TESTNET,
             observer_port: DEFAULT_L1_OBSERVER_PORT,
             peer_host: "0.0.0.0".to_string(),
@@ -873,7 +876,7 @@ impl BurnchainConfig {
 
     /// Is the L1 chain itself mainnet or testnet?
     pub fn is_mainnet(&self) -> bool {
-        self.chain_id == CHAIN_ID_MAINNET
+        self.chain_id == LAYER_1_CHAIN_ID_MAINNET
     }
 
     pub fn get_rpc_url(&self) -> String {
@@ -895,6 +898,7 @@ impl BurnchainConfig {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
+    /// String-valued unique identifier, e.g., "mainnet", "testnet".
     pub chain: Option<String>,
     pub observer_port: Option<u16>,
     pub peer_host: Option<String>,
@@ -914,6 +918,8 @@ pub struct BurnchainConfigFile {
 #[derive(Clone, Debug, Default)]
 pub struct NodeConfig {
     pub name: String,
+    /// u32-valued identifier of the chain. This is also the `network_id` for L2.
+    pub chain_id: u32,
     /// Value to initialize the keychain, only used if `mining_key` is not set.
     pub seed: Vec<u8>,
     pub working_dir: String,
@@ -1225,6 +1231,7 @@ impl NodeConfig {
         let name = "helium-node";
         NodeConfig {
             name: name.to_string(),
+            chain_id: LAYER_1_CHAIN_ID_TESTNET,
             seed: seed.to_vec(),
             working_dir: format!("/tmp/{}", testnet_id),
             rpc_bind: format!("0.0.0.0:{}", rpc_port),

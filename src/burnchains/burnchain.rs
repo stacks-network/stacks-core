@@ -217,8 +217,7 @@ impl Burnchain {
         Ok(Burnchain {
             peer_version,
             network_id: params.network_id,
-            chain_name: params.chain_name.clone(),
-            network_name: params.network_name.clone(),
+            chain_id: params.chain_id.clone(),
             working_dir: working_dir.into(),
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
