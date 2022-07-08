@@ -19,7 +19,7 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
     && . /opt/osxcross/env-macos-aarch64 \
-    && cargo build --release --workspace --target ${TARGET} --features monitoring_prom,slog_json \
+    && cargo build --release --workspace --target ${TARGET} \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
