@@ -237,6 +237,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         }
     }
 
+    
     /// Get the inner trie cache state, as a mutable reference
     fn state_mut(&mut self) -> &mut TrieCacheState<T> {
         info!("check");
