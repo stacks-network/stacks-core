@@ -541,7 +541,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
+        trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);  // Note: This is where we hit
         self.marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {

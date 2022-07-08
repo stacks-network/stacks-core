@@ -126,8 +126,11 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.is_block_hash_cached(id) {
+            info!("get_block_hash_caching: result=miss, id={}", id);
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
+        } else {
+            info!("get_block_hash_caching: result=hit, id={}", id);
         }
         self.cache.ref_block_hash(id).ok_or(Error::NotFoundError)
     }

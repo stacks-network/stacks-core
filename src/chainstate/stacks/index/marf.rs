@@ -132,6 +132,7 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
+        info!("MarfConnection::get({:?}, '{}')", block_hash, key);
         self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
     }
 
@@ -1136,9 +1137,9 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
-        let path = TriePath::from_key(key);
+        let path = TriePath::from_key(key);  // simple
 
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {  // real operation
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });
