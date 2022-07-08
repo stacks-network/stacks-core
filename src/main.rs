@@ -932,10 +932,20 @@ simulating a miner.
 
     if argv[1] == "marf-get" {
         let path = &argv[2];
-        let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
-        let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
-        let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
-        let key = &argv[5];
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        // let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
+        // let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
+        // let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
+        let key = &argv[3];
+
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let chain_id = CHAIN_ID_MAINNET;
+        // let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
+        //     .expect("Failed to open stacks chain state");
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+        let itip = StacksBlockHeader::make_index_block_hash(&chain_tip.consensus_hash, &chain_tip.winning_stacks_block_hash);
 
         let marf_opts = MARFOpenOpts::default();
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
