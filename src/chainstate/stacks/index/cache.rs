@@ -64,6 +64,7 @@ use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct TrieNodeAddr(u32, TriePtr);
 
+
 /// Cache state for all node caching strategies.
 pub struct TrieCacheState<T: MarfTrieId> {
     /// Mapping between trie blob IDs (i.e. rowids) and the MarfTrieId of the trie.  Contents are
