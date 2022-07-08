@@ -158,6 +158,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Cache a block hash, given its ID
     pub fn store_block_hash(&mut self, block_id: u32, block_hash: T) {
         info!("check"); // here
+        info!("store_block_hash block_id {} <-> block_hash {:?}", block_id, &block_hash);
         assert!(!self.block_hash_cache.contains_key(&block_id));
         self.block_id_cache.insert(block_hash.clone(), block_id);
         self.block_hash_cache.insert(block_id, block_hash);
@@ -172,7 +173,9 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Get the block ID, given its hash
     pub fn load_block_id(&self, block_hash: &T) -> Option<u32> {
         info!("check");
-        self.block_id_cache.get(block_hash).map(|id| *id)
+        let r = self.block_id_cache.get(block_hash).map(|id| *id);
+        info!("load_block_id {:?}", &r);
+        r
     }
 }
 
