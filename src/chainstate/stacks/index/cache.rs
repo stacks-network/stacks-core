@@ -18,6 +18,7 @@ use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::env;
+use backtrace;
 use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -230,14 +231,16 @@ impl<T: MarfTrieId> TrieCache<T> {
         match self {
             TrieCache::Noop(ref state) => state,
             TrieCache::Everything(ref state) => {
-                info!("everything check");
+                // this gets called all the time
+                let bt = backtrace::Backtrace::new();
+                info!("everything check {:?}", bt);
                 state
             },
             TrieCache::Node256(ref state) => state,
         }
     }
 
-    
+
     /// Get the inner trie cache state, as a mutable reference
     fn state_mut(&mut self) -> &mut TrieCacheState<T> {
         info!("check");

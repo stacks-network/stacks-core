@@ -49,6 +49,8 @@ name = "c32_bench"
 harness = false
 
 [dependencies]
+backtrace = "0.3.50"
+
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"
