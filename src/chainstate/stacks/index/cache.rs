@@ -229,7 +229,10 @@ impl<T: MarfTrieId> TrieCache<T> {
 
         match self {
             TrieCache::Noop(ref state) => state,
-            TrieCache::Everything(ref state) => state,
+            TrieCache::Everything(ref state) => {
+                info!("everything check");
+                state
+            },
             TrieCache::Node256(ref state) => state,
         }
     }
@@ -240,7 +243,10 @@ impl<T: MarfTrieId> TrieCache<T> {
 
         match self {
             TrieCache::Noop(ref mut state) => state,
-            TrieCache::Everything(ref mut state) => state,
+            TrieCache::Everything(ref mut state) => {
+                info!("everything check");
+                state
+            },
             TrieCache::Node256(ref mut state) => state,
         }
     }
@@ -298,6 +304,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         match self {
             TrieCache::Noop(_) => {}
             TrieCache::Everything(ref mut state) => {
+                info!("everything check");
                 state.store_node_and_hash(block_id, trieptr, node, hash);
             }
             TrieCache::Node256(ref mut state) => match node {
@@ -317,7 +324,11 @@ impl<T: MarfTrieId> TrieCache<T> {
         assert!(!is_backptr(trieptr.id()));
         match self {
             TrieCache::Noop(_) => {}
-            TrieCache::Everything(ref mut state) => state.store_node(block_id, trieptr, node),
+            TrieCache::Everything(ref mut state) => {
+                info!("everything check");
+
+                state.store_node(block_id, trieptr, node)
+            },
             TrieCache::Node256(ref mut state) => match node {
                 TrieNodeType::Node256(data) => {
                     state.store_node(block_id, trieptr, TrieNodeType::Node256(data))
@@ -342,6 +353,8 @@ impl<T: MarfTrieId> TrieCache<T> {
                 );
             }
             TrieCache::Everything(ref mut state) => {
+                info!("everything check");
+
                 state.store_node_hash(block_id, trieptr, hash);
             }
             TrieCache::Node256(ref mut state) => match trieptr.id {
