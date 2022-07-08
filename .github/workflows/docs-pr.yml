@@ -68,7 +68,7 @@ jobs:
         # disable for testing
         if: ${{ false }}
         id: open_pr
-        if: ${{ steps.push.outputs.open_pr == '1' }}
+        # if: ${{ steps.push.outputs.open_pr == '1' }}
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
