@@ -194,11 +194,13 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// Instantiate the default strategy.  This can be taken from the `STACKS_MARF_CACHE_STRATEGY`
     /// environ, or failing that, it will use a no-op strategy.
     pub fn default() -> TrieCache<T> {
-        if let Ok(strategy) = std::env::var("STACKS_MARF_CACHE_STRATEGY") {
-            TrieCache::new(&strategy)
-        } else {
-            TrieCache::Noop(TrieCacheState::new())
-        }
+        info!("check: setting strategy");
+        TrieCache::new(&"everything")
+        // if let Ok(strategy) = std::env::var("STACKS_MARF_CACHE_STRATEGY") {
+        //     TrieCache::new(&strategy)
+        // } else {
+        //     TrieCache::Noop(TrieCacheState::new())
+        // }
     }
 
     /// Make a new cache strategy.
