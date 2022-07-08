@@ -6,12 +6,18 @@ on:
       tag:
         required: true
         type: string
+      arch:
+        description: "Stringified JSON object listing of platform matrix"
+        required: true
+        type: string
     secrets:
       GH_TOKEN:
         required: true
+
 jobs:
   create-release:
     if: ${{ inputs.tag != '' }}
+    name: Create Release
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifacts
@@ -20,18 +26,17 @@ jobs:
         with:
           name: artifact
           path: release
-
       - name: Generate Checksums
+        id: generate_checksum
         uses: jmgilman/actions-generate-checksum@v1
         with:
           output: CHECKSUMS.txt
           patterns: |
             release/*.zip
-
       - name: Display artifact files
+        id: list_artifacts
         run: ls -R
         working-directory: release
-
       - name: Upload Release
         id: upload_release
         uses: softprops/action-gh-release@v1

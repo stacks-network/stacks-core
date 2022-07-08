@@ -17,14 +17,16 @@ on:
 jobs:
   artifact:
     if: ${{ inputs.tag != '' }}
+    name: Create Artifacts
     runs-on: ubuntu-latest
     strategy:
       max-parallel: ${{ inputs.parallel_jobs}}
       matrix:
         platform: ${{fromJson(inputs.arch)}}
-
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Set Vars
         id: set_vars
         run: |
@@ -33,7 +35,6 @@ jobs:
       - name: Set up Docker Buildx
         id: setup_buildx
         uses: docker/setup-buildx-action@v2
-
       - name: Build Binaries
         id: build_binaries
         uses: docker/build-push-action@v3
@@ -44,11 +45,9 @@ jobs:
             OS_ARCH=${{ matrix.platform }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-
       - name: Compress artifact
         id: compress_artifact
         run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
-
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-artifact@v3

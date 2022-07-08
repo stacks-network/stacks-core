@@ -12,37 +12,38 @@ name: Open Docs PR
 env:
   ROBOT_OWNER: kantai-robot
   ROBOT_REPO: docs
-  TARGET_OWNER: stacks-network
+  TARGET_OWNER: wileyj
   TARGET_REPO: docs
-  TARGET_REPOSITORY: stacks-network/docs
+  TARGET_REPOSITORY: wileyj/docs
 on:
   push:
     branches: [master]
 
 jobs:
   dist:
-    # disable for testing
-    if: ${{ false }}
-
+    name: Open Docs PR
     runs-on: ubuntu-latest
     env:
       ROBOT_BRANCH: ${{ format('auto/clarity-ref-{0}', github.sha) }}
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Build docs
+        id: build_docs
         env:
           DOCKER_BUILDKIT: 1
         run: rm -rf docs-output && docker build -o docs-output -f ./.github/actions/docsgen/Dockerfile.docsgen .
-
       - name: Checkout latest docs
+        id: git_checkout_docs
         uses: actions/checkout@v3
         with:
           token: ${{ secrets.DOCS_GITHUB_TOKEN }}
           repository: ${{ env.TARGET_REPOSITORY }}
           path: docs
-
       - name: Branch and commit
+        # disable for testing
+        if: ${{ false }}
         id: push
         run: |
           cd docs
@@ -64,6 +65,9 @@ jobs:
             echo "::set-output name=open_pr::1"
           fi
       - name: Open PR
+        # disable for testing
+        if: ${{ false }}
+        id: open_pr
         if: ${{ steps.push.outputs.open_pr == '1' }}
         uses: actions/github-script@v6
         with:

@@ -1,4 +1,4 @@
-name: stacks-bitcoin-integration-tests
+name: Stacks Blockchain Bitcoin Integration Tests
 
 # Only run when:
 #   - PRs are opened
@@ -12,10 +12,14 @@ concurrency:
 
 jobs:
   build-integration-image:
+    name: Build Image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Build bitcoin integration testing image
+        id: build_docker_image
         env:
           DOCKER_BUILDKIT: 1
         # Remove .dockerignore file so codecov has access to git info
@@ -23,8 +27,10 @@ jobs:
           rm .dockerignore
           docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
       - name: Export docker image as tarball
+        id: export_docker_image
         run: docker save -o integration-image.tar stacks-blockchain:integrations
       - name: Upload built docker image
+        id: upload_docker_image
         uses: actions/upload-artifact@v3
         with:
           name: integration-image.tar
@@ -32,6 +38,7 @@ jobs:
   # Run integration tests using sampled genesis block
 
   sampled-genesis:
+    name: Sampled Genesis
     runs-on: ubuntu-latest
     needs:
       - build-integration-image
@@ -74,18 +81,17 @@ jobs:
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::bigger_microblock_streams_in_2_05
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Download docker image
-        id: docker_download_image
+        id: download_docker_image
         uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
-
       - name: Load docker image
-        id: docker_load_image
+        id: load_docker_image
         run: docker load -i integration-image.tar && rm integration-image.tar
-
       - name: All integration tests with sampled genesis
         id: bitcoin_integration_tests
         timeout-minutes: 30
@@ -93,7 +99,6 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-
       - name: Code Coverage
         id: code_coverage
         uses: codecov/codecov-action@v3
@@ -104,6 +109,7 @@ jobs:
 
   atlas-test:
     if: ${{ true }}
+    name: Atlas Test
     runs-on: ubuntu-latest
     needs:
       - build-integration-image
@@ -114,18 +120,17 @@ jobs:
           - tests::neon_integrations::atlas_integration_test
           - tests::neon_integrations::atlas_stress_integration_test
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Download docker image
-        id: docker_download_image
+        id: download_docker_image
         uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
-
       - name: Load docker image
-        id: docker_load_image
+        id: load_docker_image
         run: docker load -i integration-image.tar && rm integration-image.tar
-
       - name: Atlas integration tests
         id: atlas_integration_tests
         timeout-minutes: 40
@@ -133,7 +138,6 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-
       - name: Code Coverage
         id: code_coverage
         uses: codecov/codecov-action@v3

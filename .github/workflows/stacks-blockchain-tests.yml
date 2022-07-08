@@ -1,4 +1,4 @@
-name: stacks-blockchain integration tests
+name: Tests
 
 on:
   workflow_call:
@@ -6,9 +6,12 @@ on:
 jobs:
   # Run full genesis test
   full-genesis:
+    name: Full Genesis Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
 
       - name: Single full genesis integration test
         id: full_genesis_test
@@ -29,11 +32,13 @@ jobs:
 
   # Run unit tests with code coverage
   unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Run units tests (with coverage)
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: Run unit tests (with coverage)
         id: unit_tests_codecov
         env:
           DOCKER_BUILDKIT: 1
@@ -41,8 +46,7 @@ jobs:
         run: |
           rm .dockerignore
           docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-
-      - name: unit_tests
+      - name: Run unit tests
         id: codedov
         uses: codecov/codecov-action@v3
         with:
@@ -51,16 +55,17 @@ jobs:
           fail_ci_if_error: true
 
   open-api-validation:
+    name: OpenAPI Validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Run units tests (with coverage)
         id: api_codecov
         env:
           DOCKER_BUILDKIT: 1
         run: docker build -o dist/ -f .github/actions/open-api/Dockerfile.open-api-validate .
-
       - name: Upload bundled html
         id: upload_html_artifact
         uses: actions/upload-artifact@v3
@@ -74,10 +79,12 @@ jobs:
     # disable this job/test for now, since we haven't seen this pass
     #  on github actions in a while, and the failures can take > 4 hours
     if: ${{ false }}
+    name: Net-Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Run network relay tests
         id: nettest
         env:
@@ -85,31 +92,20 @@ jobs:
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.net-tests .
 
   core-contracts-clarinet-test:
+    name: Core Contracts Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Execute core contract unit tests in Clarinet
         id: clarinet_unit_test
         uses: docker://hirosystems/clarinet:latest
         with:
           args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
-
       - name: Export code coverage
         id: clarinet_codecov
         uses: codecov/codecov-action@v3
         with:
           files: ./coverage.lcov
           verbose: true
-
-  # rustfmt checking
-  rustfmt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Run rustfmt check
-        id: rustfmt
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .

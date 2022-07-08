@@ -1,0 +1,23 @@
+name: Security Audit
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  # schedule:
+  #   - cron: 30 03 * * *
+
+jobs:
+  security_audit:
+    name: Crate Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: Rust Dependency Check
+        id: rust_dep_check
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  # push:
-  #   tags:
-  #     - "**" # match all tag names
   pull_request:
   workflow_dispatch:
     inputs:
@@ -16,49 +13,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Release Tests
-  release-tests:
-    # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
+  # rustfmt on every run
+  rustfmt:
+    name: Rust Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: Define Rust Toolchain
+        id: define_rust_toolchain
+        run: echo "RUST_TOOLCHAIN=$(cat ./rust-toolchain)" >> $GITHUB_ENV
+      - name: Setup Rust Toolchain
+        id: setup_rust_toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - name: rustfmt
+        id: rustfmt
+        run: cargo fmt --all -- --check
+
+  # Checked for leaked credentials if tag is provided and this is a build of the default branch
+  leaked-cred-test:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/arm-test/.github/workflows/stacks-blockchain-tests.yml@master
+    name: Leaked Credential Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: TruffleHog Scan
+        id: trufflehog_check
+        uses: trufflesecurity/trufflehog@v3.4.3
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+  ###############################################
+  ## Build Tagged Release
+  ###############################################
+  # Release Tests
+  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
+  release-tests:
+    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Release Tests
+    # uses: wileyj/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
     uses: ./.github/workflows/stacks-blockchain-tests.yml
 
-  ########################################################################
-  ## Build Tagged Release
-  ########################################################################
+  # Build source binaries
+  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
   build-source:
-    # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/build-source-binary.yml@master
+    name: Build Binaries
+    # uses: wileyj/stacks-blockchain/.github/workflows/build-source-binary.yml@master
     uses: ./.github/workflows/build-source-binary.yml
-    needs: release-tests
+    needs:
+      - release-tests
+      - rustfmt
+      - leaked-cred-test
     with:
       tag: ${{ inputs.tag }}
       parallel_jobs: 4
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
-      # arch: >-
-      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64"]
+
+  # Create github release with binary archives
+  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
   github-release:
-    # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/github-release.yml@master
+    name: Github Release
+    # uses: wileyj/stacks-blockchain/.github/workflows/github-release.yml@master
     uses: ./.github/workflows/github-release.yml
     needs: build-source
     with:
       tag: ${{ inputs.tag }}
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
-      # arch: >-
-      #   ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64"]
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
+  # Create docker alpine images
+  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
   docker-alpine:
-    # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/image-build-alpine.yml@master
-    uses: ./.github/workflows/image-build-alpine.yml
+    name: Docker Alpine (Binary)
+    # uses: wileyj/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
+    uses: ./.github/workflows/image-build-alpine-binary.yml
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -67,31 +109,39 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  # Create docker debian images
+  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
   docker-debian:
-    # Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/image-build-debian.yml@master
-    uses: ./.github/workflows/image-build-debian.yml
+    name: Docker Debian (Binary)
+    # uses: wileyj/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
+    uses: ./.github/workflows/image-build-debian-binary.yml
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
       docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
       linux_version: debian
+      build_type: binary
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  ########################################################################
+  ###############################################
   ## Build Branch/PR
-  ########################################################################
+  ###############################################
+  # Create docker debian images
+  #   Only run if (a tag was NOT passed in) or (we're building a non-master branch which isn't a PR) or (this is a PR with no input tag)
   build-branch:
-    # Only run if (a tag was NOT passed in) or (we're building a non-master branch which isn't a PR)
     if: ${{ inputs.tag == '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    # uses: wileyj/${{ github.event.repository.name }}/.github/workflows/build-source-image.yml@master
-    uses: ./.github/workflows/build-source-image.yml
+    name: Docker Debian (Source)
+    # uses: wileyj/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
+    uses: ./.github/workflows/image-build-debian-source.yml
+    needs:
+      - rustfmt
     with:
-      docker_platforms: linux/amd64
+      docker_platforms: linux/amd64, linux/amd64/v2, linux/amd64/v3
       linux_version: debian
+      build_type: source
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
