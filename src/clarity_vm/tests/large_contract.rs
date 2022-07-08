@@ -101,13 +101,27 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
             .unwrap(),
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    let burn_db = if version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
+
+    clarity
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockId([0xfe as u8; 32]),
+            &TEST_HEADER_DB,
+            burn_db,
+        )
+        .commit_block();
 
     {
-        let mut block = clarity.begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &test_block_headers(0),
+        let mut block = clarity.begin_block(
+            &StacksBlockId([0xfe as u8; 32]),
+            &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let tokens_contract = SIMPLE_TOKENS;
@@ -265,7 +279,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
                 &test_block_headers(i),
                 &test_block_headers(i + 1),
                 &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                burn_db,
             );
             block.commit_block();
         }
@@ -276,7 +290,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
             &test_block_headers(25),
             &test_block_headers(26),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
         assert!(is_committed(
             &block
@@ -562,6 +576,11 @@ pub fn rollback_log_memory_test(#[case] clarity_version: ClarityVersion) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     clarity_instance
@@ -569,7 +588,7 @@ pub fn rollback_log_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -578,7 +597,7 @@ pub fn rollback_log_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-data-var XZ (buff 1048576) 0x00)";
@@ -624,6 +643,11 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -632,7 +656,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -641,7 +665,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -694,13 +718,18 @@ pub fn argument_memory_test(#[case] clarity_version: ClarityVersion) {
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
 
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -709,7 +738,7 @@ pub fn argument_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -761,6 +790,11 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion) {
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -769,7 +803,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -778,7 +812,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -868,13 +902,18 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion) {
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
 
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -883,7 +922,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion) {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)\n";

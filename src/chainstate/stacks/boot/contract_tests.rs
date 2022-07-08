@@ -988,7 +988,13 @@ fn pox_2_delegate_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|conn| {
-        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap();
+        test_deploy_smart_contract(
+            conn,
+            &POX_2_CONTRACT_TESTNET,
+            &POX_2_TESTNET_CODE,
+            ClarityVersion::Clarity2,
+        )
+        .unwrap();
 
         // set burnchain params based on old testnet settings (< 2.0.11.0)
         conn.as_transaction(ClarityVersion::Clarity1, |tx| {
@@ -1542,10 +1548,20 @@ fn simple_epoch21_test() {
 ";
 
     sim.execute_next_block_as_conn(|block| {
-        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
-            .expect("2.0 'good' contract should deploy successfully");
-        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
-            .expect_err("2.0 'bad' contract should not deploy successfully")
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_0_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect("2.0 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_0_bad_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect_err("2.0 'bad' contract should not deploy successfully")
         {
             ClarityError::Analysis(e) => {
                 assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
@@ -1559,10 +1575,20 @@ fn simple_epoch21_test() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|block| {
-        test_deploy_smart_contract(block, &clarity_2_1_id, clarity_2_1_content)
-            .expect("2.1 'good' contract should deploy successfully");
-        match test_deploy_smart_contract(block, &clarity_2_1_bad_id, clarity_2_0_content)
-            .expect_err("2.1 'bad' contract should not deploy successfully")
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_1_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect("2.1 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_1_bad_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect_err("2.1 'bad' contract should not deploy successfully")
         {
             ClarityError::Interpreter(e) => {
                 assert_eq!(
@@ -1581,8 +1607,9 @@ fn test_deploy_smart_contract(
     block: &mut ClarityBlockConnection,
     contract_id: &QualifiedContractIdentifier,
     content: &str,
+    version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
-    block.as_transaction(ClarityVersion::Clarity1, |tx| {
+    block.as_transaction(version, |tx| {
         let (ast, analysis) = tx.analyze_smart_contract(&contract_id, content)?;
         tx.initialize_smart_contract(&contract_id, &ast, content, None, |_, _| false)?;
         tx.save_analysis(&contract_id, &analysis)?;

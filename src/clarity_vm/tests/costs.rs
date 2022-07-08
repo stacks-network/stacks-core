@@ -35,7 +35,8 @@ use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
-    execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, execute_on_network, symbols_from_values, TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21,
+    TEST_HEADER_DB,
 };
 use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
@@ -960,12 +961,18 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
+
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -994,7 +1001,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let cost_definer_src = "
@@ -1041,7 +1048,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let without_interposing_5 = {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
@@ -1064,7 +1071,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let without_interposing_10 = {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
@@ -1092,7 +1099,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
 
     {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
         db.set_variable_unknown_descriptor(
             voting_contract_to_use,
@@ -1123,7 +1130,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
 
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
@@ -1146,7 +1153,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
     let with_interposing_10 = {
         let mut store = marf_kv.begin(&StacksBlockId([5 as u8; 32]), &StacksBlockId([6 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
@@ -1188,12 +1195,18 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
+    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
+        &TEST_BURN_STATE_DB_21
+    } else {
+        &TEST_BURN_STATE_DB
+    };
+
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -1226,7 +1239,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             &StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let cost_definer_src = "
@@ -1383,7 +1396,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     {
         let mut store = marf_kv.begin(&StacksBlockId([1 as u8; 32]), &StacksBlockId([2 as u8; 32]));
 
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
 
         db.set_variable_unknown_descriptor(
@@ -1419,7 +1432,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     let le_cost_without_interception = {
         let mut store = marf_kv.begin(&StacksBlockId([2 as u8; 32]), &StacksBlockId([3 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
@@ -1480,7 +1493,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     {
         let mut store = marf_kv.begin(&StacksBlockId([3 as u8; 32]), &StacksBlockId([4 as u8; 32]));
 
-        let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        let mut db = store.as_clarity_db(&TEST_HEADER_DB, burn_db);
         db.begin();
 
         let good_proposals = good_cases.len() as u128;
@@ -1518,7 +1531,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
     {
         let mut store = marf_kv.begin(&StacksBlockId([4 as u8; 32]), &StacksBlockId([5 as u8; 32]));
         let mut owned_env = OwnedEnvironment::new_max_limit(
-            store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
+            store.as_clarity_db(&TEST_HEADER_DB, burn_db),
             StacksEpochId::Epoch20,
             use_mainnet,
         );
