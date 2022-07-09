@@ -931,8 +931,9 @@ simulating a miner.
     }
 
     if argv[1] == "marf-get" {
-        let path = &argv[2];
-        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let mainnet_path = &argv[2];
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &mainnet_path);
+
         // let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
         // let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
         // let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
@@ -948,7 +949,10 @@ simulating a miner.
         let itip = StacksBlockHeader::make_index_block_hash(&chain_tip.consensus_hash, &chain_tip.winning_stacks_block_hash);
 
         let marf_opts = MARFOpenOpts::default();
-        let mut marf = MARF::from_path(path, marf_opts).unwrap();
+        // let mut marf = MARF::from_path(path, marf_opts).unwrap();
+        let marf_path = format!("{}/mainnet/chainstate/vm/index.sqlite", &mainnet_path);
+
+        let mut marf = MARF::from_path(&marf_path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
             Some(x) => println!("{}", x),
