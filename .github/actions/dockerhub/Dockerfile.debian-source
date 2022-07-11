@@ -14,6 +14,8 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \
     && cargo build --release --workspace --target ${TARGET} \
+    && cd ${BUILD_DIR}/testnet/puppet-chain \
+    && cargo build --release \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 

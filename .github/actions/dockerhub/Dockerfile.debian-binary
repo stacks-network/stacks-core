@@ -18,5 +18,5 @@ RUN case ${TARGETARCH} in \
     && unzip ${BIN_ARCH}.zip -d /out
 
 FROM --platform=${TARGETPLATFORM} debian:bullseye
-COPY --from=builder /out/ /bin/
+COPY --from=builder /out/stacks-node /bin/
 CMD ["stacks-node", "mainnet"]
