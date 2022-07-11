@@ -96,7 +96,7 @@
     (begin
         (map-set block-commits commit-block-height block)
         (map-set withdrawal-roots-map withdrawal-root true)
-        (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root})
+        (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root, block-height: commit-block-height })
         (ok block)
     )
 )

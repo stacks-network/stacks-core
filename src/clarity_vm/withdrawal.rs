@@ -14,9 +14,11 @@ pub fn make_key_for_withdrawal(
     data: String,
     recipient: &PrincipalData,
     withdrawal_id: u32,
+    block_height: u64,
 ) -> String {
     format!(
-        "withdrawal::{}::{}::{}",
+        "withdrawal::{}::{}::{}::{}",
+        block_height,
         data,
         recipient.to_string(),
         withdrawal_id,
@@ -43,6 +45,7 @@ pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height
         withdrawal_id,
         &data.asset_identifier,
         data.amount,
+        block_height
     )
 }
 
@@ -56,7 +59,7 @@ pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_heig
           "sender" => %data.sender,
           "withdrawal_id" => withdrawal_id,
           "asset_id" => %data.asset_identifier);
-    make_key_for_nft_withdrawal(&data.sender, withdrawal_id, &data.asset_identifier)
+    make_key_for_nft_withdrawal(&data.sender, withdrawal_id, &data.asset_identifier, data.id, block_height)
 }
 
 pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_height: u64) -> String {
@@ -69,16 +72,18 @@ pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_heig
           "sender" => %data.sender,
           "withdrawal_id" => withdrawal_id,
           "amount" => %data.amount);
-    make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount)
+    make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount, block_height)
 }
 
 pub fn make_key_for_nft_withdrawal(
     sender: &PrincipalData,
     withdrawal_id: u32,
     asset_identifier: &AssetIdentifier,
+    id: u128,
+    block_height: u64,
 ) -> String {
-    let str_data = format!("nft::{}", asset_identifier);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    let str_data = format!("nft::{}::{}", asset_identifier, id);
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 pub fn make_key_for_ft_withdrawal(
@@ -86,18 +91,20 @@ pub fn make_key_for_ft_withdrawal(
     withdrawal_id: u32,
     asset_identifier: &AssetIdentifier,
     amount: u128,
+    block_height: u64,
 ) -> String {
     let str_data = format!("ft::{}::{}", asset_identifier, amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 pub fn make_key_for_stx_withdrawal(
     sender: &PrincipalData,
     withdrawal_id: u32,
     amount: u128,
+    block_height: u64,
 ) -> String {
     let str_data = format!("stx::{}", amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 /// The supplied withdrawal ID is inserted into the supplied withdraw event
@@ -235,7 +242,7 @@ mod test {
                 },
                 withdrawal_id: None,
                 sender: user_addr.into(),
-                value: Value::UInt(1),
+                id: 1,
             }));
         let withdrawal_receipt = StacksTransactionReceipt {
             transaction: TransactionOrigin::Stacks(StacksTransaction::new(

@@ -939,7 +939,33 @@ impl ConversationHttp {
         amount: u128,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount);
+        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount, requested_block_height);
+        Self::handle_get_generic_withdrawal_entry(
+            http,
+            fd,
+            req,
+            chainstate,
+            canonical_tip,
+            requested_block_height,
+            withdrawal_key,
+            canonical_stacks_tip_height,
+        )
+    }
+
+    fn handle_get_withdrawal_nft_entry<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        canonical_tip: &StacksBlockId,
+        requested_block_height: u64,
+        sender: &PrincipalData,
+        withdrawal_id: u32,
+        asset_identifier: &AssetIdentifier,
+        id: u128,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let withdrawal_key = withdrawal::make_key_for_nft_withdrawal(sender, withdrawal_id, asset_identifier, id, requested_block_height);
         Self::handle_get_generic_withdrawal_entry(
             http,
             fd,
@@ -2669,6 +2695,39 @@ impl ConversationHttp {
                         &sender.clone(),
                         withdrawal_id,
                         amount,
+                        network.burnchain_tip.canonical_stacks_tip_height,
+                    )?;
+                }
+                None
+            }
+            HttpRequestType::GetWithdrawalNft {
+                withdraw_block_height,
+                ref sender,
+                withdrawal_id,
+                id,
+                ref asset_identifier,
+                ..
+            } => {
+                if let Some(tip) = ConversationHttp::handle_load_stacks_chain_tip(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    &TipRequest::UseLatestAnchoredTip,
+                    sortdb,
+                    chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )? {
+                    ConversationHttp::handle_get_withdrawal_nft_entry(
+                        &mut self.connection.protocol,
+                        &mut reply,
+                        &req,
+                        chainstate,
+                        &tip,
+                        withdraw_block_height,
+                        &sender.clone(),
+                        withdrawal_id,
+                        asset_identifier,
+                        id,
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
