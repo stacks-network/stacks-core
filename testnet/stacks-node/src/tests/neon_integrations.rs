@@ -101,6 +101,7 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
 
     // test to make sure config file parsing is correct
     let magic_bytes = Config::from_config_file(ConfigFile::xenon())
+        .unwrap()
         .burnchain
         .magic_bytes;
     assert_eq!(magic_bytes.as_bytes(), &['T' as u8, '2' as u8]);
