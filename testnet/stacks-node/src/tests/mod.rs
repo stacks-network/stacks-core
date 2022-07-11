@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use rand::RngCore;
+use rand::{Rng, RngCore};
 
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::{
@@ -12,7 +12,7 @@ use stacks::chainstate::stacks::{
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::core::CHAIN_ID_TESTNET;
+use stacks::core::LAYER_1_CHAIN_ID_TESTNET;
 use stacks::types::chainstate::StacksAddress;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::hex_bytes;
@@ -51,23 +51,11 @@ pub const SK_3: &'static str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46
 
 pub const ADDR_4: &'static str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
-lazy_static! {
-    pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
-        &StacksPrivateKey::from_hex(
-            "043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3"
-        )
-        .unwrap(),
-        0,
-        10,
-        "store",
-        STORE_CONTRACT
-    );
-}
-
 pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     payer: &StacksPrivateKey,
+    chain_id: u32,
     sender_nonce: u64,
     payer_nonce: u64,
     tx_fee: u64,
@@ -78,6 +66,7 @@ pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
         payload,
         sender,
         Some(payer),
+        chain_id,
         sender_nonce,
         Some(payer_nonce),
         tx_fee,
@@ -89,12 +78,14 @@ pub fn serialize_sign_sponsored_sig_tx_anchor_mode_version(
 pub fn serialize_sign_standard_single_sig_tx(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
 ) -> Vec<u8> {
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload,
         sender,
+        chain_id,
         nonce,
         tx_fee,
         TransactionAnchorMode::OnChainOnly,
@@ -104,6 +95,7 @@ pub fn serialize_sign_standard_single_sig_tx(
 pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     anchor_mode: TransactionAnchorMode,
@@ -111,6 +103,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
     serialize_sign_standard_single_sig_tx_anchor_mode_version(
         payload,
         sender,
+        chain_id,
         nonce,
         tx_fee,
         anchor_mode,
@@ -121,6 +114,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode(
 pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     anchor_mode: TransactionAnchorMode,
@@ -130,6 +124,7 @@ pub fn serialize_sign_standard_single_sig_tx_anchor_mode_version(
         payload,
         sender,
         None,
+        chain_id,
         nonce,
         None,
         tx_fee,
@@ -142,6 +137,7 @@ pub fn serialize_sign_tx_anchor_mode_version(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     payer: Option<&StacksPrivateKey>,
+    chain_id: u32,
     sender_nonce: u64,
     payer_nonce: Option<u64>,
     tx_fee: u64,
@@ -171,7 +167,7 @@ pub fn serialize_sign_tx_anchor_mode_version(
     let mut unsigned_tx = StacksTransaction::new(version, auth, payload);
     unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-    unsigned_tx.chain_id = CHAIN_ID_TESTNET;
+    unsigned_tx.chain_id = chain_id;
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
@@ -190,6 +186,7 @@ pub fn serialize_sign_tx_anchor_mode_version(
 
 pub fn make_contract_publish(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     contract_name: &str,
@@ -200,11 +197,12 @@ pub fn make_contract_publish(
 
     let payload = TransactionSmartContract { name, code_body };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, chain_id, nonce, tx_fee)
 }
 
 pub fn make_contract_publish_microblock_only(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     contract_name: &str,
@@ -218,6 +216,7 @@ pub fn make_contract_publish_microblock_only(
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload.into(),
         sender,
+        chain_id,
         nonce,
         tx_fee,
         TransactionAnchorMode::OffChainOnly,
@@ -254,6 +253,9 @@ pub fn new_test_conf() -> Config {
     conf.node.data_url = format!("https://{}:{}", localhost, rpc_port);
     conf.node.p2p_address = format!("{}:{}", localhost, p2p_port);
 
+    conf.node.chain_id = rng.gen_range(0u32, u32::MAX);
+    info!("Using random L2 chain_id: {}", conf.node.chain_id);
+
     conf.node.wait_before_first_anchored_block = 1_000;
 
     conf
@@ -271,6 +273,7 @@ pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {
 
 pub fn make_stacks_transfer(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     recipient: &PrincipalData,
@@ -278,12 +281,13 @@ pub fn make_stacks_transfer(
 ) -> Vec<u8> {
     let payload =
         TransactionPayload::TokenTransfer(recipient.clone(), amount, TokenTransferMemo([0; 34]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, chain_id, nonce, tx_fee)
 }
 
 pub fn make_sponsored_stacks_transfer_on_testnet(
     sender: &StacksPrivateKey,
     payer: &StacksPrivateKey,
+    chain_id: u32,
     sender_nonce: u64,
     payer_nonce: u64,
     tx_fee: u64,
@@ -296,6 +300,7 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
         payload.into(),
         sender,
         payer,
+        chain_id,
         sender_nonce,
         payer_nonce,
         tx_fee,
@@ -306,6 +311,7 @@ pub fn make_sponsored_stacks_transfer_on_testnet(
 
 pub fn make_stacks_transfer_mblock_only(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     recipient: &PrincipalData,
@@ -316,6 +322,7 @@ pub fn make_stacks_transfer_mblock_only(
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload.into(),
         sender,
+        chain_id,
         nonce,
         tx_fee,
         TransactionAnchorMode::OffChainOnly,
@@ -324,22 +331,24 @@ pub fn make_stacks_transfer_mblock_only(
 
 pub fn make_poison(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     header_1: StacksMicroblockHeader,
     header_2: StacksMicroblockHeader,
 ) -> Vec<u8> {
     let payload = TransactionPayload::PoisonMicroblock(header_1, header_2);
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, chain_id, nonce, tx_fee)
 }
 
-pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
+pub fn make_coinbase(sender: &StacksPrivateKey, chain_id: u32, nonce: u64, tx_fee: u64) -> Vec<u8> {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, chain_id, nonce, tx_fee)
 }
 
 pub fn make_contract_call(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     contract_addr: &StacksAddress,
@@ -357,11 +366,12 @@ pub fn make_contract_call(
         function_args: function_args.iter().map(|x| x.clone()).collect(),
     };
 
-    serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
+    serialize_sign_standard_single_sig_tx(payload.into(), sender, chain_id, nonce, tx_fee)
 }
 
 pub fn make_contract_call_mblock_only(
     sender: &StacksPrivateKey,
+    chain_id: u32,
     nonce: u64,
     tx_fee: u64,
     contract_addr: &StacksAddress,
@@ -382,6 +392,7 @@ pub fn make_contract_call_mblock_only(
     serialize_sign_standard_single_sig_tx_anchor_mode(
         payload.into(),
         sender,
+        chain_id,
         nonce,
         tx_fee,
         TransactionAnchorMode::OffChainOnly,

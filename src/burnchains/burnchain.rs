@@ -188,26 +188,27 @@ impl BurnchainBlock {
 
 impl Burnchain {
     /// Creates a burnchain using default values chosen based on chain and network.
-    pub fn new(
-        working_dir: &str,
-        chain_name: &str,
-        network_name: &str,
-    ) -> Result<Burnchain, burnchain_error> {
-        let (params, pox_constants, peer_version) = match (chain_name, network_name) {
-            ("mockstack", "hyperchain") => (
+    pub fn new(working_dir: &str, chain_name: &str) -> Result<Burnchain, burnchain_error> {
+        let (params, pox_constants, peer_version) = match chain_name {
+            "mockstack" => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
-            ("stacks_layer_1", "hyperchain") => (
+            "stacks_layer_1" => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
-            (_, _) => {
+            "stacks_layer_1::mainnet" => (
+                BurnchainParameters::hyperchain_mocknet(),
+                PoxConstants::mainnet_default(),
+                PEER_VERSION_MAINNET,
+            ),
+            _ => {
                 warn!(
-                    "Burnchain parameters not supported. chain_name: {}, network_name: {}",
-                    &chain_name, &network_name
+                    "Burnchain parameters not supported. chain_name: {}",
+                    &chain_name,
                 );
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
@@ -216,8 +217,7 @@ impl Burnchain {
         Ok(Burnchain {
             peer_version,
             network_id: params.network_id,
-            chain_name: params.chain_name.clone(),
-            network_name: params.network_name.clone(),
+            chain_id: params.chain_id.clone(),
             working_dir: working_dir.into(),
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,
@@ -256,12 +256,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(
-            working_dir,
-            &"mockstack".to_string(),
-            &"hyperchain".to_string(),
-        )
-        .unwrap();
+        let ret = Burnchain::new(working_dir, &"mockstack".to_string()).unwrap();
         ret
     }
 
@@ -273,7 +268,6 @@ impl Burnchain {
         let mut ret = Burnchain::new(
             &"/tmp/stacks-node-tests/unit-tests".to_string(),
             &"mockstack".to_string(),
-            &"hyperchain".to_string(),
         )
         .unwrap();
         ret.first_block_height = first_block_height;
@@ -353,8 +347,6 @@ impl Burnchain {
         &self,
         indexer: &I,
         readwrite: bool,
-        first_block_header_hash: BurnchainHeaderHash,
-        first_block_header_timestamp: u64,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
@@ -363,21 +355,10 @@ impl Burnchain {
         let db_path = self.get_db_path();
         let burnchain_db_path = self.get_burnchaindb_path();
 
-        let sortitiondb = SortitionDB::connect(
-            &db_path,
-            self.first_block_height,
-            &first_block_header_hash,
-            first_block_header_timestamp,
-            &epochs,
-            readwrite,
-        )?;
-        let burnchaindb = BurnchainDB::connect(
-            &burnchain_db_path,
-            self.first_block_height,
-            &first_block_header_hash,
-            first_block_header_timestamp,
-            readwrite,
-        )?;
+        let sortitiondb =
+            SortitionDB::connect(&db_path, self.first_block_height, &epochs, readwrite)?;
+        let burnchaindb =
+            BurnchainDB::connect(&burnchain_db_path, self.first_block_height, readwrite)?;
 
         Ok((sortitiondb, burnchaindb))
     }
@@ -630,12 +611,7 @@ impl Burnchain {
         I: BurnchainIndexer + 'static,
     {
         self.setup_chainstate(indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(
-            indexer,
-            true,
-            indexer.get_first_block_header_hash()?,
-            indexer.get_first_block_header_timestamp()?,
-        )?;
+        let (_, mut burnchain_db) = self.connect_db(indexer, true)?;
 
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);

@@ -1252,6 +1252,13 @@ pub struct AccountEntryResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WithdrawalResponse {
+    pub withdrawal_root: String,
+    pub withdrawal_leaf_hash: String,
+    pub sibling_hashes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnconfirmedTransactionStatus {
     Microblock {
         block_hash: BlockHeaderHash,
@@ -1424,6 +1431,13 @@ pub enum HttpRequestType {
     PostTransaction(HttpRequestMetadata, StacksTransaction, Option<Attachment>),
     PostBlock(HttpRequestMetadata, ConsensusHash, StacksBlock),
     PostMicroblock(HttpRequestMetadata, StacksMicroblock, TipRequest),
+    GetWithdrawalStx {
+        metadata: HttpRequestMetadata,
+        withdraw_block_height: u64,
+        sender: PrincipalData,
+        withdrawal_id: u32,
+        amount: u128,
+    },
     GetAccount(HttpRequestMetadata, PrincipalData, TipRequest, bool),
     GetDataVar(
         HttpRequestMetadata,
@@ -1579,6 +1593,7 @@ pub enum HttpResponseType {
     GetMapEntry(HttpResponseMetadata, MapEntryResponse),
     CallReadOnlyFunction(HttpResponseMetadata, CallReadOnlyResponse),
     GetAccount(HttpResponseMetadata, AccountEntryResponse),
+    GetWithdrawal(HttpResponseMetadata, WithdrawalResponse),
     GetContractABI(HttpResponseMetadata, ContractInterface),
     GetContractSrc(HttpResponseMetadata, ContractSrcResponse),
     GetIsTraitImplemented(HttpResponseMetadata, GetIsTraitImplementedResponse),
@@ -2651,8 +2666,6 @@ pub mod test {
             let mut sortdb = SortitionDB::connect(
                 &config.burnchain.get_db_path(),
                 config.burnchain.first_block_height,
-                &config.burnchain.first_block_hash,
-                0,
                 &epochs,
                 true,
             )
@@ -2664,8 +2677,6 @@ pub mod test {
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
                 first_burnchain_block_height,
-                &first_burnchain_block_hash,
-                0,
                 true,
             )
             .unwrap();

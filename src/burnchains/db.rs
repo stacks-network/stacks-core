@@ -171,8 +171,6 @@ impl BurnchainDB {
     pub fn connect(
         path: &str,
         first_block_height: u64,
-        first_burn_header_hash: &BurnchainHeaderHash,
-        first_burn_header_timestamp: u64,
         readwrite: bool,
     ) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
@@ -214,8 +212,8 @@ impl BurnchainDB {
 
             let first_block_header = BurnchainBlockHeader {
                 block_height: first_block_height,
-                block_hash: first_burn_header_hash.clone(),
-                timestamp: first_burn_header_timestamp,
+                block_hash: BurnchainHeaderHash([0; 32]),
+                timestamp: 0,
                 num_txs: 0,
                 parent_block_hash: BurnchainHeaderHash::sentinel(),
             };

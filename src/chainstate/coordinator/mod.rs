@@ -485,6 +485,18 @@ impl<
                 })?;
 
             let parent = current_block.header.parent_block_hash.clone();
+            if current_block.header.block_height <= self.sortition_db.first_block_height {
+                break SortitionDB::get_first_block_snapshot(self.sortition_db.conn())?
+                    .sortition_id;
+            }
+
+            // if parent is sentinel, fast return
+            if current_block.header.block_height == self.sortition_db.first_block_height + 1 {
+                sortitions_to_process.push_front(current_block);
+                break SortitionDB::get_first_block_snapshot(self.sortition_db.conn())?
+                    .sortition_id;
+            }
+
             sortitions_to_process.push_front(current_block);
             cursor = parent;
         };

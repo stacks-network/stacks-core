@@ -77,6 +77,13 @@ impl SortitionId {
     pub fn new(bhh: &BurnchainHeaderHash) -> SortitionId {
         SortitionId(bhh.0.clone())
     }
+
+    /// A sortition identifier of all zeros. This is used as the
+    /// the initial sortition identifier in the sortition db. The parent
+    /// of the initial sortition is the sentinel.
+    pub fn zero() -> SortitionId {
+        SortitionId([0; 32])
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
@@ -229,6 +236,9 @@ impl BurnchainHeaderHash {
         BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
     }
 
+    /// A burn header hash of all zeros. This is used as the the
+    /// initial burn header identifier in the sortition db. The parent
+    /// of the initial sortition is the sentinel.
     pub fn zero() -> BurnchainHeaderHash {
         BurnchainHeaderHash([0x00; 32])
     }

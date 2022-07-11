@@ -374,8 +374,6 @@ impl PeerNetwork {
         }
 
         let first_block_height = burnchain.first_block_height;
-        let first_burn_header_hash = burnchain.first_block_hash.clone();
-        let first_burn_header_ts = burnchain.first_block_timestamp;
 
         let mut network = PeerNetwork {
             peer_version: peer_version,
@@ -384,11 +382,7 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            burnchain_tip: BlockSnapshot::initial(
-                first_block_height,
-                &first_burn_header_hash,
-                first_burn_header_ts as u64,
-            ),
+            burnchain_tip: BlockSnapshot::initial(first_block_height),
 
             peerdb: peerdb,
             atlasdb: atlasdb,
@@ -5332,6 +5326,7 @@ mod test {
     use crate::chainstate::stacks::test::*;
     use crate::chainstate::stacks::*;
     use crate::core::StacksEpochExtension;
+    use crate::core::LAYER_1_CHAIN_ID_MAINNET;
     use crate::net::atlas::*;
     use crate::net::codec::*;
     use crate::net::db::*;
@@ -5393,8 +5388,7 @@ mod test {
             pox_constants: PoxConstants::test_default(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,

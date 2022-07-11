@@ -24,4 +24,8 @@ depends_on = ["trait-standards"]
 
 [contracts.hyperchains]
 path = "contracts/hyperchains.clar"
-depends_on = ["trait-standards"]
+depends_on = ["nft-trait-standard", "ft-trait-standard"]
+
+[contracts.test-helpers]
+path = "contracts/helper/test-helpers.clar"
+depends_on = []

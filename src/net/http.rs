@@ -115,6 +115,11 @@ lazy_static! {
     static ref PATH_POST_FEE_RATE_ESIMATE: Regex = Regex::new(r#"^/v2/fees/transaction$"#).unwrap();
     static ref PATH_POSTBLOCK: Regex = Regex::new(r#"^/v2/blocks/upload/([0-9a-f]{40})$"#).unwrap();
     static ref PATH_POSTMICROBLOCK: Regex = Regex::new(r#"^/v2/microblocks$"#).unwrap();
+    static ref PATH_GET_STX_WITHDRAWAL: Regex = Regex::new(&format!(
+        "^/v2/withdrawal/stx/(?P<block_height>[0-9]+)/(?P<sender>{})/(?P<withdrawal_id>[0-9]+)/(?P<amount>[0-9]+)$",
+        *PRINCIPAL_DATA_REGEX
+    ))
+    .unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
         *PRINCIPAL_DATA_REGEX
@@ -1599,6 +1604,11 @@ impl HttpRequestType {
                 &PATH_POST_MEMPOOL_QUERY,
                 &HttpRequestType::parse_post_mempool_query,
             ),
+            (
+                "GET",
+                &PATH_GET_STX_WITHDRAWAL,
+                &HttpRequestType::parse_get_stx_withdrawal,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1787,6 +1797,41 @@ impl HttpRequestType {
             tip,
             with_proof,
         ))
+    }
+
+    fn parse_get_stx_withdrawal<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetAccount".to_string(),
+            ));
+        }
+
+        let sender = PrincipalData::parse(&captures["sender"]).map_err(|_e| {
+            net_error::DeserializeError("Failed to parse account principal".into())
+        })?;
+
+        let withdraw_block_height = u64::from_str(&captures["block_height"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block height".into()))?;
+
+        let withdrawal_id = u32::from_str(&captures["withdrawal_id"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block height".into()))?;
+
+        let amount = u128::from_str(&captures["amount"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse amount".into()))?;
+
+        Ok(HttpRequestType::GetWithdrawalStx {
+            metadata: HttpRequestMetadata::from_preamble(preamble),
+            withdraw_block_height,
+            sender,
+            withdrawal_id,
+            amount,
+        })
     }
 
     fn parse_get_data_var<R: Read>(
@@ -2671,6 +2716,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
+            HttpRequestType::GetWithdrawalStx { ref metadata, .. } => metadata,
         }
     }
 
@@ -2701,6 +2747,9 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
+            HttpRequestType::GetWithdrawalStx {
+                ref mut metadata, ..
+            } => metadata,
         }
     }
 
@@ -2869,6 +2918,16 @@ impl HttpRequestType {
                 ClientError::NotFound(path) => path.to_string(),
                 _ => "error path unknown".into(),
             },
+            HttpRequestType::GetWithdrawalStx {
+                metadata: _,
+                withdraw_block_height,
+                sender,
+                withdrawal_id,
+                amount,
+            } => format!(
+                "/v2/withdrawal/stx/{}/{}/{}/{}",
+                withdraw_block_height, sender, withdrawal_id, amount
+            ),
         }
     }
 
@@ -2904,6 +2963,9 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(..) => "/v2/mempool/query",
             HttpRequestType::FeeRateEstimate(_, _, _) => "/v2/fees/transaction",
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
+            HttpRequestType::GetWithdrawalStx { .. } => {
+                "/v2/withdrawal/stx/:block-height/:sender/:withdrawal_id/:amount"
+            }
         }
     }
 
@@ -3988,6 +4050,7 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
+            HttpResponseType::GetWithdrawal(ref md, _) => md,
         }
     }
 
@@ -4311,6 +4374,10 @@ impl HttpResponseType {
             HttpResponseType::Error(_, ref error_code, ref msg) => {
                 self.error_response(fd, *error_code, msg)?
             }
+            HttpResponseType::GetWithdrawal(ref md, ref json) => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                HttpResponseType::send_json(protocol, md, fd, json)?;
+            }
         };
         Ok(())
     }
@@ -4394,6 +4461,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::OptionsPreflight(..) => "HTTP(OptionsPreflight)",
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
+                HttpRequestType::GetWithdrawalStx { .. } => "HTTP(GetWithdrawalStx)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4435,6 +4503,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpResponseType::TransactionFeeEstimation(_, _) => {
                     "HTTP(TransactionFeeEstimation)"
                 }
+                HttpResponseType::GetWithdrawal(_, _) => "HTTP(GetWithdrawal)",
             },
         }
     }

@@ -13,6 +13,7 @@ use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::BurnchainHeaderHash;
 
@@ -185,15 +186,11 @@ pub fn burnchain_from_config(
     burn_db_path: &str,
     config: &BurnchainConfig,
 ) -> Result<Burnchain, burnchains::Error> {
-    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain, &config.mode)?;
-    burnchain.first_block_hash = BurnchainHeaderHash::from_hex(&config.first_burn_header_hash)
-        .expect(&format!(
-            "Could not parse BurnchainHeaderHash: {}",
-            &config.first_burn_header_hash
-        ));
+    let mut burnchain = Burnchain::new(&burn_db_path, &config.chain)?;
+    burnchain.first_block_hash = BurnchainHeaderHash::sentinel();
     burnchain.first_block_height = config.first_burn_header_height;
-    burnchain.first_block_timestamp = config.first_burn_header_timestamp as u32;
+    burnchain.first_block_timestamp = 0;
 
-    info!("burnchain: {:?}", &burnchain);
+    debug!("Configured burnchain: {:?}", &burnchain);
     Ok(burnchain)
 }

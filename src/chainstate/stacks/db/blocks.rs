@@ -4616,9 +4616,8 @@ impl StacksChainState {
     /// hyperchains fork yet.
     pub fn process_deposit_stx_ops(
         clarity_tx: &mut ClarityTx,
-        mut operations: Vec<DepositStxOp>,
+        operations: Vec<DepositStxOp>,
     ) -> Vec<StacksTransactionReceipt> {
-        let cost_so_far = clarity_tx.cost_so_far();
         let (all_receipts, _) =
             clarity_tx.with_temporary_cost_tracker(LimitedCostTracker::new_free(), |clarity_tx| {
                 operations
@@ -4626,7 +4625,6 @@ impl StacksChainState {
                     .filter_map(|deposit_stx_op| {
                         let DepositStxOp {
                             txid,
-                            burn_header_hash,
                             amount,
                             sender,
                             ..
@@ -4641,10 +4639,8 @@ impl StacksChainState {
                                 },
                             ))
                         });
-                        let mut execution_cost = clarity_tx.cost_so_far();
-                        execution_cost
-                            .sub(&cost_so_far)
-                            .expect("BUG: cost declined between executions");
+                        // deposits increment the STX liquidity in the layer 2
+                        clarity_tx.increment_ustx_liquid_supply(amount);
 
                         Some(StacksTransactionReceipt {
                             transaction: TransactionOrigin::Burn(txid),
@@ -4653,7 +4649,7 @@ impl StacksChainState {
                             post_condition_aborted: false,
                             stx_burned: 0,
                             contract_analysis: None,
-                            execution_cost,
+                            execution_cost: ExecutionCost::zero(),
                             microblock_header: None,
                             tx_index: 0,
                         })
@@ -4680,7 +4676,6 @@ impl StacksChainState {
                     burn_header_hash,
                     hc_contract_id,
                     hc_function_name,
-                    name,
                     amount,
                     sender,
                     ..
@@ -5365,6 +5360,7 @@ impl StacksChainState {
             parent_burn_block_height,
             parent_burn_block_timestamp,
             clarity_commit,
+            withdrawal_tree,
         ) = {
             // get previous burn block stats
             let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
@@ -5531,7 +5527,8 @@ impl StacksChainState {
 
             // Check withdrawal state merkle root
             // Process withdrawal events
-            let withdrawal_tree = create_withdrawal_merkle_tree(&tx_receipts);
+            let withdrawal_tree =
+                create_withdrawal_merkle_tree(&mut tx_receipts, block.header.total_work.work);
             let withdrawal_root_hash = withdrawal_tree.root();
 
             if withdrawal_root_hash != block.header.withdrawal_merkle_root {
@@ -5593,6 +5590,7 @@ impl StacksChainState {
                 parent_burn_block_height,
                 parent_burn_block_timestamp,
                 clarity_commit,
+                withdrawal_tree,
             )
         };
 
@@ -5616,6 +5614,7 @@ impl StacksChainState {
             &block_execution_cost,
             block_size,
             applied_epoch_transition,
+            withdrawal_tree,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -11578,6 +11577,7 @@ pub mod test {
                     .unwrap();
             sn.block_height
         };
+        let mut expected_all_deposit_ops = vec![];
 
         for tenure_id in 0..num_blocks {
             let tip =
@@ -11671,18 +11671,19 @@ pub mod test {
                 )]
             } else {
                 // last sortition had no block, so expect both the previous block's
-                // stx-transfer *and* this block's stx-transfer
+                // stx-transfer *and* this block's stx-transfer, expect them in increasing
+                // block height order
                 vec![
-                    make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
                     make_deposit_stx_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                    make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
                 ]
             };
 
             // add one deposit stx burn op per block
-            let mut stx_deposit_ops = vec![BlockstackOperationType::DepositStx(
-                make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-            )];
-            burn_ops.append(&mut stx_deposit_ops);
+            let new_deposit_op =
+                make_deposit_stx_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id);
+            expected_all_deposit_ops.push(new_deposit_op.clone());
+            burn_ops.push(BlockstackOperationType::DepositStx(new_deposit_op));
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
@@ -11733,6 +11734,41 @@ pub mod test {
         // all burnchain transactions mined, even if there was no sortition in the burn block in
         // which they were mined.
         let sortdb = peer.sortdb.take().unwrap();
+
+        // test get_ops_between on a full traversal
+        let first_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn())
+            .expect("Should be able to fetch first block snapshot");
+        let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("Should be able to fetch the tip snapshot");
+
+        let all_deposit_stx_ops = SortitionDB::get_ops_between(
+            sortdb.conn(),
+            &first_snapshot.burn_header_hash,
+            &tip_snapshot.burn_header_hash,
+            SortitionDB::get_deposit_stx_ops,
+        )
+        .expect("Should not error during traversal");
+
+        // pass a non-existent ancestor, which should cause the traversal to terminate
+        //  at the sentinel.
+        let all_deposit_stx_ops_with_bad_ancestor = SortitionDB::get_ops_between(
+            sortdb.conn(),
+            &BurnchainHeaderHash([0xfe; 32]),
+            &tip_snapshot.burn_header_hash,
+            SortitionDB::get_deposit_stx_ops,
+        )
+        .expect("Should not error during traversal");
+
+        assert_eq!(all_deposit_stx_ops_with_bad_ancestor, all_deposit_stx_ops);
+
+        // burn header hash will be different, since it's set post-processing.
+        // everything else must be the same though.
+        for i in 0..expected_all_deposit_ops.len() {
+            expected_all_deposit_ops[i].burn_header_hash =
+                all_deposit_stx_ops[i].burn_header_hash.clone();
+        }
+
+        assert_eq!(all_deposit_stx_ops, expected_all_deposit_ops);
 
         // definitely missing some blocks -- there are empty sortitions
         let stacks_tip = peer

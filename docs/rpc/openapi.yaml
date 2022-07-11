@@ -387,6 +387,18 @@ paths:
               example:
                 $ref: ./api/core-node/get-fee-transfer.example.json
 
+  /v2/withdrawal/stx/{block_height}/{sender}/{withdrawal_id}/{amount}:
+    get:
+      summary: Get merkle tree data associated with a processed STX withdrawal.
+      responses:
+        200:
+          description: The merkle leaf hash, root hash, and merkle proof path for the requested withdrawal entry. These are used as parameters to the `stx-withdraw` method of a layer-1 hyperchains contract, and returned as hex-encoded Clarity serialized values.
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/get-stx-withdrawal.schema.json
+              example:
+                $ref: ./api/core-node/get-stx-withdrawal.example.json
   /v2/info:
     get:
       summary: Get Core API info

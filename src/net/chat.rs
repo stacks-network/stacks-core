@@ -2336,8 +2336,6 @@ mod test {
         let sortdb = SortitionDB::connect(
             &sortdb_path,
             burnchain.first_block_height,
-            &burnchain.first_block_hash,
-            get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
             true,
         )
@@ -2480,8 +2478,7 @@ mod test {
         Burnchain {
             peer_version: PEER_VERSION_TESTNET,
             network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
@@ -4032,7 +4029,7 @@ mod test {
         )
         .unwrap();
 
-        let mut sortdb_1 = SortitionDB::connect_test(12300, &first_burn_hash).unwrap();
+        let mut sortdb_1 = SortitionDB::connect_test(12300).unwrap();
 
         db_setup(&mut peerdb_1, &mut sortdb_1, &socketaddr_1, &chain_view);
 

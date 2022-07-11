@@ -393,7 +393,7 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000000000",
         )
         .unwrap();
-        let mut db = SortitionDB::connect_test(0, &first_burn_hash).unwrap();
+        let mut db = SortitionDB::connect_test(0).unwrap();
         let mut burn_block_hashes = vec![];
         {
             let mut prev_snapshot = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();

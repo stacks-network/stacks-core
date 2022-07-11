@@ -171,7 +171,8 @@ fn main() {
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
         let (chainstate, _) =
-            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+            StacksChainState::open(true, LAYER_1_CHAIN_ID_MAINNET, &chain_state_path, None)
+                .unwrap();
 
         let (consensus_hash, block_hash) = chainstate
             .get_block_header_hashes(&index_block_hash)
@@ -251,7 +252,8 @@ fn main() {
         let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
         let (chainstate, _) =
-            StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
+            StacksChainState::open(true, LAYER_1_CHAIN_ID_MAINNET, &chain_state_path, None)
+                .unwrap();
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
 
@@ -338,9 +340,14 @@ fn main() {
 
         let estimator = Box::new(UnitEstimator);
         let metric = Box::new(UnitMetric);
-        let mempool_db =
-            MemPoolDB::open(true, CHAIN_ID_MAINNET, &chain_state_path, estimator, metric)
-                .expect("Failed to open mempool db");
+        let mempool_db = MemPoolDB::open(
+            true,
+            LAYER_1_CHAIN_ID_MAINNET,
+            &chain_state_path,
+            estimator,
+            metric,
+        )
+        .expect("Failed to open mempool db");
 
         let mut total_txs = 0;
         for (_, txids) in tx_mined_heights.iter() {
@@ -431,7 +438,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = CHAIN_ID_MAINNET;
+        let chain_id = LAYER_1_CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
@@ -478,7 +485,7 @@ check if the associated microblocks can be downloaded
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = CHAIN_ID_MAINNET;
+        let chain_id = LAYER_1_CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
@@ -606,7 +613,7 @@ simulating a miner.
 
         let sort_db = SortitionDB::open(&sort_db_path, false)
             .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = CHAIN_ID_MAINNET;
+        let chain_id = LAYER_1_CHAIN_ID_MAINNET;
         let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
             .expect("Failed to open stacks chain state");
         let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())

@@ -42,8 +42,8 @@ pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
-pub const CHAIN_ID_MAINNET: u32 = 0x00000001;
-pub const CHAIN_ID_TESTNET: u32 = 0x80000000;
+pub const LAYER_1_CHAIN_ID_MAINNET: u32 = 0x00000001;
+pub const LAYER_1_CHAIN_ID_TESTNET: u32 = 0x80000000;
 
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)

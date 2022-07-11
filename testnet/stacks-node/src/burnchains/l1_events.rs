@@ -19,17 +19,16 @@ use stacks::chainstate::stacks::{
 use stacks::clarity::vm::Value as ClarityValue;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
+use stacks::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::QualifiedContractIdentifier;
 use stacks::vm::ClarityName;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
-use crate::config::BurnchainConfig;
+
 use crate::operations::BurnchainOpSigner;
 use crate::util::hash::Sha512Trunc256Sum;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -246,12 +245,14 @@ impl L1Controller {
             .expect("Failed to make Stacks address from public key")
     }
 
+    /// Create a `commit-block(commit_to, build_off)` contract call.
     fn make_mine_contract_call(
         &self,
         sender: &StacksPrivateKey,
         sender_nonce: u64,
         tx_fee: u64,
         commit_to: BlockHeaderHash,
+        build_off: BurnchainHeaderHash,
         withdrawal_root: Sha512Trunc256Sum,
     ) -> Result<StacksTransaction, Error> {
         let QualifiedContractIdentifier {
@@ -264,13 +265,16 @@ impl L1Controller {
             TransactionVersion::Testnet
         };
         let committed_block = commit_to.as_bytes().to_vec();
+        let build_off_bytes = build_off.as_bytes().to_vec();
         let withdrawal_root_bytes = withdrawal_root.as_bytes().to_vec();
+
         let payload = TransactionContractCall {
             address: contract_addr.into(),
             contract_name,
             function_name: ClarityName::from("commit-block"),
             function_args: vec![
                 ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?,
+                ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
             ],
         };
@@ -323,6 +327,7 @@ impl L1Controller {
             nonce,
             fee,
             op.block_header_hash,
+            op.burn_header_hash,
             op.withdrawal_merkle_root,
         ) {
             Ok(x) => x,
@@ -433,12 +438,7 @@ impl BurnchainController for L1Controller {
         let burnchain = self.get_burnchain();
 
         self.indexer.connect(true)?;
-        burnchain.connect_db(
-            &self.indexer,
-            true,
-            self.indexer.get_first_block_header_hash()?,
-            self.indexer.get_first_block_header_timestamp()?,
-        )?;
+        burnchain.connect_db(&self.indexer, true)?;
         Ok(())
     }
 
