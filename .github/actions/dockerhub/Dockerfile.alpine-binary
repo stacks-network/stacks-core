@@ -7,7 +7,7 @@ ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 ARG TARGETARCH
 ARG TARGETVARIANT
-ARG REPO=wileyj/arm-test
+ARG REPO=wileyj/stacks-blockchain
 
 RUN case ${TARGETARCH} in \
     "amd64")  BIN_ARCH=linux-musl-x64  ;; \
