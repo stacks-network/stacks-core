@@ -72,7 +72,7 @@ jobs:
     needs:
       - release-tests
       - rustfmt
-      - leaked-cred-test
+      # - leaked-cred-test
     with:
       tag: ${{ inputs.tag }}
       parallel_jobs: 4
