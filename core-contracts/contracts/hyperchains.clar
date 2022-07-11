@@ -17,7 +17,6 @@
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height reaches 1.
 (define-constant ERR_CALLED_TOO_EARLY 12)
-
 (define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 13)
 (define-constant ERR_IN_COMPUTATION 14)
 ;; The contract does not own this NFT to withdraw it.
