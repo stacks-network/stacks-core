@@ -5,8 +5,8 @@ on:
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-  # schedule:
-  #   - cron: 30 03 * * *
+  schedule:
+    - cron: 30 03 * * *
 
 jobs:
   security_audit:
