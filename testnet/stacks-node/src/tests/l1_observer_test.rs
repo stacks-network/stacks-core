@@ -1785,11 +1785,8 @@ fn nft_deposit_and_withdraw_integration_test() {
     config.add_initial_balance(user_addr.to_string(), 10000000);
     config.add_initial_balance(miner_account.to_string(), 10000000);
 
-    config.burnchain.first_burn_header_hash =
-        "9946c68526249c259231f1660be4c72e915ebe1f25a8c8400095812b487eb279".to_string();
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
-    config.burnchain.mode = "hyperchain".to_string();
     config.burnchain.rpc_ssl = false;
     config.burnchain.rpc_port = 20443;
     config.burnchain.peer_host = "127.0.0.1".into();
@@ -1803,6 +1800,13 @@ fn nft_deposit_and_withdraw_integration_test() {
         QualifiedContractIdentifier::new(user_addr.into(), "hyperchain-controller".into());
 
     config.node.miner = true;
+
+    config.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    test_observer::spawn();
 
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
