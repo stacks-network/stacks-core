@@ -60,12 +60,9 @@ pub fn mockstack_test_conf() -> (Config, StacksAddress) {
 
     conf.node.wait_before_first_anchored_block = 5_000;
 
-<<<<<<< HEAD
     conf.node.chain_id = rng.gen_range(0u32, u32::MAX);
     info!("Using random L2 chain_id {}", conf.node.chain_id);
 
-=======
->>>>>>> NFT use case integration test working
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
