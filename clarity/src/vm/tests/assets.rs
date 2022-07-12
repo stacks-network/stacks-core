@@ -1430,51 +1430,6 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    // Try to withdraw NFT 7 from p1's balance - should fail since p1 does not own that NFT
-    let (result, asset_map, _events) = execute_transaction(
-        owned_env,
-        p1_principal.clone(),
-        &names_contract_id,
-        "force-withdraw",
-        &symbols_from_values(vec![Value::Int(7), p1.clone()]),
-    )
-    .unwrap();
-    let asset_map = asset_map.to_table();
-    assert!(!is_committed(&result));
-    assert!(is_err_code(&result, 1));
-
-    // Withdraw NFT 7 from p2's balance - should succeed
-    let (result, asset_map, _events) = execute_transaction(
-        owned_env,
-        p2_principal.clone(),
-        &names_contract_id,
-        "force-withdraw",
-        &symbols_from_values(vec![Value::Int(7), p2.clone()]),
-    )
-    .unwrap();
-    let asset_map = asset_map.to_table();
-    assert!(is_committed(&result));
-    assert_eq!(
-        asset_map[&p2_principal][&names_identifier],
-        AssetMapEntry::Asset(vec![Value::Int(7)])
-    );
-
-    // Withdraw NFT 8 from p2's balance as p1 - should succeed even though sender != tx-sender
-    let (result, asset_map, _events) = execute_transaction(
-        owned_env,
-        p1_principal.clone(),
-        &names_contract_id,
-        "force-withdraw",
-        &symbols_from_values(vec![Value::Int(8), p2.clone()]),
-    )
-    .unwrap();
-    let asset_map = asset_map.to_table();
-    assert!(is_committed(&result));
-    assert_eq!(
-        asset_map[&p2_principal][&names_identifier],
-        AssetMapEntry::Asset(vec![Value::Int(8)])
-    );
-
     {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
