@@ -4,7 +4,10 @@ use std::thread::{self, JoinHandle};
 
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon;
-use crate::tests::neon_integrations::{filter_map_events, get_account, get_withdrawal_entry, submit_tx, test_observer, get_nft_withdrawal_entry};
+use crate::tests::neon_integrations::{
+    filter_map_events, get_account, get_nft_withdrawal_entry, get_withdrawal_entry, submit_tx,
+    test_observer,
+};
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use clarity::types::chainstate::StacksAddress;
 use clarity::util::hash::{MerklePathOrder, MerkleTree, Sha512Trunc256Sum};
@@ -996,7 +999,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             ),
             asset_name: ClarityName::from("nft-token"),
         },
-        1
+        1,
     );
 
     // Create the withdrawal merkle tree by mocking the ft & nft withdraw event (if the root hash of
@@ -1054,7 +1057,8 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, withdrawal_height);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
-    let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 0, withdrawal_height).unwrap();
+    let ft_withdrawal_key =
+        generate_key_from_event(&mut ft_withdraw_event, 0, withdrawal_height).unwrap();
     let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
     let ft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice())
@@ -1062,7 +1066,8 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             .to_vec();
     let ft_path = withdrawal_tree.path(&ft_withdrawal_key_bytes).unwrap();
 
-    let nft_withdrawal_key = generate_key_from_event(&mut nft_withdraw_event, 1, withdrawal_height).unwrap();
+    let nft_withdrawal_key =
+        generate_key_from_event(&mut nft_withdraw_event, 1, withdrawal_height).unwrap();
     let nft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&nft_withdrawal_key);
     let nft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice())
@@ -1557,11 +1562,12 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     let mut receipts = vec![withdrawal_receipt];
 
     // okay to pass a zero block height in tests: the block height parameter is only used for logging
-    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, 0);
+    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, withdrawal_height);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
     // okay to pass a zero block height in tests: the block height parameter is only used for logging
-    let stx_withdrawal_key = generate_key_from_event(&mut stx_withdraw_event, 0, 0).unwrap();
+    let stx_withdrawal_key =
+        generate_key_from_event(&mut stx_withdraw_event, 0, withdrawal_height).unwrap();
     let stx_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&stx_withdrawal_key);
     let stx_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice())

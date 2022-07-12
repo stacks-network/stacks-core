@@ -72,7 +72,9 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use clarity::vm::types::{StandardPrincipalData, TraitIdentifier, AssetIdentifier, QualifiedContractIdentifier};
+use clarity::vm::types::{
+    AssetIdentifier, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+};
 use clarity::vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
@@ -1866,9 +1868,10 @@ impl HttpRequestType {
 
         let withdrawal_id = u32::from_str(&captures["withdrawal_id"])
             .map_err(|_e| net_error::DeserializeError("Failed to parse block height".into()))?;
-        let contract_addr = StacksAddress::from_string(&captures["contract_address"]).ok_or_else(|| {
-            net_error::DeserializeError("Failed to parse contract address".into())
-        })?;
+        let contract_addr =
+            StacksAddress::from_string(&captures["contract_address"]).ok_or_else(|| {
+                net_error::DeserializeError("Failed to parse contract address".into())
+            })?;
         let contract_name = ContractName::try_from(captures["contract_name"].to_string())
             .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
         let asset_name = ClarityName::try_from(captures["asset_name"].to_string())
@@ -1882,10 +1885,13 @@ impl HttpRequestType {
             sender,
             withdrawal_id,
             asset_identifier: AssetIdentifier {
-                contract_identifier: QualifiedContractIdentifier::new(contract_addr.into(), contract_name,),
-                asset_name
+                contract_identifier: QualifiedContractIdentifier::new(
+                    contract_addr.into(),
+                    contract_name,
+                ),
+                asset_name,
             },
-            id
+            id,
         })
     }
 

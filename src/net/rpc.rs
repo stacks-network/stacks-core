@@ -939,7 +939,12 @@ impl ConversationHttp {
         amount: u128,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(sender, withdrawal_id, amount, requested_block_height);
+        let withdrawal_key = withdrawal::make_key_for_stx_withdrawal(
+            sender,
+            withdrawal_id,
+            amount,
+            requested_block_height,
+        );
         Self::handle_get_generic_withdrawal_entry(
             http,
             fd,
@@ -965,7 +970,13 @@ impl ConversationHttp {
         id: u128,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let withdrawal_key = withdrawal::make_key_for_nft_withdrawal(sender, withdrawal_id, asset_identifier, id, requested_block_height);
+        let withdrawal_key = withdrawal::make_key_for_nft_withdrawal(
+            sender,
+            withdrawal_id,
+            asset_identifier,
+            id,
+            requested_block_height,
+        );
         Self::handle_get_generic_withdrawal_entry(
             http,
             fd,
