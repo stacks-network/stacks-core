@@ -1,5 +1,6 @@
 name: PR Checks
 on:
+  workflow_dispatch:
   pull_request:
 
 jobs:
@@ -41,7 +42,7 @@ jobs:
         run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
       - name: TruffleHog Scan
         id: trufflehog_check
-        uses: trufflesecurity/trufflehog@v3.4.3
+        uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           base: ${{ env.BRANCH_NAME }}
