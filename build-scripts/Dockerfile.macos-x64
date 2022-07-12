@@ -20,10 +20,8 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && rustup target add ${TARGET} \
     && . /opt/osxcross/env-macos-x86_64 \
     && cargo build --release --workspace --target ${TARGET} \
-    && cd ${BUILD_DIR}/testnet/puppet-chain \
-    && cargo build --release \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /out/puppet-chain /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
