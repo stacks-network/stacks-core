@@ -34,22 +34,22 @@ jobs:
         id: rustfmt
         run: cargo fmt --all -- --check
 
-  # # Checked for leaked credentials if tag is provided and this is a build of the default branch
-  # leaked-cred-test:
-  #   if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-  #   name: Leaked Credential Test
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout the latest code
-  #       id: git_checkout
-  #       uses: actions/checkout@v3
-  #     - name: TruffleHog Scan
-  #       id: trufflehog_check
-  #       uses: trufflesecurity/trufflehog@v3.4.3
-  #       with:
-  #         path: ./
-  #         base: ${{ github.event.repository.default_branch }}
-  #         head: HEAD
+  # Checked for leaked credentials if tag is provided and this is a build of the default branch
+  leaked-cred-test:
+    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    name: Leaked Credential Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: TruffleHog Scan
+        id: trufflehog_check
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
 
   ###############################################
   ## Build Tagged Release
