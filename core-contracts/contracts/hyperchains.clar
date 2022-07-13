@@ -59,6 +59,30 @@
     )
 )
 
+(define-public (register-new-ft-contract (ft-contract <ft-trait>) (deposit-fn-name (string-ascii 45)))
+    (begin
+        ;; Verify that tx-sender is an authorized miner
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; Set up the assets that the contract is allowed to transfer
+        (asserts! (map-insert allowed-contracts (contract-of ft-contract) deposit-fn-name) (err ERR_ASSET_ALREADY_ALLOWED))
+
+        (ok true)
+    )
+)
+
+(define-public (register-new-nft-contract (nft-contract <nft-trait>) (deposit-fn-name (string-ascii 45)))
+    (begin
+        ;; Verify that tx-sender is an authorized miner
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; Set up the assets that the contract is allowed to transfer
+        (asserts! (map-insert allowed-contracts (contract-of nft-contract) deposit-fn-name) (err ERR_ASSET_ALREADY_ALLOWED))
+
+        (ok true)
+    )
+)
+
 ;; Helper function for fold: if a == b, return none; else return b
 ;; Returns (optional principal)
 (define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
