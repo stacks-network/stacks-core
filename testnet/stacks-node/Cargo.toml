@@ -35,10 +35,6 @@ features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 [dev-dependencies]
 ring = "0.16.19"
 
-[dev-dependencies.nix]
-version = "0.24.1"
-features = ["process"]
-
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]

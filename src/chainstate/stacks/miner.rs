@@ -41,10 +41,10 @@ use crate::cost_estimates::CostEstimator;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
 use clarity::util::hash::to_hex;
-use stacks_common::util::hash::hex_bytes;
 use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
 use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
@@ -157,6 +157,10 @@ pub struct Proposal {
     /// This is the public key hash which will be used to sign subsequent
     ///  microblocks.
     pub microblock_pubkey_hash: Hash160,
+    /// This is the total burn amount up to this block, used in the
+    ///  Stacks header. In hyperchains, this is just an incrementing
+    ///  value.
+    pub total_burn: u64,
 }
 
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
@@ -1996,7 +2000,8 @@ impl StacksBlockBuilder {
             coinbase_tx,
             settings,
             event_observer,
-        ).map(|r| (r.block, r.block_execution_cost, r.block_size))
+        )
+        .map(|r| (r.block, r.block_execution_cost, r.block_size))
     }
 
     pub fn build_anchored_block_full_info(
@@ -2279,8 +2284,9 @@ impl Proposal {
     pub fn sign(&self, signing_key: &Secp256k1PrivateKey) -> [u8; 65] {
         // when using a 2.0 layer-1, must use a constant
         // when using a 2.1 layer-1, this will need to use the structured data hash
-        let message_hash = hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
-            .expect("Failed to parse hex constant");
+        let message_hash =
+            hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
+                .expect("Failed to parse hex constant");
         let msg_signature = signing_key.sign(&message_hash).expect("Bad message hash");
         // format the signature vector as Clarity expects
         let recov_signature = msg_signature
@@ -2322,7 +2328,7 @@ impl Proposal {
             &self.parent_block_hash,
         )?
         .ok_or_else(|| {
-                warn!("Rejected proposal";
+            warn!("Rejected proposal";
                       "reason" => "No such parent block",
                       "parent_block_hash" => %self.parent_block_hash,
                       "parent_consensus_hash" => %self.parent_consensus_hash);
@@ -2342,7 +2348,7 @@ impl Proposal {
 
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let total_burn = parent_stacks_header.anchored_header.total_work.burn;
+        let total_burn = self.total_burn;
         let proof = parent_stacks_header.anchored_header.proof.clone();
         let pubkey_hash = self.microblock_pubkey_hash.clone();
 

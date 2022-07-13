@@ -617,6 +617,7 @@ impl Config {
                     handshake_timeout: opts.connect_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
+                    hyperchain_validator: node.mining_key.clone(),
                     ..ConnectionOptions::default()
                 }
             }
@@ -964,7 +965,9 @@ pub struct NodeConfig {
     pub marf_defer_hashing: bool,
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Used to specify the keychain signing key exactly
+    /// Used to specify the keychain signing key exactly. This is also used
+    ///  as the validation key when running as a hyperchain 'validator' (i.e.,
+    ///  the follower in the two-phase commit protocol)
     pub mining_key: Option<StacksPrivateKey>,
 }
 

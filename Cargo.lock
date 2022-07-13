@@ -377,7 +377,6 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
- "backtrace",
  "chrono",
  "clarity",
  "criterion",
@@ -387,7 +386,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mio 0.6.23",
- "nix 0.23.1",
+ "nix",
  "percent-encoding",
  "prometheus",
  "rand 0.7.3",
@@ -1298,7 +1297,6 @@ dependencies = [
  "http-types",
  "lazy_static",
  "libc",
- "nix 0.24.1",
  "pico-args",
  "rand 0.7.3",
  "reqwest",
@@ -1646,18 +1644,6 @@ checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
 dependencies = [
  "bitflags",
  "cc",
- "cfg-if 1.0.0",
- "libc",
- "memoffset",
-]
-
-[[package]]
-name = "nix"
-version = "0.24.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f17df307904acd05aa8e32e97bb20f2a0df1728bbc2d771ae8f9a90463441e9"
-dependencies = [
- "bitflags",
  "cfg-if 1.0.0",
  "libc",
  "memoffset",

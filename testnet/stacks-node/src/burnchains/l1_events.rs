@@ -9,8 +9,8 @@ use stacks::burnchains::{Burnchain, Error as BurnchainError, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
-use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::miner::Proposal;
+use stacks::chainstate::stacks::StacksTransaction;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::{BlockHeaderHash, StacksBlockId};
@@ -19,7 +19,7 @@ use stacks::util::sleep_ms;
 
 use super::commitment::{Layer1Committer, MultiPartyCommitter};
 use super::db_indexer::DBBurnchainIndexer;
-use super::{BurnchainChannel, ClaritySignature, Error, burnchain_from_config};
+use super::{burnchain_from_config, BurnchainChannel, ClaritySignature, Error};
 
 use crate::burnchains::commitment::DirectCommitter;
 use crate::config::CommitStrategy;
@@ -247,8 +247,13 @@ impl BurnchainController for L1Controller {
         self.committer.commit_required_signatures()
     }
 
-    fn propose_block(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error> {
-        self.committer.propose_block_to(participant_index, proposal)
+    fn propose_block(
+        &self,
+        participant_index: u8,
+        proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
+        self.committer
+            .propose_block_to(participant_index, proposal)
             .map_err(|e| {
                 warn!("Block proposal failed"; "error" => %e);
                 Error::BadCommitment(e)

@@ -935,21 +935,34 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         proposal: &miner::Proposal,
-        validator_key: &Secp256k1PrivateKey,
+        validator_key: Option<&Secp256k1PrivateKey>,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
-        let response = match proposal.validate(
-            chainstate,
-            &sortdb.index_conn(),
-        ) {
+        let validator_key = match validator_key {
+            Some(key) => key,
+            None => {
+                let response = HttpResponseType::BlockProposalInvalid {
+                    metadata: response_metadata,
+                    error_message:
+                        "Cannot validate block proposal: not configured with validation key".into(),
+                };
+                return response.send(http, fd);
+            }
+        };
+
+        let response = match proposal.validate(chainstate, &sortdb.index_conn()) {
             Ok(_) => {
                 let signature = proposal.sign(validator_key);
-                HttpResponseType::BlockProposalValid { metadata: response_metadata, signature }
-            },
-            Err(e) => {
-                HttpResponseType::BlockProposalInvalid { metadata: response_metadata, error_message: e.to_string() }
+                HttpResponseType::BlockProposalValid {
+                    metadata: response_metadata,
+                    signature,
+                }
+            }
+            Err(e) => HttpResponseType::BlockProposalInvalid {
+                metadata: response_metadata,
+                error_message: e.to_string(),
             },
         };
         response.send(http, fd)
@@ -2703,10 +2716,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::BlockProposal(_, ref proposal) => {
-                // TODO: the validator key needs to be set
-                //  via the hyperchain node config (it should be set to the
-                //  node's miner key)
-                let validator_key = Secp256k1PrivateKey::new();
+                let validator_key = self.connection.options.hyperchain_validator.as_ref();
 
                 // TODO: add sender validation. This method should only
                 //  be sent by the leader: we should not accept proposals
@@ -2718,7 +2728,7 @@ impl ConversationHttp {
                     chainstate,
                     sortdb,
                     &proposal,
-                    &validator_key,
+                    validator_key,
                     network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None

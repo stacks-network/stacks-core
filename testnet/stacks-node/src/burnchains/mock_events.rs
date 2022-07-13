@@ -29,8 +29,8 @@ use stacks::vm::Value as ClarityValue;
 use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
-use super::ClaritySignature;
 use super::db_indexer::DBBurnchainIndexer;
+use super::ClaritySignature;
 use super::{burnchain_from_config, BurnchainChannel, Error};
 use clarity::util::hash::Sha512Trunc256Sum;
 
@@ -529,7 +529,11 @@ impl BurnchainController for MockController {
         todo!()
     }
 
-    fn propose_block(&self, _participant_index: u8, _proposal: &Proposal) -> Result<ClaritySignature, Error> {
+    fn propose_block(
+        &self,
+        _participant_index: u8,
+        _proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
         panic!()
     }
 }

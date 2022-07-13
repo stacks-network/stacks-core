@@ -7,7 +7,7 @@ hyperchain-node start --config=$STACKS_HYPERCHAINS_PATH/contrib/conf/hyperchain-
 ## 2. Start a local Stacks network
 
 ```bash
-stacks-node start --config=$STACKS_HYPERCHAINS_PATH/contrib/conf/stacks-l1-mocknet-local-double.toml 2>&1 | tee -i /tmp/stacks-mocknet.log
+stacks-node start --config=$STACKS_HYPERCHAINS_PATH/contrib/conf/stacks-l1-mocknet-local.toml 2>&1 | tee -i /tmp/stacks-mocknet.log
 ```
 
 ## 3. Launch the contract

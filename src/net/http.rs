@@ -1619,7 +1619,7 @@ impl HttpRequestType {
             (
                 "POST",
                 &PATH_POST_BLOCK_PROPOSAL,
-                &HttpRequestType::parse_block_proposal
+                &HttpRequestType::parse_block_proposal,
             ),
         ];
 
@@ -2009,12 +2009,13 @@ impl HttpRequestType {
             ));
         }
 
-        let block_proposal: Proposal = serde_json::from_reader(fd)
-            .map_err(|_e| net_error::DeserializeError("Failed to parse block proposal JSON body".into()))?;
+        let block_proposal: Proposal = serde_json::from_reader(fd).map_err(|_e| {
+            net_error::DeserializeError("Failed to parse block proposal JSON body".into())
+        })?;
 
         Ok(HttpRequestType::BlockProposal(
             HttpRequestMetadata::from_preamble(preamble),
-            block_proposal
+            block_proposal,
         ))
     }
 
@@ -2759,7 +2760,7 @@ impl HttpRequestType {
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
             HttpRequestType::GetWithdrawalStx { ref metadata, .. } => metadata,
-            HttpRequestType::BlockProposal(ref metadata, .. ) => metadata,
+            HttpRequestType::BlockProposal(ref metadata, ..) => metadata,
         }
     }
 
@@ -2790,7 +2791,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
-            HttpRequestType::BlockProposal(ref mut metadata, .. ) => metadata,
+            HttpRequestType::BlockProposal(ref mut metadata, ..) => metadata,
             HttpRequestType::GetWithdrawalStx {
                 ref mut metadata, ..
             } => metadata,
@@ -2972,7 +2973,7 @@ impl HttpRequestType {
                 "/v2/withdrawal/stx/{}/{}/{}/{}",
                 withdraw_block_height, sender, withdrawal_id, amount
             ),
-            HttpRequestType::BlockProposal( .. ) => self.get_path().to_string(),
+            HttpRequestType::BlockProposal(..) => self.get_path().to_string(),
         }
     }
 
@@ -3011,7 +3012,7 @@ impl HttpRequestType {
             HttpRequestType::GetWithdrawalStx { .. } => {
                 "/v2/withdrawal/stx/:block-height/:sender/:withdrawal_id/:amount"
             }
-            HttpRequestType::BlockProposal( .. ) => PATH_STR_POST_BLOCK_PROPOSAL,
+            HttpRequestType::BlockProposal(..) => PATH_STR_POST_BLOCK_PROPOSAL,
         }
     }
 
@@ -4427,12 +4428,18 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, json)?;
             }
-            HttpResponseType::BlockProposalValid { metadata: ref md, ref signature } => {
+            HttpResponseType::BlockProposalValid {
+                metadata: ref md,
+                ref signature,
+            } => {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 let signature_hex = format!("0x{}", to_hex(signature));
                 HttpResponseType::send_json(protocol, md, fd, &signature_hex)?;
             }
-            HttpResponseType::BlockProposalInvalid { metadata: ref md, ref error_message } => {
+            HttpResponseType::BlockProposalInvalid {
+                metadata: ref md,
+                ref error_message,
+            } => {
                 HttpResponsePreamble::new_serialized(
                     fd,
                     406,
@@ -4442,7 +4449,9 @@ impl HttpResponseType {
                     md.request_id,
                     |ref mut fd| keep_alive_headers(fd, md),
                 )?;
-                let data = HttpBlockProposalRejected { error_message: error_message.clone() };
+                let data = HttpBlockProposalRejected {
+                    error_message: error_message.clone(),
+                };
                 HttpResponseType::send_json(protocol, md, fd, &data)?;
             }
         };
@@ -4577,7 +4586,8 @@ impl MessageSequence for StacksHttpMessage {
                     "HTTP(TransactionFeeEstimation)"
                 }
                 HttpResponseType::GetWithdrawal(_, _) => "HTTP(GetWithdrawal)",
-                HttpResponseType::BlockProposalValid { .. } | HttpResponseType::BlockProposalInvalid { .. } => "HTTP(BlockProposal)",
+                HttpResponseType::BlockProposalValid { .. }
+                | HttpResponseType::BlockProposalInvalid { .. } => "HTTP(BlockProposal)",
             },
         }
     }

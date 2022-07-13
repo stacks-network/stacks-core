@@ -25,8 +25,6 @@ use std::sync::atomic::Ordering;
 
 use std::time::Duration;
 
-use nix::unistd::{fork, ForkResult};
-
 /// Uses MOCKNET_PRIVATE_KEY_1 to publish the hyperchains contract and supporting
 ///  trait contracts
 pub fn publish_multiparty_contract_to_l1(
@@ -50,8 +48,7 @@ pub fn publish_multiparty_contract_to_l1(
     let contract_content = include_str!("../../../../core-contracts/contracts/multi-miner.clar")
         .replace(
             "(define-constant signers-required u2)",
-            // todo: switch to `required_signers`
-            &format!("(define-constant signers-required u{})", 1),
+            &format!("(define-constant signers-required u{})", required_signers),
         )
         .replace(
             "(define-data-var miners (optional (list 10 principal)) none)",
@@ -175,11 +172,16 @@ fn l1_multiparty_2_of_2_integration_test() {
     let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet-double.toml";
 
     // Start the L2 run loop.
-    let mut leader_config = super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_2, &*MOCKNET_PRIVATE_KEY_1);
+    let mut leader_config =
+        super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_2, &*MOCKNET_PRIVATE_KEY_1);
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
     let l2_rpc_origin = format!("http://{}", &leader_config.node.rpc_bind);
 
-    let mut follower_config = super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_3, &*MOCKNET_PRIVATE_KEY_1);
+    let mut follower_config =
+        super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_3, &*MOCKNET_PRIVATE_KEY_1);
+    let follower_account = to_addr(&MOCKNET_PRIVATE_KEY_3);
+    follower_config.connection_options.hyperchain_validator =
+        follower_config.node.mining_key.clone();
     follower_config.node.rpc_bind = "127.0.0.1:30643".into();
     follower_config.node.data_url = "http://127.0.0.1:30643".into();
     follower_config.node.p2p_bind = "127.0.0.1:30644".into();
@@ -189,13 +191,12 @@ fn l1_multiparty_2_of_2_integration_test() {
     follower_config.node.local_peer_seed = vec![20; 32];
 
     follower_config.node.add_bootstrap_node(
-       "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@localhost:30444",
-       follower_config.burnchain.chain_id,
-       follower_config.burnchain.peer_version
+        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444",
+        follower_config.burnchain.chain_id,
+        follower_config.burnchain.peer_version,
     );
 
     let follower_rpc_origin = format!("http://{}", &follower_config.node.rpc_bind);
-
 
     let multi_party_contract = QualifiedContractIdentifier::new(
         to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
@@ -223,7 +224,11 @@ fn l1_multiparty_2_of_2_integration_test() {
     // Give the run loop time to start.
     thread::sleep(Duration::from_millis(2_000));
 
-    let burnchain = Burnchain::new(&leader_config.get_burn_db_path(), &leader_config.burnchain.chain).unwrap();
+    let burnchain = Burnchain::new(
+        &leader_config.get_burn_db_path(),
+        &leader_config.burnchain.chain,
+    )
+    .unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
@@ -234,8 +239,16 @@ fn l1_multiparty_2_of_2_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
-    let l1_nonce = publish_hc_contracts_to_l1(0, &leader_config, multi_party_contract.clone().into());
-    publish_multiparty_contract_to_l1(l1_nonce, &leader_config, &[miner_account.clone().into()]);
+    let l1_nonce =
+        publish_hc_contracts_to_l1(0, &leader_config, multi_party_contract.clone().into());
+    publish_multiparty_contract_to_l1(
+        l1_nonce,
+        &leader_config,
+        &[
+            miner_account.clone().into(),
+            follower_account.clone().into(),
+        ],
+    );
 
     // Wait for exactly two stacks blocks.
     wait_for_next_stacks_block(&sortition_db);
@@ -265,6 +278,10 @@ fn l1_multiparty_2_of_2_integration_test() {
     leader_termination_switch.store(false, Ordering::SeqCst);
     follower_termination_switch.store(false, Ordering::SeqCst);
     stacks_l1_controller.kill_process();
-    leader_run_loop_thread.join().expect("Failed to join run loop.");
-    follower_run_loop_thread.join().expect("Failed to join run loop.");
+    leader_run_loop_thread
+        .join()
+        .expect("Failed to join run loop.");
+    follower_run_loop_thread
+        .join()
+        .expect("Failed to join run loop.");
 }

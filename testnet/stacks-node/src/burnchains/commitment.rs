@@ -26,7 +26,11 @@ pub trait Layer1Committer {
     /// If `participant_index >= (self.commit_required_signatures - 1)`, this will return an error because:
     ///   * It refers to a non-existent participant (if >= self.commit_required_signatures)
     ///   * Or it refers to the current miner (which is logically = index self.commit_required_signatures - 1)
-    fn propose_block_to(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error>;
+    fn propose_block_to(
+        &self,
+        participant_index: u8,
+        proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error>;
     fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
@@ -100,10 +104,15 @@ impl std::fmt::Display for Error {
                 write!(f, "Commitment previously constructed at this burn block")
             }
             Error::NonceGetFailure(e) => write!(f, "Failed to obtain miner's nonce: {}", e),
-            Error::BlockProposalRequest(e) => write!(f, "Failure during block proposal request: {}", e),
+            Error::BlockProposalRequest(e) => {
+                write!(f, "Failure during block proposal request: {}", e)
+            }
             Error::BlockProposalRejected(e) => write!(f, "Rejected block proposal: {}", e),
             Error::BadCommitment => write!(f, "Submitted commitment contents are not valid"),
-            Error::NoSuchParticipant => write!(f, "Participant index refers to a non-existent participant or the current node (self)"),
+            Error::NoSuchParticipant => write!(
+                f,
+                "Participant index refers to a non-existent participant or the current node (self)"
+            ),
         }
     }
 }
@@ -234,12 +243,23 @@ impl Layer1Committer for MultiPartyCommitter {
         self.required_signers.saturating_sub(1)
     }
 
-    fn propose_block_to(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error> {
-        if self.required_signers == 0 || participant_index >= self.required_signers - 1 || participant_index as usize >= self.other_participants.len() {
-            return Err(Error::NoSuchParticipant)
+    fn propose_block_to(
+        &self,
+        participant_index: u8,
+        proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
+        if self.required_signers == 0
+            || participant_index >= self.required_signers - 1
+            || participant_index as usize >= self.other_participants.len()
+        {
+            return Err(Error::NoSuchParticipant);
         }
         let propose_to = &self.other_participants[participant_index as usize];
-        let url = format!("{}{}", &propose_to.rpc_server, stacks::net::http::PATH_STR_POST_BLOCK_PROPOSAL);
+        let url = format!(
+            "{}{}",
+            &propose_to.rpc_server,
+            stacks::net::http::PATH_STR_POST_BLOCK_PROPOSAL
+        );
         let response = reqwest::blocking::Client::new()
             .post(url)
             .json(proposal)
@@ -247,26 +267,37 @@ impl Layer1Committer for MultiPartyCommitter {
             .map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
         match response.status() {
             StatusCode::OK => {
-                let signature_hex: String = response.json().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                let signature_hex: String = response
+                    .json()
+                    .map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
                 // 132 = 65 * 2 + "0x" prefix
                 if signature_hex.len() != 132 {
-                    return Err(Error::BlockProposalRequest("Bad signature hex length".into()))
+                    return Err(Error::BlockProposalRequest(
+                        "Bad signature hex length".into(),
+                    ));
                 }
 
-                let signature_bytes = hex_bytes(&signature_hex[2..]).map_err(|_| Error::BlockProposalRequest("Bad hex bytes".into()))?;
+                let signature_bytes = hex_bytes(&signature_hex[2..])
+                    .map_err(|_| Error::BlockProposalRequest("Bad hex bytes".into()))?;
                 if signature_bytes.len() != 65 {
-                    return Err(Error::BlockProposalRequest("Bad signature byte length".into()))
+                    return Err(Error::BlockProposalRequest(
+                        "Bad signature byte length".into(),
+                    ));
                 }
                 let mut signature_buff = [0u8; 65];
                 signature_buff.copy_from_slice(&signature_bytes);
                 Ok(ClaritySignature(signature_buff))
-            },
+            }
             StatusCode::NOT_ACCEPTABLE => {
-                let error_struct: HttpBlockProposalRejected = response.json().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                let error_struct: HttpBlockProposalRejected = response
+                    .json()
+                    .map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
                 Err(Error::BlockProposalRejected(error_struct.error_message))
-            },
+            }
             _ => {
-                let error_message = response.text().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                let error_message = response
+                    .text()
+                    .map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
                 Err(Error::BlockProposalRequest(error_message))
             }
         }
@@ -311,7 +342,11 @@ impl Layer1Committer for DirectCommitter {
         )
     }
 
-    fn propose_block_to(&self, _participant_index: u8, _proposal: &Proposal) -> Result<ClaritySignature, Error> {
+    fn propose_block_to(
+        &self,
+        _participant_index: u8,
+        _proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
         Err(Error::NoSuchParticipant)
     }
 }

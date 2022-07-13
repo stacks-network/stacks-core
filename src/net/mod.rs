@@ -1616,8 +1616,14 @@ pub enum HttpResponseType {
     ServerError(HttpResponseMetadata, String),
     ServiceUnavailable(HttpResponseMetadata, String),
     Error(HttpResponseMetadata, u16, String),
-    BlockProposalValid { metadata: HttpResponseMetadata, signature: [u8; 65] },
-    BlockProposalInvalid { metadata: HttpResponseMetadata, error_message: String },
+    BlockProposalValid {
+        metadata: HttpResponseMetadata,
+        signature: [u8; 65],
+    },
+    BlockProposalInvalid {
+        metadata: HttpResponseMetadata,
+        error_message: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]

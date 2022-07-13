@@ -18,9 +18,9 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
+use stacks::chainstate::stacks::miner::{AssembledBlockInfo, Proposal};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::miner::{Proposal, AssembledBlockInfo};
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
     StacksBlockHeader,
@@ -1881,7 +1881,13 @@ impl StacksNode {
             }
         };
 
-        let AssembledBlockInfo { block: anchored_block, mblocks_confirmed, burn_tip, burn_tip_height, .. } = built_info;
+        let AssembledBlockInfo {
+            block: anchored_block,
+            mblocks_confirmed,
+            burn_tip,
+            burn_tip_height,
+            ..
+        } = built_info;
 
         let block_height = anchored_block.header.total_work.work;
         debug!(
@@ -1905,19 +1911,22 @@ impl StacksNode {
                 microblocks_confirmed: mblocks_confirmed,
                 burn_tip,
                 burn_tip_height,
+                total_burn: parent_block_total_burn,
                 is_mainnet: config.is_mainnet(),
                 microblock_pubkey_hash: mblock_pubkey_hash.clone(),
             };
 
-            (0..required_signatures).filter_map(|participant_index| {
-                match bitcoin_controller.propose_block(participant_index, &proposal) {
-                    Ok(signature) => Some(signature),
-                    Err(rejection) => {
-                        warn!("Failed to obtain approval"; "error" => %rejection);
-                        None
-                    },
-                }
-            }).collect()
+            (0..required_signatures)
+                .filter_map(|participant_index| {
+                    match bitcoin_controller.propose_block(participant_index, &proposal) {
+                        Ok(signature) => Some(signature),
+                        Err(rejection) => {
+                            warn!("Failed to obtain approval"; "error" => %rejection);
+                            None
+                        }
+                    }
+                })
+                .collect()
         } else {
             vec![]
         };
