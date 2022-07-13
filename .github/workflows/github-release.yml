@@ -25,17 +25,14 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: artifact
-          # path: release
-          path: /
+          path: release
       - name: Generate Checksums
         id: generate_checksum
         uses: jmgilman/actions-generate-checksum@v1
         with:
           output: CHECKSUMS.txt
           patterns: |
-            *.zip
-          # patterns: |
-          #   release/*.zip
+            release/*.zip
       - name: Display artifact files
         id: list_artifacts
         run: ls -R
@@ -52,8 +49,5 @@ jobs:
           prerelease: true
           fail_on_unmatched_files: true
           files: |
-            *.zip
+            release/*.zip
             CHECKSUMS.txt
-          # files: |
-          #   release/*.zip
-          #   CHECKSUMS.txt

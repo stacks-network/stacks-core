@@ -40,14 +40,14 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           file: build-scripts/Dockerfile.${{ matrix.platform }}
-          outputs: type=local,dest=./dist/${{ matrix.platform }}
+          outputs: type=local,dest=./release/${{ matrix.platform }}
           build-args: |
             OS_ARCH=${{ matrix.platform }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
       - name: Compress artifact
         id: compress_artifact
-        run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
+        run: zip --junk-paths ${{ matrix.platform }} ./release/${{ matrix.platform }}/*
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-artifact@v3
