@@ -258,7 +258,7 @@ impl NetworkState {
             warn!("Failed to deregister socket {}: {:?}", event_id, &e);
         };
 
-        debug!(
+        info!(
             "Socket deregistered: {}, {:?} (Events total: {}, max: {})",
             event_id,
             sock,
@@ -348,7 +348,7 @@ impl NetworkState {
             stream.set_recv_buffer_size(32).unwrap();
         }
 
-        test_debug!("New socket connected to {:?}: {:?}", addr, &stream);
+        info!("New socket connected to {:?}: {:?}", addr, &stream);
         Ok(stream)
     }
 
@@ -416,7 +416,7 @@ impl NetworkState {
 
                         new_events.insert(next_event_id);
 
-                        debug!(
+                        info!(
                             "New socket event: {}, {:?} addr={:?} (Events total: {}, max: {}) on server {:?}",
                             next_event_id,
                             &client_sock,

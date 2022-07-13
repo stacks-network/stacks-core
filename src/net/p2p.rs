@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use backtrace::Backtrace;
 use std::cmp;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -831,7 +832,7 @@ impl PeerNetwork {
         neighbor: &NeighborKey,
         check_denied: bool,
     ) -> Result<usize, net_error> {
-        debug!("{:?}: connect to {:?}", &self.local_peer, neighbor);
+        info!("{:?}: connect to {:?}", &self.local_peer, neighbor);
 
         if check_denied {
             // don't talk to our bind address
@@ -1386,7 +1387,7 @@ impl PeerNetwork {
             Err(e) => {
                 debug!(
                     "{:?}: Failed to get peer address of {:?}: {:?}",
-                    &self.local_peer, &socket, &e
+                    &self.local_peer, &socket, &e,
                 );
                 self.deregister_socket(event_id, socket);
                 return Err(net_error::SocketError);
@@ -1738,12 +1739,12 @@ impl PeerNetwork {
                 let (socket, outbound, _) = self.connecting.remove(event_id).unwrap();
                 let sock_str = format!("{:?}", &socket);
                 if let Err(_e) = self.register_peer(*event_id, socket, outbound) {
-                    debug!(
+                    warn!(
                         "{:?}: Failed to register connecting socket on event {} ({}): {:?}",
                         &self.local_peer, event_id, sock_str, &_e
                     );
                 } else {
-                    debug!(
+                    info!(
                         "{:?}: Registered peer on event {}: {:?} (outbound={})",
                         &self.local_peer, event_id, sock_str, outbound
                     );

@@ -38,6 +38,7 @@ use url::{form_urlencoded, Url};
 
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::miner::Proposal;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
 };
@@ -97,6 +98,10 @@ use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 use super::FeeRateEstimateRequestBody;
 
+const MAX_BLOCK_PROPOSAL_LENGTH: u32 = 1024 * 1024 * 15;
+
+pub const PATH_STR_POST_BLOCK_PROPOSAL: &'static str = "/v2/block_proposal";
+
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
     static ref PATH_GETPOXINFO: Regex = Regex::new(r#"^/v2/pox$"#).unwrap();
@@ -119,6 +124,8 @@ lazy_static! {
         "^/v2/withdrawal/stx/(?P<block_height>[0-9]+)/(?P<sender>{})/(?P<withdrawal_id>[0-9]+)/(?P<amount>[0-9]+)$",
         *PRINCIPAL_DATA_REGEX
     ))
+    .unwrap();
+    static ref PATH_POST_BLOCK_PROPOSAL: Regex = Regex::new(&format!("^{}$", PATH_STR_POST_BLOCK_PROPOSAL))
     .unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
@@ -1609,6 +1616,11 @@ impl HttpRequestType {
                 &PATH_GET_STX_WITHDRAWAL,
                 &HttpRequestType::parse_get_stx_withdrawal,
             ),
+            (
+                "POST",
+                &PATH_POST_BLOCK_PROPOSAL,
+                &HttpRequestType::parse_block_proposal
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1973,6 +1985,36 @@ impl HttpRequestType {
             func_name,
             arguments,
             tip,
+        ))
+    }
+
+    fn parse_block_proposal<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        _captures: &Captures,
+        _query: Option<&str>,
+        fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        let content_len = preamble.get_content_length();
+        if !(content_len > 0 && content_len < MAX_BLOCK_PROPOSAL_LENGTH) {
+            return Err(net_error::DeserializeError(format!(
+                "Invalid Http request: invalid body length for BlockProposal ({})",
+                content_len
+            )));
+        }
+
+        if preamble.content_type != Some(HttpContentType::JSON) {
+            return Err(net_error::DeserializeError(
+                "Invalid content-type: expected application/json".to_string(),
+            ));
+        }
+
+        let block_proposal: Proposal = serde_json::from_reader(fd)
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block proposal JSON body".into()))?;
+
+        Ok(HttpRequestType::BlockProposal(
+            HttpRequestMetadata::from_preamble(preamble),
+            block_proposal
         ))
     }
 
@@ -2717,6 +2759,7 @@ impl HttpRequestType {
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
             HttpRequestType::GetWithdrawalStx { ref metadata, .. } => metadata,
+            HttpRequestType::BlockProposal(ref metadata, .. ) => metadata,
         }
     }
 
@@ -2747,6 +2790,7 @@ impl HttpRequestType {
             HttpRequestType::MemPoolQuery(ref mut md, ..) => md,
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
+            HttpRequestType::BlockProposal(ref mut metadata, .. ) => metadata,
             HttpRequestType::GetWithdrawalStx {
                 ref mut metadata, ..
             } => metadata,
@@ -2928,6 +2972,7 @@ impl HttpRequestType {
                 "/v2/withdrawal/stx/{}/{}/{}/{}",
                 withdraw_block_height, sender, withdrawal_id, amount
             ),
+            HttpRequestType::BlockProposal( .. ) => self.get_path().to_string(),
         }
     }
 
@@ -2966,6 +3011,7 @@ impl HttpRequestType {
             HttpRequestType::GetWithdrawalStx { .. } => {
                 "/v2/withdrawal/stx/:block-height/:sender/:withdrawal_id/:amount"
             }
+            HttpRequestType::BlockProposal( .. ) => PATH_STR_POST_BLOCK_PROPOSAL,
         }
     }
 
@@ -3984,6 +4030,7 @@ impl HttpResponseType {
             402 => "Payment Required",
             403 => "Forbidden",
             404 => "Not Found",
+            406 => "Not Acceptable",
             500 => "Internal Server Error",
             503 => "Service Temporarily Unavailable",
             _ => "Error",
@@ -4051,6 +4098,8 @@ impl HttpResponseType {
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
             HttpResponseType::GetWithdrawal(ref md, _) => md,
+            HttpResponseType::BlockProposalValid { ref metadata, .. } => metadata,
+            HttpResponseType::BlockProposalInvalid { ref metadata, .. } => metadata,
         }
     }
 
@@ -4378,9 +4427,32 @@ impl HttpResponseType {
                 HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
                 HttpResponseType::send_json(protocol, md, fd, json)?;
             }
+            HttpResponseType::BlockProposalValid { metadata: ref md, ref signature } => {
+                HttpResponsePreamble::ok_JSON_from_md(fd, md)?;
+                let signature_hex = format!("0x{}", to_hex(signature));
+                HttpResponseType::send_json(protocol, md, fd, &signature_hex)?;
+            }
+            HttpResponseType::BlockProposalInvalid { metadata: ref md, ref error_message } => {
+                HttpResponsePreamble::new_serialized(
+                    fd,
+                    406,
+                    HttpResponseType::error_reason(406),
+                    md.content_length.clone(),
+                    &HttpContentType::JSON,
+                    md.request_id,
+                    |ref mut fd| keep_alive_headers(fd, md),
+                )?;
+                let data = HttpBlockProposalRejected { error_message: error_message.clone() };
+                HttpResponseType::send_json(protocol, md, fd, &data)?;
+            }
         };
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HttpBlockProposalRejected {
+    pub error_message: String,
 }
 
 impl StacksMessageCodec for StacksHttpPreamble {
@@ -4462,6 +4534,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
                 HttpRequestType::GetWithdrawalStx { .. } => "HTTP(GetWithdrawalStx)",
+                HttpRequestType::BlockProposal(_, _) => "HTTP(BlockProposal)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
@@ -4504,6 +4577,7 @@ impl MessageSequence for StacksHttpMessage {
                     "HTTP(TransactionFeeEstimation)"
                 }
                 HttpResponseType::GetWithdrawal(_, _) => "HTTP(GetWithdrawal)",
+                HttpResponseType::BlockProposalValid { .. } | HttpResponseType::BlockProposalInvalid { .. } => "HTTP(BlockProposal)",
             },
         }
     }

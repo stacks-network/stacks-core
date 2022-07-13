@@ -33,6 +33,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
+use crate::burnchains::commitment::MultiMinerParticipant;
 use crate::burnchains::l1_events::L1Controller;
 use crate::burnchains::mock_events::MockController;
 use crate::BurnchainController;
@@ -800,6 +801,8 @@ pub enum CommitStrategy {
     MultiMiner {
         required_signers: u8,
         contract: QualifiedContractIdentifier,
+        other_participants: Vec<MultiMinerParticipant>,
+        leader: bool,
     },
 }
 

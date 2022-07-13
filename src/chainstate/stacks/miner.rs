@@ -40,6 +40,8 @@ use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
+use clarity::util::hash::to_hex;
+use stacks_common::util::hash::hex_bytes;
 use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
 use stacks_common::util::get_epoch_time_ms;
@@ -118,30 +120,43 @@ pub struct MinerEpochInfo<'a> {
     pub mainnet: bool,
 }
 
+pub struct AssembledBlockInfo {
+    pub block: StacksBlock,
+    pub block_execution_cost: ExecutionCost,
+    pub block_size: u64,
+    pub mblocks_confirmed: Vec<StacksMicroblock>,
+    pub burn_tip: BurnchainHeaderHash,
+    pub burn_tip_height: u32,
+}
+
 /// Represents a proposed block from the 2-phase commit
 /// coordinator.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Proposal {
     /// This is the identifier for the parent L2 block of this
     /// proposed block.
-    parent_block_hash: BlockHeaderHash,
-    parent_consensus_hash: ConsensusHash,
+    pub parent_block_hash: BlockHeaderHash,
+    pub parent_consensus_hash: ConsensusHash,
     /// Block
-    block: StacksBlock,
+    pub block: StacksBlock,
     /// These are all the microblocks that the proposed block
     /// will confirm.
-    microblocks_confirmed: Vec<StacksMicroblock>,
+    pub microblocks_confirmed: Vec<StacksMicroblock>,
     /// This refers to the burn block that was the current tip
     ///  at the time this proposal was constructed. In most cases,
     ///  if this proposal is accepted, it will be "mined" in the next
     ///  burn block.
-    burn_tip: BurnchainHeaderHash,
+    pub burn_tip: BurnchainHeaderHash,
     /// This refers to the burn block that was the current tip
     ///  at the time this proposal was constructed. In most cases,
     ///  if this proposal is accepted, it will be "mined" in the next
     ///  burn block.
-    burn_tip_height: u32,
+    pub burn_tip_height: u32,
     /// Mainnet flag
-    is_mainnet: bool,
+    pub is_mainnet: bool,
+    /// This is the public key hash which will be used to sign subsequent
+    ///  microblocks.
+    pub microblock_pubkey_hash: Hash160,
 }
 
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
@@ -1088,7 +1103,7 @@ impl StacksBlockBuilder {
         parent_chain_tip: &StacksHeaderInfo,
         total_work: &StacksWorkScore,
         proof: &VRFProof,
-        pubkh: Hash160,
+        microblock_pubkh: Hash160,
         miner_signatures: &MessageSignatureList,
     ) -> StacksBlockBuilder {
         let header = StacksBlockHeader::from_parent_empty(
@@ -1096,7 +1111,7 @@ impl StacksBlockBuilder {
             parent_chain_tip.microblock_tail.as_ref(),
             total_work,
             proof,
-            &pubkh,
+            &microblock_pubkh,
             miner_signatures,
         );
 
@@ -1510,10 +1525,6 @@ impl StacksBlockBuilder {
         let withdrawal_merkle_root = withdrawal_tree.root();
         self.header.withdrawal_merkle_root = withdrawal_merkle_root;
 
-        self.header
-            .sign(&self.miner_privkey)
-            .expect("Failed to sign block header.");
-
         let block = StacksBlock {
             header: self.header.clone(),
             txs: self.txs.clone(),
@@ -1536,14 +1547,15 @@ impl StacksBlockBuilder {
         );
 
         info!(
-            "Miner: mined anchored block {} height {} with {} txs, parent block {}, parent microblock {} ({}), state root = {}",
-            block.block_hash(),
-            block.header.total_work.work,
-            block.txs.len(),
-            &self.header.parent_block,
-            &self.header.parent_microblock,
-            self.header.parent_microblock_sequence,
-            state_root_hash
+            "Miner: mined anchored block";
+            "block_hash" => %block.block_hash(),
+            "height" => block.header.total_work.work,
+            "txs_len" => block.txs.len(),
+            "parent_block" => %self.header.parent_block,
+            "parent_microblock" => %self.header.parent_microblock,
+            "parent_microblock_sequence" => %self.header.parent_microblock_sequence,
+            "state_root_hash" => %state_root_hash,
+            "header_serialized" => to_hex(&block.header.serialize_to_vec()),
         );
 
         block
@@ -1960,7 +1972,7 @@ impl StacksBlockBuilder {
     }
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
-    ///   returns the assembled block, and the consumed execution budget.
+    ///   returns the assembled block, the consumed execution budget, and the block size.
     pub fn build_anchored_block(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
@@ -1973,6 +1985,32 @@ impl StacksBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        Self::build_anchored_block_full_info(
+            chainstate_handle,
+            burn_dbconn,
+            mempool,
+            parent_stacks_header,
+            total_burn,
+            proof,
+            pubkey_hash,
+            coinbase_tx,
+            settings,
+            event_observer,
+        ).map(|r| (r.block, r.block_execution_cost, r.block_size))
+    }
+
+    pub fn build_anchored_block_full_info(
+        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortitionDBConn,
+        mempool: &mut MemPoolDB,
+        parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
+        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
+        proof: VRFProof, // proof over the burnchain's last seed
+        pubkey_hash: Hash160,
+        coinbase_tx: &StacksTransaction,
+        settings: BlockBuilderSettings,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+    ) -> Result<AssembledBlockInfo, Error> {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
 
@@ -2224,20 +2262,44 @@ impl StacksBlockBuilder {
             })
         );
 
-        Ok((block, consumed, size))
+        Ok(AssembledBlockInfo {
+            block,
+            block_execution_cost: consumed,
+            block_size: size,
+            mblocks_confirmed: miner_epoch_info.parent_microblocks,
+            burn_tip: miner_epoch_info.burn_tip,
+            burn_tip_height: miner_epoch_info.burn_tip_height,
+        })
     }
 }
 
 impl Proposal {
+    /// Sign this proposal with `signing_key`, returning a serialized recoverable
+    /// signature that can be validated by the multiminer contract.
+    pub fn sign(&self, signing_key: &Secp256k1PrivateKey) -> [u8; 65] {
+        // when using a 2.0 layer-1, must use a constant
+        // when using a 2.1 layer-1, this will need to use the structured data hash
+        let message_hash = hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
+            .expect("Failed to parse hex constant");
+        let msg_signature = signing_key.sign(&message_hash).expect("Bad message hash");
+        // format the signature vector as Clarity expects
+        let recov_signature = msg_signature
+            .to_secp256k1_recoverable()
+            .expect("Failed to create recoverable signature");
+        let (rec_id, rec_signature_comp) = recov_signature.serialize_compact();
+        let mut signature = [0; 65];
+        signature[..64].copy_from_slice(&rec_signature_comp);
+        signature[64] = u8::try_from(rec_id.to_i32()).unwrap();
+
+        signature
+    }
+
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn validate(
         &self,
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
-        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
-        proof: VRFProof, // proof over the burnchain's last seed
-        pubkey_hash: Hash160,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let expected_block_hash = self.block.block_hash();
 
@@ -2259,7 +2321,13 @@ impl Proposal {
             &self.parent_consensus_hash,
             &self.parent_block_hash,
         )?
-        .ok_or_else(|| Error::NoSuchBlockError)?;
+        .ok_or_else(|| {
+                warn!("Rejected proposal";
+                      "reason" => "No such parent block",
+                      "parent_block_hash" => %self.parent_block_hash,
+                      "parent_consensus_hash" => %self.parent_consensus_hash);
+            Error::NoSuchBlockError
+        })?;
 
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -2273,6 +2341,10 @@ impl Proposal {
         );
 
         let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let total_burn = parent_stacks_header.anchored_header.total_work.burn;
+        let proof = parent_stacks_header.anchored_header.proof.clone();
+        let pubkey_hash = self.microblock_pubkey_hash.clone();
 
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,

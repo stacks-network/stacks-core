@@ -15,6 +15,7 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks::chainstate::stacks::miner::Proposal;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
@@ -101,6 +102,7 @@ pub trait BurnchainController {
     /// Returns the number of signatures necessary to provide
     /// to the block committer.
     fn commit_required_signatures(&self) -> u8;
+    fn propose_block(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error>;
 
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
@@ -203,6 +205,10 @@ impl BurnchainController for PanicController {
     }
 
     fn commit_required_signatures(&self) -> u8 {
+        panic!()
+    }
+
+    fn propose_block(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error> {
         panic!()
     }
 }

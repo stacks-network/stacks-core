@@ -20,6 +20,7 @@ use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::chainstate::stacks::StacksPublicKey;
+use stacks::chainstate::stacks::miner::{Proposal, AssembledBlockInfo};
 use stacks::chainstate::stacks::{
     miner::BlockBuilderSettings, miner::StacksMicroblockBuilder, StacksBlockBuilder,
     StacksBlockHeader,
@@ -1815,7 +1816,7 @@ impl StacksNode {
             }
         }
 
-        let (anchored_block, _, _) = match StacksBlockBuilder::build_anchored_block(
+        let built_info = match StacksBlockBuilder::build_anchored_block_full_info(
             chain_state,
             &burn_db.index_conn(),
             mem_pool,
@@ -1855,7 +1856,7 @@ impl StacksNode {
                 };
 
                 // try again
-                match StacksBlockBuilder::build_anchored_block(
+                match StacksBlockBuilder::build_anchored_block_full_info(
                     chain_state,
                     &burn_db.index_conn(),
                     mem_pool,
@@ -1879,6 +1880,9 @@ impl StacksNode {
                 return None;
             }
         };
+
+        let AssembledBlockInfo { block: anchored_block, mblocks_confirmed, burn_tip, burn_tip_height, .. } = built_info;
+
         let block_height = anchored_block.header.total_work.work;
         debug!(
             "Assembled hyperchain block";
@@ -1892,11 +1896,40 @@ impl StacksNode {
         let withdrawal_merkle_root = anchored_block.header.withdrawal_merkle_root;
 
         let required_signatures = bitcoin_controller.commit_required_signatures();
-        let signatures = if required_signatures == 0 {
-            vec![]
+        let signatures = if required_signatures > 0 {
+            // if we need to collect signatures, assemble the proposal and send to other participants
+            let proposal = Proposal {
+                parent_block_hash: stacks_parent_header.anchored_header.block_hash(),
+                parent_consensus_hash: stacks_parent_header.consensus_hash.clone(),
+                block: anchored_block.clone(),
+                microblocks_confirmed: mblocks_confirmed,
+                burn_tip,
+                burn_tip_height,
+                is_mainnet: config.is_mainnet(),
+                microblock_pubkey_hash: mblock_pubkey_hash.clone(),
+            };
+
+            (0..required_signatures).filter_map(|participant_index| {
+                match bitcoin_controller.propose_block(participant_index, &proposal) {
+                    Ok(signature) => Some(signature),
+                    Err(rejection) => {
+                        warn!("Failed to obtain approval"; "error" => %rejection);
+                        None
+                    },
+                }
+            }).collect()
         } else {
-            unimplemented!("No implementation of multiparty signature collection")
+            vec![]
         };
+
+        if signatures.len() < required_signatures as usize {
+            error!(
+                "Failed to obtain enough signatures for multi-party mining";
+                "signatures_obtained" => signatures.len(),
+                "required" => required_signatures
+            );
+            return None;
+        }
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");

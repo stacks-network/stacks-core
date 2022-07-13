@@ -71,6 +71,7 @@ libc = "0.2.82"
 clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
+backtrace = "0.3.66"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

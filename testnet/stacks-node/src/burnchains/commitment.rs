@@ -1,9 +1,13 @@
+use reqwest::StatusCode;
 use stacks::address::AddressHashMode;
+use stacks::chainstate::stacks::miner::Proposal;
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner, TransactionAuth,
     TransactionContractCall, TransactionPostConditionMode, TransactionSpendingCondition,
     TransactionVersion,
 };
+use stacks::net::http::HttpBlockProposalRejected;
+use stacks::util::hash::hex_bytes;
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::ClarityName;
 use stacks::vm::Value as ClarityValue;
@@ -16,7 +20,13 @@ use crate::operations::BurnchainOpSigner;
 use super::ClaritySignature;
 
 pub trait Layer1Committer {
+    /// Return the number of signatures that need to be included alongside a commit transaction
     fn commit_required_signatures(&self) -> u8;
+    /// Send a block proposal to the participant indicated by `participant_index`.
+    /// If `participant_index >= (self.commit_required_signatures - 1)`, this will return an error because:
+    ///   * It refers to a non-existent participant (if >= self.commit_required_signatures)
+    ///   * Or it refers to the current miner (which is logically = index self.commit_required_signatures - 1)
+    fn propose_block_to(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error>;
     fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
@@ -31,8 +41,15 @@ pub struct DirectCommitter {
     pub config: BurnchainConfig,
 }
 
+#[derive(Clone, Debug)]
+pub struct MultiMinerParticipant {
+    pub public_key: [u8; 33],
+    pub rpc_server: String,
+}
+
 pub struct MultiPartyCommitter {
     pub config: BurnchainConfig,
+    other_participants: Vec<MultiMinerParticipant>,
     required_signers: u8,
     contract: QualifiedContractIdentifier,
 }
@@ -51,6 +68,9 @@ pub enum Error {
     AlreadyCommitted,
     NonceGetFailure(String),
     BadCommitment,
+    NoSuchParticipant,
+    BlockProposalRequest(String),
+    BlockProposalRejected(String),
 }
 
 fn l1_addr_from_signer(is_mainnet: bool, signer: &BurnchainOpSigner) -> StacksAddress {
@@ -80,7 +100,10 @@ impl std::fmt::Display for Error {
                 write!(f, "Commitment previously constructed at this burn block")
             }
             Error::NonceGetFailure(e) => write!(f, "Failed to obtain miner's nonce: {}", e),
+            Error::BlockProposalRequest(e) => write!(f, "Failure during block proposal request: {}", e),
+            Error::BlockProposalRejected(e) => write!(f, "Rejected block proposal: {}", e),
             Error::BadCommitment => write!(f, "Submitted commitment contents are not valid"),
+            Error::NoSuchParticipant => write!(f, "Participant index refers to a non-existent participant or the current node (self)"),
         }
     }
 }
@@ -90,11 +113,13 @@ impl MultiPartyCommitter {
         config: &BurnchainConfig,
         required_signers: u8,
         contract: &QualifiedContractIdentifier,
+        other_participants: Vec<MultiMinerParticipant>,
     ) -> Self {
         Self {
             config: config.clone(),
             required_signers,
             contract: contract.clone(),
+            other_participants,
         }
     }
 
@@ -205,7 +230,46 @@ impl MultiPartyCommitter {
 
 impl Layer1Committer for MultiPartyCommitter {
     fn commit_required_signatures(&self) -> u8 {
-        self.required_signers
+        // return (required_signers - 1) because the submitted transaction itself counts as a signature.
+        self.required_signers.saturating_sub(1)
+    }
+
+    fn propose_block_to(&self, participant_index: u8, proposal: &Proposal) -> Result<ClaritySignature, Error> {
+        if self.required_signers == 0 || participant_index >= self.required_signers - 1 || participant_index as usize >= self.other_participants.len() {
+            return Err(Error::NoSuchParticipant)
+        }
+        let propose_to = &self.other_participants[participant_index as usize];
+        let url = format!("{}{}", &propose_to.rpc_server, stacks::net::http::PATH_STR_POST_BLOCK_PROPOSAL);
+        let response = reqwest::blocking::Client::new()
+            .post(url)
+            .json(proposal)
+            .send()
+            .map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+        match response.status() {
+            StatusCode::OK => {
+                let signature_hex: String = response.json().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                // 132 = 65 * 2 + "0x" prefix
+                if signature_hex.len() != 132 {
+                    return Err(Error::BlockProposalRequest("Bad signature hex length".into()))
+                }
+
+                let signature_bytes = hex_bytes(&signature_hex[2..]).map_err(|_| Error::BlockProposalRequest("Bad hex bytes".into()))?;
+                if signature_bytes.len() != 65 {
+                    return Err(Error::BlockProposalRequest("Bad signature byte length".into()))
+                }
+                let mut signature_buff = [0u8; 65];
+                signature_buff.copy_from_slice(&signature_bytes);
+                Ok(ClaritySignature(signature_buff))
+            },
+            StatusCode::NOT_ACCEPTABLE => {
+                let error_struct: HttpBlockProposalRejected = response.json().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                Err(Error::BlockProposalRejected(error_struct.error_message))
+            },
+            _ => {
+                let error_message = response.text().map_err(|e| Error::BlockProposalRequest(e.to_string()))?;
+                Err(Error::BlockProposalRequest(error_message))
+            }
+        }
     }
 
     fn make_commit_tx(
@@ -245,6 +309,10 @@ impl Layer1Committer for DirectCommitter {
             attempt,
             op_signer,
         )
+    }
+
+    fn propose_block_to(&self, _participant_index: u8, _proposal: &Proposal) -> Result<ClaritySignature, Error> {
+        Err(Error::NoSuchParticipant)
     }
 }
 
