@@ -3,7 +3,7 @@
 
 (define-constant ERR_NOT_AUTHORIZED (err u1001))
 
-(impl-trait .nft-trait-standard.nft-trait)
+(impl-trait .trait-standards.nft-trait)
 
 (define-data-var lastId uint u0)
 
