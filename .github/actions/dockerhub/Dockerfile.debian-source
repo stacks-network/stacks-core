@@ -1,15 +1,14 @@
-FROM rust:alpine as build
+
+FROM rust:bullseye as build
 
 ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 ARG BUILD_DIR=/build
-ARG TARGET=x86_64-unknown-linux-musl
+ARG TARGET=x86_64-unknown-linux-gnu
 WORKDIR /src
 
 COPY . .
-
-RUN apk update && apk add git musl-dev
 
 RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
@@ -18,5 +17,6 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && mkdir -p /out \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
-FROM scratch AS export-stage
-COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
+FROM --platform=${TARGETPLATFORM} debian:bullseye
+COPY --from=build /out/stacks-node /bin/
+CMD ["stacks-node", "mainnet"]

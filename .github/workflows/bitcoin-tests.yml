@@ -1,4 +1,4 @@
-name: stacks-bitcoin-integration-tests
+name: Bitcoin Integration Tests
 
 # Only run when:
 #   - PRs are opened
@@ -12,25 +12,33 @@ concurrency:
 
 jobs:
   build-integration-image:
+    name: Build Image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Build bitcoin integration testing image
+        id: build_docker_image
         env:
           DOCKER_BUILDKIT: 1
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-blockchain:integrations .
       - name: Export docker image as tarball
-        run: docker save -o integration-image.tar stacks-node:integrations
+        id: export_docker_image
+        run: docker save -o integration-image.tar stacks-blockchain:integrations
       - name: Upload built docker image
-        uses: actions/upload-artifact@v2
+        id: upload_docker_image
+        uses: actions/upload-artifact@v3
         with:
           name: integration-image.tar
           path: integration-image.tar
+
   # Run integration tests using sampled genesis block
   sampled-genesis:
+    name: Sampled Genesis
     runs-on: ubuntu-latest
     needs:
       - build-integration-image
@@ -100,26 +108,34 @@ jobs:
           - tests::epoch_21::trait_invocation_cross_epoch
           - tests::neon_integrations::bad_microblock_pubkey
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Download docker image
-        uses: actions/download-artifact@v2
+        id: download_docker_image
+        uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
       - name: Load docker image
+        id: load_docker_image
         run: docker load -i integration-image.tar && rm integration-image.tar
       - name: All integration tests with sampled genesis
+        id: bitcoin_integration_tests
         timeout-minutes: 30
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - name: Code Coverage
+        id: code_coverage
+        uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: false
+          fail_ci_if_error: true
+
   atlas-test:
-    if: ${{ true }}
+    name: Atlas Test
     runs-on: ubuntu-latest
     needs:
       - build-integration-image
@@ -130,20 +146,27 @@ jobs:
           - tests::neon_integrations::atlas_integration_test
           - tests::neon_integrations::atlas_stress_integration_test
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
       - name: Download docker image
-        uses: actions/download-artifact@v2
+        id: download_docker_image
+        uses: actions/download-artifact@v3
         with:
           name: integration-image.tar
       - name: Load docker image
+        id: load_docker_image
         run: docker load -i integration-image.tar && rm integration-image.tar
       - name: Atlas integration tests
+        id: atlas_integration_tests
         timeout-minutes: 40
         env:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - name: Code Coverage
+        id: code_coverage
+        uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
