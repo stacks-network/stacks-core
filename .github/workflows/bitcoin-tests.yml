@@ -1,9 +1,16 @@
 name: Bitcoin Integration Tests
 
 # Only run when:
-#   - PRs are opened
+#   - PRs are (re)opened against master/develop branch
 on:
+  push:
+    branches:
+      - master
+      # - develop
   pull_request:
+    types:
+      - opened
+      - reopened
 
 concurrency:
   group: stacks-bitcoin-integration-tests-${{ github.ref }}
