@@ -1,6 +1,19 @@
+##
+## Perform Clippy checks - currently set to defaults
+##   https://github.com/rust-lang/rust-clippy#usage
+##   https://rust-lang.github.io/rust-clippy/master/index.html
+##
+
 name: Clippy Checks
+
+# Only run when:
+#   - PRs are (re)opened
+
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
 
 jobs:
   clippy_check:

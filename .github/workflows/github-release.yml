@@ -1,4 +1,11 @@
+##
+## Create the github release and store artifact files (with checksum)
+##
+
 name: Github Release
+
+# Only run when:
+#   - manually triggered via the ci.yml workflow
 
 on:
   workflow_call:

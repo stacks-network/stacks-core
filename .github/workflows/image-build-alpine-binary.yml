@@ -1,7 +1,15 @@
+##
+## Build the Docker Alpine image from the pre-built downloaded binary asset
+##
+
 name: Build Alpine Binary Image
 
 env:
+  # REPO_OWNER: stacks-network
   REPO_OWNER: wileyj
+
+# Only run when:
+#   - manually triggered via the ci.yml workflow
 
 on:
   workflow_call:

@@ -1,6 +1,15 @@
+##
+## Performs an audit for crate advisories against cargo dependencies
+##
+
 name: Security Audit
-# Run on demand -OR- if Cargo.toml/lock changes -OR- every day at 0330 UTC
-#   Note: this will create issues for any crate advisories
+
+# Only run when:
+#   - workflow is manually triggered
+#   - Cargo.toml/lock is changed
+#   - Daily at 0330 UTC
+# Note: this will create issues for any crate advisories unless they already exist
+
 on:
   workflow_dispatch:
   push:

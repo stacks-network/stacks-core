@@ -1,12 +1,21 @@
+##
+## Builds binary assets of stacks-blockchain and creates a named tag github (draft) release
+##
+
 name: Build Distributable Assets
+
+# Only run when:
+#   - manually triggered via the ci.yml workflow with a provided input tag
 
 on:
   workflow_call:
     inputs:
       tag:
+        description: "Tag name of this release (x.y.z)"
         required: true
         type: string
       parallel_jobs:
+        description: "Number of parallel binary builds"
         required: false
         type: number
         default: 4
@@ -14,6 +23,7 @@ on:
         description: "Stringified JSON object listing of platform matrix"
         required: true
         type: string
+
 jobs:
   artifact:
     if: ${{ inputs.tag != '' }}
