@@ -13,6 +13,10 @@
 (define-constant ERR_INVALID_MERKLE_ROOT 8)
 (define-constant ERR_WITHDRAWAL_ALREADY_PROCESSED 9)
 (define-constant ERR_VALIDATION_FAILED 10)
+;;; The value supplied for `target-chain-tip` does not match the current chain tip.
+(define-constant ERR_INVALID_CHAIN_TIP 11)
+;;; The contract was called before reaching this-chain height reaches 1.
+(define-constant ERR_CALLED_TOO_EARLY 12)
 (define-constant ERR_MINER_ALREADY_SET 20)
 
 ;; Map from Stacks block height to block commit
@@ -79,12 +83,19 @@
     (is-eq (some miner-to-check) (var-get  miner)))
 
 
-;; Helper function: determines whether the commit-block operation can be carried out
+;; Helper function: determines whether the commit-block operation satisfies pre-conditions
+;; listed in `commit-block`.
 ;; Returns response<bool, int>
-(define-private (can-commit-block? (commit-block-height uint))
+(define-private (can-commit-block? (commit-block-height uint)  (target-chain-tip (buff 32)))
     (begin
         ;; check no block has been committed at this height
         (asserts! (is-none (map-get? block-commits commit-block-height)) (err ERR_BLOCK_ALREADY_COMMITTED))
+
+        ;; check that `target-chain-tip` matches the burn chain tip
+        (asserts! (is-eq 
+            target-chain-tip 
+            (unwrap! (get-block-info? id-header-hash (- block-height u1)) (err ERR_CALLED_TOO_EARLY)) )
+            (err ERR_INVALID_CHAIN_TIP)) 
 
         ;; check that the tx sender is one of the miners
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
@@ -102,20 +113,26 @@
     (begin
         (map-set block-commits commit-block-height block)
         (map-set withdrawal-roots-map withdrawal-root true)
-        (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root})
+        (print { event: "block-commit", block-commit: block, withdrawal-root: withdrawal-root, block-height: commit-block-height })
         (ok block)
     )
 )
 
-;; Subnets miners call this to commit a block at a particular height
-;; Returns response<(buff 32), int>
-(define-public (commit-block (block (buff 32)) (withdrawal-root (buff 32)))
+;; Subnets miners call this to commit a block at a particular height.
+;; `block` is the hash of the block being submitted.
+;; `target-chain-tip` is the `id-header-hash` of the burn block (i.e., block on this chain) that
+;;   the miner intends to build off.
+;;
+;; Fails if:
+;;  1) we have already committed at this block height
+;;  2) `target-chain-tip` is not the burn chain tip (i.e., on this chain)
+;;  3) the sender is not a miner
+(define-public (commit-block (block (buff 32)) (target-chain-tip (buff 32)) (withdrawal-root (buff 32)))
     (let ((commit-block-height block-height))
-        (try! (can-commit-block? commit-block-height))
+        (try! (can-commit-block? commit-block-height target-chain-tip))
         (inner-commit-block block commit-block-height withdrawal-root)
     )
 )
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR NFT ASSET TRANSFERS
@@ -168,9 +185,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user calls this function to withdraw the specified NFT from this contract. 
 ;; In order for this withdrawal to go through, the given withdrawal must have been included 
@@ -247,9 +266,11 @@
 
         (asserts! (try! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
-    )
-)
+        (asserts! 
+          (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+          (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
+        
+        (ok true)))
 
 ;; A user can call this function to withdraw some amount of a fungible token asset from the 
 ;; contract and send it to a recipient. 

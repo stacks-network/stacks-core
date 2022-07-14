@@ -18,7 +18,6 @@ Clarinet.test({
         // invalid miner
         const bob = accounts.get("wallet_2")!;
 
-
         const signatory = { 
             secretKey: "7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101",
             publicKey: "024b81bd729820749bdf59a62860bed0f87f44659d502fee9b9321de3dd0a00437",
@@ -54,12 +53,15 @@ Clarinet.test({
         //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001
         let nonSignatorySigned = "0xee504bc280ff1564195638ed2d86e74994c75833432dff9be56a0880c0e52b146582a0b46fbda9640f32e2fc44a6cd1521ea2ef4816d2b1a48a36bb70f1b37fd00";
         let badSignature       = "0x0ca28913fe5d08da93f4738cee281747b00a76d6e1d266bcfa17d87b9542e0c979a3065dff06518bbd7d5d08059be79a41e3d5a74f39738bf1183f56091e5d7c01";
+
+        const id_header_hash_1 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
         let block = chain.mineBlock([
           // Successfully commit block with alice and signatory as the miners
           Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash_1 }),
                     types.list([signatorySigned]),
                 ],
                 alice.address),
@@ -68,12 +70,15 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
+        const id_header_hash_2 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+
         block = chain.mineBlock([
             // Fail to commit block with alice and nonSignatory as the miners
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash_2 }),
                     types.list([nonSignatorySigned]),
                 ],
                 alice.address),
@@ -81,7 +86,8 @@ Clarinet.test({
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash_2 }),
                     types.list([badSignature]),
                 ],
                 alice.address),
@@ -89,7 +95,8 @@ Clarinet.test({
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash_2 }),
                     types.list([signatorySigned, signatorySigned]),
                 ],
                 alice.address),
@@ -97,7 +104,8 @@ Clarinet.test({
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash_2 }),
                     types.list([signatorySigned]),
                 ],
                 bob.address),
@@ -163,12 +171,16 @@ Clarinet.test({
         //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001
         let signatory2Signed = "0xee504bc280ff1564195638ed2d86e74994c75833432dff9be56a0880c0e52b146582a0b46fbda9640f32e2fc44a6cd1521ea2ef4816d2b1a48a36bb70f1b37fd00";
         let badSignature     = "0x0ca28913fe5d08da93f4738cee281747b00a76d6e1d266bcfa17d87b9542e0c979a3065dff06518bbd7d5d08059be79a41e3d5a74f39738bf1183f56091e5d7c01";
+
+        let id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+
         let block = chain.mineBlock([
           // Successfully commit block with alice as a sender and signatory1/2 as the miners
           Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash }),
                     types.list([signatory1Signed, signatory2Signed]),
                 ],
                 alice.address),
@@ -176,12 +188,15 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+
+        id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
         block = chain.mineBlock([
             // Successfully commit block with bob as a sender and signatory1/2 as the miners
             Tx.contractCall("multi-miner", "commit-block",
                     [
                         types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                      "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                      "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                      "target-tip": id_header_hash }),
                         types.list([signatory1Signed, signatory2Signed]),
                     ],
                     bob.address),
@@ -191,12 +206,14 @@ Clarinet.test({
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
         // now test failure modes
+        id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
         block = chain.mineBlock([
             // Fail to commit block with alice and signatory as the miners
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash }),
                     types.list([signatory1Signed]),
                 ],
                 alice.address),
@@ -204,7 +221,8 @@ Clarinet.test({
             Tx.contractCall("multi-miner", "commit-block",
                 [
                     types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2]))}),
+                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
+                                  "target-tip": id_header_hash }),
                     types.list([signatory1Signed, signatory2Signed]),
                 ],
                 signatory1.address),

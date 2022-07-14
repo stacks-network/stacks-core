@@ -7,7 +7,7 @@ use stacks::chainstate::stacks::{
 use stacks::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks::vm::ClarityName;
 use stacks::vm::Value as ClarityValue;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::config::BurnchainConfig;
@@ -20,6 +20,7 @@ pub trait Layer1Committer {
     fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         signatures: Vec<ClaritySignature>,
         attempt: u64,
@@ -104,6 +105,7 @@ impl MultiPartyCommitter {
         sender_nonce: u64,
         tx_fee: u64,
         commit_to: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_root: Sha512Trunc256Sum,
         signatures: Vec<ClaritySignature>,
     ) -> Result<StacksTransaction, Error> {
@@ -118,6 +120,8 @@ impl MultiPartyCommitter {
         };
 
         let block_val = ClarityValue::buff_from(commit_to.as_bytes().to_vec())
+            .map_err(|_| Error::BadCommitment)?;
+        let target_tip_val = ClarityValue::buff_from(target_tip.as_bytes().to_vec())
             .map_err(|_| Error::BadCommitment)?;
         let withdrawal_root_val = ClarityValue::buff_from(withdrawal_root.as_bytes().to_vec())
             .map_err(|_| Error::BadCommitment)?;
@@ -135,6 +139,7 @@ impl MultiPartyCommitter {
         let block_data_val = TupleData::from_data(vec![
             ("block".into(), block_val),
             ("withdrawal-root".into(), withdrawal_root_val),
+            ("target-tip".into(), target_tip_val),
         ])
         .map_err(|_| Error::BadCommitment)?;
 
@@ -169,6 +174,7 @@ impl MultiPartyCommitter {
     pub fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         signatures: Vec<ClaritySignature>,
         attempt: u64,
@@ -193,6 +199,7 @@ impl MultiPartyCommitter {
             nonce,
             fee,
             committed_block_hash,
+            target_tip,
             withdrawal_merkle_root,
             signatures,
         )
@@ -211,6 +218,7 @@ impl Layer1Committer for MultiPartyCommitter {
     fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         signatures: Vec<ClaritySignature>,
         attempt: u64,
@@ -218,6 +226,7 @@ impl Layer1Committer for MultiPartyCommitter {
     ) -> Result<StacksTransaction, Error> {
         self.make_commit_tx(
             committed_block_hash,
+            target_tip,
             withdrawal_merkle_root,
             signatures,
             attempt,
@@ -234,6 +243,7 @@ impl Layer1Committer for DirectCommitter {
     fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         _signatures: Vec<ClaritySignature>,
         attempt: u64,
@@ -241,6 +251,7 @@ impl Layer1Committer for DirectCommitter {
     ) -> Result<StacksTransaction, Error> {
         self.make_commit_tx(
             committed_block_hash,
+            target_tip,
             withdrawal_merkle_root,
             attempt,
             op_signer,
@@ -255,6 +266,7 @@ impl DirectCommitter {
         sender_nonce: u64,
         tx_fee: u64,
         commit_to: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_root: Sha512Trunc256Sum,
     ) -> Result<StacksTransaction, Error> {
         let QualifiedContractIdentifier {
@@ -267,6 +279,7 @@ impl DirectCommitter {
             TransactionVersion::Testnet
         };
         let committed_block = commit_to.as_bytes().to_vec();
+        let target_tip_bytes = target_tip.as_bytes().to_vec();
         let withdrawal_root_bytes = withdrawal_root.as_bytes().to_vec();
         let payload = TransactionContractCall {
             address: contract_addr.into(),
@@ -274,6 +287,7 @@ impl DirectCommitter {
             function_name: ClarityName::from("commit-block"),
             function_args: vec![
                 ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?,
+                ClarityValue::buff_from(target_tip_bytes).map_err(|_| Error::BadCommitment)?,
                 ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
             ],
         };
@@ -302,6 +316,7 @@ impl DirectCommitter {
     pub fn make_commit_tx(
         &self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         attempt: u64,
         op_signer: &mut BurnchainOpSigner,
@@ -325,6 +340,7 @@ impl DirectCommitter {
             nonce,
             fee,
             committed_block_hash,
+            target_tip,
             withdrawal_merkle_root,
         )
         .map_err(|e| {

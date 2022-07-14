@@ -2478,8 +2478,7 @@ mod test {
         Burnchain {
             peer_version: PEER_VERSION_TESTNET,
             network_id: 0,
-            chain_name: "bitcoin".to_string(),
-            network_name: "testnet".to_string(),
+            chain_id: LAYER_1_CHAIN_ID_MAINNET,
             working_dir: "/nope".to_string(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,

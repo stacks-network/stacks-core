@@ -562,7 +562,7 @@ fn spawn_peer(
 
     let (mut chainstate, _) = StacksChainState::open(
         is_mainnet,
-        config.burnchain.chain_id,
+        config.node.chain_id,
         &stacks_chainstate_path,
         Some(config.node.get_marf_opts()),
     )
@@ -585,7 +585,7 @@ fn spawn_peer(
 
             let mut mem_pool = MemPoolDB::open(
                 is_mainnet,
-                config.burnchain.chain_id,
+                config.node.chain_id,
                 &stacks_chainstate_path,
                 cost_estimator,
                 metric,
@@ -791,7 +791,7 @@ fn spawn_miner_relayer(
     let sync_comms = runloop.get_pox_sync_comms();
 
     let is_mainnet = config.is_mainnet();
-    let chain_id = config.burnchain.chain_id;
+    let chain_id = config.node.chain_id;
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
 
@@ -999,16 +999,14 @@ fn spawn_miner_relayer(
                     }
                 }
                 RelayerDirective::RunTenure => {
-                    let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                    let burn_tenure_snapshot = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                         .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-                    let burn_header_hash = burn_chain_sn.burn_header_hash.clone();
+                    let burn_header_hash = burn_tenure_snapshot.burn_header_hash.clone();
 
-                    let burn_chain_tip = burn_chain_sn
+                    let burn_chain_tip = burn_tenure_snapshot
                         .burn_header_hash
                         .clone();
-
-                    let burn_tenure_snapshot = burn_chain_sn;
 
                     let tenure_begin = get_epoch_time_ms();
                     fault_injection_long_tenure();
@@ -1209,8 +1207,8 @@ impl StacksNode {
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_file_path(),
             true,
-            config.burnchain.chain_id,
-            burnchain.network_id,
+            config.node.chain_id,
+            config.burnchain.network_id,
             Some(node_privkey),
             config.connection_options.private_key_lifetime.clone(),
             PeerAddress::from_socketaddr(&p2p_addr),
@@ -1295,7 +1293,7 @@ impl StacksNode {
 
         let _ = MemPoolDB::open(
             config.is_mainnet(),
-            config.burnchain.chain_id,
+            config.node.chain_id,
             &config.get_chainstate_path_str(),
             cost_estimator,
             metric,
@@ -1733,7 +1731,7 @@ impl StacksNode {
             keychain,
             coinbase_nonce,
             config.is_mainnet(),
-            config.burnchain.chain_id,
+            config.node.chain_id,
         );
 
         // find the longest microblock tail we can build off of
@@ -1889,6 +1887,7 @@ impl StacksNode {
 
         // collect required contents for commit
         let committed_block_hash = anchored_block.block_hash();
+        let target_burn_hash = burn_block.burn_header_hash.clone();
         let withdrawal_merkle_root = anchored_block.header.withdrawal_merkle_root;
 
         let required_signatures = bitcoin_controller.commit_required_signatures();
@@ -1952,6 +1951,7 @@ impl StacksNode {
 
         let res = bitcoin_controller.submit_commit(
             committed_block_hash,
+            target_burn_hash,
             withdrawal_merkle_root,
             signatures,
             &mut op_signer,

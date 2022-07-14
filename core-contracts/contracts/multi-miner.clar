@@ -56,9 +56,9 @@
          (ok true)))
 
 ;; Remove this function in 2.1
-(define-private (to-consensus-buff (block-data { block: (buff 32), withdrawal-root: (buff 32), multi-contract: principal })) (ok 0x00))
+(define-private (to-consensus-buff (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32), multi-contract: principal })) (ok 0x00))
 
-(define-private (make-block-commit-hash (block-data { block: (buff 32), withdrawal-root: (buff 32) }))
+(define-private (make-block-commit-hash (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32) }))
     (let ((data-buff (unwrap-panic (to-consensus-buff (merge block-data { multi-contract: CONTRACT_ADDRESS }))))
           (data-hash (sha256 data-buff))
           ;; in 2.0, this is a constant: 0xe2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9
@@ -75,7 +75,7 @@
                               signers: (unwrap-panic (as-max-len? (append (get signers prior-okay) curr-signer) u9)) }))
         prior-err (err prior-err)))
 
-(define-public (commit-block  (block-data { block: (buff 32), withdrawal-root: (buff 32) })
+(define-public (commit-block  (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32) })
                               (signatures (list 9 (buff 65))))
     (let ((block-data-hash (make-block-commit-hash block-data))
           (signer-principals (try! (fold verify-sign-helper signatures (ok { block-hash: block-data-hash, signers: (list) })))))
@@ -84,4 +84,4 @@
          ;; check that we have enough signatures
          (try! (check-miners (append (get signers signer-principals) tx-sender)))
          ;; execute the block commit
-         (as-contract (contract-call? .hyperchains commit-block (get block block-data) (get withdrawal-root block-data)))))
+         (as-contract (contract-call? .hyperchains commit-block (get block block-data) (get target-tip block-data) (get withdrawal-root block-data)))))

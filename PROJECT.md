@@ -1,4 +1,4 @@
-# Subnet Project
+# Hyperchains Project
 
 Hiro is proposing and planning to implement an iterative approach to
 subnets.

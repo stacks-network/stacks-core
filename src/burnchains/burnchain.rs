@@ -189,27 +189,26 @@ impl BurnchainBlock {
 impl Burnchain {
     /// Creates a burnchain using default values chosen based on chain and network.
     pub fn new(working_dir: &str, chain_name: &str) -> Result<Burnchain, burnchain_error> {
-        let network_name = "hyperchain";
-        let (params, pox_constants, peer_version) = match (chain_name, network_name) {
-            ("mockstack", "hyperchain") => (
+        let (params, pox_constants, peer_version) = match chain_name {
+            "mockstack" => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
-            ("stacks_layer_1", "hyperchain") => (
+            "stacks_layer_1" => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
-            ("stacks_layer_1::mainnet", "hyperchain") => (
+            "stacks_layer_1::mainnet" => (
                 BurnchainParameters::hyperchain_mocknet(),
                 PoxConstants::mainnet_default(),
                 PEER_VERSION_MAINNET,
             ),
-            (_, _) => {
+            _ => {
                 warn!(
-                    "Burnchain parameters not supported. chain_name: {}, network_name: {}",
-                    &chain_name, &network_name
+                    "Burnchain parameters not supported. chain_name: {}",
+                    &chain_name,
                 );
                 return Err(burnchain_error::UnsupportedBurnchain);
             }
@@ -218,8 +217,7 @@ impl Burnchain {
         Ok(Burnchain {
             peer_version,
             network_id: params.network_id,
-            chain_name: params.chain_name.clone(),
-            network_name: params.network_name.clone(),
+            chain_id: params.chain_id.clone(),
             working_dir: working_dir.into(),
             consensus_hash_lifetime: params.consensus_hash_lifetime,
             stable_confirmations: params.stable_confirmations,

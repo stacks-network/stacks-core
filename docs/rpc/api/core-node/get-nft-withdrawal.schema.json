@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "GET request for NFT withdrawal data",
+  "title": "WithdrawalNftResponse",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["withdrawal_root", "withdrawal_leaf_hash", "sibling_hashes"],
+  "properties": {
+    "withdrawal_root": {
+      "type": "string"
+    },
+    "withdrawal_leaf_hash": {
+      "type": "string"
+    },
+    "sibling_hashes": {
+      "type": "string"
+    }
+  }
+}

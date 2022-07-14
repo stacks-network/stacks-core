@@ -25,3 +25,7 @@ depends_on = ["nft-trait-standard", "ft-trait-standard"]
 [contracts.multi-miner]
 path = "contracts/multi-miner.clar"
 depends_on = ["hyperchains"]
+
+[contracts.test-helpers]
+path = "contracts/helper/test-helpers.clar"
+depends_on = []

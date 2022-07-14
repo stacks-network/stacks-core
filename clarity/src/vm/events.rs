@@ -238,12 +238,14 @@ pub struct STXWithdrawEventData {
 }
 
 impl STXWithdrawEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
-        json!({
+    /// Serialize to a JSON value. This method fails to serialize if
+    /// `withdrawal_id` is not set, returning `None`
+    pub fn json_serialize(&self) -> Option<serde_json::Value> {
+        Some(json!({
             "sender": self.sender.to_string(),
             "amount": self.amount.to_string(),
-            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
-        })
+            "withdrawal_id": self.withdrawal_id?,
+        }))
     }
 }
 
@@ -325,25 +327,20 @@ impl NFTBurnEventData {
 pub struct NFTWithdrawEventData {
     pub asset_identifier: AssetIdentifier,
     pub sender: PrincipalData,
-    pub value: Value,
+    pub id: u128,
     pub withdrawal_id: Option<u32>,
 }
 
 impl NFTWithdrawEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
-        let raw_value = {
-            let mut bytes = vec![];
-            self.value.consensus_serialize(&mut bytes).unwrap();
-            let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
-            formatted_bytes
-        };
-        json!({
+    /// Serialize to a JSON value. This method fails to serialize if
+    /// `withdrawal_id` is not set, returning `None`
+    pub fn json_serialize(&self) -> Option<serde_json::Value> {
+        Some(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
-            "value": self.value,
-            "raw_value": format!("0x{}", raw_value.join("")),
-            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
-        })
+            "id": self.id,
+            "withdrawal_id": self.withdrawal_id?,
+        }))
     }
 }
 
@@ -409,13 +406,15 @@ pub struct FTWithdrawEventData {
 }
 
 impl FTWithdrawEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
-        json!({
+    /// Serialize to a JSON value. This method fails to serialize if
+    /// `withdrawal_id` is not set, returning `None`
+    pub fn json_serialize(&self) -> Option<serde_json::Value> {
+        Some(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "amount": format!("{}", self.amount),
-            "withdrawal_id": self.withdrawal_id.unwrap_or(0),
-        })
+            "withdrawal_id": self.withdrawal_id?,
+        }))
     }
 }
 
