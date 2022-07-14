@@ -72,7 +72,9 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
+use clarity::vm::types::{
+    AssetIdentifier, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+};
 use clarity::vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
@@ -120,6 +122,11 @@ lazy_static! {
         *PRINCIPAL_DATA_REGEX
     ))
     .unwrap();
+    static ref PATH_GET_NFT_WITHDRAWAL: Regex = Regex::new(&format!(
+         "^/v2/withdrawal/nft/(?P<block_height>[0-9]+)/(?P<sender>{})/(?P<withdrawal_id>[0-9]+)/(?P<contract_address>{})/(?P<contract_name>{})/(?P<asset_name>{})/(?P<id>[0-9]+)$",
+         *PRINCIPAL_DATA_REGEX,  *STANDARD_PRINCIPAL_REGEX, *CONTRACT_NAME_REGEX, *CLARITY_NAME_REGEX
+     ))
+     .unwrap();
     static ref PATH_GET_ACCOUNT: Regex = Regex::new(&format!(
         "^/v2/accounts/(?P<principal>{})$",
         *PRINCIPAL_DATA_REGEX
@@ -1609,6 +1616,11 @@ impl HttpRequestType {
                 &PATH_GET_STX_WITHDRAWAL,
                 &HttpRequestType::parse_get_stx_withdrawal,
             ),
+            (
+                "GET",
+                &PATH_GET_NFT_WITHDRAWAL,
+                &HttpRequestType::parse_get_nft_withdrawal,
+            ),
         ];
 
         // use url::Url to parse path and query string
@@ -1831,6 +1843,55 @@ impl HttpRequestType {
             sender,
             withdrawal_id,
             amount,
+        })
+    }
+
+    fn parse_get_nft_withdrawal<R: Read>(
+        _protocol: &mut StacksHttp,
+        preamble: &HttpRequestPreamble,
+        captures: &Captures,
+        _query: Option<&str>,
+        _fd: &mut R,
+    ) -> Result<HttpRequestType, net_error> {
+        if preamble.get_content_length() != 0 {
+            return Err(net_error::DeserializeError(
+                "Invalid Http request: expected 0-length body for GetAccount".to_string(),
+            ));
+        }
+
+        let sender = PrincipalData::parse(&captures["sender"]).map_err(|_e| {
+            net_error::DeserializeError("Failed to parse account principal".into())
+        })?;
+
+        let withdraw_block_height = u64::from_str(&captures["block_height"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block height".into()))?;
+
+        let withdrawal_id = u32::from_str(&captures["withdrawal_id"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse block height".into()))?;
+        let contract_addr =
+            StacksAddress::from_string(&captures["contract_address"]).ok_or_else(|| {
+                net_error::DeserializeError("Failed to parse contract address".into())
+            })?;
+        let contract_name = ContractName::try_from(captures["contract_name"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse contract name".into()))?;
+        let asset_name = ClarityName::try_from(captures["asset_name"].to_string())
+            .map_err(|_e| net_error::DeserializeError("Failed to parse data var name".into()))?;
+        let id = u128::from_str(&captures["id"])
+            .map_err(|_e| net_error::DeserializeError("Failed to parse amount".into()))?;
+
+        Ok(HttpRequestType::GetWithdrawalNft {
+            metadata: HttpRequestMetadata::from_preamble(preamble),
+            withdraw_block_height,
+            sender,
+            withdrawal_id,
+            asset_identifier: AssetIdentifier {
+                contract_identifier: QualifiedContractIdentifier::new(
+                    contract_addr.into(),
+                    contract_name,
+                ),
+                asset_name,
+            },
+            id,
         })
     }
 
@@ -2717,6 +2778,7 @@ impl HttpRequestType {
             HttpRequestType::FeeRateEstimate(ref md, _, _) => md,
             HttpRequestType::ClientError(ref md, ..) => md,
             HttpRequestType::GetWithdrawalStx { ref metadata, .. } => metadata,
+            HttpRequestType::GetWithdrawalNft { ref metadata, .. } => metadata,
         }
     }
 
@@ -2748,6 +2810,9 @@ impl HttpRequestType {
             HttpRequestType::FeeRateEstimate(ref mut md, _, _) => md,
             HttpRequestType::ClientError(ref mut md, ..) => md,
             HttpRequestType::GetWithdrawalStx {
+                ref mut metadata, ..
+            } => metadata,
+            HttpRequestType::GetWithdrawalNft {
                 ref mut metadata, ..
             } => metadata,
         }
@@ -2928,6 +2993,23 @@ impl HttpRequestType {
                 "/v2/withdrawal/stx/{}/{}/{}/{}",
                 withdraw_block_height, sender, withdrawal_id, amount
             ),
+            HttpRequestType::GetWithdrawalNft {
+                metadata: _,
+                withdraw_block_height,
+                sender,
+                withdrawal_id,
+                asset_identifier,
+                id,
+            } => format!(
+                "/v2/withdrawal/nft/{}/{}/{}/{}/{}/{}/{}",
+                withdraw_block_height,
+                sender,
+                withdrawal_id,
+                StacksAddress::from(asset_identifier.clone().contract_identifier.issuer),
+                asset_identifier.contract_identifier.name.as_str(),
+                asset_identifier.asset_name.to_string(),
+                id
+            ),
         }
     }
 
@@ -2965,6 +3047,9 @@ impl HttpRequestType {
             HttpRequestType::OptionsPreflight(..) | HttpRequestType::ClientError(..) => "/",
             HttpRequestType::GetWithdrawalStx { .. } => {
                 "/v2/withdrawal/stx/:block-height/:sender/:withdrawal_id/:amount"
+            }
+            HttpRequestType::GetWithdrawalNft { .. } => {
+                "/v2/withdrawal/nft/:block-height/:sender/:withdrawal_id/:contract_address/:contract_name/:asset_name/:id"
             }
         }
     }
@@ -4040,6 +4125,7 @@ impl HttpResponseType {
             HttpResponseType::MemPoolTxs(ref md, ..) => md,
             HttpResponseType::OptionsPreflight(ref md) => md,
             HttpResponseType::TransactionFeeEstimation(ref md, _) => md,
+            HttpResponseType::GetWithdrawal(ref md, _) => md,
             // errors
             HttpResponseType::BadRequestJSON(ref md, _) => md,
             HttpResponseType::BadRequest(ref md, _) => md,
@@ -4050,7 +4136,6 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
-            HttpResponseType::GetWithdrawal(ref md, _) => md,
         }
     }
 
@@ -4462,6 +4547,7 @@ impl MessageSequence for StacksHttpMessage {
                 HttpRequestType::ClientError(..) => "HTTP(ClientError)",
                 HttpRequestType::FeeRateEstimate(_, _, _) => "HTTP(FeeRateEstimate)",
                 HttpRequestType::GetWithdrawalStx { .. } => "HTTP(GetWithdrawalStx)",
+                HttpRequestType::GetWithdrawalNft { .. } => "HTTP(GetWithdrawalNft)",
             },
             StacksHttpMessage::Response(ref res) => match res {
                 HttpResponseType::TokenTransferCost(_, _) => "HTTP(TokenTransferCost)",
