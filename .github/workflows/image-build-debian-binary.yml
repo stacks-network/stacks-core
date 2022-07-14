@@ -1,8 +1,7 @@
 name: Build Linux Binary Image
 
 env:
-  # REPO_OWNER: stacks-network
-  REPO_OWNER: wileyj
+  REPO_OWNER: stacks-network
 
 on:
   workflow_call:
@@ -51,7 +50,6 @@ jobs:
       - name: Set up Docker Buildx
         id: docker_buildx
         uses: docker/setup-buildx-action@v2
-      # extract branch name
       - name: Extract branch name
         id: extract_branch
         run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV

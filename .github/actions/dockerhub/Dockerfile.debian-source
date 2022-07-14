@@ -1,4 +1,3 @@
-
 FROM rust:bullseye as build
 
 ARG STACKS_NODE_VERSION="No Version Info"

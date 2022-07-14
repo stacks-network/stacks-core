@@ -7,10 +7,12 @@
 name: Clippy Checks
 
 # Only run when:
-#   - PRs are (re)opened
+#   - PRs are (re)opened against develop branch
 
 on:
   pull_request:
+    branches:
+      - develop
     types:
       - opened
       - reopened

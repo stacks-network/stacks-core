@@ -5,8 +5,7 @@
 name: Build Linux Source Image
 
 env:
-  # REPO_OWNER: stacks-network
-  REPO_OWNER: wileyj
+  REPO_OWNER: stacks-network
 
 # Only run when:
 #   - workflow is manually triggered

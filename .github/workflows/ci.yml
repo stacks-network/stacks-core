@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  #  Run rustfmt on every run
+  # Run rustfmt on every run
   rustfmt:
     name: Rust Format
     runs-on: ubuntu-latest
@@ -42,9 +42,9 @@ jobs:
         id: rustfmt
         run: cargo fmt --all -- --check
 
-  ## Checked for leaked credentials
-  ## Only run if:
-  ##    - tag is provided -AND- this is a build of the default branch
+  # Checked for leaked credentials
+  # Only run if:
+  #    - tag is provided -AND- this is a build of the default branch
   leaked-cred-test:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Leaked Credential Test
@@ -66,29 +66,27 @@ jobs:
   ###############################################
   # Release Tests
   #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
-  ## Release Tests
-  ## Only run if:
-  ##    - tag is provided
-  ##    - AND
-  ##        - this is the default branch
-  ##        - AND Not a PR
+  # Release Tests
+  # Only run if:
+  #    - tag is provided
+  #    - AND
+  #        - this is the default branch
+  #        - AND Not a PR
   release-tests:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Release Tests
-    # uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
-    uses: ./.github/workflows/stacks-blockchain-tests.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
 
   # Build source binaries
-  ## Only run if:
-  ##    - tag is provided
-  ##    - AND
-  ##        - this is the default branch
-  ##        - AND Not a PR
+  # Only run if:
+  #    - tag is provided
+  #    - AND
+  #        - this is the default branch
+  #        - AND Not a PR
   build-source:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Build Binaries
-    # uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
-    uses: ./.github/workflows/build-source-binary.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
     needs:
       - release-tests
       - rustfmt
@@ -98,17 +96,16 @@ jobs:
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
 
-  ## Create github release with binary archives
-  ## Only run if:
-  ##    - tag is provided
-  ##    - AND
-  ##        - this is the default branch
-  ##        - AND Not a PR
+  # Create github release with binary archives
+  # Only run if:
+  #    - tag is provided
+  #    - AND
+  #        - this is the default branch
+  #        - AND Not a PR
   github-release:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Github Release
-    # uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
-    uses: ./.github/workflows/github-release.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
     needs: build-source
     with:
       tag: ${{ inputs.tag }}
@@ -117,17 +114,16 @@ jobs:
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  ## Create docker alpine images
-  ## Only run if:
-  ##    - tag is provided
-  ##    - AND
-  ##        - this is the default branch
-  ##        - AND Not a PR
+  # Create docker alpine images
+  # Only run if:
+  #    - tag is provided
+  #    - AND
+  #        - this is the default branch
+  #        - AND Not a PR
   docker-alpine:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Alpine (Binary)
-    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
-    uses: ./.github/workflows/image-build-alpine-binary.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -136,17 +132,16 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  ## Create docker debian images
-  ## Only run if:
-  ##    - tag is provided
-  ##    - AND
-  ##        - this is the default branch
-  ##        - AND Not a PR
+  # Create docker debian images
+  # Only run if:
+  #    - tag is provided
+  #    - AND
+  #        - this is the default branch
+  #        - AND Not a PR
   docker-debian:
     if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Debian (Binary)
-    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
-    uses: ./.github/workflows/image-build-debian-binary.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
     needs: github-release
     with:
       tag: ${{ inputs.tag }}
@@ -162,16 +157,15 @@ jobs:
   ###############################################
   # Create docker debian images
   #   Only run if (a tag was NOT passed in) or (we're building a non-master branch which isn't a PR) or (this is a PR with no input tag)
-  ## Only run if:
-  ##    - tag is not provided
-  ##    - OR
-  ##        - non-default branch
-  ##        - AND Not a PR
+  # Only run if:
+  #    - tag is not provided
+  #    - OR
+  #        - non-default branch
+  #        - AND Not a PR
   build-branch:
     if: ${{ inputs.tag == '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Debian (Source)
-    # uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
-    uses: ./.github/workflows/image-build-debian-source.yml
+    uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
     needs:
       - rustfmt
     with:
@@ -181,4 +175,3 @@ jobs:
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-# comment
