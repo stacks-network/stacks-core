@@ -2,9 +2,13 @@ name: CI
 
 # Only run when:
 #   - manually triggered
-#   - PRs are (re)opened
+#   - PR's are (re)opened
+#   - push to master
 
 on:
+  push:
+    branches:
+      - master
   pull_request:
   workflow_dispatch:
     inputs:
