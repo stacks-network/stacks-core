@@ -7,19 +7,11 @@ ARG GIT_COMMIT='No Commit Info'
 WORKDIR /src
 
 COPY . .
-
 RUN apk add --no-cache musl-dev
-
 RUN mkdir /out
-
 RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
-RUN cd testnet/puppet-chain && cargo build --release
-
 RUN cp target/release/stacks-node /out
-RUN cp target/release/puppet-chain /out
 
-FROM alpine
-
-COPY --from=build /out/ /bin/
-
+FROM --platform=${TARGETPLATFORM} alpine
+COPY --from=build /out/stacks-node /bin/
 CMD ["stacks-node", "mainnet"]
