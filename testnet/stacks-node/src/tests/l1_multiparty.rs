@@ -163,6 +163,8 @@ fn l1_multiparty_1_of_n_integration_test() {
 }
 
 #[test]
+// Test that a 2-of-2 multiparty mining setup can make
+//  simple progress.
 fn l1_multiparty_2_of_2_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace l1_integration_test

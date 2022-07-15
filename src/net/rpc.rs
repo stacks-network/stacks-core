@@ -2755,7 +2755,7 @@ impl ConversationHttp {
             HttpRequestType::BlockProposal(_, ref proposal) => {
                 let validator_key = self.connection.options.hyperchain_validator.as_ref();
 
-                // TODO: add sender validation. This method should only
+                // TODO(#135): add sender validation. This method should only
                 //  be sent by the leader: we should not accept proposals
                 //  not signed by the leader
                 ConversationHttp::handle_validate_block_proposal(

@@ -17,7 +17,7 @@ COPY --from=stacks-node /bin/stacks-node /bin/
 COPY . .
 
 RUN cargo build --workspace && \
-    cargo test --workspace --bin=hyperchain-node -- l1_observer_test --test-threads 1
+    cargo test --workspace --bin=hyperchain-node -- l1_ --test-threads 1
 
 # Generate coverage report and upload it to codecov
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
