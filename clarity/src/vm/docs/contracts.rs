@@ -80,15 +80,22 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = vm::ast::build_ast(&contract_id, program, &mut (), ClarityVersion::Clarity2)?
-            .expressions;
+        let parsed = vm::ast::build_ast(
+            &contract_id,
+            program,
+            &mut (),
+            ClarityVersion::latest(),
+            StacksEpochId::latest(),
+        )?
+        .expressions;
         vm::eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
 pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
-    let (_, contract_analysis) = mem_type_check(content, ClarityVersion::Clarity2)
-        .expect("BUG: failed to type check boot contract");
+    let (_, contract_analysis) =
+        mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
+            .expect("BUG: failed to type check boot contract");
 
     let ContractAnalysis {
         public_function_types,

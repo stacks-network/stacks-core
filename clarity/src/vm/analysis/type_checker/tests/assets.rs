@@ -22,9 +22,10 @@ use rstest_reuse::{self, *};
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_assets(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::tests::mem_type_check;
@@ -35,6 +36,7 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
 use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
@@ -117,12 +119,13 @@ const ASSET_NAMES: &str = "(define-constant burn-address 'SP00000000000000000000
          ";
 
 #[apply(test_clarity_versions_assets)]
-fn test_names_tokens_contracts(#[case] version: ClarityVersion) {
+fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS, version).unwrap();
-    let mut names_contract = parse(&names_contract_id, ASSET_NAMES, version).unwrap();
+    let mut tokens_contract =
+        parse(&tokens_contract_id, FIRST_CLASS_TOKENS, version, epoch).unwrap();
+    let mut names_contract = parse(&names_contract_id, ASSET_NAMES, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

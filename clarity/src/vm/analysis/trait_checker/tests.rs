@@ -27,15 +27,24 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_trait_checker(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_trait_checker(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_by_defining_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_by_defining_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -46,9 +55,15 @@ fn test_dynamic_dispatch_by_defining_trait(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -72,7 +87,7 @@ fn test_dynamic_dispatch_by_defining_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion) {
+fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -81,8 +96,8 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion) {
         (define-public (get-1 (x uint)) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let err = db
@@ -98,7 +113,7 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion) {
+fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -108,8 +123,8 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion) {
         (define-public (get-2 (x uint)) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let err = db
@@ -125,15 +140,15 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion) {
+fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 10 uint)) (response uint uint))))";
     let impl_contract = "(impl-trait .defun.trait-1)
         (define-public (get-1 (x (list 5 uint))) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let err = db
@@ -149,15 +164,15 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion) {
+fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 5 uint)) (response uint uint))))";
     let impl_contract = "(impl-trait .defun.trait-1)
         (define-public (get-1 (x (list 15 uint))) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
@@ -168,15 +183,15 @@ fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion) {
+fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 ((list 5 uint)) (response uint uint))))";
     let impl_contract = "(impl-trait .defun.trait-1)
         (define-public (get-1 (x (list 5 uint))) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
@@ -187,7 +202,7 @@ fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_complete_impl_trait(#[case] version: ClarityVersion) {
+fn test_complete_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -198,8 +213,8 @@ fn test_complete_impl_trait(#[case] version: ClarityVersion) {
         (define-public (get-3 (x uint)) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
@@ -210,7 +225,10 @@ fn test_complete_impl_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_complete_impl_trait_mixing_readonly(#[case] version: ClarityVersion) {
+fn test_complete_impl_trait_mixing_readonly(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -221,8 +239,8 @@ fn test_complete_impl_trait_mixing_readonly(#[case] version: ClarityVersion) {
         (define-read-only (get-3 (x uint)) (ok u1))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     db.execute(|db| {
@@ -233,7 +251,10 @@ fn test_complete_impl_trait_mixing_readonly(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_get_trait_reference_from_tuple(#[case] version: ClarityVersion) {
+fn test_get_trait_reference_from_tuple(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (wrapped-contract (tuple (contract <trait-1>))))
@@ -244,9 +265,15 @@ fn test_get_trait_reference_from_tuple(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -275,7 +302,10 @@ fn test_get_trait_reference_from_tuple(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_by_defining_and_impl_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_by_defining_and_impl_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (impl-trait .dispatching-contract.trait-1)
@@ -286,8 +316,13 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(#[case] version: ClarityVers
     let dispatching_contract_id =
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -309,7 +344,10 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(#[case] version: ClarityVers
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_define_map_storing_trait_references(#[case] version: ClarityVersion) {
+fn test_define_map_storing_trait_references(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-map kv-store { key: uint } { value: <trait-1> })";
@@ -322,6 +360,7 @@ fn test_define_map_storing_trait_references(#[case] version: ClarityVersion) {
         dispatching_contract_src,
         &mut (),
         version,
+        epoch,
     )
     .unwrap_err();
 
@@ -332,7 +371,7 @@ fn test_define_map_storing_trait_references(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion) {
+fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (<trait-2>) (response uint uint))))
         (define-trait trait-2 (
@@ -346,6 +385,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion) {
         dispatching_contract_src,
         &mut (),
         version,
+        epoch,
     )
     .unwrap_err();
     match err.err {
@@ -355,7 +395,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion) {
+fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let dispatching_contract_src = "(use-trait trait-2 .target-contract.trait-2)
         (define-trait trait-1 (
             (get-1 (<trait-2>) (response uint uint))))";
@@ -367,9 +407,15 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -398,7 +444,10 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_unknown_method(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_unknown_method(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -409,9 +458,15 @@ fn test_dynamic_dispatch_unknown_method(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -440,7 +495,10 @@ fn test_dynamic_dispatch_unknown_method(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_nested_literal_implicitly_compliant(#[case] version: ClarityVersion) {
+fn test_nested_literal_implicitly_compliant(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -455,13 +513,20 @@ fn test_nested_literal_implicitly_compliant(#[case] version: ClarityVersion) {
     let nested_target_contract_id =
         QualifiedContractIdentifier::local("nested-target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut nested_target_contract = parse(
         &nested_target_contract_id,
         nested_target_contract_src,
         version,
+        epoch,
     )
     .unwrap();
 
@@ -495,7 +560,10 @@ fn test_nested_literal_implicitly_compliant(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_passing_trait_reference_instances(#[case] version: ClarityVersion) {
+fn test_passing_trait_reference_instances(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -506,8 +574,13 @@ fn test_passing_trait_reference_instances(#[case] version: ClarityVersion) {
     let dispatching_contract_id =
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -524,7 +597,10 @@ fn test_passing_trait_reference_instances(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_passing_nested_trait_reference_instances(#[case] version: ClarityVersion) {
+fn test_passing_nested_trait_reference_instances(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (value bool) (contract <trait-1>))
@@ -536,8 +612,13 @@ fn test_passing_nested_trait_reference_instances(#[case] version: ClarityVersion
     let dispatching_contract_id =
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -554,7 +635,10 @@ fn test_passing_nested_trait_reference_instances(#[case] version: ClarityVersion
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_collision_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_collision_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_src = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -572,6 +656,7 @@ fn test_dynamic_dispatch_collision_trait(#[case] version: ClarityVersion) {
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
     let err = build_ast(
@@ -579,6 +664,7 @@ fn test_dynamic_dispatch_collision_trait(#[case] version: ClarityVersion) {
         dispatching_contract_src,
         &mut (),
         version,
+        epoch,
     )
     .unwrap_err();
     match err.err {
@@ -588,7 +674,10 @@ fn test_dynamic_dispatch_collision_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_collision_defined_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_collision_defined_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-trait trait-1 (
@@ -604,6 +693,7 @@ fn test_dynamic_dispatch_collision_defined_trait(#[case] version: ClarityVersion
         dispatching_contract_src,
         &mut (),
         version,
+        epoch,
     )
     .unwrap_err();
     match err.err {
@@ -613,7 +703,10 @@ fn test_dynamic_dispatch_collision_defined_trait(#[case] version: ClarityVersion
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_collision_imported_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_collision_imported_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
          (define-trait trait-2 (
@@ -632,6 +725,7 @@ fn test_dynamic_dispatch_collision_imported_trait(#[case] version: ClarityVersio
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
     let err = build_ast(
@@ -639,6 +733,7 @@ fn test_dynamic_dispatch_collision_imported_trait(#[case] version: ClarityVersio
         dispatching_contract_src,
         &mut (),
         version,
+        epoch,
     )
     .unwrap_err();
     match err.err {
@@ -648,7 +743,10 @@ fn test_dynamic_dispatch_collision_imported_trait(#[case] version: ClarityVersio
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_importing_non_existant_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_importing_non_existant_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_src = "(use-trait trait-1 .contract-defining-trait.trait-2)
@@ -667,11 +765,18 @@ fn test_dynamic_dispatch_importing_non_existant_trait(#[case] version: ClarityVe
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -707,7 +812,10 @@ fn test_dynamic_dispatch_importing_non_existant_trait(#[case] version: ClarityVe
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_importing_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_importing_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_src = "(use-trait trait-1 .contract-defining-trait.trait-1)
@@ -726,11 +834,18 @@ fn test_dynamic_dispatch_importing_trait(#[case] version: ClarityVersion) {
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -761,7 +876,10 @@ fn test_dynamic_dispatch_importing_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_including_nested_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_including_nested_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_nested_trait_src = "(define-trait trait-a (
         (get-a (uint) (response uint uint))))";
     let contract_defining_trait_src = "(use-trait trait-Z .contract-defining-nested-trait.trait-a)
@@ -790,21 +908,30 @@ fn test_dynamic_dispatch_including_nested_trait(#[case] version: ClarityVersion)
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut contract_defining_nested_trait = parse(
         &contract_defining_nested_trait_id,
         contract_defining_nested_trait_src,
         version,
+        epoch,
     )
     .unwrap();
     let mut target_nested_contract = parse(
         &target_nested_contract_id,
         target_nested_contract_src,
         version,
+        epoch,
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
@@ -851,7 +978,10 @@ fn test_dynamic_dispatch_including_nested_trait(#[case] version: ClarityVersion)
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_including_wrong_nested_trait(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_including_wrong_nested_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let contract_defining_nested_trait_src = "(define-trait trait-a (
         (get-a (uint) (response uint uint))))";
     let contract_defining_trait_src = "(use-trait trait-a .contract-defining-nested-trait.trait-a)
@@ -880,21 +1010,30 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(#[case] version: ClarityVe
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut contract_defining_nested_trait = parse(
         &contract_defining_nested_trait_id,
         contract_defining_nested_trait_src,
         version,
+        epoch,
     )
     .unwrap();
     let mut target_nested_contract = parse(
         &target_nested_contract_id,
         target_nested_contract_src,
         version,
+        epoch,
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
@@ -949,7 +1088,10 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(#[case] version: ClarityVe
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_mismatched_args(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_mismatched_args(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (int) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -961,9 +1103,15 @@ fn test_dynamic_dispatch_mismatched_args(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -992,7 +1140,10 @@ fn test_dynamic_dispatch_mismatched_args(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_dynamic_dispatch_mismatched_returns(#[case] version: ClarityVersion) {
+fn test_dynamic_dispatch_mismatched_returns(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1004,9 +1155,15 @@ fn test_dynamic_dispatch_mismatched_returns(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1035,7 +1192,7 @@ fn test_dynamic_dispatch_mismatched_returns(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_bad_call_with_trait(#[case] version: ClarityVersion) {
+fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -1051,10 +1208,10 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion) {
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let call_contract_id = QualifiedContractIdentifier::local("call").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c2 = parse(&disp_contract_id, dispatching_contract, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
-    let mut c4 = parse(&call_contract_id, caller_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c2 = parse(&disp_contract_id, dispatching_contract, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
+    let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
     let err = db
@@ -1072,7 +1229,7 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_good_call_with_trait(#[case] version: ClarityVersion) {
+fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-1 .defun.trait-1)
@@ -1086,10 +1243,10 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion) {
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let call_contract_id = QualifiedContractIdentifier::local("call").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c2 = parse(&disp_contract_id, dispatching_contract, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
-    let mut c4 = parse(&call_contract_id, caller_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c2 = parse(&disp_contract_id, dispatching_contract, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
+    let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1105,7 +1262,7 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_good_call_2_with_trait(#[case] version: ClarityVersion) {
+fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-2 .defun.trait-1)
@@ -1120,10 +1277,10 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion) {
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
     let call_contract_id = QualifiedContractIdentifier::local("call").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c2 = parse(&disp_contract_id, dispatching_contract, version).unwrap();
-    let mut c3 = parse(&impl_contract_id, impl_contract, version).unwrap();
-    let mut c4 = parse(&call_contract_id, caller_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c2 = parse(&disp_contract_id, dispatching_contract, version, epoch).unwrap();
+    let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
+    let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1141,6 +1298,7 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion) {
 #[apply(test_clarity_versions_trait_checker)]
 fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functions(
     #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
 ) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1161,11 +1319,18 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1198,6 +1363,7 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
 #[apply(test_clarity_versions_trait_checker)]
 fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions(
     #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
 ) {
     let contract_defining_trait_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
@@ -1219,11 +1385,18 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
         &contract_defining_trait_id,
         contract_defining_trait_src,
         version,
+        epoch,
     )
     .unwrap();
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1259,7 +1432,7 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_contract_of_good(#[case] version: ClarityVersion) {
+fn test_contract_of_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract = "(use-trait trait-2 .defun.trait-1)
@@ -1267,8 +1440,8 @@ fn test_contract_of_good(#[case] version: ClarityVersion) {
             (ok (contract-of contract)))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
-    let mut c1 = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c2 = parse(&disp_contract_id, dispatching_contract, version).unwrap();
+    let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c2 = parse(&disp_contract_id, dispatching_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1280,7 +1453,7 @@ fn test_contract_of_good(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_contract_of_wrong_type(#[case] version: ClarityVersion) {
+fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract_defining_trait = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))";
     let dispatching_contract_principal = "(use-trait trait-2 .defun.trait-1)
@@ -1306,15 +1479,26 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion) {
             (ok (contract-of contract)))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
-    let mut c_trait = parse(&def_contract_id, contract_defining_trait, version).unwrap();
-    let mut c_principal =
-        parse(&disp_contract_id, dispatching_contract_principal, version).unwrap();
-    let mut c_int = parse(&disp_contract_id, dispatching_contract_int, version).unwrap();
-    let c_uint = parse(&disp_contract_id, dispatching_contract_uint, version).unwrap();
-    let c_bool = parse(&disp_contract_id, dispatching_contract_bool, version).unwrap();
-    let c_list = parse(&disp_contract_id, dispatching_contract_list, version).unwrap();
-    let c_buff = parse(&disp_contract_id, dispatching_contract_buff, version).unwrap();
-    let c_tuple = parse(&disp_contract_id, dispatching_contract_tuple, version).unwrap();
+    let mut c_trait = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
+    let mut c_principal = parse(
+        &disp_contract_id,
+        dispatching_contract_principal,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut c_int = parse(&disp_contract_id, dispatching_contract_int, version, epoch).unwrap();
+    let c_uint = parse(&disp_contract_id, dispatching_contract_uint, version, epoch).unwrap();
+    let c_bool = parse(&disp_contract_id, dispatching_contract_bool, version, epoch).unwrap();
+    let c_list = parse(&disp_contract_id, dispatching_contract_list, version, epoch).unwrap();
+    let c_buff = parse(&disp_contract_id, dispatching_contract_buff, version, epoch).unwrap();
+    let c_tuple = parse(
+        &disp_contract_id,
+        dispatching_contract_tuple,
+        version,
+        epoch,
+    )
+    .unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1391,7 +1575,10 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_return_trait_with_contract_of(#[case] version: ClarityVersion) {
+fn test_return_trait_with_contract_of(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1404,9 +1591,15 @@ fn test_return_trait_with_contract_of(#[case] version: ClarityVersion) {
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1430,7 +1623,10 @@ fn test_return_trait_with_contract_of(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_return_trait_with_contract_of_wrapped_in_begin(#[case] version: ClarityVersion) {
+fn test_return_trait_with_contract_of_wrapped_in_begin(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1443,9 +1639,15 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(#[case] version: ClarityV
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1469,7 +1671,10 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(#[case] version: ClarityV
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_return_trait_with_contract_of_wrapped_in_let(#[case] version: ClarityVersion) {
+fn test_return_trait_with_contract_of_wrapped_in_let(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
     let dispatching_contract_src = "(define-trait trait-1 (
             (get-1 (uint) (response uint uint))))
         (define-public (wrapped-get-1 (contract <trait-1>))
@@ -1482,9 +1687,15 @@ fn test_return_trait_with_contract_of_wrapped_in_let(#[case] version: ClarityVer
         QualifiedContractIdentifier::local("dispatching-contract").unwrap();
     let target_contract_id = QualifiedContractIdentifier::local("target-contract").unwrap();
 
-    let mut dispatching_contract =
-        parse(&dispatching_contract_id, dispatching_contract_src, version).unwrap();
-    let mut target_contract = parse(&target_contract_id, target_contract_src, version).unwrap();
+    let mut dispatching_contract = parse(
+        &dispatching_contract_id,
+        dispatching_contract_src,
+        version,
+        epoch,
+    )
+    .unwrap();
+    let mut target_contract =
+        parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -1508,7 +1719,7 @@ fn test_return_trait_with_contract_of_wrapped_in_let(#[case] version: ClarityVer
 }
 
 #[apply(test_clarity_versions_trait_checker)]
-fn test_trait_contract_not_found(#[case] version: ClarityVersion) {
+fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let trait_contract_src = "(define-trait my-trait
         ((hello (int) (response uint uint)))
     )
@@ -1525,8 +1736,8 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion) {
     let trait_contract_id = QualifiedContractIdentifier::local("trait-contract").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("impl-contract").unwrap();
 
-    let mut impl_contract = parse(&impl_contract_id, impl_contract_src, version).unwrap();
-    let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version).unwrap();
+    let mut impl_contract = parse(&impl_contract_id, impl_contract_src, version, epoch).unwrap();
+    let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

@@ -2414,6 +2414,7 @@ mod test {
                 &whole_contract,
                 &mut (),
                 ClarityVersion::latest(),
+                StacksEpochId::latest(),
             )
             .unwrap()
             .expressions;
@@ -2457,6 +2458,7 @@ mod test {
                             segment,
                             &mut (),
                             ClarityVersion::latest(),
+                            StacksEpochId::latest(),
                         )
                         .unwrap()
                         .expressions;
@@ -2513,6 +2515,7 @@ mod test {
                         &token_contract_content,
                         &mut (),
                         ClarityVersion::latest(),
+                        StacksEpochId::latest(),
                     )
                     .unwrap()
                     .expressions;
@@ -2534,6 +2537,7 @@ mod test {
                         super::DEFINE_TRAIT_API.example,
                         &mut (),
                         ClarityVersion::latest(),
+                        StacksEpochId::latest(),
                     )
                     .unwrap()
                     .expressions;
