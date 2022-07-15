@@ -183,6 +183,7 @@ fn l1_multiparty_2_of_2_integration_test() {
 
     let mut follower_config =
         super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_3, &*MOCKNET_PRIVATE_KEY_1);
+    follower_config.node.chain_id = leader_config.node.chain_id;
     let follower_account = to_addr(&MOCKNET_PRIVATE_KEY_3);
     follower_config.connection_options.hyperchain_validator =
         follower_config.node.mining_key.clone();
