@@ -175,7 +175,7 @@ impl PoxSyncWatchdog {
         should_keep_running: Arc<AtomicBool>,
     ) -> Result<PoxSyncWatchdog, String> {
         let mainnet = config.is_mainnet();
-        let chain_id = config.burnchain.chain_id;
+        let chain_id = config.node.chain_id;
         let chainstate_path = config.get_chainstate_path_str();
         let burnchain_poll_time = config.burnchain.poll_time_secs;
         let download_timeout = config.connection_options.timeout;

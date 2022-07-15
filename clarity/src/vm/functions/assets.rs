@@ -61,6 +61,7 @@ enum BurnTokenErrorCodes {
 enum WithdrawAssetErrorCodes {
     NOT_OWNED_BY = 1,
     DOES_NOT_EXIST = 3,
+    ASSET_WITHDRAWAL_PROHIBITED = 4,
 }
 enum WithdrawTokenErrorCodes {
     NOT_ENOUGH_BALANCE = 1,
@@ -1213,6 +1214,12 @@ pub fn special_withdraw_asset(
             return clarity_ecode!(WithdrawAssetErrorCodes::NOT_OWNED_BY);
         }
 
+        let id = if let Value::UInt(id) = asset {
+            id
+        } else {
+            return clarity_ecode!(WithdrawAssetErrorCodes::ASSET_WITHDRAWAL_PROHIBITED);
+        };
+
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(asset_size)?;
 
@@ -1234,7 +1241,7 @@ pub fn special_withdraw_asset(
             contract_identifier: env.contract_context.contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
-        env.register_nft_withdraw_event(sender_principal.clone(), asset, asset_identifier)?;
+        env.register_nft_withdraw_event(sender_principal.clone(), id, asset_identifier)?;
 
         Ok(Value::okay_true())
     } else {

@@ -1312,13 +1312,13 @@ impl<'a, 'b> Environment<'a, 'b> {
     pub fn register_nft_withdraw_event(
         &mut self,
         sender: PrincipalData,
-        value: Value,
+        id: u128,
         asset_identifier: AssetIdentifier,
     ) -> Result<()> {
         let event_data = NFTWithdrawEventData {
             sender,
             asset_identifier,
-            value,
+            id,
             withdrawal_id: None,
         };
 

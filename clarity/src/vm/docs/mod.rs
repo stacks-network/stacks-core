@@ -1592,16 +1592,24 @@ able to verify this withdraw when it processes the withdrawal of this asset.
 The supplied `asset-identifier` must be of the same type specified in
 that definition.
 
+Currently, it is only possible to withdraw NFTs that have type uint (NFTs that have the potential to
+be SIP-009 compliant).
+
 On a successful withdraw, it returns `(ok true)`. In the event of an unsuccessful withdraw it
 returns one of the following error codes:
 
 `(err u1)` -- `sender` does not own the specified asset
 `(err u3)` -- the asset specified by `asset-identifier` does not exist
+`(err u4)` -- the asset specified by `asset-identifier` does not have type uint.
 ",
     example: "
+(define-non-fungible-token foo uint)
+(nft-mint? foo u7 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(nft-withdraw? foo u7 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+
 (define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-(nft-withdraw? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
+(nft-withdraw? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u4)
 ",
 };
 

@@ -13,9 +13,9 @@ use stacks::chainstate::stacks::miner::Proposal;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
 use super::commitment::{Layer1Committer, MultiPartyCommitter};
 use super::db_indexer::DBBurnchainIndexer;
@@ -263,6 +263,7 @@ impl BurnchainController for L1Controller {
     fn submit_commit(
         &mut self,
         committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
         signatures: Vec<super::ClaritySignature>,
         op_signer: &mut BurnchainOpSigner,
@@ -270,6 +271,7 @@ impl BurnchainController for L1Controller {
     ) -> Result<Txid, Error> {
         let tx = self.committer.make_commit_tx(
             committed_block_hash,
+            target_tip,
             withdrawal_merkle_root,
             signatures,
             attempt,

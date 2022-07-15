@@ -14,6 +14,7 @@ use crate::tests::l1_observer_test::{
 };
 use crate::tests::neon_integrations::submit_tx;
 use crate::tests::to_addr;
+use stacks::core::LAYER_1_CHAIN_ID_TESTNET;
 
 use stacks::burnchains::Burnchain;
 
@@ -67,6 +68,7 @@ pub fn publish_multiparty_contract_to_l1(
 
     let miner_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &contract.name.to_string(),

@@ -4,7 +4,8 @@ use std::thread::{self, JoinHandle};
 
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::tests::neon_integrations::{
-    filter_map_events, get_account, get_withdrawal_entry, submit_tx, test_observer,
+    filter_map_events, get_account, get_nft_withdrawal_entry, get_withdrawal_entry, submit_tx,
+    test_observer,
 };
 use crate::tests::{make_contract_call, make_contract_publish, to_addr};
 use crate::{neon, Config};
@@ -31,6 +32,7 @@ use stacks::clarity_vm::withdrawal::{
     convert_withdrawal_key_to_bytes, create_withdrawal_merkle_tree, generate_key_from_event,
 };
 use stacks::codec::StacksMessageCodec;
+use stacks::core::LAYER_1_CHAIN_ID_TESTNET;
 use stacks::net::CallReadOnlyRequestBody;
 
 use stacks::util::hash::hex_bytes;
@@ -247,6 +249,7 @@ pub fn publish_hc_contracts_to_l1(mut l1_nonce: u64, config: &Config, miner: Pri
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &ft_trait_name,
@@ -258,6 +261,7 @@ pub fn publish_hc_contracts_to_l1(mut l1_nonce: u64, config: &Config, miner: Pri
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &nft_trait_name,
@@ -277,6 +281,7 @@ pub fn publish_hc_contracts_to_l1(mut l1_nonce: u64, config: &Config, miner: Pri
 
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -441,6 +446,13 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let l2_rpc_origin = format!("http://{}", &config.node.rpc_bind);
     let mut l2_nonce = 0;
 
+    config.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    test_observer::spawn();
+
     let mut run_loop = neon::RunLoop::new(config.clone());
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
@@ -462,6 +474,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &ft_trait_name,
@@ -472,6 +485,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &nft_trait_name,
@@ -482,6 +496,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let ft_content = include_str!("../../../../core-contracts/contracts/helper/simple-ft.clar");
     let ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "simple-ft",
@@ -493,6 +508,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     let nft_content = include_str!("../../../../core-contracts/contracts/helper/simple-nft.clar");
     let nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "simple-nft",
@@ -514,6 +530,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -539,8 +556,11 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
+    wait_for_next_stacks_block(&sortition_db);
+
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
@@ -575,6 +595,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     ";
     let hyperchain_ft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         "simple-ft",
@@ -601,6 +622,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     ";
     let hyperchain_nft_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         "simple-nft",
@@ -613,6 +635,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Mint a ft-token for user on L1 chain (amount = 1)
     let l1_mint_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -624,6 +647,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Mint a nft-token for user on L1 chain (ID = 1)
     let l1_mint_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -633,10 +657,24 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     );
     l1_nonce += 1;
 
+    // Setup hyperchains contract
+    let hc_setup_tx = make_contract_call(
+        &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
+        l1_nonce,
+        1_000_000,
+        &user_addr,
+        config.burnchain.contract_identifier.name.as_str(),
+        "setup-allowed-contracts",
+        &[],
+    );
+    l1_nonce += 1;
+
     submit_tx(&l2_rpc_origin, &hyperchain_ft_publish);
     submit_tx(&l2_rpc_origin, &hyperchain_nft_publish);
     submit_tx(l1_rpc_origin, &l1_mint_ft_tx);
     submit_tx(l1_rpc_origin, &l1_mint_nft_tx);
+    submit_tx(l1_rpc_origin, &hc_setup_tx);
 
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
@@ -676,6 +714,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
 
     let l1_deposit_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -692,6 +731,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     l1_nonce += 1;
     let l1_deposit_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -810,6 +850,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Withdraw the ft on the L2
     let l2_withdraw_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -821,6 +862,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     // Withdraw the nft on the L2
     let l2_withdraw_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -829,9 +871,9 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         &[Value::UInt(1), Value::Principal(user_addr.into())],
     );
     l2_nonce += 1;
-    // Withdraw ft-token from hyperchains contract on L1
+    // Withdraw ft-token from hyperchains contract on L2
     submit_tx(&l2_rpc_origin, &l2_withdraw_ft_tx);
-    // Withdraw nft-token from hyperchains contract on L1
+    // Withdraw nft-token from hyperchains contract on L2
     submit_tx(&l2_rpc_origin, &l2_withdraw_nft_tx);
 
     // Sleep to give the run loop time to mine a block
@@ -928,6 +970,39 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         Value::some(Value::Principal(user_addr.into())).unwrap()
     );
 
+    let block_data = test_observer::get_blocks();
+    let mut withdraw_events = filter_map_events(&block_data, |height, event| {
+        let ev_type = event.get("type").unwrap().as_str().unwrap();
+        if ev_type == "nft_withdraw_event" {
+            Some((height, event.get("nft_withdraw_event").unwrap().clone()))
+        } else {
+            None
+        }
+    });
+    assert_eq!(withdraw_events.len(), 1);
+    let (withdrawal_height, withdrawal_json) = withdraw_events.pop().unwrap();
+
+    let withdrawal_id = withdrawal_json
+        .get("withdrawal_id")
+        .unwrap()
+        .as_u64()
+        .unwrap();
+
+    let nft_withdrawal_entry = get_nft_withdrawal_entry(
+        &l2_rpc_origin,
+        withdrawal_height,
+        &user_addr,
+        withdrawal_id,
+        AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::new(
+                user_addr.into(),
+                ContractName::from("simple-nft"),
+            ),
+            asset_name: ClarityName::from("nft-token"),
+        },
+        1,
+    );
+
     // Create the withdrawal merkle tree by mocking the ft & nft withdraw event (if the root hash of
     // this constructed merkle tree is not identical to the root hash published by the HC node,
     // then the test will fail).
@@ -961,7 +1036,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
                 asset_name: ClarityName::from("nft-token"),
             },
             sender: user_addr.into(),
-            value: Value::UInt(1),
+            id: 1,
             withdrawal_id: None,
         }));
     let withdrawal_receipt = StacksTransactionReceipt {
@@ -980,10 +1055,11 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         tx_index: 0,
     };
     let mut receipts = vec![withdrawal_receipt];
-    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, 0);
+    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, withdrawal_height);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
-    let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 0, 0).unwrap();
+    let ft_withdrawal_key =
+        generate_key_from_event(&mut ft_withdraw_event, 0, withdrawal_height).unwrap();
     let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
     let ft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice())
@@ -991,7 +1067,8 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
             .to_vec();
     let ft_path = withdrawal_tree.path(&ft_withdrawal_key_bytes).unwrap();
 
-    let nft_withdrawal_key = generate_key_from_event(&mut nft_withdraw_event, 1, 0).unwrap();
+    let nft_withdrawal_key =
+        generate_key_from_event(&mut nft_withdraw_event, 1, withdrawal_height).unwrap();
     let nft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&nft_withdrawal_key);
     let nft_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice())
@@ -1024,10 +1101,28 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         nft_sib_data.push(sib_tuple);
     }
 
+    let root_hash_val = Value::buff_from(root_hash.clone()).unwrap();
+    let leaf_hash_val = Value::buff_from(nft_withdrawal_leaf_hash.clone()).unwrap();
+    let siblings_val = Value::list_from(nft_sib_data.clone()).unwrap();
+
+    assert_eq!(
+        &root_hash_val, &nft_withdrawal_entry.root_hash,
+        "Root hash should match value returned via RPC"
+    );
+    assert_eq!(
+        &leaf_hash_val, &nft_withdrawal_entry.leaf_hash,
+        "Leaf hash should match value returned via RPC"
+    );
+    assert_eq!(
+        &siblings_val, &nft_withdrawal_entry.siblings,
+        "Sibling hashes should match value returned via RPC"
+    );
+
     // TODO: call withdraw from unauthorized principal once leaf verification is added to the HC contract
 
     let l1_withdraw_ft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1046,6 +1141,7 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     l1_nonce += 1;
     let l1_withdraw_nft_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1183,6 +1279,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/ft-trait-standard.clar");
     let ft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "ft-trait-standard",
@@ -1194,6 +1291,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         include_str!("../../../../core-contracts/contracts/helper/nft-trait-standard.clar");
     let nft_trait_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         "nft-trait-standard",
@@ -1211,6 +1309,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         );
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
@@ -1250,6 +1349,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     ";
     let hyperchain_stx_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         default_fee,
         "simple-stx",
@@ -1260,6 +1360,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Setup hyperchains contract
     let hc_setup_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         default_fee,
         &user_addr,
@@ -1289,6 +1390,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     let l1_deposit_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1321,6 +1423,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Call the withdraw stx function on the L2 from unauthorized user
     let l2_withdraw_stx_tx_unauth = make_contract_call(
         &MOCKNET_PRIVATE_KEY_3,
+        config.node.chain_id,
         0,
         1_000_000,
         &user_addr,
@@ -1343,6 +1446,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     // Call the withdraw stx function on the L2 from the correct user
     let l2_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        config.node.chain_id,
         l2_nonce,
         1_000_000,
         &user_addr,
@@ -1452,11 +1556,12 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
     let mut receipts = vec![withdrawal_receipt];
 
     // okay to pass a zero block height in tests: the block height parameter is only used for logging
-    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, 0);
+    let withdrawal_tree = create_withdrawal_merkle_tree(&mut receipts, withdrawal_height);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
     // okay to pass a zero block height in tests: the block height parameter is only used for logging
-    let stx_withdrawal_key = generate_key_from_event(&mut stx_withdraw_event, 0, 0).unwrap();
+    let stx_withdrawal_key =
+        generate_key_from_event(&mut stx_withdraw_event, 0, withdrawal_height).unwrap();
     let stx_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&stx_withdrawal_key);
     let stx_withdrawal_leaf_hash =
         MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice())
@@ -1498,6 +1603,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     let l1_withdraw_stx_tx = make_contract_call(
         &MOCKNET_PRIVATE_KEY_1,
+        LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         &user_addr,
@@ -1591,6 +1697,7 @@ fn l2_simple_contract_calls() {
     {
         let hyperchain_small_contract_publish = make_contract_publish(
             &MOCKNET_PRIVATE_KEY_1,
+            config.node.chain_id,
             l2_nonce,
             1000,
             "small-contract",
@@ -1606,6 +1713,7 @@ fn l2_simple_contract_calls() {
     for _ in 0..2 {
         let small_contract_call1 = make_contract_call(
             &MOCKNET_PRIVATE_KEY_1,
+            config.node.chain_id,
             l2_nonce,
             1000,
             &user_addr,

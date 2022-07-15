@@ -281,6 +281,7 @@ impl TransactionResult {
             "event_name" => %"transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => %"success",
+            "payload" => %tx.payload.name(),
         );
     }
 
@@ -292,6 +293,7 @@ impl TransactionResult {
             "reason" => %err,
             "tx_id" => %tx.txid(),
             "event_type" => "error",
+            "payload" => %tx.payload.name(),
         );
     }
 
@@ -303,6 +305,7 @@ impl TransactionResult {
             "event_name" => "transaction_result",
             "tx_id" => %tx.txid(),
             "event_type" => "skip",
+            "payload" => %tx.payload.name(),
             "reason" => %err,
         );
     }
