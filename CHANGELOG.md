@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [2.05.0.2.0]
+## Upcoming
 
 - Updates to the logging of transaction events (#3139).
+- Added prometheus output for "transactions in last block" (#3138).
+
+## [2.05.0.2.0]
 
 ### IMPORTANT! READ THIS FIRST
 
