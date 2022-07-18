@@ -181,9 +181,15 @@ fn l1_multiparty_2_of_2_integration_test() {
     let miner_account = to_addr(&MOCKNET_PRIVATE_KEY_2);
     let l2_rpc_origin = format!("http://{}", &leader_config.node.rpc_bind);
 
+    let multi_party_contract = QualifiedContractIdentifier::new(
+        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
+        "hc-multiparty-miner".into(),
+    );
+
     let mut follower_config =
         super::new_l1_test_conf(&*MOCKNET_PRIVATE_KEY_3, &*MOCKNET_PRIVATE_KEY_1);
     follower_config.node.chain_id = leader_config.node.chain_id;
+
     let follower_account = to_addr(&MOCKNET_PRIVATE_KEY_3);
     follower_config.connection_options.hyperchain_validator =
         follower_config.node.mining_key.clone();
@@ -195,18 +201,11 @@ fn l1_multiparty_2_of_2_integration_test() {
     follower_config.node.miner = false;
     follower_config.node.local_peer_seed = vec![20; 32];
 
-    follower_config.node.add_bootstrap_node(
-        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444",
-        follower_config.burnchain.chain_id,
-        follower_config.burnchain.peer_version,
+    follower_config.add_bootstrap_node(
+        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444"
     );
 
     let follower_rpc_origin = format!("http://{}", &follower_config.node.rpc_bind);
-
-    let multi_party_contract = QualifiedContractIdentifier::new(
-        to_addr(&MOCKNET_PRIVATE_KEY_1).into(),
-        "hc-multiparty-miner".into(),
-    );
 
     leader_config.burnchain.commit_strategy = CommitStrategy::MultiMiner {
         required_signers: 2,
