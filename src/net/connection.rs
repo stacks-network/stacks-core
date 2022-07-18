@@ -32,6 +32,7 @@ use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
 
 use clarity::util::secp256k1::Secp256k1PrivateKey;
+use clarity::vm::types::QualifiedContractIdentifier;
 use mio;
 use mio::net as mio_net;
 
@@ -401,6 +402,8 @@ pub struct ConnectionOptions {
 
     /// hyperchain validator key
     pub hyperchain_validator: Option<Secp256k1PrivateKey>,
+    /// the contract used to submit multiparty commits (if a validator)
+    pub hyperchain_signing_contract: Option<QualifiedContractIdentifier>,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -488,6 +491,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_handshakes: false,
             force_disconnect_interval: None,
             hyperchain_validator: None,
+            hyperchain_signing_contract: None,
         }
     }
 }

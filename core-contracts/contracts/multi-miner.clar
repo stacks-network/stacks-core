@@ -56,7 +56,7 @@
          (ok true)))
 
 ;; Remove this function in 2.1
-(define-private (to-consensus-buff (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32), multi-contract: principal })) (ok 0x00))
+;; (define-private (to-consensus-buff (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32), multi-contract: principal })) (ok 0x00))
 
 (define-private (make-block-commit-hash (block-data { block: (buff 32), withdrawal-root: (buff 32), target-tip: (buff 32) }))
     (let ((data-buff (unwrap-panic (to-consensus-buff (merge block-data { multi-contract: CONTRACT_ADDRESS }))))

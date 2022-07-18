@@ -3,6 +3,7 @@ use std::thread;
 
 use crate::burnchains::commitment::MultiMinerParticipant;
 use crate::config::CommitStrategy;
+use crate::tests::l1_observer_test::wait_for_target_l1_block;
 use crate::tests::make_contract_publish;
 use crate::tests::neon_integrations::get_account;
 use crate::Config;
@@ -25,6 +26,9 @@ use std::env;
 use std::sync::atomic::Ordering;
 
 use std::time::Duration;
+
+/// This is the height to wait for the L1 mocknet node to reach the 2.1 epoch
+pub const MOCKNET_EPOCH_2_1: u64 = 4;
 
 /// Uses MOCKNET_PRIVATE_KEY_1 to publish the hyperchains contract and supporting
 ///  trait contracts
@@ -129,6 +133,8 @@ fn l1_multiparty_1_of_n_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
+
     let l1_nonce = publish_hc_contracts_to_l1(0, &config, multi_party_contract.clone().into());
     publish_multiparty_contract_to_l1(l1_nonce, &config, &[miner_account.clone().into()]);
 
@@ -201,6 +207,18 @@ fn l1_multiparty_2_of_2_integration_test() {
     follower_config.node.miner = false;
     follower_config.node.local_peer_seed = vec![20; 32];
 
+    follower_config.burnchain.commit_strategy = CommitStrategy::MultiMiner {
+        required_signers: 2,
+        contract: multi_party_contract.clone(),
+        other_participants: vec![MultiMinerParticipant {
+            rpc_server: l2_rpc_origin.clone(),
+            public_key: [0; 33],
+        }],
+        leader: false,
+    };
+
+    follower_config.connection_options.hyperchain_signing_contract = Some(multi_party_contract.clone());
+
     follower_config.add_bootstrap_node(
         "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444"
     );
@@ -235,13 +253,14 @@ fn l1_multiparty_2_of_2_integration_test() {
     .unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
+    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), false);
     let _stacks_res = stacks_l1_controller
         .start_process()
         .expect("stacks l1 controller didn't start");
 
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
 
     let l1_nonce =
         publish_hc_contracts_to_l1(0, &leader_config, multi_party_contract.clone().into());

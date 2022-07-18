@@ -508,7 +508,7 @@ impl Config {
                 opts.read_only_call_limit_runtime.map(|x| {
                     read_only_call_limit.runtime = x;
                 });
-                ConnectionOptions {
+                let mut result_opts = ConnectionOptions {
                     read_only_call_limit,
                     inbox_maxlen: opts
                         .inbox_maxlen
@@ -622,7 +622,12 @@ impl Config {
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
                     hyperchain_validator: node.mining_key.clone(),
                     ..ConnectionOptions::default()
+                };
+                if let CommitStrategy::MultiMiner { ref contract, .. } = &burnchain.commit_strategy {
+                    result_opts.hyperchain_signing_contract = Some(contract.clone());
                 }
+
+                result_opts
             }
             None => HELIUM_DEFAULT_CONNECTION_OPTIONS.clone(),
         };

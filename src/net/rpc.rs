@@ -936,6 +936,7 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         proposal: &miner::Proposal,
         validator_key: Option<&Secp256k1PrivateKey>,
+        signing_contract: Option<&QualifiedContractIdentifier>,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
@@ -952,9 +953,21 @@ impl ConversationHttp {
             }
         };
 
+        let signing_contract = match signing_contract {
+            Some(key) => key,
+            None => {
+                let response = HttpResponseType::BlockProposalInvalid {
+                    metadata: response_metadata,
+                    error_message:
+                        "Cannot validate block proposal: not configured with a multiparty contract".into(),
+                };
+                return response.send(http, fd);
+            }
+        };
+
         let response = match proposal.validate(chainstate, &sortdb.index_conn()) {
             Ok(_) => {
-                let signature = proposal.sign(validator_key);
+                let signature = proposal.sign(validator_key, signing_contract.clone());
                 HttpResponseType::BlockProposalValid {
                     metadata: response_metadata,
                     signature,
@@ -2754,6 +2767,7 @@ impl ConversationHttp {
             }
             HttpRequestType::BlockProposal(_, ref proposal) => {
                 let validator_key = self.connection.options.hyperchain_validator.as_ref();
+                let signing_contract = self.connection.options.hyperchain_signing_contract.as_ref();
 
                 // TODO(#135): add sender validation. This method should only
                 //  be sent by the leader: we should not accept proposals
@@ -2766,6 +2780,7 @@ impl ConversationHttp {
                     sortdb,
                     &proposal,
                     validator_key,
+                    signing_contract,
                     network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None

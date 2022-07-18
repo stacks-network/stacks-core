@@ -215,6 +215,27 @@ pub fn wait_for_next_stacks_block(sortition_db: &SortitionDB) -> bool {
     true
 }
 
+pub fn wait_for_target_l1_block(sortition_db: &SortitionDB, target: u64) -> bool {
+    let mut next = 0;
+    info!("wait_for_target_l1_block started"; "target" => target);
+    let start = Instant::now();
+    while next <= target {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            panic!("Timed out waiting for block to process, aborting test.");
+        }
+
+        thread::sleep(Duration::from_millis(100));
+
+        let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
+            .expect("Could not read from SortitionDB.");
+
+        next = tip_snapshot.block_height;
+
+    }
+    info!("wait_for_target_l1_block finished"; "target" => target);
+    true
+}
+
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
 /// match `test_fn`.
 fn select_transactions_where(
