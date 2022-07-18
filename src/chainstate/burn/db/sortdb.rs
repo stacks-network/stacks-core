@@ -7891,7 +7891,7 @@ pub mod tests {
 
             // drop descendancy information
             {
-                let mut db_tx = db.tx_begin().unwrap();
+                let db_tx = db.tx_begin().unwrap();
                 db_tx
                     .execute("DELETE FROM block_commit_parents", NO_PARAMS)
                     .unwrap();
