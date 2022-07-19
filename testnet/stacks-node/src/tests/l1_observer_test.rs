@@ -1816,11 +1816,7 @@ fn nft_deposit_and_withdraw_integration_test() {
     thread::sleep(Duration::from_millis(2_000));
 
     // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(
-        &config.get_burn_db_path(),
-        &config.burnchain.chain
-    )
-    .unwrap();
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
     let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
@@ -2308,7 +2304,6 @@ fn nft_deposit_and_withdraw_integration_test() {
     assert_eq!(withdraw_events.len(), 2);
     let (withdrawal_height, _withdrawal_json) = withdraw_events.pop().unwrap();
 
-
     let l1_native_nft_withdrawal_entry = get_nft_withdrawal_entry(
         &l2_rpc_origin,
         withdrawal_height,
@@ -2372,7 +2367,7 @@ fn nft_deposit_and_withdraw_integration_test() {
             },
             sender: user_addr.into(),
             id: 5,
-            withdrawal_id: None
+            withdrawal_id: None,
         }));
     let withdrawal_receipt = StacksTransactionReceipt {
         transaction: TransactionOrigin::Stacks(StacksTransaction::new(
@@ -2392,7 +2387,8 @@ fn nft_deposit_and_withdraw_integration_test() {
         microblock_header: None,
         tx_index: 0,
     };
-    let withdrawal_tree = create_withdrawal_merkle_tree(&mut vec![withdrawal_receipt], withdrawal_height);
+    let withdrawal_tree =
+        create_withdrawal_merkle_tree(&mut vec![withdrawal_receipt], withdrawal_height);
     let root_hash = withdrawal_tree.root().as_bytes().to_vec();
 
     let l1_native_nft_withdrawal_key =
@@ -2422,7 +2418,8 @@ fn nft_deposit_and_withdraw_integration_test() {
     }
 
     let l1_native_root_hash_val = Value::buff_from(root_hash.clone()).unwrap();
-    let l1_native_leaf_hash_val = Value::buff_from(l1_native_nft_withdrawal_leaf_hash.clone()).unwrap();
+    let l1_native_leaf_hash_val =
+        Value::buff_from(l1_native_nft_withdrawal_leaf_hash.clone()).unwrap();
     let l1_native_siblings_val = Value::list_from(l1_native_nft_sib_data.clone()).unwrap();
 
     assert_eq!(
@@ -2465,7 +2462,8 @@ fn nft_deposit_and_withdraw_integration_test() {
     }
 
     let hc_native_root_hash_val = Value::buff_from(root_hash.clone()).unwrap();
-    let hc_native_leaf_hash_val = Value::buff_from(hc_native_nft_withdrawal_leaf_hash.clone()).unwrap();
+    let hc_native_leaf_hash_val =
+        Value::buff_from(hc_native_nft_withdrawal_leaf_hash.clone()).unwrap();
     let hc_native_siblings_val = Value::list_from(hc_native_nft_sib_data.clone()).unwrap();
 
     assert_eq!(
