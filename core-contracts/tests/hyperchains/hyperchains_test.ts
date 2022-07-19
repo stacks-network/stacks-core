@@ -473,7 +473,7 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        // let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -600,20 +600,14 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash
         // Mocks a withdrawal of ft-token for amount 3
-<<<<<<< HEAD
-=======
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
->>>>>>> master
         let root_hash = new Uint8Array([75, 11, 162, 16, 9, 174, 3, 191, 160, 53, 213, 117, 249, 40, 80, 63, 178, 17, 45, 89, 137, 106, 15, 148, 76, 178, 234, 205, 235, 176, 72, 38]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-<<<<<<< HEAD
-=======
                     id_header_hash,
->>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -700,11 +694,7 @@ Clarinet.test({
         // should return (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
         block.receipts[0].result
             .expectErr()
-<<<<<<< HEAD
-            .expectInt(13);
-=======
             .expectInt(14);
->>>>>>> master
 
     },
 });
@@ -1049,20 +1039,14 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
-<<<<<<< HEAD
-=======
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
->>>>>>> master
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-<<<<<<< HEAD
-=======
                     id_header_hash,
->>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -1094,11 +1078,7 @@ Clarinet.test({
         // should return (err ERR_MINT_FAILED)
         block.receipts[0].result
             .expectErr()
-<<<<<<< HEAD
-            .expectInt(12);
-=======
             .expectInt(13);
->>>>>>> master
 
     },
 
@@ -1132,20 +1112,14 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
-<<<<<<< HEAD
-=======
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
->>>>>>> master
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-<<<<<<< HEAD
-=======
                     id_header_hash,
->>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -1206,7 +1180,6 @@ Clarinet.test({
             .expectInt(9);
     },
 });
-<<<<<<< HEAD
 
 Clarinet.test({
     name: "Ensure that a user can't withdraw an NFT if nobody owns it, in the `no-mint` case.",
@@ -1235,12 +1208,14 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    id_header_hash,
                     types.buff(root_hash),
                 ],
                 miner.address),
@@ -1331,17 +1306,20 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    id_header_hash,
                     types.buff(root_hash),
                 ],
                 miner.address),
         ]);
         assertEquals(block.height, 5);
+        console.log({block})
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1440,11 +1418,13 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
         block = chain.mineBlock([
             // Successfully commit block at height 0.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    id_header_hash,
                     types.buff(root_hash),
                 ],
                 miner.address),
@@ -1602,12 +1582,14 @@ Clarinet.test({
             .expectInt(3);
 
         // Miner should commit a block with the appropriate root hash
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    id_header_hash,
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -1726,12 +1708,14 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash
         // Mocks a withdrawal of ft-token for amount 3
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
         let root_hash = new Uint8Array([75, 11, 162, 16, 9, 174, 3, 191, 160, 53, 213, 117, 249, 40, 80, 63, 178, 17, 45, 89, 137, 106, 15, 148, 76, 178, 234, 205, 235, 176, 72, 38]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+                    id_header_hash,
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -1788,9 +1772,7 @@ Clarinet.test({
         // should return (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
         block.receipts[0].result
             .expectErr()
-            .expectInt(13);
+            .expectInt(14);
 
     },
 });
-=======
->>>>>>> master

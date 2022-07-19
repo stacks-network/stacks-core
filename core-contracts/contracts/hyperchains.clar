@@ -17,19 +17,13 @@
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height reaches 1.
 (define-constant ERR_CALLED_TOO_EARLY 12)
-<<<<<<< HEAD
-(define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 13)
-(define-constant ERR_IN_COMPUTATION 14)
 ;; The contract does not own this NFT to withdraw it.
 (define-constant ERR_NFT_NOT_OWNED_BY_CONTRACT 15)
 ;; The user has insufficient balance to withdraw this.
 (define-constant ERR_INSUFFICIENT_BALANCE 16)
-(define-constant ERR_MINT_FAILED 17)
-=======
 (define-constant ERR_MINT_FAILED 13)
 (define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 14)
 (define-constant ERR_IN_COMPUTATION 15)
->>>>>>> master
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -256,7 +250,6 @@
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
 (define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>)  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-<<<<<<< HEAD
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
@@ -301,15 +294,14 @@
 
         (asserts! (try! (as-contract (inner-transfer-without-mint-nft-asset id recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
+        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+)
     )
 )
 
 ;; Like `withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
 ;; have the appropriate balance.
 (define-public (withdraw-nft-asset-no-mint (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-=======
->>>>>>> master
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
@@ -318,11 +310,7 @@
         ;; TODO: can remove this check once leaf validity is checked
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
         
-<<<<<<< HEAD
         (asserts! (try! (inner-withdraw-nft-asset-no-mint id recipient nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
-=======
-        (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
->>>>>>> master
 
         ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
@@ -525,7 +513,8 @@
 
         (asserts! (try! (as-contract (inner-transfer-without-mint-ft-asset amount recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok (finish-withdraw withdrawal-leaf-hash))
+        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
+)
     )
 )
 
