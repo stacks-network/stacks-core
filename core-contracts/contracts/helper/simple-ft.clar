@@ -1,4 +1,7 @@
-(impl-trait .ft-trait-standard.ft-trait)
+(define-constant ERR_NOT_AUTHORIZED (err u1001))
+
+(impl-trait .trait-standards.ft-trait)
+(impl-trait .trait-standards.mint-from-hyperchain-trait)
 
 (define-fungible-token ft-token)
 
@@ -23,22 +26,32 @@
 (define-read-only (get-decimals)
   (ok u0))
 
+;; Implement mint-from-hyperchain trait
+(define-public (mint-from-hyperchain (amount uint) (sender principal) (recipient principal))
+    (begin
+        ;; Check that the tx-sender is the provided sender
+        (asserts! (is-eq tx-sender sender) ERR_NOT_AUTHORIZED)
+
+        (ft-mint? ft-token amount recipient)
+    )
+)
+
+
 ;; Transfers tokens to a recipient
 (define-public (transfer (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))))
-  (if (is-eq tx-sender sender)
     (begin
       (try! (ft-transfer? ft-token amount sender recipient))
       (print memo)
       (ok true)
     )
-    (err u4)))
+)
 
 (define-read-only (get-token-uri)
   (ok none))
 
 (define-public (gift-tokens (recipient principal))
   (begin
-    (asserts! (is-eq tx-sender recipient) (err u0))
+    (asserts! (is-eq tx-sender recipient) ERR_NOT_AUTHORIZED)
     (ft-mint? ft-token u1 recipient)
   )
 )
