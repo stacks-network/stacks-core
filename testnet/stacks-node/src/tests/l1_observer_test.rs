@@ -1805,14 +1805,25 @@ fn nft_deposit_and_withdraw_integration_test() {
     let nft_contract_id = QualifiedContractIdentifier::new(user_addr.into(), nft_contract_name);
 
     // Publish the default hyperchains contract on the L1 chain
-    let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar");
+    let contract_content = include_str!("../../../../core-contracts/contracts/hyperchains.clar")
+        .replace(
+            "(define-data-var miner (optional principal) none)",
+            &format!(
+                "(define-data-var miner (optional principal) (some '{}))",
+                &miner_account
+            ),
+        );
+
     let hc_contract_publish = make_contract_publish(
         &MOCKNET_PRIVATE_KEY_1,
         LAYER_1_CHAIN_ID_TESTNET,
         l1_nonce,
         1_000_000,
         config.burnchain.contract_identifier.name.as_str(),
-        &contract_content,
+        &format!(
+            "{}\n (as-contract (setup-allowed-contracts))",
+            contract_content
+        ),
     );
     l1_nonce += 1;
 
@@ -1955,22 +1966,8 @@ fn nft_deposit_and_withdraw_integration_test() {
     );
     l2_nonce += 1;
 
-    // Setup hyperchains contract on L1
-    let hc_setup_tx = make_contract_call(
-        &MOCKNET_PRIVATE_KEY_1,
-        LAYER_1_CHAIN_ID_TESTNET,
-        l1_nonce,
-        1_000_000,
-        &user_addr,
-        config.burnchain.contract_identifier.name.as_str(),
-        "setup-allowed-contracts",
-        &[],
-    );
-    l1_nonce += 1;
-
     submit_tx(&l2_rpc_origin, &l2_mint_nft_tx);
     submit_tx(l1_rpc_origin, &l1_mint_nft_tx);
-    submit_tx(l1_rpc_origin, &hc_setup_tx);
 
     // Sleep to give the run loop time to mine a block
     wait_for_next_stacks_block(&sortition_db);
