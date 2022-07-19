@@ -17,6 +17,9 @@
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height reaches 1.
 (define-constant ERR_CALLED_TOO_EARLY 12)
+(define-constant ERR_MINT_FAILED 13)
+(define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 14)
+(define-constant ERR_IN_COMPUTATION 15)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -28,7 +31,7 @@
 ;; List of miners
 (define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
 
-;; Map of allowed contracts for asset transfers
+;; Map of allowed contracts for asset transfers - maps contract principal to name of the deposit function in the given contract
 (define-map allowed-contracts principal (string-ascii 45))
 
 ;; Testing info for 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5:
@@ -36,8 +39,9 @@
 ;;      btc_address: mr1iPkD9N3RJZZxXRk7xF9d36gffa6exNC
 
 ;; Use trait declarations
-(use-trait nft-trait .nft-trait-standard.nft-trait)
-(use-trait ft-trait .ft-trait-standard.ft-trait)
+(use-trait nft-trait .trait-standards.nft-trait)
+(use-trait ft-trait .trait-standards.ft-trait)
+(use-trait mint-from-hyperchain-trait .trait-standards.mint-from-hyperchain-trait)
 
 ;; This function adds contracts to the allowed-contracts map.
 ;; Once in this map, asset transfers from that contract will be allowed in the deposit and withdraw operations.
@@ -47,8 +51,33 @@
         ;; Verify that tx-sender is an authorized miner
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
+        ;; Set up the assets that the contract is allowed to transfer
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
         (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-nft-token") (err ERR_ASSET_ALREADY_ALLOWED))
+
+        (ok true)
+    )
+)
+
+(define-public (register-new-ft-contract (ft-contract <ft-trait>) (deposit-fn-name (string-ascii 45)))
+    (begin
+        ;; Verify that tx-sender is an authorized miner
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; Set up the assets that the contract is allowed to transfer
+        (asserts! (map-insert allowed-contracts (contract-of ft-contract) deposit-fn-name) (err ERR_ASSET_ALREADY_ALLOWED))
+
+        (ok true)
+    )
+)
+
+(define-public (register-new-nft-contract (nft-contract <nft-trait>) (deposit-fn-name (string-ascii 45)))
+    (begin
+        ;; Verify that tx-sender is an authorized miner
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; Set up the assets that the contract is allowed to transfer
+        (asserts! (map-insert allowed-contracts (contract-of nft-contract) deposit-fn-name) (err ERR_ASSET_ALREADY_ALLOWED))
 
         (ok true)
     )
@@ -134,6 +163,38 @@
     )
 )
 
+(define-private (inner-mint-nft-asset (id uint) (sender principal) (recipient principal) (nft-mint-contract <mint-from-hyperchain-trait>))
+    (let (
+            (call-result (as-contract (contract-call? nft-mint-contract mint-from-hyperchain id sender recipient)))
+            (mint-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+        )
+        ;; Check that the transfer succeeded
+        (asserts! mint-result (err ERR_MINT_FAILED))
+
+        (ok true)
+    )
+)
+
+(define-private (inner-transfer-or-mint-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>))
+    (let (
+            (call-result (contract-call? nft-contract get-owner id))
+            (nft-owner (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+            (contract-owns-nft (is-eq nft-owner (some CONTRACT_ADDRESS)))
+            (no-owner (is-eq nft-owner none))
+        )
+
+        (if contract-owns-nft
+            (inner-transfer-nft-asset id CONTRACT_ADDRESS recipient nft-contract)
+            (if no-owner
+                ;; Try minting the asset if there is no existing owner of this NFT
+                (inner-mint-nft-asset id CONTRACT_ADDRESS recipient nft-mint-contract)
+                ;; In this case, a principal other than this contract owns this NFT, so minting is not possible
+                (err ERR_MINT_FAILED)
+            )
+        )
+    )
+)
+
 ;; A user calls this function to deposit an NFT into the contract.
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
@@ -157,7 +218,7 @@
 
 ;; Helper function for `withdraw-nft-asset`
 ;; Returns response<bool, int>
-(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
             (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
@@ -166,7 +227,7 @@
 
         ;; TODO: should check leaf validity
 
-        (asserts! (try! (as-contract (inner-transfer-nft-asset id tx-sender recipient nft-contract))) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (as-contract (inner-transfer-or-mint-nft-asset id recipient nft-contract nft-mint-contract))) (err ERR_TRANSFER_FAILED))
 
         (asserts! 
           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
@@ -182,12 +243,16 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>)  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
+
+        ;; check that the tx sender is one of the miners
+        ;; TODO: can remove this check once leaf validity is checked
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
         
-        (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
@@ -210,6 +275,46 @@
         (asserts! transfer-result (err ERR_TRANSFER_FAILED))
 
         (ok true)
+    )
+)
+
+(define-private (inner-mint-ft-asset (amount uint) (sender principal) (recipient principal) (ft-mint-contract <mint-from-hyperchain-trait>))
+    (let (
+            (call-result (as-contract (contract-call? ft-mint-contract mint-from-hyperchain amount sender recipient)))
+            (mint-result (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+        )
+        ;; Check that the transfer succeeded
+        (asserts! mint-result (err ERR_MINT_FAILED))
+
+        (ok true)
+    )
+)
+
+(define-private (inner-transfer-or-mint-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>))
+    (let (
+            (call-result (contract-call? ft-contract get-balance CONTRACT_ADDRESS))
+            (contract-ft-balance (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
+            (contract-owns-enough (>= contract-ft-balance amount))
+            (amount-to-transfer (if contract-owns-enough amount contract-ft-balance))
+            (amount-to-mint (- amount amount-to-transfer))
+        )
+
+        ;; Check that the total balance between the transfer and mint is equal to the original balance
+        (asserts! (is-eq amount (+ amount-to-transfer amount-to-mint)) (err ERR_IN_COMPUTATION))
+
+        (if (> amount-to-transfer u0)
+            (begin
+                (try! (inner-transfer-ft-asset amount-to-transfer CONTRACT_ADDRESS recipient memo ft-contract))
+                (if (> amount-to-mint u0)
+                    (inner-mint-ft-asset amount-to-mint CONTRACT_ADDRESS recipient ft-mint-contract)
+                    (ok true)
+                )
+            )
+            (if (> amount-to-mint u0)
+                (inner-mint-ft-asset amount-to-mint CONTRACT_ADDRESS recipient ft-mint-contract)
+                (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
+            )
+        )
     )
 )
 
@@ -238,7 +343,7 @@
 
 ;; This function performs validity checks related to the withdrawal and performs the withdrawal as well. 
 ;; Returns response<bool, int>
-(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (let (
             (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
          )
@@ -247,7 +352,7 @@
 
         ;; TODO: should check leaf validity
 
-        (asserts! (try! (as-contract (inner-transfer-ft-asset amount tx-sender recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (as-contract (inner-transfer-or-mint-ft-asset amount recipient memo ft-contract ft-mint-contract))) (err ERR_TRANSFER_FAILED))
 
         (asserts! 
           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
@@ -264,12 +369,19 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
+        ;; Check that the withdraw amount is positive
+        (asserts! (> amount u0) (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT))
+
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        (asserts! (try! (inner-withdraw-ft-asset amount recipient memo ft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        ;; check that the tx sender is one of the miners
+        ;; TODO: can remove this check once leaf validity is checked
+        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        (asserts! (try! (inner-withdraw-ft-asset amount recipient memo ft-contract ft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
