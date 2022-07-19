@@ -17,13 +17,13 @@
 (define-constant ERR_INVALID_CHAIN_TIP 11)
 ;;; The contract was called before reaching this-chain height reaches 1.
 (define-constant ERR_CALLED_TOO_EARLY 12)
-;; The contract does not own this NFT to withdraw it.
-(define-constant ERR_NFT_NOT_OWNED_BY_CONTRACT 15)
-;; The user has insufficient balance to withdraw this.
-(define-constant ERR_INSUFFICIENT_BALANCE 16)
 (define-constant ERR_MINT_FAILED 13)
 (define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 14)
 (define-constant ERR_IN_COMPUTATION 15)
+;; The contract does not own this NFT to withdraw it.
+(define-constant ERR_NFT_NOT_OWNED_BY_CONTRACT 16)
+;; The user has insufficient balance to withdraw this.
+(define-constant ERR_INSUFFICIENT_BALANCE 17)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -58,7 +58,6 @@
         ;; Set up the assets that the contract is allowed to transfer
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
         (asserts! (map-insert allowed-contracts .simple-nft "hyperchain-deposit-nft-token") (err ERR_ASSET_ALREADY_ALLOWED))
-        (asserts! (map-insert allowed-contracts .simple-ft-no-mint "hyperchain-deposit-ft-token-no-mint") (err ERR_ASSET_ALREADY_ALLOWED))
         (asserts! (map-insert allowed-contracts .simple-nft-no-mint "hyperchain-deposit-nft-token-no-mint") (err ERR_ASSET_ALREADY_ALLOWED))
 
         (ok true)
@@ -453,98 +452,6 @@
 )
 
 
-;; (define-private (inner-transfer-or-mint-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>))
-;;     (let (
-;;             (call-result (contract-call? ft-contract get-balance CONTRACT_ADDRESS))
-;;             (contract-ft-balance (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
-;;             (contract-owns-enough (>= contract-ft-balance amount))
-;;             (amount-to-transfer (if contract-owns-enough amount contract-ft-balance))
-;;             (amount-to-mint (- amount amount-to-transfer))
-;;         )
-
-;;         ;; Check that the total balance between the transfer and mint is equal to the original balance
-;;         (asserts! (is-eq amount (+ amount-to-transfer amount-to-mint)) (err ERR_IN_COMPUTATION))
-
-;;         (if (> amount-to-transfer u0)
-;;             (begin
-;;                 (try! (inner-transfer-ft-asset amount-to-transfer CONTRACT_ADDRESS recipient memo ft-contract))
-;;                 (if (> amount-to-mint u0)
-;;                     (inner-mint-ft-asset amount-to-mint CONTRACT_ADDRESS recipient ft-mint-contract)
-;;                     (ok true)
-;;                 )
-;;             )
-;;             (if (> amount-to-mint u0)
-;;                 (inner-mint-ft-asset amount-to-mint CONTRACT_ADDRESS recipient ft-mint-contract)
-;;                 (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
-;;             )
-;;         )
-;;     )
-;; )
-
-;; Like `inner-transfer-or-mint-ft-asset` but without allowing or requiring a mint function.
-(define-private (inner-transfer-without-mint-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>))
-    (let (
-            (call-result (contract-call? ft-contract get-balance CONTRACT_ADDRESS))
-            (contract-ft-balance (unwrap! call-result (err ERR_CONTRACT_CALL_FAILED)))
-            (contract-owns-enough (>= contract-ft-balance amount))
-        )
-
-        ;; Check that the total balance between the transfer and mint is equal to the original balance
-        (asserts! contract-owns-enough (err ERR_INSUFFICIENT_BALANCE))
-        (if (> amount u0)
-            (begin
-                (try! (inner-transfer-ft-asset amount CONTRACT_ADDRESS recipient memo ft-contract))
-                (ok true)
-            )
-            (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
-        )
-    )
-)
-
-;; Like `inner-withdraw-ft-asset` but without allowing or requiring a mint function.
-(define-private (inner-withdraw-ft-asset-no-mint (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let (
-            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
-         )
-
-        (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
-
-        ;; TODO: should check leaf validity
-
-        (asserts! (try! (as-contract (inner-transfer-without-mint-ft-asset amount recipient memo ft-contract))) (err ERR_TRANSFER_FAILED))
-
-        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
-)
-    )
-)
-
-;; Like `inner-transfer-or-mint-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
-;; have the appropriate balance.
-(define-public (withdraw-ft-asset-no-mint (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (begin
-        ;; Check that the withdraw amount is positive
-        (asserts! (> amount u0) (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT))
-
-        ;; Check that the asset belongs to the allowed-contracts map
-        (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
-
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-
-        (asserts! (try! (inner-withdraw-ft-asset-no-mint amount recipient memo ft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
-
-        (let (
-                (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
-            )
-            ;; Emit a print event 
-            (print { event: "withdraw-ft", ft-amount: amount, l1-contract-id: ft-contract, recipient: recipient, ft-name: ft-name })
-        )
-
-        (ok true)
-    )
-)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; FOR STX TRANSFERS
 
@@ -607,6 +514,7 @@
         (ok true)
     )
 )
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; GENERAL WITHDRAWAL FUNCTIONS
