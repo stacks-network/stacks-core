@@ -72,8 +72,7 @@ Collect the contracts:
 mkdir my-hyperchain/
 mkdir my-hyperchain/contracts
 cp stacks-hyperchains/core-contracts/contracts/hyperchains.clar my-hyperchain/contracts/
-cp stacks-hyperchains/core-contracts/contracts/helper/ft-trait-standard.clar my-hyperchain/contracts/
-cp stacks-hyperchains/core-contracts/contracts/helper/nft-trait-standard.clar my-hyperchain/contracts/
+cp stacks-hyperchains/core-contracts/contracts/helper/trait-standards.clar my-hyperchain/contracts/
 ```
 
 Set the miners list to contain the address generated in Step 1:
@@ -97,22 +96,16 @@ cd my-hyperchain/scripts/
 npm i @stacks/network
 npm i @stacks/transactions
 mkdir ../transactions/
-node ./publish_tx.js ft-trait-standard ../contracts/ft-trait-standard.clar 0 > ../transactions/ft-publish.hex
-node ./publish_tx.js nft-trait-standard ../contracts/nft-trait-standard.clar 1 > ../transactions/nft-publish.hex
-node ./publish_tx.js hc-alpha ../contracts/hyperchains.clar 2 > ../transactions/hc-publish.hex
+node ./publish_tx.js trait-standards ../contracts/trait-standards.clar 0 > ../transactions/trait-publish.hex
+node ./publish_tx.js hc-alpha ../contracts/hyperchains.clar 1 > ../transactions/hc-publish.hex
 ```
 
 Submit the transactions:
 
 ```bash
-$ node ./broadcast_tx.js ../transactions/ft-publish.hex
+$ node ./broadcast_tx.js ../transactions/trait-publish.hex
 {
   txid: '93cae889b9382c512e55715e5357b388734c0448643e2cc35d2a1aab90dcf61a'
-}
-
-$ node ./broadcast_tx.js ../transactions/nft-publish.hex
-{
-  txid: '9752954c5d3303a20ceede5638d65aab8b8aa999d52aa0edb7321ceb7fba3c09'
 }
 
 $ node ./broadcast_tx.js ../transactions/hc-publish.hex
