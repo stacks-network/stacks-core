@@ -37,7 +37,7 @@ If you do not have clarinet, you can find installation instructions [here](https
 
 Let's create a new clarinet project. This will create a new directory with a Clarinet project initialized.
 ```
-❯ clarinet new nft-use-case 
+clarinet new nft-use-case 
 ```
 
 Let us copy contract files and scripts over from the `stacks-hyperchains` repository into the `nft-use-case` directory. 
@@ -119,7 +119,7 @@ node ./publish_tx.js simple-nft-l2 ../contracts-l2/simple-nft-l2.clar 2 1
 ```
 
 To verify that the layer 2 contracts were successfully published, grep the log for the transaction IDs of each hyperchain transaction.
-The transaction ID is logged to the console after the call to `publish_tx`. 
+The transaction ID is logged to the console after the call to `publish_tx` - make sure this is the value you grep for.
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "8ac12925ff21fd70042770d2f381e47c103ab11efb0facbc6b0359c95a0da046"
 ```
@@ -142,9 +142,6 @@ Look for the following transaction confirmation in the Clarinet console in an up
 Let's create a transaction to mint an NFT on the L1 chain:
 ```
 node ./mint_nft.js 2 
-{
-  txid: 'aba138f8291561579e5807d1e4f505112cf3f6489921b505ef68bb04a4b6f269'
-}
 ```
 Verify that the transaction is acknowledged within the next few blocks in the Stacks explorer.
 🟩  invoked: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l1::gift-nft(ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG, u5) (ok true)
@@ -202,7 +199,7 @@ Jul 19 13:22:34.800652 INFO Contract-call successfully processed (ThreadId(8), s
 In order to successfully complete the withdrawal on the L1, it is necessary to know the height at which the withdrawal occurred. 
 You can find the height of the withdrawal using grep:
 ```
-docker logs hyperchain-node.nft-use-case-2.devnet 2>&1 | grep "Parsed L2 withdrawal event"
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "Parsed L2 withdrawal event"
 Jul 19 13:22:34.801290 INFO Parsed L2 withdrawal event (ThreadId(8), src/clarity_vm/withdrawal.rs:56), type: nft, block_height: 47, sender: ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC, withdrawal_id: 0, asset_id: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l2::nft-token
 ```
 Get the withdrawal height by looking at the `block_height` in the returned line. 
