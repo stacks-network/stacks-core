@@ -12,6 +12,7 @@ depends_on = ["trait-standards"]
 
 [contracts.simple-nft-no-mint]
 path = "contracts/helper/simple-nft-no-mint.clar"
+
 [contracts.second-simple-nft]
 path = "contracts/helper/simple-nft.clar"
 depends_on = ["trait-standards"]
@@ -22,6 +23,7 @@ depends_on = ["trait-standards"]
 
 [contracts.simple-ft-no-mint]
 path = "contracts/helper/simple-ft-no-mint.clar"
+
 [contracts.second-simple-ft]
 path = "contracts/helper/simple-ft.clar"
 depends_on = ["trait-standards"]
