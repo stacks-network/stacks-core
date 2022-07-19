@@ -10,21 +10,31 @@ depends_on = []
 path = "contracts/helper/simple-nft.clar"
 depends_on = ["trait-standards"]
 
+<<<<<<< HEAD
 [contracts.simple-nft-no-mint]
 path = "contracts/helper/simple-nft-no-mint.clar"
+=======
+[contracts.second-simple-nft]
+path = "contracts/helper/simple-nft.clar"
+>>>>>>> master
 depends_on = ["trait-standards"]
 
 [contracts.simple-ft]
 path = "contracts/helper/simple-ft.clar"
 depends_on = ["trait-standards"]
 
+<<<<<<< HEAD
 [contracts.simple-ft-no-mint]
 path = "contracts/helper/simple-ft-no-mint.clar"
+=======
+[contracts.second-simple-ft]
+path = "contracts/helper/simple-ft.clar"
+>>>>>>> master
 depends_on = ["trait-standards"]
 
 [contracts.hyperchains]
 path = "contracts/hyperchains.clar"
-depends_on = ["nft-trait-standard", "ft-trait-standard"]
+depends_on = ["trait-standards"]
 
 [contracts.test-helpers]
 path = "contracts/helper/test-helpers.clar"

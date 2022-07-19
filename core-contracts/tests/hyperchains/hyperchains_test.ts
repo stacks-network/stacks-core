@@ -77,6 +77,109 @@ Clarinet.test({
     },
 });
 
+Clarinet.test({
+    name: "Ensure that user can register and setup assets ",
+    async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
+
+        // valid miner
+        const alice = accounts.get("wallet_1")!;
+        // invalid miner
+        const bob = accounts.get("wallet_2")!;
+
+        // contract ids
+        const second_nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.second-simple-nft")!;
+        const second_ft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.second-simple-ft")!;
+
+
+        // Invalid miner can't setup allowed assets
+        let block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                bob.address),
+        ]);
+        // should return (err ERR_INVALID_MINER)
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(2);
+
+        // Miner can set up allowed assets
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
+        // Miner should not be able to set up allowed assets a second time
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "setup-allowed-contracts",
+                [],
+                alice.address),
+        ]);
+        // should return (err ERR_ASSET_ALREADY_ALLOWED)
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(6);
+
+        // Miner should be able to register a new allowed NFT asset
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "register-new-nft-contract",
+                [
+                    types.principal(second_nft_contract.contract_id),
+                    types.ascii("deposit-on-hc"),
+                ],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
+        // Miner should be not able to register a previously allowed NFT asset
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "register-new-nft-contract",
+                [
+                    types.principal(second_nft_contract.contract_id),
+                    types.ascii("deposit-on-hc"),
+                ],
+                alice.address),
+        ]);
+        // should return (err ERR_ASSET_ALREADY_ALLOWED)
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(6);
+
+        // Miner should be able to register a new allowed FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "register-new-ft-contract",
+                [
+                    types.principal(second_ft_contract.contract_id),
+                    types.ascii("deposit-on-hc"),
+                ],
+                alice.address),
+        ]);
+        block.receipts[0].result
+            .expectOk()
+            .expectBool(true);
+
+        // Miner should be not able to register a previously allowed FT asset
+        block = chain.mineBlock([
+            Tx.contractCall("hyperchains", "register-new-ft-contract",
+                [
+                    types.principal(second_ft_contract.contract_id),
+                    types.ascii("deposit-on-hc"),
+                ],
+                alice.address),
+        ]);
+        // should return (err ERR_ASSET_ALREADY_ALLOWED)
+        block.receipts[0].result
+            .expectErr()
+            .expectInt(6);
+
+    },
+});
+
 
 Clarinet.test({
     name: "Ensure that user can deposit NFT & miner can withdraw it",
@@ -178,8 +281,10 @@ Clarinet.test({
             .expectInt(3);
 
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
-        // Miner should commit a block with the appropriate root hash
+
+        // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -368,6 +473,7 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -494,12 +600,20 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash
         // Mocks a withdrawal of ft-token for amount 3
+<<<<<<< HEAD
+=======
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+>>>>>>> master
         let root_hash = new Uint8Array([75, 11, 162, 16, 9, 174, 3, 191, 160, 53, 213, 117, 249, 40, 80, 63, 178, 17, 45, 89, 137, 106, 15, 148, 76, 178, 234, 205, 235, 176, 72, 38]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+<<<<<<< HEAD
+=======
+                    id_header_hash,
+>>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -586,7 +700,11 @@ Clarinet.test({
         // should return (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT)
         block.receipts[0].result
             .expectErr()
+<<<<<<< HEAD
             .expectInt(13);
+=======
+            .expectInt(14);
+>>>>>>> master
 
     },
 });
@@ -701,6 +819,7 @@ Clarinet.test({
         // The data used for this can be seen in the test `test_verify_withdrawal_merkle_tree` in `withdrawal.rs`
         let root_hash = new Uint8Array([186, 138, 157, 125, 128, 50, 197, 200, 75, 139, 27, 104, 110, 157, 182, 49, 140, 62, 51, 70, 251, 139, 131, 82, 67, 53, 118, 168, 54, 239, 111, 30]);
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -930,12 +1049,20 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
+<<<<<<< HEAD
+=======
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+>>>>>>> master
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+<<<<<<< HEAD
+=======
+                    id_header_hash,
+>>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -967,7 +1094,11 @@ Clarinet.test({
         // should return (err ERR_MINT_FAILED)
         block.receipts[0].result
             .expectErr()
+<<<<<<< HEAD
             .expectInt(12);
+=======
+            .expectInt(13);
+>>>>>>> master
 
     },
 
@@ -1001,12 +1132,20 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
+<<<<<<< HEAD
+=======
+        const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+>>>>>>> master
         let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
                 [
                     types.buff(new Uint8Array([0, 1, 1, 1, 1])),
+<<<<<<< HEAD
+=======
+                    id_header_hash,
+>>>>>>> master
                     types.buff(root_hash),
                 ],
                 alice.address),
@@ -1067,6 +1206,7 @@ Clarinet.test({
             .expectInt(9);
     },
 });
+<<<<<<< HEAD
 
 Clarinet.test({
     name: "Ensure that a user can't withdraw an NFT if nobody owns it, in the `no-mint` case.",
@@ -1652,3 +1792,5 @@ Clarinet.test({
 
     },
 });
+=======
+>>>>>>> master

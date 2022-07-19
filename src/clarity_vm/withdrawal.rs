@@ -14,9 +14,11 @@ pub fn make_key_for_withdrawal(
     data: String,
     recipient: &PrincipalData,
     withdrawal_id: u32,
+    block_height: u64,
 ) -> String {
     format!(
-        "withdrawal::{}::{}::{}",
+        "withdrawal::{}::{}::{}::{}",
+        block_height,
         data,
         recipient.to_string(),
         withdrawal_id,
@@ -43,6 +45,7 @@ pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height
         withdrawal_id,
         &data.asset_identifier,
         data.amount,
+        block_height,
     )
 }
 
@@ -56,7 +59,13 @@ pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_heig
           "sender" => %data.sender,
           "withdrawal_id" => withdrawal_id,
           "asset_id" => %data.asset_identifier);
-    make_key_for_nft_withdrawal(&data.sender, withdrawal_id, &data.asset_identifier)
+    make_key_for_nft_withdrawal(
+        &data.sender,
+        withdrawal_id,
+        &data.asset_identifier,
+        data.id,
+        block_height,
+    )
 }
 
 pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_height: u64) -> String {
@@ -69,16 +78,18 @@ pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_heig
           "sender" => %data.sender,
           "withdrawal_id" => withdrawal_id,
           "amount" => %data.amount);
-    make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount)
+    make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount, block_height)
 }
 
 pub fn make_key_for_nft_withdrawal(
     sender: &PrincipalData,
     withdrawal_id: u32,
     asset_identifier: &AssetIdentifier,
+    id: u128,
+    block_height: u64,
 ) -> String {
-    let str_data = format!("nft::{}", asset_identifier);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    let str_data = format!("nft::{}::{}", asset_identifier, id);
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 pub fn make_key_for_ft_withdrawal(
@@ -86,18 +97,20 @@ pub fn make_key_for_ft_withdrawal(
     withdrawal_id: u32,
     asset_identifier: &AssetIdentifier,
     amount: u128,
+    block_height: u64,
 ) -> String {
     let str_data = format!("ft::{}::{}", asset_identifier, amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 pub fn make_key_for_stx_withdrawal(
     sender: &PrincipalData,
     withdrawal_id: u32,
     amount: u128,
+    block_height: u64,
 ) -> String {
     let str_data = format!("stx::{}", amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id)
+    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
 }
 
 /// The supplied withdrawal ID is inserted into the supplied withdraw event
@@ -235,7 +248,7 @@ mod test {
                 },
                 withdrawal_id: None,
                 sender: user_addr.into(),
-                value: Value::UInt(1),
+                id: 1,
             }));
         let withdrawal_receipt = StacksTransactionReceipt {
             transaction: TransactionOrigin::Stacks(StacksTransaction::new(
@@ -270,8 +283,8 @@ mod test {
         assert_eq!(
             stx_withdrawal_leaf_hash.as_bytes().to_vec(),
             vec![
-                166, 126, 56, 176, 32, 46, 181, 232, 203, 157, 163, 237, 42, 69, 2, 20, 196, 115,
-                199, 233, 214, 168, 217, 10, 100, 144, 59, 114, 68, 88, 116, 34
+                172, 139, 11, 211, 5, 246, 229, 87, 32, 65, 240, 19, 169, 240, 51, 242, 145, 194,
+                35, 50, 110, 250, 125, 182, 250, 233, 86, 22, 132, 34, 54, 87
             ]
         );
 
@@ -282,8 +295,8 @@ mod test {
         assert_eq!(
             ft_withdrawal_leaf_hash.as_bytes().to_vec(),
             vec![
-                168, 206, 151, 196, 231, 103, 99, 34, 213, 247, 225, 237, 184, 34, 243, 125, 125,
-                213, 140, 199, 41, 34, 35, 208, 125, 174, 10, 55, 139, 82, 34, 213
+                150, 1, 86, 186, 197, 139, 77, 69, 128, 76, 166, 52, 11, 95, 39, 180, 157, 104, 85,
+                120, 195, 235, 158, 52, 62, 173, 45, 78, 125, 176, 10, 181
             ]
         );
 
@@ -294,8 +307,13 @@ mod test {
         assert_eq!(
             nft_withdrawal_leaf_hash.as_bytes().to_vec(),
             vec![
+<<<<<<< HEAD
                 153, 10, 43, 242, 160, 228, 145, 217, 85, 36, 235, 59, 148, 118, 109, 81, 120, 23,
                 174, 225, 19, 149, 220, 102, 116, 49, 228, 44, 66, 78, 232, 74
+=======
+                192, 142, 158, 115, 44, 43, 219, 156, 110, 47, 200, 153, 159, 226, 157, 254, 243,
+                156, 131, 240, 141, 179, 228, 34, 45, 250, 148, 88, 182, 39, 52, 121
+>>>>>>> master
             ]
         );
 
@@ -306,8 +324,8 @@ mod test {
         assert_eq!(
             first_level_first_node.as_bytes().to_vec(),
             vec![
-                94, 66, 211, 71, 239, 174, 90, 87, 146, 231, 42, 206, 116, 57, 31, 8, 128, 148,
-                191, 242, 102, 223, 86, 35, 241, 182, 144, 23, 12, 76, 40, 102
+                33, 59, 115, 31, 248, 41, 193, 100, 153, 181, 12, 29, 119, 128, 236, 142, 63, 0,
+                103, 65, 45, 101, 65, 135, 50, 36, 6, 86, 23, 242, 101, 86
             ]
         );
         let first_level_second_node = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
@@ -317,8 +335,13 @@ mod test {
         assert_eq!(
             first_level_second_node.as_bytes().to_vec(),
             vec![
+<<<<<<< HEAD
                 162, 136, 132, 170, 231, 227, 33, 135, 19, 92, 199, 182, 216, 230, 39, 31, 30, 191,
                 124, 1, 38, 84, 237, 67, 218, 68, 255, 186, 146, 179, 26, 214
+=======
+                143, 101, 57, 194, 25, 34, 84, 26, 183, 99, 126, 86, 66, 243, 83, 115, 185, 210,
+                20, 198, 46, 34, 238, 63, 37, 111, 253, 68, 89, 39, 195, 245
+>>>>>>> master
             ]
         );
 
@@ -329,8 +352,13 @@ mod test {
         assert_eq!(
             calculated_root_hash.as_bytes().to_vec(),
             vec![
+<<<<<<< HEAD
                 3, 71, 251, 33, 201, 246, 155, 190, 62, 133, 213, 253, 91, 188, 69, 162, 137, 13,
                 175, 192, 20, 117, 147, 103, 70, 7, 196, 149, 56, 193, 5, 107
+=======
+                125, 119, 23, 55, 33, 63, 210, 96, 23, 203, 132, 126, 25, 3, 23, 127, 138, 157,
+                172, 210, 18, 252, 170, 7, 192, 175, 57, 178, 110, 63, 246, 49
+>>>>>>> master
             ]
         );
         assert_eq!(root_hash, calculated_root_hash);

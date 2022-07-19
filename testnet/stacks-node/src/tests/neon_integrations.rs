@@ -35,6 +35,7 @@ use crate::{Config, Keychain};
 use std::convert::TryFrom;
 
 use super::make_contract_call_mblock_only;
+use clarity::vm::types::AssetIdentifier;
 
 pub fn mockstack_test_conf() -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -708,6 +709,41 @@ pub fn get_withdrawal_entry<F: std::fmt::Display>(
     }
 }
 
+pub fn get_nft_withdrawal_entry<F: std::fmt::Display>(
+    http_origin: &str,
+    block_height: u64,
+    sender: F,
+    withdrawal_id: u64,
+    asset_identifier: AssetIdentifier,
+    id: u64,
+) -> WithdrawalEntry {
+    let client = reqwest::blocking::Client::new();
+    let path = format!(
+        "{}/v2/withdrawal/nft/{}/{}/{}/{}/{}/{}/{}",
+        http_origin,
+        block_height,
+        sender,
+        withdrawal_id,
+        StacksAddress::from(asset_identifier.clone().contract_identifier.issuer),
+        asset_identifier.contract_identifier.name.as_str(),
+        asset_identifier.asset_name.to_string(),
+        id
+    );
+
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<WithdrawalResponse>()
+        .unwrap();
+    info!("Withdrawal response: {:#?}", res);
+    WithdrawalEntry {
+        leaf_hash: ClarityValue::try_deserialize_hex_untyped(&res.withdrawal_leaf_hash).unwrap(),
+        root_hash: ClarityValue::try_deserialize_hex_untyped(&res.withdrawal_root).unwrap(),
+        siblings: ClarityValue::try_deserialize_hex_untyped(&res.sibling_hashes).unwrap(),
+    }
+}
+
 fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/pox", http_origin);
@@ -1316,6 +1352,7 @@ fn get_calling_line_from_trace(backtrace: &backtrace::Backtrace) -> String {
         "call site not found".to_string()
     }
 }
+
 /// Submit a transaction, and wait for it to show up in the mempool events of the
 /// test observer.
 pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
