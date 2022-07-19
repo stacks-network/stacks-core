@@ -265,10 +265,6 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-        
         (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
@@ -393,10 +389,6 @@
 
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
-
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
         (asserts! (try! (inner-withdraw-ft-asset amount recipient memo ft-contract ft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
