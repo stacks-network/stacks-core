@@ -1,4 +1,4 @@
-;; The .hyperchains contract
+;; The .multi-miner contract
 (define-constant CONTRACT_ADDRESS (as-contract tx-sender))
 
 (define-constant ERR_SIGNER_APPEARS_TWICE 101)

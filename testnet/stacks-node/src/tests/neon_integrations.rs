@@ -1352,6 +1352,7 @@ fn get_calling_line_from_trace(backtrace: &backtrace::Backtrace) -> String {
         "call site not found".to_string()
     }
 }
+
 /// Submit a transaction, and wait for it to show up in the mempool events of the
 /// test observer.
 pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
