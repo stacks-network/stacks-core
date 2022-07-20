@@ -3,8 +3,7 @@ FROM hyperchain-node:integrations AS test
 ARG test_name
 ENV STACKS_NODE_TEST="1"
 
-RUN cargo build && \
-    cargo test --workspace --bin=hyperchain-node -- --test-threads 1 "$test_name"
+RUN cargo test --workspace --bin=hyperchain-node -- --test-threads 1 "$test_name"
 
 # Generate coverage report and upload it to codecov
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
