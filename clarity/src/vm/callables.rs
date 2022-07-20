@@ -194,7 +194,6 @@ impl DefinedFunction {
             }
         }
 
-        // Note: eval.
         let result = eval(&self.body, env, &context);
 
         // if the error wasn't actually an error, but a function return,

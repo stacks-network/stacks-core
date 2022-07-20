@@ -211,7 +211,6 @@ impl<'a, T: MarfTrieId> MarfConnection<T> for MarfTransaction<'a, T> {
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
     {
         info!("MarfTransaction::with_conn");
-
         exec(&mut self.storage)
     }
     fn sqlite_conn(&self) -> &Connection {
@@ -1143,15 +1142,10 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-        info!(
-            "cur_block_hash {:?} cur_block_id {:?}",
-            &cur_block_hash, &cur_block_id
-        ); // this isn't initialized
 
-        let path = TriePath::from_key(key); // simple
+        let path = TriePath::from_key(key);
 
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
-            // real operation
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });

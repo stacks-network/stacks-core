@@ -1290,7 +1290,6 @@ impl StacksBlockBuilder {
                 );
             }
 
-            // Note: process_transaction
             let (fee, receipt) = match StacksChainState::process_transaction(clarity_tx, tx, quiet)
             {
                 Ok((fee, receipt)) => (fee, receipt),
@@ -2026,7 +2025,6 @@ impl StacksBlockBuilder {
                         considered.insert(txinfo.tx.txid());
                         num_considered += 1;
 
-                        // Note: Mining happens here.
                         let tx_result = builder.try_mine_tx_with_len(
                             epoch_tx,
                             &txinfo.tx,
