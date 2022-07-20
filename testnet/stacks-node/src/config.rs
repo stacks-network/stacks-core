@@ -553,6 +553,10 @@ impl Config {
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
+                block_reward_recipient: miner.block_reward_recipient.as_ref().map(|c| {
+                    PrincipalData::parse(&c)
+                        .expect(&format!("FATAL: not a valid principal identifier: {}", c))
+                }),
             },
             None => miner_default_config,
         };
@@ -1476,6 +1480,7 @@ pub struct MinerConfig {
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
+    pub block_reward_recipient: Option<PrincipalData>,
 }
 
 impl MinerConfig {
@@ -1486,6 +1491,7 @@ impl MinerConfig {
             subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
+            block_reward_recipient: None,
         }
     }
 }
@@ -1517,6 +1523,7 @@ pub struct ConnectionOptionsFile {
     pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
+
     pub read_only_call_limit_write_count: Option<u64>,
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
@@ -1590,6 +1597,7 @@ pub struct MinerConfigFile {
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
+    pub block_reward_recipient: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Default)]

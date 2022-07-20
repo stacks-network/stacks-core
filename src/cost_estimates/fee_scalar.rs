@@ -172,7 +172,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                         // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
                         self.metric.from_len(tx_size)
                     }
-                    TransactionPayload::Coinbase(_) => {
+                    TransactionPayload::Coinbase(..) => {
                         // Coinbase txs are "free", so they don't factor into the fee market.
                         return None;
                     }

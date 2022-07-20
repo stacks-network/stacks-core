@@ -7,6 +7,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::version::ClarityVersion;
 use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 use rstest::rstest;
@@ -15,11 +16,20 @@ use rstest_reuse::{self, *};
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_edge_counting_runtime_template(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_edge_counting_runtime_template(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
-fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u64 {
+fn dependency_edge_counting_runtime(
+    iters: usize,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> u64 {
     let mut progn = "(define-private (a0) 1)".to_string();
     for i in 1..iters {
         progn.push_str(&format!("\n(define-private (a{}) (begin", i));
@@ -55,6 +65,7 @@ fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u6
         &progn,
         &mut cost_track,
         version,
+        epoch,
     )
     .unwrap();
 
@@ -62,11 +73,11 @@ fn dependency_edge_counting_runtime(iters: usize, version: ClarityVersion) -> u6
 }
 
 #[apply(test_edge_counting_runtime_template)]
-fn test_edge_counting_runtime(#[case] version: ClarityVersion) {
-    let ratio_4_8 =
-        dependency_edge_counting_runtime(8, version) / dependency_edge_counting_runtime(4, version);
-    let ratio_8_16 = dependency_edge_counting_runtime(16, version)
-        / dependency_edge_counting_runtime(8, version);
+fn test_edge_counting_runtime(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let ratio_4_8 = dependency_edge_counting_runtime(8, version, epoch)
+        / dependency_edge_counting_runtime(4, version, epoch);
+    let ratio_8_16 = dependency_edge_counting_runtime(16, version, epoch)
+        / dependency_edge_counting_runtime(8, version, epoch);
 
     // this really is just testing for the non-linearity
     //   in the runtime cost assessment (because the edge count in the dependency graph is going up O(n^2)).

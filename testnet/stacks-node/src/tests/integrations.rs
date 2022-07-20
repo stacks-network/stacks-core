@@ -606,7 +606,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
 
-                let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity1).unwrap().1;
+                let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity1, StacksEpochId::Epoch20).unwrap().1;
                 let expected_interface = build_contract_interface(&contract_analysis);
 
                 eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());

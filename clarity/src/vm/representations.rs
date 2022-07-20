@@ -144,6 +144,8 @@ pub enum PreSymbolicExpressionType {
     SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
     TraitReference(ClarityName),
+    Comment(String),
+    Placeholder(String),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -285,6 +287,20 @@ impl PreSymbolicExpression {
         }
     }
 
+    pub fn placeholder(s: String) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Placeholder(s),
+            ..PreSymbolicExpression::cons()
+        }
+    }
+
+    pub fn comment(comment: String) -> PreSymbolicExpression {
+        PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Comment(comment),
+            ..PreSymbolicExpression::cons()
+        }
+    }
+
     pub fn match_trait_reference(&self) -> Option<&ClarityName> {
         if let PreSymbolicExpressionType::TraitReference(ref value) = self.pre_expr {
             Some(value)
@@ -320,6 +336,22 @@ impl PreSymbolicExpression {
     pub fn match_field_identifier(&self) -> Option<&TraitIdentifier> {
         if let PreSymbolicExpressionType::FieldIdentifier(ref value) = self.pre_expr {
             Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_placeholder(&self) -> Option<&str> {
+        if let PreSymbolicExpressionType::Placeholder(ref s) = self.pre_expr {
+            Some(s.as_str())
+        } else {
+            None
+        }
+    }
+
+    pub fn match_comment(&self) -> Option<&str> {
+        if let PreSymbolicExpressionType::Comment(ref s) = self.pre_expr {
+            Some(s.as_str())
         } else {
             None
         }

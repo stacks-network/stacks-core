@@ -28,8 +28,9 @@ use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
+    Value, NONE,
 };
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
@@ -40,7 +41,7 @@ use crate::{
     burnchains::Burnchain,
     chainstate::{
         burn::db::sortdb::SortitionDB,
-        stacks::{events::TransactionOrigin, miner::test::make_coinbase},
+        stacks::{events::TransactionOrigin, tests::make_coinbase},
     },
     clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
     net::test::TestEventObserver,
@@ -49,9 +50,8 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 
-use crate::clarity_vm::clarity::Error as ClarityError;
-
 use super::test::*;
+use crate::clarity_vm::clarity::Error as ClarityError;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -1426,4 +1426,288 @@ fn test_delegate_extend_transition_pox_2() {
             "All of Charlie's transactions should have committed okay"
         );
     }
+}
+
+#[test]
+fn test_pox_2_getters() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+    let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
+
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test-pox-2-getters",
+        6100,
+        Some(epochs.clone()),
+        None,
+    );
+    let mut coinbase_nonce = 0;
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let charlie = keys.pop().unwrap();
+    let danielle = keys.pop().unwrap();
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
+
+    for _i in 0..20 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let cur_reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    // alice locks in v2
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        0,
+        LOCKUP_AMT,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        4,
+        tip.block_height,
+    );
+
+    // bob deleates to charlie
+    let bob_delegate_tx = make_pox_2_contract_call(
+        &bob,
+        0,
+        "delegate-stx",
+        vec![
+            Value::UInt(LOCKUP_AMT),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::none(),
+        ],
+    );
+
+    // charlie calls delegate-stack-stx for bob
+    let charlie_delegate_stack_tx = make_pox_2_contract_call(
+        &charlie,
+        0,
+        "delegate-stack-stx",
+        vec![
+            PrincipalData::from(bob_address.clone()).into(),
+            Value::UInt(LOCKUP_AMT),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(tip.block_height as u128),
+            Value::UInt(4),
+        ],
+    );
+
+    let agg_commit_tx_1 = make_pox_2_contract_call(
+        &charlie,
+        1,
+        "stack-aggregation-commit",
+        vec![
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(cur_reward_cycle as u128),
+        ],
+    );
+
+    let agg_commit_tx_2 = make_pox_2_contract_call(
+        &charlie,
+        2,
+        "stack-aggregation-commit",
+        vec![
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(cur_reward_cycle as u128 + 1),
+        ],
+    );
+
+    let agg_commit_tx_3 = make_pox_2_contract_call(
+        &charlie,
+        3,
+        "stack-aggregation-commit",
+        vec![
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(cur_reward_cycle as u128 + 2),
+        ],
+    );
+
+    let reject_pox = make_pox_2_contract_call(&danielle, 0, "reject-pox", vec![]);
+
+    peer.tenure_with_txs(
+        &[
+            alice_lockup,
+            bob_delegate_tx,
+            charlie_delegate_stack_tx,
+            agg_commit_tx_1,
+            agg_commit_tx_2,
+            agg_commit_tx_3,
+            reject_pox,
+        ],
+        &mut coinbase_nonce,
+    );
+
+    let result = eval_at_tip(&mut peer, "pox-2", &format!("
+    {{
+        ;; should be none
+        get-delegation-info-alice: (get-delegation-info '{}),
+        ;; should be (some $charlie_address)
+        get-delegation-info-bob: (get-delegation-info '{}),
+        ;; should be none
+        get-allowance-contract-callers: (get-allowance-contract-callers '{} '{}),
+        ;; should be 1
+        get-num-reward-set-pox-addresses-current: (get-num-reward-set-pox-addresses u{}),
+        ;; should be 0
+        get-num-reward-set-pox-addresses-future: (get-num-reward-set-pox-addresses u1000),
+        ;; should be 0
+        get-partial-stacked-by-cycle-bob-0: (get-partial-stacked-by-cycle {{ version: 0x00, hashbytes: 0x{} }} u{} '{}),
+        get-partial-stacked-by-cycle-bob-1: (get-partial-stacked-by-cycle {{ version: 0x00, hashbytes: 0x{} }} u{} '{}),
+        get-partial-stacked-by-cycle-bob-2: (get-partial-stacked-by-cycle {{ version: 0x00, hashbytes: 0x{} }} u{} '{}),
+        ;; should be LOCKUP_AMT
+        get-partial-stacked-by-cycle-bob-3: (get-partial-stacked-by-cycle {{ version: 0x00, hashbytes: 0x{} }} u{} '{}),
+        ;; should be 0
+        get-total-pox-rejection-now: (get-total-pox-rejection u{}),
+        ;; should be LOCKUP_AMT
+        get-total-pox-rejection-next: (get-total-pox-rejection u{}),
+        ;; should be 0
+        get-total-pox-rejection-future: (get-total-pox-rejection u{})
+    }}", &alice_address,
+        &bob_address,
+        &bob_address, &format!("{}.hello-world", &charlie_address), cur_reward_cycle + 1,
+        &charlie_address.bytes, cur_reward_cycle + 0, &charlie_address,
+        &charlie_address.bytes, cur_reward_cycle + 1, &charlie_address,
+        &charlie_address.bytes, cur_reward_cycle + 2, &charlie_address,
+        &charlie_address.bytes, cur_reward_cycle + 3, &charlie_address,
+        cur_reward_cycle,
+        cur_reward_cycle + 1,
+        cur_reward_cycle + 2,
+    ));
+
+    eprintln!("{}", &result);
+    let data = result.expect_tuple().data_map;
+
+    let alice_delegation_info = data
+        .get("get-delegation-info-alice")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert!(alice_delegation_info.is_none());
+
+    let bob_delegation_info = data
+        .get("get-delegation-info-bob")
+        .cloned()
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .expect_tuple()
+        .data_map;
+    let bob_delegation_addr = bob_delegation_info
+        .get("delegated-to")
+        .cloned()
+        .unwrap()
+        .expect_principal();
+    let bob_delegation_amt = bob_delegation_info
+        .get("amount-ustx")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    let bob_pox_addr_opt = bob_delegation_info
+        .get("pox-addr")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert_eq!(bob_delegation_addr, charlie_address.to_account_principal());
+    assert_eq!(bob_delegation_amt, LOCKUP_AMT as u128);
+    assert!(bob_pox_addr_opt.is_none());
+
+    let allowance = data
+        .get("get-allowance-contract-callers")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert!(allowance.is_none());
+
+    let current_num_reward_addrs = data
+        .get("get-num-reward-set-pox-addresses-current")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(current_num_reward_addrs, 2);
+
+    let future_num_reward_addrs = data
+        .get("get-num-reward-set-pox-addresses-future")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(future_num_reward_addrs, 0);
+
+    for i in 0..3 {
+        let key =
+            ClarityName::try_from(format!("get-partial-stacked-by-cycle-bob-{}", &i)).unwrap();
+        let partial_stacked = data.get(&key).cloned().unwrap().expect_optional();
+        assert!(partial_stacked.is_none());
+    }
+    let partial_stacked = data
+        .get("get-partial-stacked-by-cycle-bob-3")
+        .cloned()
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .expect_tuple()
+        .data_map
+        .get("stacked-amount")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(partial_stacked, LOCKUP_AMT as u128);
+
+    let rejected = data
+        .get("get-total-pox-rejection-now")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(rejected, 0);
+
+    let rejected = data
+        .get("get-total-pox-rejection-next")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(rejected, LOCKUP_AMT as u128);
+
+    let rejected = data
+        .get("get-total-pox-rejection-future")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    assert_eq!(rejected, 0);
 }

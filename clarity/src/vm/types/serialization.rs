@@ -945,12 +945,18 @@ mod tests {
     use super::super::*;
     use super::SerializationError;
     use crate::vm::ClarityVersion;
+    use stacks_common::types::StacksEpochId;
 
     #[template]
     #[rstest]
-    #[case(ClarityVersion::Clarity1)]
-    #[case(ClarityVersion::Clarity2)]
-    fn test_clarity_versions_serialization(#[case] version: ClarityVersion) {}
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+    fn test_clarity_versions_serialization(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+    }
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap())).into()
@@ -998,7 +1004,7 @@ mod tests {
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_lists(#[case] version: ClarityVersion) {
+    fn test_lists(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let list_list_int = Value::list_from(vec![Value::list_from(vec![
             Value::Int(1),
             Value::Int(2),
@@ -1010,17 +1016,17 @@ mod tests {
         // Should be legal!
         Value::try_deserialize_hex(
             &Value::list_from(vec![]).unwrap().serialize(),
-            &TypeSignature::from_string("(list 2 (list 3 int))", version),
+            &TypeSignature::from_string("(list 2 (list 3 int))", version, epoch),
         )
         .unwrap();
         Value::try_deserialize_hex(
             &list_list_int.serialize(),
-            &TypeSignature::from_string("(list 2 (list 3 int))", version),
+            &TypeSignature::from_string("(list 2 (list 3 int))", version, epoch),
         )
         .unwrap();
         Value::try_deserialize_hex(
             &list_list_int.serialize(),
-            &TypeSignature::from_string("(list 1 (list 4 int))", version),
+            &TypeSignature::from_string("(list 1 (list 4 int))", version, epoch),
         )
         .unwrap();
 
@@ -1030,17 +1036,17 @@ mod tests {
         // inner type isn't expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from_string("(list 1 (list 4 uint))", version),
+            TypeSignature::from_string("(list 1 (list 4 uint))", version, epoch),
         );
         // child list longer than expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from_string("(list 1 (list 2 uint))", version),
+            TypeSignature::from_string("(list 1 (list 2 uint))", version, epoch),
         );
         // parent list longer than expected
         test_bad_expectation(
             list_list_int.clone(),
-            TypeSignature::from_string("(list 0 (list 2 uint))", version),
+            TypeSignature::from_string("(list 0 (list 2 uint))", version, epoch),
         );
 
         // make a list too large for the type itself!
@@ -1122,7 +1128,7 @@ mod tests {
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_opts(#[case] version: ClarityVersion) {
+    fn test_opts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::none());
         test_deser_ser(Value::some(Value::Int(15)).unwrap());
 
@@ -1131,12 +1137,12 @@ mod tests {
         // bad expected _contained_ type
         test_bad_expectation(
             Value::some(Value::Int(15)).unwrap(),
-            TypeSignature::from_string("(optional uint)", version),
+            TypeSignature::from_string("(optional uint)", version, epoch),
         );
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_resp(#[case] version: ClarityVersion) {
+    fn test_resp(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::okay(Value::Int(15)).unwrap());
         test_deser_ser(Value::error(Value::Int(15)).unwrap());
 
@@ -1144,16 +1150,16 @@ mod tests {
         test_bad_expectation(Value::okay(Value::Int(15)).unwrap(), TypeSignature::IntType);
         test_bad_expectation(
             Value::okay(Value::Int(15)).unwrap(),
-            TypeSignature::from_string("(response uint int)", version),
+            TypeSignature::from_string("(response uint int)", version, epoch),
         );
         test_bad_expectation(
             Value::error(Value::Int(15)).unwrap(),
-            TypeSignature::from_string("(response int uint)", version),
+            TypeSignature::from_string("(response int uint)", version, epoch),
         );
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_buffs(#[case] version: ClarityVersion) {
+    fn test_buffs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::buff_from(vec![0, 0, 0, 0]).unwrap());
         test_deser_ser(Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef]).unwrap());
         test_deser_ser(Value::buff_from(vec![0, 0xde, 0xad, 0xbe, 0xef, 0]).unwrap());
@@ -1166,23 +1172,23 @@ mod tests {
         // fail because we expect a shorter buffer
         test_bad_expectation(
             Value::buff_from(vec![0, 0xde, 0xad, 0xbe, 0xef, 0]).unwrap(),
-            TypeSignature::from_string("(buff 2)", version),
+            TypeSignature::from_string("(buff 2)", version, epoch),
         );
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_string_ascii(#[case] version: ClarityVersion) {
+    fn test_string_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap());
 
         // fail because we expect a shorter string
         test_bad_expectation(
             Value::string_ascii_from_bytes(vec![61, 62, 63, 64]).unwrap(),
-            TypeSignature::from_string("(string-ascii 3)", version),
+            TypeSignature::from_string("(string-ascii 3)", version, epoch),
         );
     }
 
     #[apply(test_clarity_versions_serialization)]
-    fn test_string_utf8(#[case] version: ClarityVersion) {
+    fn test_string_utf8(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         test_deser_ser(Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap());
         test_deser_ser(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
@@ -1191,12 +1197,12 @@ mod tests {
         // fail because we expect a shorter string
         test_bad_expectation(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 64]).unwrap(),
-            TypeSignature::from_string("(string-utf8 3)", version),
+            TypeSignature::from_string("(string-utf8 3)", version, epoch),
         );
 
         test_bad_expectation(
             Value::string_utf8_from_bytes(vec![61, 62, 63, 240, 159, 164, 151]).unwrap(),
-            TypeSignature::from_string("(string-utf8 3)", version),
+            TypeSignature::from_string("(string-utf8 3)", version, epoch),
         );
     }
 

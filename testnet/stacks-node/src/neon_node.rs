@@ -71,7 +71,11 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
+use clarity::vm::types::PrincipalData;
+
 use crate::operations::BurnchainOpSigner;
+
+use stacks_common::types::StacksEpochId;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -175,6 +179,15 @@ fn fault_injection_delay_transactions(
     _attempt: u64,
 ) -> bool {
     true
+}
+
+fn get_coinbase_with_recipient(config: &Config, epoch_id: StacksEpochId) -> Option<PrincipalData> {
+    if epoch_id < StacksEpochId::Epoch21 && config.miner.block_reward_recipient.is_some() {
+        warn!("Coinbase pay-to-contract is not supported in the current epoch");
+        None
+    } else {
+        config.miner.block_reward_recipient.clone()
+    }
 }
 
 struct AssembledAnchorBlock {
@@ -307,6 +320,7 @@ fn inner_generate_coinbase_tx(
     nonce: u64,
     is_mainnet: bool,
     chain_id: u32,
+    alt_recipient: Option<PrincipalData>,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
@@ -319,7 +333,7 @@ fn inner_generate_coinbase_tx(
     let mut tx = StacksTransaction::new(
         version,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), alt_recipient),
     );
     tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1770,6 +1784,11 @@ impl StacksNode {
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_dispatcher: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
+        let stacks_epoch = burn_db
+            .index_conn()
+            .get_stacks_epoch(burn_block.block_height as u32)
+            .expect("Could not find a stacks epoch.");
+
         let MiningTenureInformation {
             mut stacks_parent_header,
             parent_consensus_hash,
@@ -1968,11 +1987,17 @@ impl StacksNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
+        let coinbase_recipient_id = get_coinbase_with_recipient(&config, stacks_epoch.epoch_id);
+        if let Some(id) = coinbase_recipient_id.as_ref() {
+            debug!("Send coinbase rewards to {}", &id);
+        }
+
         let coinbase_tx = inner_generate_coinbase_tx(
             keychain,
             coinbase_nonce,
             config.is_mainnet(),
             config.burnchain.chain_id,
+            coinbase_recipient_id,
         );
 
         // find the longest microblock tail we can build off of
@@ -2029,11 +2054,6 @@ impl StacksNode {
                     config.is_mainnet(),
                     config.burnchain.chain_id,
                 );
-
-                let stacks_epoch = burn_db
-                    .index_conn()
-                    .get_stacks_epoch(burn_block.block_height as u32)
-                    .expect("Could not find a stacks epoch.");
 
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.

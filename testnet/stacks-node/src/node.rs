@@ -1044,7 +1044,7 @@ impl Node {
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
         tx.chain_id = self.config.burnchain.chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;

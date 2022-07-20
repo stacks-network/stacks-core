@@ -345,7 +345,7 @@ pub fn make_poison(
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]));
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
@@ -608,7 +608,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -640,7 +640,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -672,7 +672,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -713,7 +713,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -754,7 +754,7 @@ fn should_succeed_mining_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -878,7 +878,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -894,7 +894,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 
@@ -918,7 +918,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -934,7 +934,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
                 }
@@ -950,7 +950,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let coinbase_tx = &chain_tip.block.txs[0];
                     assert!(coinbase_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match coinbase_tx.payload {
-                        TransactionPayload::Coinbase(_) => true,
+                        TransactionPayload::Coinbase(..) => true,
                         _ => false,
                     });
 

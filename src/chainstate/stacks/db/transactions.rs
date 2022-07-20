@@ -211,7 +211,7 @@ impl StacksTransactionReceipt {
 
     pub fn is_coinbase_tx(&self) -> bool {
         if let TransactionOrigin::Stacks(ref transaction) = self.transaction {
-            if let TransactionPayload::Coinbase(_) = transaction.payload {
+            if let TransactionPayload::Coinbase(..) = transaction.payload {
                 return true;
             }
         }
@@ -1129,7 +1129,7 @@ impl StacksChainState {
 
                 Ok(receipt)
             }
-            TransactionPayload::Coinbase(_) => {
+            TransactionPayload::Coinbase(..) => {
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 

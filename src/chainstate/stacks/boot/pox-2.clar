@@ -162,15 +162,15 @@
 
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
-(define-private (burn-height-to-reward-cycle (height uint)) 
+(define-read-only (burn-height-to-reward-cycle (height uint)) 
     (/ (- height (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length)))
 
 ;; What's the block height at the start of a given reward cycle?
-(define-private (reward-cycle-to-burn-height (cycle uint))
+(define-read-only (reward-cycle-to-burn-height (cycle uint))
     (+ (var-get first-burnchain-block-height) (* cycle (var-get pox-reward-cycle-length))))
 
 ;; What's the current PoX reward cycle?
-(define-private (current-pox-reward-cycle)
+(define-read-only (current-pox-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height))
 
 ;; Get the _current_ PoX stacking principal information.  If the information
@@ -188,7 +188,7 @@
         none
     ))
 
-(define-private (check-caller-allowed)
+(define-read-only (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
         (let ((caller-allowed 
                  ;; if not in the caller map, return false
@@ -203,7 +203,7 @@
               false
               true))))
 
-(define-private (get-check-delegation (stacker principal))
+(define-read-only (get-check-delegation (stacker principal))
     (let ((delegation-info (try! (map-get? delegation-state { stacker: stacker }))))
       ;; did the existing delegation expire?
       (if (match (get until-burn-ht delegation-info)
@@ -226,7 +226,7 @@
         (get len (map-get? reward-cycle-pox-address-list-len { reward-cycle: reward-cycle }))))
 
 ;; How many rejection votes have we been accumulating for the next block
-(define-private (next-cycle-rejection-votes)
+(define-read-only (next-cycle-rejection-votes)
     (default-to
         u0
         (get amount (map-get? stacking-rejection { reward-cycle: (+ u1 (current-pox-reward-cycle)) }))))
@@ -361,14 +361,14 @@
     (/ stx-liquid-supply STACKING_THRESHOLD_25))
 
 ;; Is the address mode valid for a PoX burn address?
-(define-private (check-pox-addr-version (version (buff 1)))
+(define-read-only (check-pox-addr-version (version (buff 1)))
     (or (is-eq version ADDRESS_VERSION_P2PKH)
         (is-eq version ADDRESS_VERSION_P2SH)
         (is-eq version ADDRESS_VERSION_P2WPKH)
         (is-eq version ADDRESS_VERSION_P2WSH)))
 
 ;; Is the given lock period valid?
-(define-private (check-pox-lock-period (lock-period uint)) 
+(define-read-only (check-pox-lock-period (lock-period uint)) 
     (and (>= lock-period MIN_POX_REWARD_CYCLES) 
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
@@ -682,7 +682,6 @@
     })
 )
 
-
 ;; Extend an active stacking lock.
 ;; *New in Stacks 2.1*
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
@@ -824,4 +823,46 @@
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
+
+;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
+;; is expired, or if there's never been such a stacker, then returns none.
+;; *New in Stacks 2.1*
+(define-read-only (get-delegation-info (stacker principal))
+    (get-check-delegation stacker)
+)
+
+;; Get the burn height at which a particular contract is allowed to stack for a particular principal.
+;; *New in Stacks 2.1*
+;; Returns (some (some X)) if X is the burn height at which the allowance terminates
+;; Returns (some none) if the caller is allowed indefinitely
+;; Returns none if there is no allowance record
+(define-read-only (get-allowance-contract-callers (sender principal) (calling-contract principal))
+    (map-get? allowance-contract-callers { sender: sender, contract-caller: calling-contract })
+)
+
+;; How many PoX addresses in this reward cycle?
+;; *New in Stacks 2.1*
+(define-read-only (get-num-reward-set-pox-addresses (reward-cycle uint))
+    (match (map-get? reward-cycle-pox-address-list-len { reward-cycle: reward-cycle })
+        num-addrs
+            (get len num-addrs)
+        u0
+    )
+)
+
+;; How many uSTX have been locked up for this address so far, before the delegator commits them?
+;; *New in Stacks 2.1*
+(define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 20) }) (reward-cycle uint) (sender principal))
+    (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
+)
+
+;; How any uSTX have voted to reject PoX in a given reward cycle?
+;; *New in Stacks 2.1*
+(define-read-only (get-total-pox-rejection (reward-cycle uint))
+    (match (map-get? stacking-rejection { reward-cycle: reward-cycle })
+        rejected
+            (get amount rejected)
+        u0
+    )
+)
 

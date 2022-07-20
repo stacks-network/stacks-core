@@ -2574,8 +2574,8 @@ pub mod test {
 
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
-    use crate::chainstate::stacks::miner::test::*;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
     use crate::net::inv::*;
@@ -3704,7 +3704,7 @@ pub mod test {
                                         MemPoolDB::open_test(false, 0x80000000, &chainstate_path)
                                             .unwrap();
                                     let coinbase_tx =
-                                        make_coinbase_with_nonce(miner, i, (i + 2) as u64);
+                                        make_coinbase_with_nonce(miner, i, (i + 2) as u64, None);
 
                                     let (anchored_block, block_size, block_execution_cost) =
                                         StacksBlockBuilder::build_anchored_block(

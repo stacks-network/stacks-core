@@ -180,6 +180,7 @@ pub trait TransactionConnection: ClarityConnection {
                 contract_content,
                 &mut cost_track,
                 clarity_version,
+                epoch_id,
             );
 
             let mut contract_ast = match ast_result {

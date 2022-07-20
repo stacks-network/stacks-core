@@ -48,9 +48,14 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_simple_apply_eval(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_simple_apply_eval(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::StacksAddressExtensions;
@@ -71,7 +76,7 @@ fn test_doubly_defined_persisted_vars() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_let(#[case] version: ClarityVersion) {
+fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     /*
       test program:
       (let ((x 1) (y 2))
@@ -87,7 +92,7 @@ fn test_simple_let(#[case] version: ClarityVersion) {
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    if let Ok(parsed_program) = parse(&contract_id, &program, version) {
+    if let Ok(parsed_program) = parse(&contract_id, &program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
@@ -635,7 +640,7 @@ fn test_principal_equality() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_if_functions(#[case] version: ClarityVersion) {
+fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     //
     //  test program:
     //  (define (with_else x) (if (is-eq 5 x) 1 0)
@@ -654,6 +659,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
          (without_else 3)
          (with_else 3)",
         version,
+        epoch,
     );
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -663,6 +669,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
         &"(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
         version,
+        epoch,
     );
 
     if let Ok(parsed_bodies) = function_bodies {
@@ -1077,7 +1084,7 @@ fn test_sequence_comparisons_mismatched_types() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
+fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -1132,8 +1139,8 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
         )
         .into(),
         CheckErrors::TypeError(
-            TypeSignature::from_string("bool", version),
-            TypeSignature::from_string("int", version),
+            TypeSignature::from_string("bool", version, epoch),
+            TypeSignature::from_string("int", version, epoch),
         )
         .into(),
     ];

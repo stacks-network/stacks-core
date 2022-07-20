@@ -458,7 +458,7 @@ fn make_genesis_block_with_recipients(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -612,7 +612,7 @@ fn make_stacks_block_with_input(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
