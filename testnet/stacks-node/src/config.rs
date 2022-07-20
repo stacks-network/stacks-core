@@ -795,7 +795,18 @@ impl std::default::Default for Config {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug)]
+pub enum CommitStrategy {
+    /// Commit directly to the hyperchains contract
+    Direct,
+    /// Commit through a multi-miner style contract (see `core-contracts/contracts/multi-miner.clar`)
+    MultiMiner {
+        required_signers: u8,
+        contract: QualifiedContractIdentifier,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub struct BurnchainConfig {
     /// The name of the L1 chain that this hyperchain runs on: this is either "stacks_layer_1" or
     /// "mockstack".
@@ -840,6 +851,10 @@ pub struct BurnchainConfig {
     pub first_burn_header_height: u64,
     /// The anchor mode for any transactions submitted to L1
     pub anchor_mode: TransactionAnchorMode,
+    /// This is the strategy used for submitting block commits. That is, whether or not
+    /// the miner should directly submit to the hyperchains contract, or they need to
+    /// submit through another contract (e.g., a multi-party commit contract
+    pub commit_strategy: CommitStrategy,
 }
 
 impl Default for BurnchainConfig {
@@ -863,6 +878,7 @@ impl Default for BurnchainConfig {
             contract_identifier: QualifiedContractIdentifier::transient(),
             first_burn_header_height: 0u64,
             anchor_mode: TransactionAnchorMode::Any,
+            commit_strategy: CommitStrategy::Direct,
         }
     }
 }

@@ -41,6 +41,10 @@ use std::{convert::TryFrom, fs};
 use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use blockstack_lib::clarity_cli;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::types::PrivateKey;
+use blockstack_lib::util::secp256k1::secp256k1_recover;
+use blockstack_lib::util::secp256k1::Secp256k1PrivateKey;
+use blockstack_lib::util::secp256k1::Secp256k1PublicKey;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -103,6 +107,37 @@ fn main() {
             )
         );
         process::exit(0);
+    }
+
+    if argv[1] == "secp256k1-sign" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} secp256k1-sign <message-hash> <signer-key>",
+                argv[0]
+            );
+            process::exit(1);
+        }
+
+        let message_hash = hex_bytes(&argv[2]).expect("Failed to parse hex input message hash.");
+        assert_eq!(message_hash.len(), 32);
+        let signer_key =
+            Secp256k1PrivateKey::from_hex(&argv[3]).expect("Failed to parse signer key.");
+        let signature = signer_key.sign(&message_hash).expect("Bad message hash");
+        let pubkey = Secp256k1PublicKey::from_private(&signer_key);
+
+        let recov_signature = signature
+            .to_secp256k1_recoverable()
+            .expect("Failed to create recoverable signature");
+        let (rec_id, rec_signature_comp) = recov_signature.serialize_compact();
+        let mut recov_signature = rec_signature_comp.to_vec();
+        recov_signature.push(u8::try_from(rec_id.to_i32()).unwrap());
+
+        let recover = secp256k1_recover(&message_hash, &recov_signature)
+            .expect("Failed to recover signed statement");
+
+        println!("Signed: \t\t{}", to_hex(&recov_signature));
+        println!("PubKey: \t\t{}", pubkey.to_hex());
+        println!("Recovr: \t\t{}", to_hex(&recover));
     }
 
     if argv[1] == "decode-tx" {
