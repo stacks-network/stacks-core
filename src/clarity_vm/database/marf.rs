@@ -257,7 +257,7 @@ impl MarfedKV {
 
 pub struct WritableMarfStore<'a> {
     chain_tip: StacksBlockId,
-    marf: MarfTransaction<'a, StacksBlockId>,
+    marf: MarfTransaction<'a, StacksBlockId>, // note: here we own a marf
 }
 
 pub struct ReadOnlyMarfStore<'a> {
