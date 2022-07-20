@@ -822,138 +822,36 @@ simulating a miner.
         process::exit(0);
     }
 
-    if argv[1] == "decode-microblocks" {
-        if argv.len() < 3 {
-            eprintln!(
-                "Usage: {} decode-microblocks MICROBLOCK_STREAM_PATH",
-                argv[0]
-            );
-            process::exit(1);
-        }
-
-        let mblock_path = &argv[2];
-        let mblock_data = fs::read(mblock_path).expect(&format!("Failed to open {}", mblock_path));
-
-        let mut cursor = io::Cursor::new(&mblock_data);
-        let mut debug_cursor = LogReader::from_reader(&mut cursor);
-        let mblocks: Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut debug_cursor)
-            .map_err(|e| {
-                eprintln!("Failed to decode microblocks: {:?}", &e);
-                eprintln!("Bytes consumed:");
-                for buf in debug_cursor.log().iter() {
-                    eprintln!("  {}", to_hex(buf));
-                }
-                process::exit(1);
-            })
-            .unwrap();
-
-        println!("{:#?}", &mblocks);
-        process::exit(0);
-    }
-
-    if argv[1] == "header-indexed-get" {
-        if argv.len() < 5 {
-            eprintln!(
-                "Usage: {} header-indexed-get STATE_DIR BLOCK_ID_HASH KEY",
-                argv[0]
-            );
-            eprintln!("       STATE_DIR is either the chain state directory OR a marf index and data db file");
-            process::exit(1);
-        }
-        let (marf_path, db_path, arg_next) = if argv.len() == 5 {
-            let headers_dir = &argv[2];
-            (
-                format!("{}/vm/index.sqlite", &headers_dir),
-                format!("{}/vm/headers.sqlite", &headers_dir),
-                3,
-            )
-        } else {
-            (argv[2].to_string(), argv[3].to_string(), 4)
-        };
-        let marf_tip = &argv[arg_next];
-        let marf_key = &argv[arg_next + 1];
-
-        if fs::metadata(&marf_path).is_err() {
-            eprintln!("No such file or directory: {}", &marf_path);
-            process::exit(1);
-        }
-
-        if fs::metadata(&db_path).is_err() {
-            eprintln!("No such file or directory: {}", &db_path);
-            process::exit(1);
-        }
-
-        let marf_bhh = StacksBlockId::from_hex(marf_tip).expect("Bad MARF block hash");
-        let marf_opts = MARFOpenOpts::default();
-        let mut marf = MARF::from_path(&marf_path, marf_opts).expect("Failed to open MARF");
-        let value_opt = marf.get(&marf_bhh, marf_key).expect("Failed to read MARF");
-
-        if let Some(value) = value_opt {
-            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)
-                .expect("Failed to open DB");
-            let args: &[&dyn ToSql] = &[&value.to_hex()];
-            let res: Result<String, rusqlite::Error> = conn.query_row_and_then(
-                "SELECT value FROM __fork_storage WHERE value_hash = ?1",
-                args,
-                |row| {
-                    let s: String = row.get_unwrap(0);
-                    Ok(s)
-                },
-            );
-
-            let row = res.expect(&format!(
-                "Failed to query DB for MARF value hash {}",
-                &value
-            ));
-            println!("{}", row);
-        } else {
-            println!("(undefined)");
-        }
-
-        process::exit(0);
-    }
-
-    if argv[1] == "exec_program" {
-        if argv.len() < 3 {
-            eprintln!("Usage: {} exec_program [program-file.clar]", argv[0]);
-            process::exit(1);
-        }
-        let program: String =
-            fs::read_to_string(&argv[2]).expect(&format!("Error reading file: {}", argv[2]));
-        match clarity_cli::vm_execute(&program) {
-            Ok(Some(result)) => println!("{}", result),
-            Ok(None) => println!(""),
-            Err(error) => {
-                panic!("Program Execution Error: \n{}", error);
-            }
-        }
-        return;
-    }
-
     if argv[1] == "marf-get" {
         let mainnet_path = &argv[2];
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &mainnet_path);
 
         // let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
-        // let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
+        // // let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
         // let itip = StacksBlockHeader::make_index_block_hash(&consensustip, &tip);
         let key = &argv[3];
+        let itip = StacksBlockId::from_hex(&argv[4]).unwrap();
 
-        let sort_db = SortitionDB::open(&sort_db_path, false)
-            .expect(&format!("Failed to open {}", &sort_db_path));
-        let chain_id = CHAIN_ID_MAINNET;
-        // let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
-        //     .expect("Failed to open stacks chain state");
-        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
-            .expect("Failed to get sortition chain tip");
-        let itip = StacksBlockHeader::make_index_block_hash(&chain_tip.consensus_hash, &chain_tip.winning_stacks_block_hash);
+        // let sort_db = SortitionDB::open(&sort_db_path, false)
+        //     .expect(&format!("Failed to open {}", &sort_db_path));
+        // let chain_id = CHAIN_ID_MAINNET;
+        // // let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
+        // //     .expect("Failed to open stacks chain state");
+        // let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+        //     .expect("Failed to get sortition chain tip");
+        // let itip = StacksBlockHeader::make_index_block_hash(&chain_tip.consensus_hash, &chain_tip.winning_stacks_block_hash);
 
         let marf_opts = MARFOpenOpts::default();
         // let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let marf_path = format!("{}/mainnet/chainstate/vm/index.sqlite", &mainnet_path);
 
         let mut marf = MARF::from_path(&marf_path, marf_opts).unwrap();
+
+        let start = time::Instant::now();
+
         let res = marf.get(&itip, key).expect("MARF error.");
+        let end = time::Instant::now();
+
         match res {
             Some(x) => println!("{}", x),
             None => println!("None"),
