@@ -28,7 +28,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::os;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 use std::{cmp, error};
 
 use rusqlite::{
@@ -87,9 +87,13 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.is_block_hash_cached(id) {
-            info!("get_block_hash_caching: result=miss, id={}", id);
 
+            let start_time = Instant::now();
             let block_hash = self.get_block_hash(id)?;
+            let end_time = Instant::now();
+            let delta = end_time - start_time;
+            info!("get_block_hash_caching: result=miss, id={}, time_cost={:?}", id, delta);
+
             self.cache.store_block_hash(id, block_hash.clone());
         } else {
             info!("get_block_hash_caching: result=hit, id={}", id);
@@ -130,14 +134,29 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
+        let mut is_hit = false;
         if !self.is_block_hash_cached(id) {
-            info!("get_block_hash_caching: result=miss, id={}", id);
+            let start_time = Instant::now();
+            let block_hash = self.get_block_hash(id)?;
+            let end_time = Instant::now();
+            let delta = end_time - start_time;
+            info!("get_block_hash_caching: result=miss, id={}, time_cost={:?}", id, delta);
+
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
         } else {
-            info!("get_block_hash_caching: result=hit, id={}", id);
+            is_hit = true;
         }
-        self.cache.ref_block_hash(id).ok_or(Error::NotFoundError)
+        let start_time = Instant::now();
+
+        let r = self.cache.ref_block_hash(id).ok_or(Error::NotFoundError);
+        let end_time = Instant::now();
+        let delta = end_time - start_time;
+        if (is_hit) {
+            info!("get_block_hash_caching: result=hit, id={}, time_cost={:?}", id, delta);
+        }
+
+        r
     }
 
     fn is_block_hash_cached(&self, id: u32) -> bool {
@@ -157,9 +176,13 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
                 info!("get_block_hash_caching: result=hit, block_id={}", block_id);
                 Ok(block_id)
             } else {
-                info!("get_block_hash_caching: result=miss, block_id={}", block_id);
-
+                let start_time = Instant::now();
                 let block_id = self.get_block_id(block_hash)?;
+                let end_time = Instant::now();
+                let delta = end_time - start_time;
+
+                info!("get_block_hash_caching: result=miss, time_cost={:?}", delta);
+
                 self.cache.store_block_hash(block_id, block_hash.clone());
                 Ok(block_id)
             }
