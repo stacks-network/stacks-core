@@ -149,7 +149,7 @@ Clarinet.test({
         };
 
         // set the multi_miner_contract as the miner of the hyperchains contract
-        //  and set alice and signatory as miners in the multi-miner contract
+        //  and set signatory1 and signatory2 as miners in the multi-miner contract
         let initialize = chain.mineBlock([
             Tx.contractCall("hyperchains", "set-hc-miner",
             [

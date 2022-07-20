@@ -36,21 +36,61 @@ jobs:
           name: unit_tests
           fail_ci_if_error: true
   # Run tests that require stacks-node
-  layer-1-tests:
+  build-layer-1-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Run units tests (with coverage)
+      - name: Build layer-1 integration testing image
         env:
           DOCKER_BUILDKIT: 1
         # Remove .dockerignore file so codecov has access to git info
         run: |
           rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.stacks-node .
+          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.stacks-node -t hyperchain-node:integrations .
+      - name: Export docker image as tarball
+        run: docker save -o integration-image.tar hyperchain-node:integrations
+      - name: Upload built docker image
+        uses: actions/upload-artifact@v2
+        with:
+          name: integration-image.tar
+          path: integration-image.tar
+  compute-layer-1-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v2
+      - id: set-matrix
+        run: |
+          cargo test --workspace --bin=hyperchain-node -- l1_ --list --format=terse | sed -e 's/: test//g' | jq -ncR '{"test-name": [inputs]}' > test_names.json
+          echo "::set-output name=matrix::$(cat test_names.json)"
+
+  layer-1-tests:
+    runs-on: ubuntu-latest
+    needs:
+      - build-layer-1-tests
+      - compute-layer-1-tests
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.compute-layer-1-tests.outputs.matrix)}}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Download docker image
+        uses: actions/download-artifact@v2
+        with:
+          name: integration-image.tar
+      - name: Load docker image
+        run: docker load -i integration-image.tar && rm integration-image.tar
+      - name: Run layer 1 tests
+        timeout-minutes: 30
+        env:
+          DOCKER_BUILDKIT: 1
+          TEST_NAME: ${{ matrix.test-name }}
+        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.stacks-node .
       - uses: codecov/codecov-action@v2
         with:
           files: ./coverage-output/lcov.info
-          name: integration_tests
+          name: ${{ matrix.test-name }}
           fail_ci_if_error: true
   # Run integration tests
   integration-tests:

@@ -243,7 +243,7 @@ fn select_transactions_where(
 pub fn publish_hc_contracts_to_l1(mut l1_nonce: u64, config: &Config, miner: PrincipalData) -> u64 {
     let trait_standard_contract_name = "trait-standards";
     let l1_rpc_origin = config.burnchain.get_rpc_url();
-    // Publish the NFT/FT traits
+    // Publish the trait contract
     let trait_content =
         include_str!("../../../../core-contracts/contracts/helper/trait-standards.clar");
     let trait_publish = make_contract_publish(
@@ -282,7 +282,7 @@ pub fn publish_hc_contracts_to_l1(mut l1_nonce: u64, config: &Config, miner: Pri
     // though the HC contract depends on that contract.
     submit_tx(&l1_rpc_origin, &hc_contract_publish);
 
-    println!("Submitted FT, NFT, and Hyperchain contracts!");
+    println!("Submitted trait and Hyperchain contracts!");
 
     l1_nonce
 }
