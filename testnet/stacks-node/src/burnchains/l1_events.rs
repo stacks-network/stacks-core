@@ -2,33 +2,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use stacks::address::AddressHashMode;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::events::NewBlock;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::{Burnchain, Error as BurnchainError, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
-use stacks::chainstate::stacks::{
-    StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner, TransactionAuth,
-    TransactionContractCall, TransactionPostConditionMode, TransactionSpendingCondition,
-    TransactionVersion,
-};
-use stacks::clarity::vm::Value as ClarityValue;
+use stacks::chainstate::stacks::StacksTransaction;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
-use stacks::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
-use stacks::vm::types::QualifiedContractIdentifier;
-use stacks::vm::ClarityName;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 
+use super::commitment::{Layer1Committer, MultiPartyCommitter};
 use super::db_indexer::DBBurnchainIndexer;
 use super::{burnchain_from_config, BurnchainChannel, Error};
 
+use crate::burnchains::commitment::DirectCommitter;
+use crate::config::CommitStrategy;
 use crate::operations::BurnchainOpSigner;
 use crate::util::hash::Sha512Trunc256Sum;
 use crate::{BurnchainController, BurnchainTip, Config};
@@ -50,15 +43,8 @@ pub struct L1Controller {
 
     coordinator: CoordinatorChannels,
     chain_tip: Option<BurnchainTip>,
-}
 
-/// Represents the returned JSON
-///  from the L1 /v2/accounts endpoint
-#[derive(Deserialize)]
-struct RpcAccountResponse {
-    nonce: u64,
-    #[allow(dead_code)]
-    balance: String,
+    committer: Box<dyn Layer1Committer + Send>,
 }
 
 impl L1Channel {
@@ -106,6 +92,19 @@ impl L1Controller {
             true,
         )?;
         let burnchain = burnchain_from_config(&config.get_burn_db_path(), &config.burnchain)?;
+        let committer: Box<dyn Layer1Committer + Send> = match &config.burnchain.commit_strategy {
+            CommitStrategy::Direct => Box::new(DirectCommitter {
+                config: config.burnchain.clone(),
+            }),
+            CommitStrategy::MultiMiner {
+                required_signers,
+                contract,
+            } => Box::new(MultiPartyCommitter::new(
+                &config.burnchain,
+                *required_signers,
+                contract,
+            )),
+        };
         Ok(L1Controller {
             burnchain,
             config,
@@ -115,6 +114,7 @@ impl L1Controller {
             should_keep_running: Some(Arc::new(AtomicBool::new(true))),
             coordinator,
             chain_tip: None,
+            committer,
         })
     }
 
@@ -207,17 +207,7 @@ impl L1Controller {
         self.config.burnchain.get_rpc_url()
     }
 
-    fn l1_get_nonce(&self, address: &StacksAddress) -> Result<u64, Error> {
-        let url = format!(
-            "{}/v2/accounts/{}?proof=0",
-            self.l1_rpc_interface(),
-            address
-        );
-        let response_json: RpcAccountResponse = reqwest::blocking::get(url)?.json()?;
-        Ok(response_json.nonce)
-    }
-
-    fn l1_submit_tx(&self, tx: StacksTransaction) -> Result<Txid, Error> {
+    pub fn l1_submit_tx(&self, tx: StacksTransaction) -> Result<Txid, Error> {
         let client = reqwest::blocking::Client::new();
         let url = format!("{}/v2/transactions", self.l1_rpc_interface());
         let res = client
@@ -231,121 +221,6 @@ impl L1Controller {
             Txid::from_hex(&res).map_err(|e| Error::RPCError(e.to_string()))
         } else {
             Err(Error::RPCError(res.text()?))
-        }
-    }
-
-    fn l1_addr_from_signer(&self, signer: &BurnchainOpSigner) -> StacksAddress {
-        let hash_mode = AddressHashMode::SerializeP2PKH;
-        let addr_version = if self.config.burnchain.is_mainnet() {
-            hash_mode.to_version_mainnet()
-        } else {
-            hash_mode.to_version_testnet()
-        };
-        StacksAddress::from_public_keys(addr_version, &hash_mode, 1, &vec![signer.get_public_key()])
-            .expect("Failed to make Stacks address from public key")
-    }
-
-    /// Create a `commit-block(commit_to, build_off)` contract call.
-    fn make_mine_contract_call(
-        &self,
-        sender: &StacksPrivateKey,
-        sender_nonce: u64,
-        tx_fee: u64,
-        commit_to: BlockHeaderHash,
-        build_off: BurnchainHeaderHash,
-        withdrawal_root: Sha512Trunc256Sum,
-    ) -> Result<StacksTransaction, Error> {
-        let QualifiedContractIdentifier {
-            issuer: contract_addr,
-            name: contract_name,
-        } = self.config.burnchain.contract_identifier.clone();
-        let version = if self.config.burnchain.is_mainnet() {
-            TransactionVersion::Mainnet
-        } else {
-            TransactionVersion::Testnet
-        };
-        let committed_block = commit_to.as_bytes().to_vec();
-        let build_off_bytes = build_off.as_bytes().to_vec();
-        let withdrawal_root_bytes = withdrawal_root.as_bytes().to_vec();
-
-        let payload = TransactionContractCall {
-            address: contract_addr.into(),
-            contract_name,
-            function_name: ClarityName::from("commit-block"),
-            function_args: vec![
-                ClarityValue::buff_from(committed_block).map_err(|_| Error::BadCommitment)?,
-                ClarityValue::buff_from(build_off_bytes).map_err(|_| Error::BadCommitment)?,
-                ClarityValue::buff_from(withdrawal_root_bytes).map_err(|_| Error::BadCommitment)?,
-            ],
-        };
-
-        let mut sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
-            StacksPublicKey::from_private(sender),
-        )
-        .expect("Failed to create p2pkh spending condition from public key.");
-        sender_spending_condition.set_nonce(sender_nonce);
-        sender_spending_condition.set_tx_fee(tx_fee);
-        let auth = TransactionAuth::Standard(sender_spending_condition);
-
-        let mut unsigned_tx = StacksTransaction::new(version, auth, payload.into());
-        unsigned_tx.anchor_mode = self.config.burnchain.anchor_mode.clone();
-        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-        unsigned_tx.chain_id = self.config.burnchain.chain_id;
-
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        tx_signer.sign_origin(sender).unwrap();
-
-        Ok(tx_signer
-            .get_tx()
-            .expect("Failed to get signed transaction from signer"))
-    }
-
-    fn submit_commit_operation(
-        &self,
-        op: LeaderBlockCommitOp,
-        op_signer: &mut BurnchainOpSigner,
-        attempt: u64,
-    ) -> bool {
-        // todo: think about enabling replace-by-nonce?
-        if attempt > 1 {
-            return false;
-        }
-        // step 1: figure out the miner's nonce
-        let miner_address = self.l1_addr_from_signer(op_signer);
-        let nonce = match self.l1_get_nonce(&miner_address) {
-            Ok(x) => x,
-            Err(e) => {
-                error!("Failed to obtain miner nonce: {}", e);
-                return false;
-            }
-        };
-
-        // step 2: fee estimate (todo: #issue)
-        let fee = 100_000;
-        let contract_call = match self.make_mine_contract_call(
-            op_signer.get_sk(),
-            nonce,
-            fee,
-            op.block_header_hash,
-            op.burn_header_hash,
-            op.withdrawal_merkle_root,
-        ) {
-            Ok(x) => x,
-            Err(e) => {
-                error!("Failed to construct contract call operation: {}", e);
-                return false;
-            }
-        };
-
-        match self.l1_submit_tx(contract_call) {
-            Ok(x) => {
-                info!("Submitted miner commitment L1 transaction"; "txid" => %x);
-                true
-            }
-            Err(e) => {
-                error!("Failed to submit miner commitment L1 transaction: {}", e);
-                false
-            }
         }
     }
 }
@@ -363,44 +238,28 @@ impl BurnchainController for L1Controller {
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         self.indexer.get_channel()
     }
-
-    fn submit_operation(
+    fn commit_required_signatures(&self) -> u8 {
+        0
+    }
+    fn submit_commit(
         &mut self,
-        operation: BlockstackOperationType,
+        committed_block_hash: BlockHeaderHash,
+        target_tip: BurnchainHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        signatures: Vec<super::ClaritySignature>,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> bool {
-        info!("Submitting operation: {}", operation);
+    ) -> Result<Txid, Error> {
+        let tx = self.committer.make_commit_tx(
+            committed_block_hash,
+            target_tip,
+            withdrawal_merkle_root,
+            signatures,
+            attempt,
+            op_signer,
+        )?;
 
-        match operation {
-            BlockstackOperationType::LeaderBlockCommit(op) => {
-                self.submit_commit_operation(op, op_signer, attempt)
-            }
-            BlockstackOperationType::DepositStx(_op) => {
-                debug!("Submitting deposit stx operation to be implemented.");
-                true
-            }
-            BlockstackOperationType::DepositFt(_op) => {
-                debug!("Submitting deposit ft operation to be implemented.");
-                true
-            }
-            BlockstackOperationType::DepositNft(_op) => {
-                debug!("Submitting deposit nft operation to be implemented.");
-                true
-            }
-            BlockstackOperationType::WithdrawStx(_op) => {
-                debug!("Submitting withdraw stx operation to be implemented.");
-                true
-            }
-            BlockstackOperationType::WithdrawFt(_op) => {
-                debug!("Submitting withdraw ft operation to be implemented.");
-                true
-            }
-            BlockstackOperationType::WithdrawNft(_op) => {
-                debug!("Submitting withdraw nft operation to be implemented.");
-                true
-            }
-        }
+        self.l1_submit_tx(tx)
     }
 
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error> {

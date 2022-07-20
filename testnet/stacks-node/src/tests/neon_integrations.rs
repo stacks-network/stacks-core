@@ -1111,7 +1111,7 @@ fn assert_l2_l1_tip_heights(sortition_db: &SortitionDB, l2_height: u64, l1_heigh
 #[ignore]
 fn transactions_in_block_and_microblock() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
