@@ -22,8 +22,6 @@
 (define-constant ERR_IN_COMPUTATION 15)
 ;; The contract does not own this NFT to withdraw it.
 (define-constant ERR_NFT_NOT_OWNED_BY_CONTRACT 16)
-;; The user has insufficient balance to withdraw this.
-(define-constant ERR_INSUFFICIENT_BALANCE 17)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
