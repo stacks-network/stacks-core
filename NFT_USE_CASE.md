@@ -67,14 +67,13 @@ npm install @stacks/network
 ```
 
 Make the following changes in the `Devnet.toml` file in the `nft-use-case` directory (make sure these lines are uncommented and set to these values):
-TODO: double check + change image name / ask ludo to change default image & contract 
 ```
 [devnet]
 ...
 enable_hyperchain_node = true
 hyperchain_leader_mnemonic = "female adjust gallery certain visit token during great side clown fitness like hurt clip knife warm bench start reunion globe detail dream depend fortune"
 hyperchain_contract_id = "STXMJXCJDCT4WPF2X1HE42T6ZCCK3TPMBRZ51JEG.hyperchain"
-hyperchain_node_image_url = "hirosystems/hyperchains:0.0.4"
+hyperchain_node_image_url = "hirosystems/hyperchains:0.0.4-stretch"
 ```
 
 Let's spin up a hyperchain node:
@@ -109,8 +108,8 @@ node ./publish_tx.js simple-nft-l1 ../contracts/simple-nft.clar 1 1
 
 Verify that the contracts were published by using the Clarinet console.
 For the layer 1 contracts, you should see the following in the "transactions" region in a recent block.
-🟩  deployed: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.trait-standards (ok true)
-🟩  deployed: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l1 (ok true)
+🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.trait-standards (ok true)                                                                                                                                                             │
+🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1 (ok true)
 
 Then, publish the layer 2 contracts. 
 ```
@@ -118,15 +117,15 @@ node ./publish_tx.js trait-standards ../contracts-l2/trait-standards.clar 2 0
 node ./publish_tx.js simple-nft-l2 ../contracts-l2/simple-nft-l2.clar 2 1 
 ```
 
-To verify that the layer 2 contracts were successfully published, grep the log for the transaction IDs of each hyperchain transaction.
-The transaction ID is logged to the console after the call to `publish_tx` - make sure this is the value you grep for.
+To verify that the layer 2 contracts were successfully published, grep the hyperchains log for the transaction IDs of *each* hyperchain transaction.
+The transaction ID is logged to the console after the call to `publish_tx` - make sure this is the ID you grep for.
 ```
-docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "8ac12925ff21fd70042770d2f381e47c103ab11efb0facbc6b0359c95a0da046"
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246"
 ```
 
 Look for a log line similar to the following in the results:
 ```
-Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 8ac12925ff21fd70042770d2f381e47c103ab11efb0facbc6b0359c95a0da046, event_type: success, payload: SmartContract
+Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246, event_type: success, payload: SmartContract
 ```
 
 ## Step 2: Register the new asset in the interface Hyperchain contract
@@ -144,11 +143,10 @@ Let's create a transaction to mint an NFT on the L1 chain:
 node ./mint_nft.js 2 
 ```
 Verify that the transaction is acknowledged within the next few blocks in the Stacks explorer.
-🟩  invoked: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l1::gift-nft(ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG, u5) (ok true)
+🟩  invoked: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1::gift-nft(ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND, u5) (ok true)
 
 ## Step 4: Deposit the NFT onto the Hyperchain 
 Now, we can call the deposit NFT function in the hyperchains interface contract that lives on the Stacks L1 chain. 
-TODO: nonce-1
 ```
 node ./deposit_nft.js 3
 ```
@@ -167,9 +165,13 @@ Now, the NFT should belong to the principal that sent the deposit transaction, `
 ```
 node ./transfer_nft.js 2
 ```
-Grep for the tx ID of the transfer transaction. Look for something like the following line:
+Grep for the tx ID of the transfer transaction. 
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "74949992488b2519e2d8408169f242c86a6cdacd927638bd4604b3b8d48ea187"
+```
+
+Look for something like the following line:
+```
 Jul 19 13:04:43.177993 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 74949992488b2519e2d8408169f242c86a6cdacd927638bd4604b3b8d48ea187, event_type: success, payload: ContractCall
 ```
 
