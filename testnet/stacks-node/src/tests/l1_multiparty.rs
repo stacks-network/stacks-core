@@ -202,7 +202,7 @@ fn l1_multiparty_2_of_2_integration_test() {
     follower_config.node.local_peer_seed = vec![20; 32];
 
     follower_config.add_bootstrap_node(
-        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444"
+        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766@127.0.0.1:30444",
     );
 
     let follower_rpc_origin = format!("http://{}", &follower_config.node.rpc_bind);

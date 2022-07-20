@@ -742,7 +742,11 @@ impl Config {
     /// Add a bootstrap node to the configuration, automatically setting the
     /// network_id and peer_version using `self`.
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str) {
-        self.node.add_bootstrap_node(bootstrap_node, self.node.chain_id, self.burnchain.peer_version);
+        self.node.add_bootstrap_node(
+            bootstrap_node,
+            self.node.chain_id,
+            self.burnchain.peer_version,
+        );
     }
 
     pub fn make_block_builder_settings(
@@ -1326,12 +1330,7 @@ impl NodeConfig {
         self.bootstrap_node.push(neighbor);
     }
 
-    fn set_bootstrap_nodes(
-        &mut self,
-        bootstrap_nodes: String,
-        chain_id: u32,
-        peer_version: u32,
-    ) {
+    fn set_bootstrap_nodes(&mut self, bootstrap_nodes: String, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_nodes.split(",").collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
