@@ -42,12 +42,12 @@ clarinet new nft-use-case
 
 Let us copy contract files and scripts over from the `stacks-hyperchains` repository into the `nft-use-case` directory. 
 If you don't already have the stacks-hyperchains repository, you can clone it [here](https://github.com/hirosystems/stacks-hyperchains)
-Before doing so, set the environment variable `HYPERCHAIN_PATH`.
+Set the environment variable `HYPERCHAIN_PATH` to the location of the stacks-hyperchains repository on your computer. 
 ```
 export HYPERCHAIN_PATH=<YOUR_PATH_HERE>
 ```
 
-Be sure to replace `...` with the appropriate file path on your machine.
+Now, we can copy files from the stacks-hyperchains repository. 
 ```
 mkdir nft-use-case/contracts-l2
 mkdir nft-use-case/scripts
@@ -66,14 +66,11 @@ npm install @stacks/transactions
 npm install @stacks/network
 ```
 
-Make the following changes in the `Devnet.toml` file in the `nft-use-case` directory (make sure these lines are uncommented and set to these values):
+Make the following change in the `Devnet.toml` file in the `nft-use-case` directory to enable the hyperchain:
 ```
 [devnet]
 ...
 enable_hyperchain_node = true
-hyperchain_leader_mnemonic = "female adjust gallery certain visit token during great side clown fitness like hurt clip knife warm bench start reunion globe detail dream depend fortune"
-hyperchain_contract_id = "STXMJXCJDCT4WPF2X1HE42T6ZCCK3TPMBRZ51JEG.hyperchain"
-hyperchain_node_image_url = "hirosystems/hyperchains:0.0.4-stretch"
 ```
 
 Let's spin up a hyperchain node:
@@ -117,7 +114,8 @@ node ./publish_tx.js trait-standards ../contracts-l2/trait-standards.clar 2 0
 node ./publish_tx.js simple-nft-l2 ../contracts-l2/simple-nft-l2.clar 2 1 
 ```
 
-To verify that the layer 2 contracts were successfully published, grep the hyperchains log for the transaction IDs of *each* hyperchain transaction.
+To verify that the layer 2 contracts were successfully published, grep the hyperchains log for the transaction IDs 
+of *each* hyperchain transaction.
 The transaction ID is logged to the console after the call to `publish_tx` - make sure this is the ID you grep for.
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246"
@@ -138,7 +136,8 @@ Look for the following transaction confirmation in the Clarinet console in an up
 🟩  invoked: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchain::register-new-nft-contract(ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l1, "hyperchain-deposit-nft-token") (ok true)
 
 ## Step 3: Mint an NFT on the L1 Chain
-Let's create a transaction to mint an NFT on the L1 chain:
+Let's create a transaction to mint an NFT on the L1 chain. Once this transaction is processed, the principal `USER_ADDR`
+will own an NFT. 
 ```
 node ./mint_nft.js 2 
 ```
@@ -146,12 +145,14 @@ Verify that the transaction is acknowledged within the next few blocks in the St
 🟩  invoked: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1::gift-nft(ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND, u5) (ok true)
 
 ## Step 4: Deposit the NFT onto the Hyperchain 
-Now, we can call the deposit NFT function in the hyperchains interface contract that lives on the Stacks L1 chain. 
+Now, we can call the deposit NFT function in the hyperchains interface contract that lives on the Stacks L1 chain. This 
+function is called by the principal `USER_ADDR`. 
 ```
 node ./deposit_nft.js 3
 ```
 Verify that the transaction is acknowledged in the next few blocks of the L1 chain. 
-You also may want to verify that the asset was successfully deposited on the hyperchain by grepping for the deposit tx ID. 
+You also may want to verify that the asset was successfully deposited on the hyperchain by grepping for the deposit 
+transaction ID. 
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "67cfd6220ed01c3aca3912c8f1ff55d374e5b3acadb3b995836ae913108e0514"
 ```
@@ -161,11 +162,12 @@ Jul 19 12:51:02.396923 INFO ACCEPTED burnchain operation (ThreadId(8), src/chain
 ```
 
 ## Step 5: Transfer the NFT within the Hyperchain 
-Now, the NFT should belong to the principal that sent the deposit transaction, `ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5. This principal can now transfer the NFT within the hyperchain. 
+On the hyperchains, the NFT should belong to the principal that sent the deposit transaction, `USER_ADDR`. 
+This principal can now transfer the NFT within the hyperchain. Let's transfer the NFT to `ALT_USER_ADDR`. 
 ```
 node ./transfer_nft.js 2
 ```
-Grep for the tx ID of the transfer transaction. 
+Grep for the transaction ID of the transfer transaction. 
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "74949992488b2519e2d8408169f242c86a6cdacd927638bd4604b3b8d48ea187"
 ```
@@ -179,10 +181,16 @@ Jul 19 13:04:43.177993 INFO Tx successfully processed. (ThreadId(9), src/chainst
 ### Background on withdrawals
 Withdrawals from the hyperchain are a 2-step process. 
 
-The first step involves calling one of the Clarity withdraw functions within a smart contract call. This means calling either `stx-withdraw?`, `ft-withdraw?`, or `nft-withdraw?`. These functions only exist in the hyperchains. When a withdraw function succeeds, the hyperchain node adds that withdrawal to a withdrawal Merkle tree for the specific block that the hyperchain is building. When the hyperchain node commits a block, it also submits the root hash of the Merkle tree. 
+The first step involves calling one of the Clarity withdraw functions within a smart contract call on the L2 chain. 
+This means calling either `stx-withdraw?`, `ft-withdraw?`, or `nft-withdraw?`. 
+These functions only exist in the hyperchains. When a withdraw function succeeds, the 
+hyperchain node adds that withdrawal to a withdrawal Merkle tree for the specific block that 
+the hyperchain is building. When the hyperchain node commits a block, it also submits the root hash of that Merkle tree. 
 
-The second step involves calling the appropriate withdraw function in the hyperchains interface contract on the L1 chain. You must also pass in the "proof" that corresponds to this particular withdrawal. 
-This proof includes the root hash of the withdrawal Merkle tree that this withdrawal was included in, the leaf hash of the withdrawal itself, and a list of hashes to be used to prove that the provided leaf belongs to the tree corresponding to the provided root hash. 
+The second step involves calling the appropriate withdraw function in the hyperchains interface 
+contract on the L1 chain. You must also pass in the "proof" that corresponds to your withdrawal. 
+This proof includes the root hash of the withdrawal Merkle tree that this withdrawal was included in, 
+the leaf hash of the withdrawal itself, and a list of hashes to be used to prove that the leaf is valid.
 
 ### Step 6a: Withdraw the NFT on the hyperchain 
 Perform the withdrawal on the layer 2 by calling `withdraw-nft-asset` in the `simple-nft-l2` contract. 
@@ -204,10 +212,11 @@ You can find the height of the withdrawal using grep:
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "Parsed L2 withdrawal event"
 Jul 19 13:22:34.801290 INFO Parsed L2 withdrawal event (ThreadId(8), src/clarity_vm/withdrawal.rs:56), type: nft, block_height: 47, sender: ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05NNC, withdrawal_id: 0, asset_id: ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l2::nft-token
 ```
-Get the withdrawal height by looking at the `block_height` in the returned line. 
+Get the withdrawal height by looking at the `block_height` in the returned line. There may be multiple lines returned 
+by the grep. Try the higher heights first, and work backward. 
 
 ### Step 6b: Complete the withdrawal on the Stacks chain 
-Use the withdrawal height we just obtained and substitute that for `WITHDRAWAL_BLOCK_HEIGHT`.
+Use the withdrawal height we just obtained from the grep and substitute that for `WITHDRAWAL_BLOCK_HEIGHT`.
 ```
 node ./withdraw_nft_l1.js {WITHDRAWAL_BLOCK_HEIGHT} 1
 ```
@@ -216,7 +225,8 @@ Check for the success of this transaction in the Clarinet console:
 🟩  invoked: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchain::withdraw-nft-asset(u5, ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05...
 
 You can also navigate to the Stacks Explorer (the URL of this will be listed in the Clarinet console), and check that the expected 
-address now owns the NFT (ALT_USER_ADDR). 
+principal now owns the NFT (`ALT_USER_ADDR`). You can check this by clicking on the transaction corresponding to 
+`withdraw-nft-asset`. 
 
 
 That is the conclusion of this demo! If you have any issues with this demo, reach out on the Stacks Discord or leave an issue in the 
