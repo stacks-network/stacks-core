@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - name: Build bitcoin integration testing image
+      - name: Build layer-1 integration testing image
         env:
           DOCKER_BUILDKIT: 1
         # Remove .dockerignore file so codecov has access to git info
@@ -63,7 +63,7 @@ jobs:
       - id: set-matrix
         run: |
           cargo test --workspace --bin=hyperchain-node -- l1_ --list --format=terse | sed -e 's/: test//g' | jq -ncR '{"test-name": [inputs]}' > test_names.json
-          echo ":: set-output $(cat test_names.json)"
+          echo "::set-output name=matrix::$(cat test_names.json)"
 
   layer-1-tests:
     runs-on: ubuntu-latest
