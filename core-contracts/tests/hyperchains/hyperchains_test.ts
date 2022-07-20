@@ -1259,6 +1259,15 @@ Clarinet.test({
         const user = accounts.get("wallet_3")!;
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft-no-mint")!;
 
+        chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(miner.address),
+            ],
+            miner.address),
+        ]);
+
+
         // Miner sets up allowed assets
         let block = chain.mineBlock([
             Tx.contractCall("hyperchains", "setup-allowed-contracts",
@@ -1287,7 +1296,7 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 3);
+        assertEquals(block.height, 4);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1325,6 +1334,14 @@ Clarinet.test({
         const miner = accounts.get("wallet_1")!;
         const user = accounts.get("wallet_3")!;
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft-no-mint")!;
+
+        chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(miner.address),
+            ],
+            miner.address),
+        ]);
 
         // User should be able to mint an NFT
         let block = chain.mineBlock([
@@ -1379,8 +1396,7 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 5);
-        console.log({block})
+        assertEquals(block.height, 6);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1425,6 +1441,14 @@ Clarinet.test({
         const other_user = accounts.get("wallet_3")!;
 
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft-no-mint")!;
+
+        chain.mineBlock([
+            Tx.contractCall("hyperchains", "set-hc-miner",
+            [
+                types.principal(miner.address),
+            ],
+            miner.address),
+        ]);
 
         // Original user should be able to mint an NFT.
         let block = chain.mineBlock([
@@ -1488,7 +1512,7 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 5);
+        assertEquals(block.height, 6);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
