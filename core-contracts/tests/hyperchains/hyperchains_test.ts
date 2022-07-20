@@ -1184,13 +1184,8 @@ Clarinet.test({
 Clarinet.test({
     name: "Ensure that a user can't withdraw an NFT if nobody owns it, in the `no-mint` case.",
     async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
-
-        // miner
         const miner = accounts.get("wallet_1")!;
-        // user
         const user = accounts.get("wallet_3")!;
-
-        // nft contract id
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft-no-mint")!;
 
         // Miner sets up allowed assets
@@ -1202,6 +1197,7 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
+
         // Check that user does not own this NFT on the L1
         let assets = chain.getAssetsMaps().assets[".simple-nft-no-mint.nft-token"];
         assertEquals(assets, undefined);
@@ -1255,13 +1251,8 @@ Clarinet.test({
 Clarinet.test({
     name: "Ensure that a user can withdraw an NFT if they do own it, in the `no-mint` case.",
     async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
-
-        // miner
         const miner = accounts.get("wallet_1")!;
-        // user
         const user = accounts.get("wallet_3")!;
-
-        // nft contract id
         const nft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-nft-no-mint")!;
 
         // User should be able to mint an NFT
