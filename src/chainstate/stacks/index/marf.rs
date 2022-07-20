@@ -210,6 +210,8 @@ impl<'a, T: MarfTrieId> MarfConnection<T> for MarfTransaction<'a, T> {
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
     {
+        info!("MarfTransaction::with_conn");
+
         exec(&mut self.storage)
     }
     fn sqlite_conn(&self) -> &Connection {
@@ -222,6 +224,7 @@ impl<T: MarfTrieId> MarfConnection<T> for MARF<T> {
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R,
     {
+        info!("MARF::with_conn");
         let mut conn = self.storage.connection();
         exec(&mut conn)
     }
