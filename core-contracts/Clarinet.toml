@@ -21,9 +21,6 @@ depends_on = ["trait-standards"]
 path = "contracts/helper/simple-ft.clar"
 depends_on = ["trait-standards"]
 
-[contracts.simple-ft-no-mint]
-path = "contracts/helper/simple-ft-no-mint.clar"
-
 [contracts.second-simple-ft]
 path = "contracts/helper/simple-ft.clar"
 depends_on = ["trait-standards"]
