@@ -1496,7 +1496,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
         // let cache = TrieCache::new(&marf_opts.cache_strategy);
 
-        info!("check: setting strategy");
+        // info!("check: setting strategy");
         let cache = TrieCache::new(&"everything");
         let ret = TrieFileStorage {
             db_path,
