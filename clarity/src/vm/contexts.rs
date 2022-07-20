@@ -49,8 +49,6 @@ use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::version::ClarityVersion;
 
-use crate::vm::coverage::CoverageReporter;
-
 use stacks_common::consts::CHAIN_ID_TESTNET;
 
 use serde::Serialize;
@@ -204,7 +202,6 @@ pub struct GlobalContext<'a, 'hooks> {
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
-    pub coverage_reporting: Option<CoverageReporter>,
     /// This is the epoch of the the block that this transaction is executing within.
     epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
@@ -597,14 +594,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
             call_stack: CallStack::new(),
         }
-    }
-
-    pub fn set_coverage_reporter(&mut self, reporter: CoverageReporter) {
-        self.context.coverage_reporting = Some(reporter)
-    }
-
-    pub fn take_coverage_reporter(&mut self) -> Option<CoverageReporter> {
-        self.context.coverage_reporting.take()
     }
 
     pub fn new_free(
@@ -1529,7 +1518,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             mainnet,
             epoch_id,
             chain_id,
-            coverage_reporting: None,
             eval_hooks: None,
         }
     }
