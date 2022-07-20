@@ -1181,7 +1181,7 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure that a user can't withdraw an NFT if nobody owns it, in the `no-mint` case.",
+    name: "Ensure that a miner can't withdraw an NFT if nobody owns it, in the `no-mint` case.",
     async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
         const miner = accounts.get("wallet_1")!;
         const user = accounts.get("wallet_3")!;
@@ -1223,7 +1223,7 @@ Clarinet.test({
         let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
         let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
-        // Miner should not be able to withdraw NFT asset because the contract doesn't own it.
+        // Miner should *not* be able to withdraw NFT asset because the contract doesn't own it.
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
                 [
@@ -1248,7 +1248,7 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure that a user can withdraw an NFT if they do own it, in the `no-mint` case.",
+    name: "Ensure that a miner can withdraw an NFT to the original owner, in the `no-mint` case.",
     async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
         const miner = accounts.get("wallet_1")!;
         const user = accounts.get("wallet_3")!;
@@ -1346,7 +1346,7 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure that the miner can withdraw an NFT to a different user, in the `no-mint` case.",
+    name: "Ensure that a miner can withdraw an NFT to a different user, in the `no-mint` case.",
     async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
 
         // `original_user` deposits the NFT, but the miner withdraws it to `other_user`.
