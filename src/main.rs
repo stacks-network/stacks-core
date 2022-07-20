@@ -784,7 +784,6 @@ simulating a miner.
             let stop = get_epoch_time_ms();
 
             info!("round {} finishes with: {:?}", i, &result);
-
             println!(
                 "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
                 if result.is_ok() {
