@@ -311,7 +311,9 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<ValueResult> {
-        self.store.get_value(key, expected)
+        let result = self.store.get_value(key, expected);
+        info!("marf read key [{}], type [{:?}], result [{:?}]", key, expected, &result);
+        result
     }
 
     pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, Vec<u8>)>

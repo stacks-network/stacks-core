@@ -101,6 +101,7 @@ where
 
 /// Result structure for fetched values from the
 ///  underlying store.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValueResult {
     pub value: Value,
     pub serialized_byte_len: u64,

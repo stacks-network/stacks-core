@@ -232,8 +232,8 @@ impl<T: MarfTrieId> TrieCache<T> {
             TrieCache::Noop(ref state) => state,
             TrieCache::Everything(ref state) => {
                 // this gets called all the time
-                let bt = backtrace::Backtrace::new();
-                info!("everything check {:?}", bt);
+                // let bt = backtrace::Backtrace::new();
+                // info!("everything check {:?}", bt);
                 state
             },
             TrieCache::Node256(ref state) => state,
