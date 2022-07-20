@@ -16,6 +16,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
+use std::time::Instant;
 
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contracts::Contract;
@@ -311,8 +312,10 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn get_value(&mut self, key: &str, expected: &TypeSignature) -> Option<ValueResult> {
+        let start = Instant::now();
         let result = self.store.get_value(key, expected);
-        info!("marf read key [{}], type [{:?}], result [{:?}]", key, expected, &result);
+        let delta = Instant::now() - start;
+        info!("marf read key [{}], type [{:?}], result [{:?}], time_cost={:?}", key, expected, &result, &delta);
         result
     }
 
