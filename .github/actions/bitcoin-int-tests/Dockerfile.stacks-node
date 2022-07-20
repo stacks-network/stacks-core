@@ -1,23 +1,10 @@
-FROM blockstack/stacks-blockchain:2.05.0.1.0-stretch as stacks-node
+FROM hyperchain-node:integrations AS test
 
-FROM rust:stretch AS test
+ARG test_name
+ENV STACKS_NODE_TEST="1"
 
-WORKDIR /build
-
-RUN rustup override set nightly-2022-01-14 && \
-    rustup component add llvm-tools-preview && \
-    cargo install grcov
-
-ENV RUSTFLAGS="-Zinstrument-coverage" \
-    LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw" \
-    STACKS_NODE_TEST="1"
-
-COPY --from=stacks-node /bin/stacks-node /bin/
-
-COPY . .
-
-RUN cargo build --workspace && \
-    cargo test --workspace --bin=hyperchain-node -- l1_observer_test --test-threads 1
+RUN cargo build && \
+    cargo test --workspace --bin=hyperchain-node -- --test-threads 1 "$test_name"
 
 # Generate coverage report and upload it to codecov
 RUN grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing --ignore "/*" -o lcov.info
