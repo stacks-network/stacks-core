@@ -83,8 +83,8 @@ clarinet integrate
 
 Before we publish any transactions, you will need to set the private key of the contract publisher as an env var (the private key used here corresponds to a valid miner in the list).
 ```
-export AUTH_HC_MINER_ADDR=ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5
-export AUTH_HC_MINER_KEY=7287ba251d44a4d3fd9276c88ce34c5c52a038955511cccaf77e61068649c17801
+export AUTH_HC_MINER_ADDR=ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP
+export AUTH_HC_MINER_KEY=0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101
 
 export USER_KEY=f9d7206a47f14d2870c163ebab4bf3e70d18f5d14ce1031f3902fbbc894fe4c701
 export USER_ADDR=ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND
