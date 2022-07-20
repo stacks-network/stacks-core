@@ -311,22 +311,24 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
-                    debug!("Received new stacks block notice");
+                    info!("CoordinatorEvents::NEW_STACKS_BLOCK: Received new stacks block notice");
                     if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
-                    debug!("Received new burn block notice");
+                    info!("CoordinatorEvents::NEW_BURN_BLOCK: Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
                 }
                 CoordinatorEvents::STOP => {
-                    debug!("Received stop notice");
+                    info!("CoordinatorEvents::STOP: Received stop notice");
                     return;
                 }
-                CoordinatorEvents::TIMEOUT => {}
+                CoordinatorEvents::TIMEOUT => {
+                    info!("CoordinatorEvents::TIMEOUT: When is this called?");
+                }
             }
         }
     }

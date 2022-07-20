@@ -5106,7 +5106,7 @@ impl StacksChainState {
         burnchain_sortition_burn: u64,
         user_burns: &Vec<StagingUserBurnSupport>,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
-        debug!(
+        info!(
             "Process block {:?} with {} transactions",
             &block.block_hash().to_hex(),
             block.txs.len()
@@ -5286,7 +5286,7 @@ impl StacksChainState {
                 }
             }
 
-            debug!("Append block";
+            info!("Append block";
                    "block" => %format!("{}/{}", chain_tip_consensus_hash, block.block_hash()),
                    "parent_block" => %format!("{}/{}", parent_consensus_hash, parent_block_hash),
                    "stacks_height" => %block.header.total_work.work,
