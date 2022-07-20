@@ -824,7 +824,7 @@ simulating a miner.
 
     if argv[1] == "marf-get" {
         let mainnet_path = &argv[2];
-        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &mainnet_path);
+        // let sort_db_path = format!("{}/mainnet/burnchain/sortition", &mainnet_path);
 
         // let tip = BlockHeaderHash::from_hex(&argv[3]).unwrap();
         // // let consensustip = ConsensusHash::from_hex(&argv[4]).unwrap();
@@ -841,9 +841,10 @@ simulating a miner.
         //     .expect("Failed to get sortition chain tip");
         // let itip = StacksBlockHeader::make_index_block_hash(&chain_tip.consensus_hash, &chain_tip.winning_stacks_block_hash);
 
-        let marf_opts = MARFOpenOpts::default();
+        let mut marf_opts = MARFOpenOpts::default();
+        marf_opts.external_blobs = true;
         // let mut marf = MARF::from_path(path, marf_opts).unwrap();
-        let marf_path = format!("{}/mainnet/chainstate/vm/index.sqlite", &mainnet_path);
+        let marf_path = format!("{}/mainnet/chainstate/vm/clarity/marf.sqlite", &mainnet_path);
 
         let mut marf = MARF::from_path(&marf_path, marf_opts).unwrap();
 

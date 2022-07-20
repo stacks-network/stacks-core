@@ -1137,6 +1137,7 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+        info!("cur_block_hash {:?} cur_block_id {:?}", &cur_block_hash, &cur_block_id); // this isn't initialized
 
         let path = TriePath::from_key(key);  // simple
 
