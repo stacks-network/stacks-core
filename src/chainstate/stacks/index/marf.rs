@@ -1121,7 +1121,10 @@ impl<T: MarfTrieId> MARF<T> {
     /// This will have the side-effect of instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
     pub fn from_path(path: &str, open_opts: MARFOpenOpts) -> Result<MARF<T>, Error> {
-        info!("MARF::from_path path [{}] open_opts [{:?}]", path, &open_opts);
+        info!(
+            "MARF::from_path path [{}] open_opts [{:?}]",
+            path, &open_opts
+        );
         let file_storage = TrieFileStorage::open(path, open_opts)?;
         Ok(MARF::from_storage(file_storage))
     }
@@ -1140,11 +1143,15 @@ impl<T: MarfTrieId> MARF<T> {
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
-        info!("cur_block_hash {:?} cur_block_id {:?}", &cur_block_hash, &cur_block_id); // this isn't initialized
+        info!(
+            "cur_block_hash {:?} cur_block_id {:?}",
+            &cur_block_hash, &cur_block_id
+        ); // this isn't initialized
 
-        let path = TriePath::from_key(key);  // simple
+        let path = TriePath::from_key(key); // simple
 
-        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {  // real operation
+        let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
+            // real operation
             Error::NotFoundError => Ok(None),
             _ => Err(e),
         });

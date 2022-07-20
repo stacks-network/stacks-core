@@ -87,17 +87,18 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         if !self.is_block_hash_cached(id) {
-
             let start_time = Instant::now();
             let block_hash = self.get_block_hash(id)?;
             let end_time = Instant::now();
             let delta = end_time - start_time;
-            info!("get_block_hash_caching: result=miss, id={}, time_cost={:?}", id, delta);
+            info!(
+                "get_block_hash_caching: result=miss, id={}, time_cost={:?}",
+                id, delta
+            );
 
             self.cache.store_block_hash(id, block_hash.clone());
         } else {
             info!("get_block_hash_caching: result=hit, id={}", id);
-
         }
         self.cache.ref_block_hash(id).ok_or(Error::NotFoundError)
     }
@@ -140,7 +141,10 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
             let block_hash = self.get_block_hash(id)?;
             let end_time = Instant::now();
             let delta = end_time - start_time;
-            info!("get_block_hash_caching: result=miss, id={}, time_cost={:?}", id, delta);
+            info!(
+                "get_block_hash_caching: result=miss, id={}, time_cost={:?}",
+                id, delta
+            );
 
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
@@ -153,7 +157,10 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageConnection<'a, T> {
         let end_time = Instant::now();
         let delta = end_time - start_time;
         if (is_hit) {
-            info!("get_block_hash_caching: result=hit, id={}, time_cost={:?}", id, delta);
+            info!(
+                "get_block_hash_caching: result=hit, id={}, time_cost={:?}",
+                id, delta
+            );
         }
 
         r

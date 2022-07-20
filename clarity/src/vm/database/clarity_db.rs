@@ -315,7 +315,10 @@ impl<'a> ClarityDatabase<'a> {
         let start = Instant::now();
         let result = self.store.get_value(key, expected);
         let delta = Instant::now() - start;
-        info!("marf read key [{}], type [{:?}], result [{:?}], time_cost={:?}", key, expected, &result, &delta);
+        info!(
+            "marf read key [{}], type [{:?}], result [{:?}], time_cost={:?}",
+            key, expected, &result, &delta
+        );
         result
     }
 

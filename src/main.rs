@@ -843,7 +843,10 @@ simulating a miner.
         let mut marf_opts = MARFOpenOpts::default();
         marf_opts.external_blobs = true;
         // let mut marf = MARF::from_path(path, marf_opts).unwrap();
-        let marf_path = format!("{}/mainnet/chainstate/vm/clarity/marf.sqlite", &mainnet_path);
+        let marf_path = format!(
+            "{}/mainnet/chainstate/vm/clarity/marf.sqlite",
+            &mainnet_path
+        );
 
         let mut marf = MARF::from_path(&marf_path, marf_opts).unwrap();
 
