@@ -19,20 +19,13 @@ some particular hyperchain. These functions include but are not limited to:
   contract. The Hyperchain "listens" for calls to these functions, and performs a mint on the hyperchains to 
   replicate this state. Meanwhile, on the L1, the assets live in the contract.
 - `withdraw-ft-asset` / `withdraw-stx` / `withdraw-nft-asset`: Called by miners to withdraw assets from the hyperchain. 
-  Withdrawals require two steps. 
-  (1) The owner of an asset must call `withdraw-ft?` / `withdraw-stx?` / `withdraw-nft?` in a Clarity contract on the hyperchain, 
-  which destroys those assets on the hyperchain, and adds that particular withdrawal to a withdrawal Merkle tree for that block. 
-  The withdrawal Merkle tree serves as a cryptographic record of the withdrawals in a particular block. The root of this 
-  Merkle tree is committed to the L1 via the `commit-block` function. (2) A hyperchain miner must now call the corresponding withdraw 
-  function on the Hyperchains interface contract, which transfers the asset from the contract itself and/or mints the requested asset. 
-  In a future version of the hyperchain, the user itself must call the withdraw function on the L1. 
 
 In order to register new allowed assets, a valid miner may call `setup-allowed-contracts`, `register-ft-contract`, or `register-nft-contract`. 
-It's key that the transaction sender is part of the miners list defined in the hyperchains contract.
+The transaction sender must be part of the miners list defined in the hyperchains contract.
 
 ## Setup
 
-Make sure you have `clarinet` installed locally, and that it is at version 0.32.0 or above.
+Make sure you have `clarinet` installed locally, and that it is at version 0.33.0 or above.
 If you do not have clarinet, you can find installation instructions [here](https://github.com/hirosystems/clarinet).
 
 Let's create a new clarinet project. This will create a new directory with a Clarinet project initialized.
@@ -41,7 +34,7 @@ clarinet new nft-use-case
 ```
 
 Let us copy contract files and scripts over from the `stacks-hyperchains` repository into the `nft-use-case` directory. 
-If you don't already have the stacks-hyperchains repository, you can clone it [here](https://github.com/hirosystems/stacks-hyperchains)
+If you don't already have the stacks-hyperchains repository, you can clone it [here](https://github.com/hirosystems/stacks-hyperchains).
 Set the environment variable `HYPERCHAIN_PATH` to the location of the stacks-hyperchains repository on your computer. 
 ```
 export HYPERCHAIN_PATH=<YOUR_PATH_HERE>
@@ -84,11 +77,11 @@ separate terminal window, navigate to the directory `nft-use-case/scripts`, and 
 export AUTH_HC_MINER_ADDR=ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0
 export AUTH_HC_MINER_KEY=7036b29cb5e235e5fd9b09ae3e8eec4404e44906814d5d01cbca968a60ed4bfb01
 
-export USER_KEY=f9d7206a47f14d2870c163ebab4bf3e70d18f5d14ce1031f3902fbbc894fe4c701
 export USER_ADDR=ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND
+export USER_KEY=f9d7206a47f14d2870c163ebab4bf3e70d18f5d14ce1031f3902fbbc894fe4c701
 
-export ALT_USER_KEY=3eccc5dac8056590432db6a35d52b9896876a3d5cbdea53b72400bc9c2099fe801
 export ALT_USER_ADDR=ST2REHHS5J3CERCRBEPMGH7921Q6PYKAADT7JP2VB
+export ALT_USER_KEY=3eccc5dac8056590432db6a35d52b9896876a3d5cbdea53b72400bc9c2099fe801
 
 export HYPERCHAIN_URL="http://localhost:30443"
 ```
@@ -107,7 +100,9 @@ node ./publish_tx.js simple-nft-l1 ../contracts/simple-nft.clar 1 1
 
 Verify that the contracts were published by using the Clarinet console.
 For the layer 1 contracts, you should see the following in the "transactions" region in a recent block.
-🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.trait-standards (ok true)                                                                                                                                                             │
+
+🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.trait-standards (ok true)              
+
 🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1 (ok true)
 
 Then, publish the layer 2 contracts. 
@@ -128,13 +123,14 @@ Look for a log line similar to the following in the results:
 Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246, event_type: success, payload: SmartContract
 ```
 
-## Step 2: Register the new asset in the interface Hyperchain contract
+## Step 2: Register the new asset in the interface hyperchain contract
 Create the transaction to register the new asset. This is going to be called by a miner of the hyperchains contract.
 Specifically, this transaction will be sent by `AUTH_HC_MINER_ADDR`. 
 ```
 node ./register_nft.js 0
 ```
 Look for the following transaction confirmation in the Clarinet console in an upcoming block on the layer 1.
+
 🟩  invoked: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchain::register-new-nft-contract(ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG.simple-nft-l1, "hyperchain-deposit-nft-token") (ok true)
 
 ## Step 3: Mint an NFT on the L1 Chain
@@ -144,10 +140,11 @@ will own an NFT.
 node ./mint_nft.js 2 
 ```
 Verify that the transaction is acknowledged within the next few blocks in the Stacks explorer.
+
 🟩  invoked: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1::gift-nft(ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND, u5) (ok true)
 
 ## Step 4: Deposit the NFT onto the Hyperchain 
-Now, we can call the deposit NFT function in the hyperchains interface contract that lives on the Stacks L1 chain. This 
+Now, we can call the deposit NFT function in the hyperchains interface contract. This 
 function is called by the principal `USER_ADDR`. 
 ```
 node ./deposit_nft.js 3
@@ -183,16 +180,17 @@ Jul 19 13:04:43.177993 INFO Tx successfully processed. (ThreadId(9), src/chainst
 ### Background on withdrawals
 Withdrawals from the hyperchain are a 2-step process. 
 
-The first step involves calling one of the Clarity withdraw functions within a smart contract call on the L2 chain. 
-This means calling either `stx-withdraw?`, `ft-withdraw?`, or `nft-withdraw?`. 
-These functions only exist in the hyperchains. When a withdraw function succeeds, the 
-hyperchain node adds that withdrawal to a withdrawal Merkle tree for the specific block that 
-the hyperchain is building. When the hyperchain node commits a block, it also submits the root hash of that Merkle tree. 
+The owner of an asset must call `withdraw-ft?` / `withdraw-stx?` / `withdraw-nft?` in a Clarity contract on the hyperchain,
+which destroys those assets on the hyperchain, and adds that particular withdrawal to a withdrawal Merkle tree for that block.
+The withdrawal Merkle tree serves as a cryptographic record of the withdrawals in a particular block. The root of this
+Merkle tree is committed to the L1 interface contract via the `commit-block` function.
 
 The second step involves calling the appropriate withdraw function in the hyperchains interface 
 contract on the L1 chain. You must also pass in the "proof" that corresponds to your withdrawal. 
 This proof includes the root hash of the withdrawal Merkle tree that this withdrawal was included in, 
-the leaf hash of the withdrawal itself, and a list of hashes to be used to prove that the leaf is valid.
+the leaf hash of the withdrawal itself, and a list of hashes to be used to prove that the leaf is valid. Currently, 
+this function must be called by a hyperchain miner, but in an upcoming hyperchain release, the asset owner must call 
+this function. 
 
 ### Step 6a: Withdraw the NFT on the hyperchain 
 Perform the withdrawal on the layer 2 by calling `withdraw-nft-asset` in the `simple-nft-l2` contract. 
@@ -226,6 +224,7 @@ node ./withdraw_nft_l1.js {WITHDRAWAL_BLOCK_HEIGHT} 1
 ```
 
 Check for the success of this transaction in the Clarinet console:
+
 🟩  invoked: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.hyperchain::withdraw-nft-asset(u5, ST2JHG361ZXG51QTKY2NQCVBPPRRE2KZB1HR05...
 
 You can also navigate to the Stacks Explorer (the URL of this will be listed in the Clarinet console), and check that the expected 
