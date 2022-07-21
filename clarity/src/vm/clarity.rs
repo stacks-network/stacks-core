@@ -179,6 +179,7 @@ pub trait TransactionConnection: ClarityConnection {
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let clarity_version = self.get_clarity_version();
+        let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
             let ast_result = ast::build_ast(
@@ -186,6 +187,7 @@ pub trait TransactionConnection: ClarityConnection {
                 contract_content,
                 &mut cost_track,
                 clarity_version,
+                epoch_id,
             );
 
             let mut contract_ast = match ast_result {

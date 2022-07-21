@@ -157,8 +157,14 @@ fn parse(
     source_code: &str,
 ) -> Result<Vec<SymbolicExpression>, Error> {
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
-    let ast = build_ast(contract_identifier, source_code, &mut (), clarity_version)
-        .map_err(|e| RuntimeErrorType::ASTError(e))?;
+    let ast = build_ast(
+        contract_identifier,
+        source_code,
+        &mut (),
+        clarity_version,
+        DEFAULT_CLI_EPOCH,
+    )
+    .map_err(|e| RuntimeErrorType::ASTError(e))?;
     Ok(ast.expressions)
 }
 
@@ -450,7 +456,14 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
         DEFAULT_CLI_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
+        let parsed = ast::build_ast(
+            &contract_id,
+            program,
+            &mut (),
+            clarity_version,
+            DEFAULT_CLI_EPOCH,
+        )?
+        .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }

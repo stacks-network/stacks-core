@@ -297,7 +297,9 @@ pub fn test_sim_hash_to_fork(in_bytes: &[u8; 32]) -> Option<u64> {
 
 #[cfg(test)]
 fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
-    let analysis = mem_type_check(contract, version).unwrap().1;
+    let analysis = mem_type_check(contract, version, StacksEpochId::latest())
+        .unwrap()
+        .1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 

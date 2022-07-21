@@ -17,6 +17,7 @@
 pub mod definition_sorter;
 pub mod expression_identifier;
 pub mod parser;
+pub mod parser_v2;
 pub mod traits_resolver;
 
 pub mod errors;
@@ -37,6 +38,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::ClarityVersion;
 
@@ -45,8 +47,9 @@ pub fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     version: ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<Vec<SymbolicExpression>, Error> {
-    let ast = build_ast(contract_identifier, source_code, &mut (), version)?;
+    let ast = build_ast(contract_identifier, source_code, &mut (), version, epoch)?;
     Ok(ast.expressions)
 }
 
@@ -55,13 +58,18 @@ pub fn build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
 ) -> ParseResult<ContractAST> {
     runtime_cost(
         ClarityCostFunction::AstParse,
         cost_track,
         source_code.len() as u64,
     )?;
-    let pre_expressions = parser::parse(source_code)?;
+    let pre_expressions = if epoch >= StacksEpochId::Epoch21 {
+        parser_v2::parse(source_code)?
+    } else {
+        parser::parse(source_code)?
+    };
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     StackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
     ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version)?;
@@ -76,6 +84,8 @@ pub fn build_ast<T: CostTracker>(
 mod test {
     use std::collections::HashMap;
 
+    use stacks_common::types::StacksEpochId;
+
     use crate::vm::ast::build_ast;
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::representations::depth_traverse;
@@ -85,29 +95,32 @@ mod test {
     #[test]
     fn test_expression_identification_tuples() {
         for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
-            let progn = "{ a: (+ 1 2 3),
+            for epoch in &[StacksEpochId::Epoch2_05, StacksEpochId::Epoch21] {
+                let progn = "{ a: (+ 1 2 3),
                            b: 1,
                            c: 3 }";
 
-            let mut cost_track = LimitedCostTracker::new_free();
-            let ast = build_ast(
-                &QualifiedContractIdentifier::transient(),
-                &progn,
-                &mut cost_track,
-                *version,
-            )
-            .unwrap()
-            .expressions;
+                let mut cost_track = LimitedCostTracker::new_free();
+                let ast = build_ast(
+                    &QualifiedContractIdentifier::transient(),
+                    &progn,
+                    &mut cost_track,
+                    *version,
+                    *epoch,
+                )
+                .unwrap()
+                .expressions;
 
-            let mut visited = HashMap::new();
+                let mut visited = HashMap::new();
 
-            for expr in ast.iter() {
-                depth_traverse::<_, _, ()>(expr, |x| {
-                    assert!(!visited.contains_key(&x.id));
-                    visited.insert(x.id, true);
-                    Ok(())
-                })
-                .unwrap();
+                for expr in ast.iter() {
+                    depth_traverse::<_, _, ()>(expr, |x| {
+                        assert!(!visited.contains_key(&x.id));
+                        visited.insert(x.id, true);
+                        Ok(())
+                    })
+                    .unwrap();
+                }
             }
         }
     }

@@ -25,13 +25,15 @@ use rstest_reuse::{self, *};
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::{execute, execute_v2, ClarityVersion};
+use stacks_common::types::StacksEpochId;
 use std::convert::TryInto;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_sequences(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_sequences(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[test]
 fn test_simple_list_admission() {
@@ -827,7 +829,7 @@ fn test_buff_len() {
 }
 
 #[apply(test_clarity_versions_sequences)]
-fn test_construct_bad_list(#[case] version: ClarityVersion) {
+fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let test1 = "(list 1 2 3 true)";
     assert_eq!(
         execute(test1).unwrap_err(),
@@ -850,7 +852,11 @@ fn test_construct_bad_list(#[case] version: ClarityVersion) {
     );
     assert_eq!(
         execute(bad_high_order_list).unwrap_err(),
-        CheckErrors::TypeError(IntType, TypeSignature::from_string("(list 3 int)", version)).into()
+        CheckErrors::TypeError(
+            IntType,
+            TypeSignature::from_string("(list 3 int)", version, epoch)
+        )
+        .into()
     );
 }
 

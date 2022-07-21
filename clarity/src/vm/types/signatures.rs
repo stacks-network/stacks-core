@@ -31,6 +31,7 @@ use crate::vm::types::{
     TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, WRAPPER_VALUE_SIZE,
 };
 use stacks_common::address::c32;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
 type Result<R> = std::result::Result<R, CheckErrors>;
@@ -1083,9 +1084,15 @@ impl TypeSignature {
     }
 
     #[cfg(test)]
-    pub fn from_string(val: &str, version: ClarityVersion) -> Self {
+    pub fn from_string(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> Self {
         use crate::vm::ast::parse;
-        let expr = &parse(&QualifiedContractIdentifier::transient(), val, version).unwrap()[0];
+        let expr = &parse(
+            &QualifiedContractIdentifier::transient(),
+            val,
+            version,
+            epoch,
+        )
+        .unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap()
     }
 }
@@ -1406,30 +1413,41 @@ mod test {
 
     #[template]
     #[rstest]
-    #[case(ClarityVersion::Clarity1)]
-    #[case(ClarityVersion::Clarity2)]
-    fn test_clarity_versions_signatures(#[case] version: ClarityVersion) {}
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+    #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+    #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+    fn test_clarity_versions_signatures(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+    }
 
-    fn fail_parse(val: &str, version: ClarityVersion) -> CheckErrors {
+    fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrors {
         use crate::vm::ast::parse;
-        let expr = &parse(&QualifiedContractIdentifier::transient(), val, version).unwrap()[0];
+        let expr = &parse(
+            &QualifiedContractIdentifier::transient(),
+            val,
+            version,
+            epoch,
+        )
+        .unwrap()[0];
         TypeSignature::parse_type_repr(expr, &mut ()).unwrap_err()
     }
 
     #[apply(test_clarity_versions_signatures)]
-    fn type_of_list_of_buffs(#[case] version: ClarityVersion) {
+    fn type_of_list_of_buffs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let value = execute("(list \"abc\" \"abcde\")").unwrap().unwrap();
-        let type_descr = TypeSignature::from_string("(list 2 (string-ascii 5))", version);
+        let type_descr = TypeSignature::from_string("(list 2 (string-ascii 5))", version, epoch);
         assert_eq!(TypeSignature::type_of(&value), type_descr);
     }
 
     #[apply(test_clarity_versions_signatures)]
-    fn type_signature_way_too_big(#[case] version: ClarityVersion) {
+    fn type_signature_way_too_big(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         // first_tuple.type_size ~= 131
         // second_tuple.type_size = k * (130+130)
         // to get a type-size greater than max_value all by itself,
         //   set k = 4033
-        let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version);
+        let first_tuple = TypeSignature::from_string("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))", version, epoch);
 
         let mut keys = vec![];
         for i in 0..4033 {
@@ -1445,7 +1463,7 @@ mod test {
     }
 
     #[apply(test_clarity_versions_signatures)]
-    fn test_construction(#[case] version: ClarityVersion) {
+    fn test_construction(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
         let bad_type_descriptions = [
             ("(tuple)", EmptyTuplesNotAllowed),
             ("(list int int)", InvalidTypeDescription),
@@ -1470,7 +1488,7 @@ mod test {
         ];
 
         for (desc, expected) in bad_type_descriptions.iter() {
-            assert_eq!(&fail_parse(desc, version), expected);
+            assert_eq!(&fail_parse(desc, version, epoch), expected);
         }
 
         let okay_types = [
@@ -1483,7 +1501,7 @@ mod test {
         ];
 
         for desc in okay_types.iter() {
-            let _ = TypeSignature::from_string(*desc, version); // panics on failed types.
+            let _ = TypeSignature::from_string(*desc, version, epoch); // panics on failed types.
         }
     }
 }

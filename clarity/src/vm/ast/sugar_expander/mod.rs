@@ -116,6 +116,8 @@ impl SugarExpander {
                         return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into());
                     }
                 }
+                PreSymbolicExpressionType::Comment(_)
+                | PreSymbolicExpressionType::Placeholder(_) => continue,
             };
             // expr.id will be set by the subsequent expression identifier pass.
             expr.span = pre_expr.span.clone();

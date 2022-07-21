@@ -46,12 +46,14 @@ use crate::vm::tests::with_memory_environment;
 use clarity::vm::version::ClarityVersion;
 
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::StacksEpochId;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn clarity_version_template(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn clarity_version_template(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
@@ -90,7 +92,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                 (token-credit! .tokens u4))";
 
 #[apply(clarity_version_template)]
-fn test_simple_token_system(#[case] version: ClarityVersion) {
+fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, MarfedKV::temporary());
     let p1 = PrincipalData::from(
         PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
@@ -101,10 +103,11 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
             .unwrap(),
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-    let burn_db = if version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch),
     };
 
     clarity
@@ -126,8 +129,14 @@ fn test_simple_token_system(#[case] version: ClarityVersion) {
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast =
-            ast::build_ast(&contract_identifier, tokens_contract, &mut (), version).unwrap();
+        let contract_ast = ast::build_ast(
+            &contract_identifier,
+            tokens_contract,
+            &mut (),
+            version,
+            epoch,
+        )
+        .unwrap();
 
         block.as_transaction(version, |tx| {
             tx.initialize_smart_contract(
@@ -362,7 +371,7 @@ where
 }
 
 #[apply(clarity_version_template)]
-fn test_simple_naming_system(#[case] version: ClarityVersion) {
+fn test_simple_naming_system(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     with_versioned_memory_environment(inner_test_simple_naming_system, version, false);
 }
 
@@ -572,14 +581,18 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
  *      this is mainly due to using hex encoding in the sqlite storage.
  */
 #[apply(clarity_version_template)]
-pub fn rollback_log_memory_test(#[case] clarity_version: ClarityVersion) {
+pub fn rollback_log_memory_test(
+    #[case] clarity_version: ClarityVersion,
+    #[case] epoch_id: StacksEpochId,
+) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
     };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -639,14 +652,15 @@ pub fn rollback_log_memory_test(#[case] clarity_version: ClarityVersion) {
 }
 
 #[apply(clarity_version_template)]
-pub fn let_memory_test(#[case] clarity_version: ClarityVersion) {
+pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
     };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -712,16 +726,20 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion) {
 }
 
 #[apply(clarity_version_template)]
-pub fn argument_memory_test(#[case] clarity_version: ClarityVersion) {
+pub fn argument_memory_test(
+    #[case] clarity_version: ClarityVersion,
+    #[case] epoch_id: StacksEpochId,
+) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
     };
 
     clarity_instance
@@ -785,15 +803,16 @@ pub fn argument_memory_test(#[case] clarity_version: ClarityVersion) {
 }
 
 #[apply(clarity_version_template)]
-pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion) {
+pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
     };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
@@ -897,15 +916,16 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion) {
 }
 
 #[apply(clarity_version_template)]
-pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion) {
+pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
-    let burn_db = if clarity_version == ClarityVersion::Clarity2 {
-        &TEST_BURN_STATE_DB_21
-    } else {
-        &TEST_BURN_STATE_DB
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
     };
 
     clarity_instance
