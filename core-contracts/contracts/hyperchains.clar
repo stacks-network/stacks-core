@@ -20,6 +20,7 @@
 (define-constant ERR_MINT_FAILED 13)
 (define-constant ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT 14)
 (define-constant ERR_IN_COMPUTATION 15)
+(define-constant ERR_MINER_ALREADY_SET 20)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -29,7 +30,7 @@
 (define-map processed-withdrawal-leaves-map { withdrawal-leaf-hash: (buff 32), withdrawal-root-hash: (buff 32) } bool)
 
 ;; List of miners
-(define-constant miners (list 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY 'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP 'ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8))
+(define-data-var miner (optional principal) none)
 
 ;; Map of allowed contracts for asset transfers - maps contract principal to name of the deposit function in the given contract
 (define-map allowed-contracts principal (string-ascii 45))
@@ -43,13 +44,27 @@
 (use-trait ft-trait .trait-standards.ft-trait)
 (use-trait mint-from-hyperchain-trait .trait-standards.mint-from-hyperchain-trait)
 
+;; Set the hc miner for this contract. Can be called by *anyone*
+;;  before the miner is set. This is an unsafe way to initialize the
+;;  contract, because a re-org could allow someone to reinitialize
+;;  this field. Instead, authors should initialize the variable
+;;  directly at the data-var instantiation. This is used for testing
+;;  purposes only. 
+(define-public (set-hc-miner (miner-to-set principal))
+    (match (var-get miner) existing-miner (err ERR_MINER_ALREADY_SET) 
+        (begin 
+            (var-set miner (some miner-to-set))
+            (ok true))))
+
 ;; This function adds contracts to the allowed-contracts map.
 ;; Once in this map, asset transfers from that contract will be allowed in the deposit and withdraw operations.
 ;; Returns response<bool, int>
 (define-public (setup-allowed-contracts)
     (begin
         ;; Verify that tx-sender is an authorized miner
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+        (asserts! (or (is-eq tx-sender CONTRACT_ADDRESS)
+                      (is-miner tx-sender))
+                  (err ERR_INVALID_MINER))
 
         ;; Set up the assets that the contract is allowed to transfer
         (asserts! (map-insert allowed-contracts .simple-ft "hyperchain-deposit-ft-token") (err ERR_ASSET_ALREADY_ALLOWED))
@@ -91,12 +106,11 @@
         search-for
     )
 )
-;; Helper function: returns a boolean indicating whether the given principal is in the list of miners
+;; Helper function: returns a boolean indicating whether the given principal is a miner
 ;; Returns bool
-(define-private (is-miner (miner principal))
-   (let ((fold-result (fold is-principal-eq miners (some miner))))
-        (is-none fold-result)
-   ))
+(define-private (is-miner (miner-to-check principal))
+    (is-eq (some miner-to-check) (var-get  miner)))
+
 
 ;; Helper function: determines whether the commit-block operation satisfies pre-conditions
 ;; listed in `commit-block`.
@@ -114,6 +128,9 @@
 
         ;; check that the tx sender is one of the miners
         (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
+
+        ;; check that the miner called this contract directly
+        (asserts! (is-miner contract-caller) (err ERR_INVALID_MINER))
 
         (ok true)
     )
@@ -248,10 +265,6 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-        
         (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
@@ -376,10 +389,6 @@
 
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
-
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
 
         (asserts! (try! (inner-withdraw-ft-asset amount recipient memo ft-contract ft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 

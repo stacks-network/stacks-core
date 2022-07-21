@@ -6,16 +6,19 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
+use self::commitment::Error as CommitmentError;
 use reqwest::Error as ReqwestError;
 use stacks::burnchains;
 use stacks::burnchains::indexer::BurnchainChannel;
 use stacks::burnchains::Burnchain;
+use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::core::StacksEpoch;
+use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks::util::hash::Sha512Trunc256Sum;
 
 /// This module implements a burnchain controller that
 /// simulates the L1 chain. This controller accepts miner
@@ -28,6 +31,9 @@ pub mod l1_events;
 
 pub mod db_indexer;
 
+/// This module defines structs for producing block commitments
+pub mod commitment;
+
 #[cfg(test)]
 mod tests;
 
@@ -37,7 +43,7 @@ pub enum Error {
     CoordinatorClosed,
     IndexerError(burnchains::Error),
     RPCError(String),
-    BadCommitment,
+    BadCommitment(CommitmentError),
 }
 
 impl fmt::Display for Error {
@@ -49,7 +55,7 @@ impl fmt::Display for Error {
             Error::CoordinatorClosed => write!(f, "ChainsCoordinator closed"),
             Error::IndexerError(ref e) => write!(f, "Indexer error: {:?}", e),
             Error::RPCError(ref e) => write!(f, "ControllerError(RPCError: {})", e),
-            Error::BadCommitment => write!(f, "ControllerError(BadCommitment))"),
+            Error::BadCommitment(ref e) => write!(f, "ControllerError(BadCommitment: {}))", e),
         }
     }
 }
@@ -60,11 +66,19 @@ impl From<ReqwestError> for Error {
     }
 }
 
+impl From<CommitmentError> for Error {
+    fn from(e: CommitmentError) -> Self {
+        Error::BadCommitment(e)
+    }
+}
+
 impl From<burnchains::Error> for Error {
     fn from(e: burnchains::Error) -> Self {
         Error::IndexerError(e)
     }
 }
+
+pub struct ClaritySignature([u8; 65]);
 
 /// The `BurnchainController` manages overall relations with the underlying burnchain.
 /// In the case of a hyper-chain, the burnchain is the Stacks L1 chain.
@@ -75,12 +89,20 @@ pub trait BurnchainController {
     /// Returns a copy of the channel used to push
     fn get_channel(&self) -> Arc<dyn BurnchainChannel>;
 
-    fn submit_operation(
+    fn submit_commit(
         &mut self,
-        operation: BlockstackOperationType,
+        committed_block_hash: BlockHeaderHash,
+        target_burn_chain: BurnchainHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        signatures: Vec<ClaritySignature>,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> bool;
+    ) -> Result<Txid, Error>;
+
+    /// Returns the number of signatures necessary to provide
+    /// to the block committer.
+    fn commit_required_signatures(&self) -> u8;
+
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error>;
     fn sortdb_ref(&self) -> &SortitionDB;
     fn sortdb_mut(&mut self) -> &mut SortitionDB;
@@ -121,15 +143,6 @@ impl BurnchainController for PanicController {
     }
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         panic!("tbd")
-    }
-
-    fn submit_operation(
-        &mut self,
-        _operation: BlockstackOperationType,
-        _op_signer: &mut BurnchainOpSigner,
-        _attempt: u64,
-    ) -> bool {
-        panic!()
     }
 
     fn sync(
@@ -176,6 +189,22 @@ impl BurnchainController for PanicController {
         &mut self,
         _target_sortition_height: Option<u64>,
     ) -> Result<BurnchainTip, Error> {
+        panic!()
+    }
+
+    fn submit_commit(
+        &mut self,
+        _committed_block_hash: BlockHeaderHash,
+        _target_block: BurnchainHeaderHash,
+        _withdrawal_merkle_root: Sha512Trunc256Sum,
+        _signatures: Vec<ClaritySignature>,
+        _op_signer: &mut BurnchainOpSigner,
+        _attempt: u64,
+    ) -> Result<Txid, Error> {
+        panic!()
+    }
+
+    fn commit_required_signatures(&self) -> u8 {
         panic!()
     }
 }
