@@ -18,7 +18,7 @@ async function main() {
 
     const txOptions = {
         contractAddress: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM',
-        contractName: 'hyperchain',
+        contractName: 'hc-alpha',
         functionName: 'deposit-nft-asset',
         functionArgs: [
             uintCV(5), // ID

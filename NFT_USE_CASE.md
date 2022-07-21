@@ -78,10 +78,11 @@ Let's spin up a hyperchain node:
 clarinet integrate
 ```
 
-Before we publish any transactions, you will need to set the private key of the contract publisher as an env var (the private key used here corresponds to a valid miner in the list).
+Before we publish any transactions, you will need to set up some environment variables. Open a 
+separate terminal window, navigate to the directory `nft-use-case/scripts`, and enter the following. 
 ```
-export AUTH_HC_MINER_ADDR=ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP
-export AUTH_HC_MINER_KEY=0916e2eb04b5702e0e946081829cee67d3bb76e1792af506646843db9252ff4101
+export AUTH_HC_MINER_ADDR=ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0
+export AUTH_HC_MINER_KEY=7036b29cb5e235e5fd9b09ae3e8eec4404e44906814d5d01cbca968a60ed4bfb01
 
 export USER_KEY=f9d7206a47f14d2870c163ebab4bf3e70d18f5d14ce1031f3902fbbc894fe4c701
 export USER_ADDR=ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND
@@ -97,7 +98,8 @@ Once the Stacks node and the hyperchain boots up (use the indicators in the top 
 start to interact with the chains. To begin with, we want to publish NFT contracts onto both the L1 and L2. When the user
 deposits their L1 NFT onto the hyperchain, their asset gets minted by the L2 NFT contract. 
 The publish script takes in two arguments: the layer on which to broadcast the transaction (1 or 2), and the nonce of the transaction.
-First, publish the layer 1 contracts. 
+First, publish the layer 1 contracts. You can enter this command (and the following transaction commands) in the same 
+terminal window as you entered the environment variables. Make sure you are in the `scripts` directory. 
 ```
 node ./publish_tx.js trait-standards ../contracts/trait-standards.clar 1 0 
 node ./publish_tx.js simple-nft-l1 ../contracts/simple-nft.clar 1 1
@@ -128,7 +130,7 @@ Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainst
 
 ## Step 2: Register the new asset in the interface Hyperchain contract
 Create the transaction to register the new asset. This is going to be called by a miner of the hyperchains contract.
-Specifically, this transaction will be sent by `AUTH_HC_MINER_ADDR`.
+Specifically, this transaction will be sent by `AUTH_HC_MINER_ADDR`. 
 ```
 node ./register_nft.js 0
 ```
@@ -217,6 +219,8 @@ by the grep. Try the higher heights first, and work backward.
 
 ### Step 6b: Complete the withdrawal on the Stacks chain 
 Use the withdrawal height we just obtained from the grep and substitute that for `WITHDRAWAL_BLOCK_HEIGHT`.
+You might need to wait a little bit for the hyperchain block to become official (even if
+the grep already returned a result) for the transaction to succeed.
 ```
 node ./withdraw_nft_l1.js {WITHDRAWAL_BLOCK_HEIGHT} 1
 ```

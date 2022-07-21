@@ -33,7 +33,7 @@ async function main() {
         network,
         anchorMode: AnchorMode.Any,
         contractAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-        contractName: "hyperchain",
+        contractName: "hc-alpha",
         functionName: "withdraw-nft-asset",
         functionArgs: [
             uintCV(5), // ID
