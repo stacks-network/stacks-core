@@ -106,7 +106,8 @@ For the layer 1 contracts, you should see the following in the "transactions" re
 
 🟩  deployed: ST2NEB84ASENDXKYGJPQW86YXQCEFEX2ZQPG87ND.simple-nft-l1 (ok true)
 
-Then, publish the layer 2 contracts. 
+Then, publish the layer 2 contracts. Note, it might take a minute for the hyperchain node to start accepting transactions, 
+so these commands could fail if you send them too early (but you can always re-try when the node is ready).
 ```
 node ./publish_tx.js trait-standards ../contracts-l2/trait-standards.clar 2 0 
 node ./publish_tx.js simple-nft-l2 ../contracts-l2/simple-nft-l2.clar 2 1 
@@ -223,7 +224,8 @@ by the grep. Try the higher heights first, and work backward.
 ### Step 6b: Complete the withdrawal on the Stacks chain 
 Use the withdrawal height we just obtained from the grep and substitute that for `WITHDRAWAL_BLOCK_HEIGHT`.
 You might need to wait a little bit for the hyperchain block to become official (even if
-the grep already returned a result) for the transaction to succeed. For now, this script assumes that the requested 
+the grep already returned a result) for the transaction to succeed. If the hyperchain has not advanced sufficiently, you 
+may get the error `Supplied block height not found`. For now, this script assumes that the requested 
 withdrawal was the only one in the hyperchain block it was a part of (thus, you may run into issues using this script 
 if you are attempting to withdraw multiple assets in a short span of time). 
 ```
