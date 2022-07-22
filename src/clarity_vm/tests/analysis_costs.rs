@@ -132,12 +132,13 @@ pub fn test_tracked_costs(
             epoch
         );
 
-        conn.as_transaction(version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, contract_trait)
+                .analyze_smart_contract(&trait_contract_id, version, contract_trait)
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
+                version,
                 &ct_ast,
                 contract_trait,
                 None,
@@ -159,12 +160,13 @@ pub fn test_tracked_costs(
             &burn_state_db,
         );
 
-        conn.as_transaction(version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, contract_other)
+                .analyze_smart_contract(&other_contract_id, version, contract_other)
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
+                version,
                 &ct_ast,
                 contract_other,
                 None,
@@ -186,12 +188,13 @@ pub fn test_tracked_costs(
             &burn_state_db,
         );
 
-        conn.as_transaction(version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, &contract_self)
+                .analyze_smart_contract(&self_contract_id, version, &contract_self)
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,
+                version,
                 &ct_ast,
                 &contract_self,
                 None,

@@ -35,6 +35,7 @@ use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use clarity::vm::ContractContext;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -138,9 +139,10 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         )
         .unwrap();
 
-        block.as_transaction(version, |tx| {
+        block.as_transaction(|tx| {
             tx.initialize_smart_contract(
                 &contract_identifier,
+                version,
                 &contract_ast,
                 tokens_contract,
                 None,
@@ -151,7 +153,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(!is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p2,
                     None,
                     &contract_identifier,
@@ -164,7 +166,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         ));
         assert!(is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -178,7 +180,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(!is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -191,13 +193,13 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         ));
         assert!(is_committed(
             & // send to self!
-            block.as_transaction(version, |tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
+            block.as_transaction(|tx| tx.run_contract_call(&p1, None, &contract_identifier, "token-transfer",
                                     &[p1.clone().into(), Value::UInt(1000)], |_, _| false)).unwrap().0
         ));
 
         assert_eq!(
             block
-                .as_transaction(version, |tx| tx.eval_read_only(
+                .as_transaction(|tx| tx.eval_read_only(
                     &contract_identifier,
                     "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
                 ))
@@ -206,7 +208,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         );
         assert_eq!(
             block
-                .as_transaction(version, |tx| tx.eval_read_only(
+                .as_transaction(|tx| tx.eval_read_only(
                     &contract_identifier,
                     "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"
                 ))
@@ -216,7 +218,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -230,7 +232,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -244,7 +246,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -258,7 +260,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert_eq!(
             block
-                .as_transaction(version, |tx| tx.eval_read_only(
+                .as_transaction(|tx| tx.eval_read_only(
                     &contract_identifier,
                     "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
                 ))
@@ -268,7 +270,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(!is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -303,7 +305,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         );
         assert!(is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -317,7 +319,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert!(!is_committed(
             &block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -331,7 +333,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         assert_eq!(
             block
-                .as_transaction(version, |tx| tx.eval_read_only(
+                .as_transaction(|tx| tx.eval_read_only(
                     &contract_identifier,
                     "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
                 ))
@@ -340,7 +342,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         );
         assert_eq!(
             block
-                .as_transaction(version, |tx| tx.run_contract_call(
+                .as_transaction(|tx| tx.run_contract_call(
                     &p1,
                     None,
                     &contract_identifier,
@@ -438,9 +440,13 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity1,
+    );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         env.initialize_contract(contract_identifier, tokens_contract)
@@ -452,7 +458,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
 
         assert!(is_err_code_i128(
             &env.execute_contract(
@@ -467,7 +477,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -491,7 +505,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -506,7 +524,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -520,7 +542,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -631,14 +657,15 @@ pub fn rollback_log_memory_test(
             contract.push_str(&exploder);
         }
 
-        conn.as_transaction(clarity_version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -705,14 +732,15 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         contract.push_str(") 1)");
 
-        conn.as_transaction(clarity_version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -782,14 +810,15 @@ pub fn argument_memory_test(
 
         contract.push_str(")");
 
-        conn.as_transaction(clarity_version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -875,14 +904,15 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
         eprintln!("{}", contract_ok);
         eprintln!("{}", contract_err);
 
-        conn.as_transaction(clarity_version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_ok)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok)
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
                     // initialize the ok contract without errs, but still abort.
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract_ok,
                     None,
@@ -895,14 +925,15 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             });
         });
 
-        conn.as_transaction(clarity_version, |conn| {
+        conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_err)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract_err,
                     None,
@@ -981,12 +1012,13 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             let contract_identifier = QualifiedContractIdentifier::local(&contract_name).unwrap();
 
             if i < (CONTRACTS - 1) {
-                conn.as_transaction(clarity_version, |conn| {
+                conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
+                        clarity_version,
                         &ct_ast,
                         &contract,
                         None,
@@ -997,14 +1029,15 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         .unwrap();
                 });
             } else {
-                conn.as_transaction(clarity_version, |conn| {
+                conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     assert!(format!(
                         "{:?}",
                         conn.initialize_smart_contract(
                             &contract_identifier,
+                            clarity_version,
                             &ct_ast,
                             &contract,
                             None,

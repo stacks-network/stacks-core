@@ -54,6 +54,7 @@ use clarity::vm::Value::Sequence;
 use clarity::vm::database::MemoryBackingStore;
 
 use crate::chainstate::stacks::boot::contract_tests::{test_sim_height_to_hash, ClarityTestSim};
+use crate::clarity::vm::clarity::ClarityConnection;
 use crate::clarity::vm::clarity::TransactionConnection;
 
 #[test]
@@ -69,8 +70,11 @@ fn test_get_burn_block_info_eval() {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-1").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
-        conn.as_transaction(ClarityVersion::Clarity1, |clarity_db| {
-            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::UnknownFunction(func_name) = check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
@@ -87,8 +91,11 @@ fn test_get_burn_block_info_eval() {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-2").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
-        conn.as_transaction(ClarityVersion::Clarity1, |clarity_db| {
-            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::UnknownFunction(func_name) = check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
@@ -105,18 +112,27 @@ fn test_get_burn_block_info_eval() {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-3").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
-        conn.as_transaction(ClarityVersion::Clarity2, |clarity_db| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(&contract_identifier, contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
-                .initialize_smart_contract(&contract_identifier, &ast, contract, None, |_, _| false)
+                .initialize_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &ast,
+                    contract,
+                    None,
+                    |_, _| false,
+                )
                 .unwrap();
         });
         // This relies on `TestSimBurnStateDB::get_burn_header_hash'
         // * burnchain is 100 blocks ahead of stacks
         // * sortition IDs, consensus hashes, and block hashes encode height and fork ID
-        let mut tx = conn.start_transaction_processing(ClarityVersion::Clarity2);
+        let mut tx = conn.start_transaction_processing();
         assert_eq!(
             Value::Optional(OptionalData {
                 data: Some(Box::new(Sequence(Buffer(BuffData {
@@ -166,8 +182,11 @@ fn test_get_block_info_eval_v210() {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-1").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
-        conn.as_transaction(ClarityVersion::Clarity1, |clarity_db| {
-            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
                     assert_eq!(name, "block-reward");
@@ -184,8 +203,11 @@ fn test_get_block_info_eval_v210() {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-2").unwrap();
         let contract =
             "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
-        conn.as_transaction(ClarityVersion::Clarity1, |clarity_db| {
-            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
                     assert_eq!(name, "block-reward");
@@ -204,15 +226,17 @@ fn test_get_block_info_eval_v210() {
             "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height)) 
              (define-private (test-func-2 (height uint)) (get-block-info? miner-spend-winner height))
              (define-private (test-func-3 (height uint)) (get-block-info? miner-spend-total height))";
-        conn.as_transaction(ClarityVersion::Clarity2, |clarity_db| {
+        let epoch = conn.get_epoch();
+        conn.as_transaction(|clarity_db| {
+            let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(&contract_identifier, contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
-                .initialize_smart_contract(&contract_identifier, &ast, contract, None, |_, _| false)
+                .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| false)
                 .unwrap();
         });
-        let mut tx = conn.start_transaction_processing(ClarityVersion::Clarity2);
+        let mut tx = conn.start_transaction_processing();
         // no values for the genesis block
         assert_eq!(
             Value::none(),

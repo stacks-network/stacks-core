@@ -1031,12 +1031,19 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         ]
         .iter()
         {
-            block_conn.as_transaction(clarity_version, |tx| {
+            block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
-                    .unwrap();
+                tx.initialize_smart_contract(
+                    contract_name,
+                    clarity_version,
+                    &ast,
+                    contract_src,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
         }
@@ -1302,12 +1309,19 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         ]
         .iter()
         {
-            block_conn.as_transaction(clarity_version, |tx| {
+            block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
-                tx.initialize_smart_contract(contract_name, &ast, contract_src, None, |_, _| false)
-                    .unwrap();
+                tx.initialize_smart_contract(
+                    contract_name,
+                    clarity_version,
+                    &ast,
+                    contract_src,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
             });
         }
