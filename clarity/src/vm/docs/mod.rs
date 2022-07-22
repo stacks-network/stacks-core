@@ -2560,6 +2560,7 @@ mod test {
                 env.execute_in_env::<_, _, ()>(
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
                     None,
+                    None,
                     |e| {
                         let mut snapshot = e
                             .global_context
