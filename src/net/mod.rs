@@ -2639,48 +2639,45 @@ pub mod test {
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 let mut receipts = vec![];
                 if conf.setup_code.len() > 0 {
-                    let receipt = clarity_tx.connection().as_transaction(
-                        ClarityVersion::Clarity1,
-                        |clarity| {
-                            let boot_code_addr = boot_code_test_addr();
-                            let boot_code_account = StacksAccount {
-                                principal: boot_code_addr.to_account_principal(),
-                                nonce: 0,
-                                stx_balance: STXBalance::zero(),
-                            };
+                    let receipt = clarity_tx.connection().as_transaction(|clarity| {
+                        let boot_code_addr = boot_code_test_addr();
+                        let boot_code_account = StacksAccount {
+                            principal: boot_code_addr.to_account_principal(),
+                            nonce: 0,
+                            stx_balance: STXBalance::zero(),
+                        };
 
-                            let boot_code_auth = boot_code_tx_auth(boot_code_addr);
+                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
 
-                            debug!(
+                        debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",
                             &boot_code_addr.to_string(),
                             &conf.test_name,
                             conf.setup_code.len()
                         );
 
-                            let smart_contract = TransactionPayload::SmartContract(
-                                TransactionSmartContract {
-                                    name: ContractName::try_from(conf.test_name.as_str())
-                                        .expect("FATAL: invalid boot-code contract name"),
-                                    code_body: StacksString::from_str(&conf.setup_code)
-                                        .expect("FATAL: invalid boot code body"),
-                                },
-                                None,
-                            );
+                        let smart_contract = TransactionPayload::SmartContract(
+                            TransactionSmartContract {
+                                name: ContractName::try_from(conf.test_name.as_str())
+                                    .expect("FATAL: invalid boot-code contract name"),
+                                code_body: StacksString::from_str(&conf.setup_code)
+                                    .expect("FATAL: invalid boot code body"),
+                            },
+                            None,
+                        );
 
-                            let boot_code_smart_contract = StacksTransaction::new(
-                                TransactionVersion::Testnet,
-                                boot_code_auth.clone(),
-                                smart_contract,
-                            );
-                            StacksChainState::process_transaction_payload(
-                                clarity,
-                                &boot_code_smart_contract,
-                                &boot_code_account,
-                            )
-                            .unwrap()
-                        },
-                    );
+                        let boot_code_smart_contract = StacksTransaction::new(
+                            TransactionVersion::Testnet,
+                            boot_code_auth.clone(),
+                            smart_contract,
+                        );
+                        StacksChainState::process_transaction_payload(
+                            clarity,
+                            &boot_code_smart_contract,
+                            &boot_code_account,
+                        )
+                        .unwrap()
+                    });
                     receipts.push(receipt);
                 }
                 debug!("Bootup receipts: {:?}", &receipts);
