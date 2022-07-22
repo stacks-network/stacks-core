@@ -223,7 +223,9 @@ by the grep. Try the higher heights first, and work backward.
 ### Step 6b: Complete the withdrawal on the Stacks chain 
 Use the withdrawal height we just obtained from the grep and substitute that for `WITHDRAWAL_BLOCK_HEIGHT`.
 You might need to wait a little bit for the hyperchain block to become official (even if
-the grep already returned a result) for the transaction to succeed.
+the grep already returned a result) for the transaction to succeed. For now, this script assumes that the requested 
+withdrawal was the only one in the hyperchain block it was a part of (thus, you may run into issues using this script 
+if you are attempting to withdraw multiple assets in a short span of time). 
 ```
 node ./withdraw_nft_l1.js {WITHDRAWAL_BLOCK_HEIGHT} 1
 ```
