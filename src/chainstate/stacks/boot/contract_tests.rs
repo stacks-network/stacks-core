@@ -747,8 +747,13 @@ fn pox_2_lock_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
-            .unwrap();
+        env.initialize_versioned_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &POX_2_TESTNET_CODE,
+            None,
+        )
+        .unwrap();
         env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
             env.execute_contract(
                 POX_2_CONTRACT_TESTNET.deref(),
@@ -1625,8 +1630,13 @@ fn recency_tests() {
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
-            .unwrap()
+        env.initialize_versioned_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &BOOT_CODE_POX_TESTNET,
+            None,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         // try to issue a far future stacking tx
@@ -1697,8 +1707,13 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
-            .unwrap()
+        env.initialize_versioned_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &BOOT_CODE_POX_TESTNET,
+            None,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         assert_eq!(
@@ -2269,8 +2284,9 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(
+        env.initialize_versioned_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
             None,
         )
