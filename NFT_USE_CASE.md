@@ -7,6 +7,8 @@ In this demo, you will learn how to:
 6. Withdraw the NFT back to the L1 chain, which has two steps.
 
 This guide will follow the list above, step by step.
+It is also possible to mint assets directly on the hyperchain, and withdraw them onto the L1. This bonus step is mentioned
+at the end of step 5. 
 
 ## Hyperchains Background
 A hyperchain is a network that is separate from the Stacks chain. A hyperchain can be thought of as a layer-2 (L2), 
@@ -55,18 +57,17 @@ cd nft-use-case/scripts
 To use the scripts in this demo, we need to install some NodeJS libraries. 
 Before running the following instructions, make sure you have [node](https://nodejs.org/en/) installed. 
 ```
-npm install @stacks/transactions
-npm install @stacks/network
+npm install
 ```
 
-Make the following change in the `Devnet.toml` file in the `nft-use-case` directory to enable the hyperchain:
+Make the following change in the `settings/Devnet.toml` file in the `nft-use-case` directory to enable the hyperchain:
 ```
 [devnet]
 ...
 enable_hyperchain_node = true
 ```
 
-Let's spin up a hyperchain node:
+Let's spin up a hyperchain node. 
 ```
 clarinet integrate
 ```
@@ -150,8 +151,8 @@ function is called by the principal `USER_ADDR`.
 node ./deposit_nft.js 3
 ```
 Verify that the transaction is acknowledged in the next few blocks of the L1 chain. 
-You also may want to verify that the asset was successfully deposited on the hyperchain by grepping for the deposit 
-transaction ID. 
+After the transaction is confirmed on the L1, you also may want to verify that the asset was successfully deposited 
+on the hyperchain by grepping for the deposit transaction ID. 
 ```
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "67cfd6220ed01c3aca3912c8f1ff55d374e5b3acadb3b995836ae913108e0514"
 ```
@@ -176,6 +177,9 @@ Look for something like the following line:
 Jul 19 13:04:43.177993 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 74949992488b2519e2d8408169f242c86a6cdacd927638bd4604b3b8d48ea187, event_type: success, payload: ContractCall
 ```
 
+For a bonus step, you can try minting an NFT on the hyperchain. This would require calling the `gift-nft` function in the 
+contract `simple-nft-l2`. You can tweak the `transfer_nft.js` file to make this call. 
+
 ## Step 6: Withdraw the NFT back to the L1 Chain
 ### Background on withdrawals
 Withdrawals from the hyperchain are a 2-step process. 
@@ -193,7 +197,8 @@ this function must be called by a hyperchain miner, but in an upcoming hyperchai
 this function. 
 
 ### Step 6a: Withdraw the NFT on the hyperchain 
-Perform the withdrawal on the layer 2 by calling `withdraw-nft-asset` in the `simple-nft-l2` contract. 
+Perform the withdrawal on the layer 2 by calling `withdraw-nft-asset` in the `simple-nft-l2` contract. This will be called 
+by the principal `ALT_USER_ADDR`.
 ```
 node ./withdraw_nft_l2.js 0 
 ```
