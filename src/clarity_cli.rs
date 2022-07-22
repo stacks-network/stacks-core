@@ -826,7 +826,12 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     DEFAULT_CLI_EPOCH,
                 );
                 vm_env
-                    .initialize_contract(contract_identifier, &contract_content, None)
+                    .initialize_versioned_contract(
+                        contract_identifier,
+                        ClarityVersion::Clarity2,
+                        &contract_content,
+                        None,
+                    )
                     .unwrap();
             }
             Err(_) => {
@@ -1520,8 +1525,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         Ok(analysis) => {
                             let result_and_cost =
                                 with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                                    vm_env.initialize_contract(
+                                    vm_env.initialize_versioned_contract(
                                         contract_identifier,
+                                        ClarityVersion::Clarity2,
                                         &contract_content,
                                         None,
                                     )
