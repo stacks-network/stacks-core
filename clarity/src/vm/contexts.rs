@@ -1077,7 +1077,6 @@ impl<'a, 'b> Environment<'a, 'b> {
 
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
-            debug!("Contract-call to {}.{} version {}", &contract_identifier, tx_name, &contract.contract_context.clarity_version);
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
