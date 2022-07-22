@@ -27,11 +27,13 @@ use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::execute_v2;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -53,17 +55,32 @@ pub mod contracts;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_type_checker(#[case] version: ClarityVersion) {}
-
-/// Backwards-compatibility shim for type_checker tests. Runs at Clarity2 version.
-pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    mem_run_analysis(exp, crate::vm::ClarityVersion::Clarity2)
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_type_checker(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
 }
 
+/// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
+pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    mem_run_analysis(
+        exp,
+        crate::vm::ClarityVersion::latest(),
+        StacksEpochId::latest(),
+    )
+}
+
+/// NOTE: runs at latest Clarity version
 fn type_check_helper(exp: &str) -> TypeResult {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+}
+
+fn type_check_helper_v1(exp: &str) -> TypeResult {
+    mem_run_analysis(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
+        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -72,6 +89,145 @@ fn buff_type(size: u32) -> TypeSignature {
 
 fn ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(StringType(ASCII(size.try_into().unwrap()))).into()
+}
+
+#[test]
+fn test_from_consensus_buff() {
+    let good = [
+        ("(from-consensus-buff int 0x00)", "(optional int)"),
+        (
+            "(from-consensus-buff { a: uint, b: principal } 0x00)",
+            "(optional (tuple (a uint) (b principal)))",
+        ),
+    ];
+
+    let bad = [
+        (
+            "(from-consensus-buff)",
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(from-consensus-buff 0x00 0x00 0x00)",
+            CheckErrors::IncorrectArgumentCount(2, 3),
+        ),
+        (
+            "(from-consensus-buff 0x00 0x00)",
+            CheckErrors::InvalidTypeDescription,
+        ),
+        (
+            "(from-consensus-buff int u6)",
+            CheckErrors::TypeError(TypeSignature::max_buffer(), TypeSignature::UIntType),
+        ),
+        (
+            "(from-consensus-buff (buff 1048576) 0x00)",
+            CheckErrors::ValueTooLarge,
+        ),
+    ];
+
+    for (good_test, expected) in good.iter() {
+        let type_result = type_check_helper(good_test).unwrap();
+        assert_eq!(expected, &type_result.to_string());
+
+        assert!(
+            type_result.admits(&execute_v2(good_test).unwrap().unwrap()),
+            "The analyzed type must admit the evaluated type"
+        );
+    }
+
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_to_consensus_buff() {
+    let good = [
+        (
+            "(to-consensus-buff (if true (some u1) (some u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok u1) (ok u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok 1) (err u2)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok 1) (err true)))",
+            "(optional (buff 18))",
+        ),
+        (
+            "(to-consensus-buff (if true (ok false) (err true)))",
+            "(optional (buff 2))",
+        ),
+        (
+            "(to-consensus-buff (if true (err u1) (err u2)))",
+            "(optional (buff 18))",
+        ),
+        ("(to-consensus-buff none)", "(optional (buff 1))"),
+        ("(to-consensus-buff 0x00)", "(optional (buff 6))"),
+        ("(to-consensus-buff \"a\")", "(optional (buff 6))"),
+        ("(to-consensus-buff u\"ab\")", "(optional (buff 13))"),
+        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", "(optional (buff 151))"),
+        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)", "(optional (buff 151))"),
+        ("(to-consensus-buff true)", "(optional (buff 1))"),
+        ("(to-consensus-buff -1)", "(optional (buff 17))"),
+        ("(to-consensus-buff u1)", "(optional (buff 17))"),
+        ("(to-consensus-buff (list 1 2 3 4))", "(optional (buff 73))"),
+        (
+            "(to-consensus-buff { apple: u1, orange: 2, blue: true })",
+            "(optional (buff 58))",
+        ),
+        (
+            "(define-private (my-func (x (buff 1048566)))
+           (to-consensus-buff x))
+          (my-func 0x001122334455)
+         ",
+            "(optional (buff 1048571))",
+        ),
+    ];
+
+    let bad = [
+        (
+            "(to-consensus-buff)",
+            CheckErrors::IncorrectArgumentCount(1, 0),
+        ),
+        (
+            "(to-consensus-buff 0x00 0x00)",
+            CheckErrors::IncorrectArgumentCount(1, 2),
+        ),
+        (
+            "(define-private (my-func (x (buff 1048576)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+        (
+            "(define-private (my-func (x (buff 1048570)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+        (
+            "(define-private (my-func (x (buff 1048567)))
+           (to-consensus-buff x))",
+            CheckErrors::ValueTooLarge,
+        ),
+    ];
+
+    for (good_test, expected) in good.iter() {
+        let type_result = type_check_helper(good_test).unwrap();
+        assert_eq!(expected, &type_result.to_string());
+
+        assert!(
+            type_result.admits(&execute_v2(good_test).unwrap().unwrap()),
+            "The analyzed type must admit the evaluated type"
+        );
+    }
+
+    for (bad_test, expected) in bad.iter() {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
 }
 
 #[test]
@@ -84,6 +240,13 @@ fn test_get_block_info() {
         "(get-block-info? burnchain-header-hash u1)",
         "(get-block-info? miner-address u1)",
     ];
+
+    let good_v210 = [
+        "(get-block-info? miner-spend-winner u1)",
+        "(get-block-info? miner-spend-total u1)",
+        "(get-block-info? block-reward u1)",
+    ];
+
     let expected = [
         "(optional uint)",
         "(optional uint)",
@@ -92,6 +255,8 @@ fn test_get_block_info() {
         "(optional (buff 32))",
         "(optional principal)",
     ];
+
+    let expected_v210 = ["(optional uint)", "(optional uint)", "(optional uint)"];
 
     let bad = [
         "(get-block-info? none u1)",
@@ -112,9 +277,24 @@ fn test_get_block_info() {
             &format!("{}", type_check_helper(&good_test).unwrap())
         );
     }
+    for (good_test_v210, expected_v210) in good_v210.iter().zip(expected_v210.iter()) {
+        assert_eq!(
+            expected_v210,
+            &format!("{}", type_check_helper(&good_test_v210).unwrap())
+        );
+    }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+
+    for good_test in good_v210.iter() {
+        if let CheckErrors::NoSuchBlockInfoProperty(_) =
+            type_check_helper_v1(&good_test).unwrap_err().err
+        {
+        } else {
+            panic!("Failed to get a typecheck error when using a v2 property in a v1 context");
+        }
     }
 }
 
@@ -154,7 +334,7 @@ fn test_get_burn_block_info() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_define_trait(#[case] version: ClarityVersion) {
+fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(define-trait trait-1 ((get-1 () (response uint (buff 32)))))",
@@ -192,13 +372,13 @@ fn test_define_trait(#[case] version: ClarityVersion) {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_use_trait(#[case] version: ClarityVersion) {
+fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = [
         "(use-trait trait-1 ((get-1 (uint) (response uint uint))))",
         "(use-trait trait-1 ((get-1 uint)))",
@@ -214,13 +394,13 @@ fn test_use_trait(#[case] version: ClarityVersion) {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_impl_trait(#[case] version: ClarityVersion) {
+fn test_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
         ParseErrors::ImplTraitBadSignature,
@@ -229,7 +409,7 @@ fn test_impl_trait(#[case] version: ClarityVersion) {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -344,7 +524,7 @@ fn test_tx_sponsor() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_destructuring_opts(#[case] version: ClarityVersion) {
+fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(unwrap! (some 1) 2)",
         "(unwrap-err! (err 1) 2)",
@@ -397,6 +577,7 @@ fn test_destructuring_opts(#[case] version: ClarityVersion) {
             CheckErrors::ExpectedResponseType(TypeSignature::from_string(
                 "(optional int)",
                 version,
+                epoch,
             )),
         ),
         (
@@ -465,7 +646,7 @@ fn test_destructuring_opts(#[case] version: ClarityVersion) {
         ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from_string("int", version)),
+            CheckErrors::BadMatchInput(TypeSignature::from_string("int", version, epoch)),
         ),
         (
             "(default-to 3 5)",
@@ -557,7 +738,7 @@ fn test_at_block() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_trait_reference_unknown(#[case] version: ClarityVersion) {
+fn test_trait_reference_unknown(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = [(
         "(+ 1 <kvstore>)",
         ParseErrors::TraitReferenceUnknown("kvstore".to_string()),
@@ -565,7 +746,7 @@ fn test_trait_reference_unknown(#[case] version: ClarityVersion) {
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter() {
-        let res = build_ast(&contract_identifier, bad_test, &mut (), version).unwrap_err();
+        let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(expected, &res.err);
     }
 }
@@ -841,7 +1022,7 @@ fn test_element_at() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_eqs(#[case] version: ClarityVersion) {
+fn test_eqs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(is-eq (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
         "(is-eq (tuple (good 1) (bad 2)) (tuple (good 2) (bad 3)))",
@@ -860,8 +1041,8 @@ fn test_eqs(#[case] version: ClarityVersion) {
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
         CheckErrors::TypeError(
-            TypeSignature::from_string("(optional bool)", version),
-            TypeSignature::from_string("(optional int)", version),
+            TypeSignature::from_string("(optional bool)", version, epoch),
+            TypeSignature::from_string("(optional int)", version, epoch),
         ),
     ];
 
@@ -1645,7 +1826,7 @@ fn test_string_to_ints() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_response_inference(#[case] version: ClarityVersion) {
+fn test_response_inference(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-private (foo (x int)) (err x))
                  (define-private (bar (x bool)) (ok x))
@@ -1681,7 +1862,7 @@ fn test_response_inference(#[case] version: ClarityVersion) {
 
     let bad_expected = [
         CheckErrors::TypeError(
-            TypeSignature::from_string("(response bool int)", version),
+            TypeSignature::from_string("(response bool int)", version, epoch),
             BoolType,
         ),
         CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
@@ -1775,7 +1956,7 @@ fn test_factorial() {
 }
 
 #[apply(test_clarity_versions_type_checker)]
-fn test_options(#[case] version: ClarityVersion) {
+fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let contract = "
          (define-private (foo (id (optional int)))
            (+ 1 (default-to 1 id)))
@@ -1804,8 +1985,8 @@ fn test_options(#[case] version: ClarityVersion) {
 
     assert!(match mem_type_check(contract).unwrap_err().err {
         CheckErrors::TypeError(t1, t2) => {
-            t1 == TypeSignature::from_string("(optional bool)", version)
-                && t2 == TypeSignature::from_string("(optional int)", version)
+            t1 == TypeSignature::from_string("(optional bool)", version, epoch)
+                && t2 == TypeSignature::from_string("(optional int)", version, epoch)
         }
         _ => false,
     });

@@ -1459,21 +1459,37 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     description: "The `get-block-info?` function fetches data for a block of the given *Stacks* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `block-height` does
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
-are `time`, `header-hash`, `burnchain-header-hash`, `id-header-hash`, `miner-address`, and `vrf-seed`.
+are as follows:
 
-The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds
-which roughly corresponds to when the block was mined. **Warning**: this does not increase monotonically with each block
+`burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
+Stacks block at the given Stacks chain height.
+
+`id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
+from the block hash and the history of accepted PoX operations.  This is also the block hash value you would pass into `(at-block)`.
+
+`header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
+not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
+
+`miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
+be the same `principal` that received the block reward, since Stacks 2.1 supports coinbase transactions that pay the reward to a contract address.  This is merely
+the address of the `principal` that produced the block.
+
+`time`: This property returns a `uint` value of the block header time field. This is a Unix epoch timestamp in seconds
+which roughly corresponds to when the block was mined. **Note**: this does not increase monotonically with each block
 and block times are accurate only to within two hours. See [BIP113](https://github.com/bitcoin/bips/blob/master/bip-0113.mediawiki) for more information.
 
-The `header-hash`, `burnchain-header-hash`, `id-header-hash`, and `vrf-seed` properties return a 32-byte buffer.
+New in Stacks 2.1:
 
-`header-hash` returns the header hash of a Stacks node, given a Stacks chain height.
+`block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
+the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
+the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may 
+be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
+published two or more microblock stream forks.
 
-`burnchain-header-hash` returns header hash of the burnchain (Bitcoin) node corresponding to the given Stacks chain height.
+`miner-spend-total`: This property returns a `uint` value for the total number of burnchain tokens (i.e. satoshis) spent by all miners trying to win this block.
 
-The `miner-address` property returns a `principal` corresponding to the miner of the given block.
-
-The `id-header-hash` is the block identifier value that must be used as input to the `at-block` function.
+`miner-spend-winner`: This property returns a `uint` value for the number of burnchain tokens (i.e. satoshis) spent by the winning miner for this Stacks block.  Note that
+this value is less than or equal to the value for `miner-spend-total` at the same block height.
 ",
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
@@ -1978,6 +1994,55 @@ one of the following error codes:
 "
 };
 
+const TO_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
+    input_type: "any",
+    output_type: "(optional buff)",
+    signature: "(to-consensus-buff value)",
+    description: "`to-consensus-buff` is a special function that will serialize any
+Clarity value into a buffer, using the SIP-005 serialization of the
+Clarity value. Not all values can be serialized: some value's
+consensus serialization is too large to fit in a Clarity buffer (this
+is because of the type prefix in the consensus serialization).
+
+If the value cannot fit as serialized into the maximum buffer size,
+this returns `none`, otherwise, it will be
+`(some consensus-serialized-buffer)`. During type checking, the
+analyzed type of the result of this method will be the maximum possible
+consensus buffer length based on the inferred type of the supplied value.
+",
+    example: r#"
+(to-consensus-buff 1) ;; Returns (some 0x0000000000000000000000000000000001)
+(to-consensus-buff u1) ;; Returns (some 0x0100000000000000000000000000000001)
+(to-consensus-buff true) ;; Returns (some 0x03)
+(to-consensus-buff false) ;; Returns (some 0x04)
+(to-consensus-buff none) ;; Returns (some 0x09)
+(to-consensus-buff 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
+(to-consensus-buff { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
+"#,
+};
+
+const FROM_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
+    input_type: "type-signature(t), buff",
+    output_type: "(optional t)",
+    signature: "(from-consensus-buff type-signature buffer)",
+    description: "`from-consensus-buff` is a special function that will deserialize a
+buffer into a Clarity value, using the SIP-005 serialization of the
+Clarity value. The type that `from-consensus-buff` tries to deserialize
+into is provided by the first parameter to the function. If it fails
+to deserialize the type, the method returns `none`.
+",
+    example: r#"
+(from-consensus-buff int 0x0000000000000000000000000000000001) ;; Returns (some 1)
+(from-consensus-buff uint 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
+(from-consensus-buff bool 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff bool 0x03) ;; Returns (some true)
+(from-consensus-buff bool 0x04) ;; Returns (some false)
+(from-consensus-buff principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(from-consensus-buff { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
+"#,
+};
+
 fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2079,6 +2144,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         StxTransfer => make_for_special(&STX_TRANSFER, name),
         StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, name),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
+        ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, name),
+        FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, name),
     }
 }
 
@@ -2244,6 +2311,20 @@ mod test {
         fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
             None
         }
+        fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+            Some(12345)
+        }
+
+        fn get_burnchain_tokens_spent_for_winning_block(
+            &self,
+            id_bhh: &StacksBlockId,
+        ) -> Option<u128> {
+            Some(2345)
+        }
+
+        fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+            Some(12000)
+        }
     }
 
     struct DocBurnStateDB {}
@@ -2333,6 +2414,7 @@ mod test {
                 &whole_contract,
                 &mut (),
                 ClarityVersion::latest(),
+                StacksEpochId::latest(),
             )
             .unwrap()
             .expressions;
@@ -2376,6 +2458,7 @@ mod test {
                             segment,
                             &mut (),
                             ClarityVersion::latest(),
+                            StacksEpochId::latest(),
                         )
                         .unwrap()
                         .expressions;
@@ -2432,6 +2515,7 @@ mod test {
                         &token_contract_content,
                         &mut (),
                         ClarityVersion::latest(),
+                        StacksEpochId::latest(),
                     )
                     .unwrap()
                     .expressions;
@@ -2453,6 +2537,7 @@ mod test {
                         super::DEFINE_TRAIT_API.example,
                         &mut (),
                         ClarityVersion::latest(),
+                        StacksEpochId::latest(),
                     )
                     .unwrap()
                     .expressions;

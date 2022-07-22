@@ -3,8 +3,10 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
-use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
@@ -67,6 +69,18 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.0, id_bhh).map(|x| x.address)
     }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.0, id_bhh).map(|x| x.burnchain_sortition_burn.into())
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.0, id_bhh).map(|x| x.burnchain_commit_burn.into())
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_matured_reward(self.0, id_bhh).map(|x| x.total().into())
+    }
 }
 
 impl<'a> HeadersDB for ChainstateTx<'a> {
@@ -103,6 +117,18 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
 
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.deref().deref(), id_bhh).map(|x| x.address)
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.deref(), id_bhh).map(|x| x.burnchain_sortition_burn.into())
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.deref(), id_bhh).map(|x| x.burnchain_commit_burn.into())
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_matured_reward(self.deref(), id_bhh).map(|x| x.total().into())
     }
 }
 
@@ -141,6 +167,18 @@ impl HeadersDB for MARF<StacksBlockId> {
     fn get_miner_address(&self, id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         get_miner_info(self.sqlite_conn(), id_bhh).map(|x| x.address)
     }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.sqlite_conn(), id_bhh).map(|x| x.burnchain_sortition_burn.into())
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_miner_info(self.sqlite_conn(), id_bhh).map(|x| x.burnchain_commit_burn.into())
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        get_matured_reward(self.sqlite_conn(), id_bhh).map(|x| x.total().into())
+    }
 }
 
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
@@ -161,6 +199,27 @@ fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentS
     )
     .optional()
     .expect("Unexpected SQL failure querying payment table")
+}
+
+fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
+    let parent_id_bhh = conn
+        .query_row(
+            "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?",
+            [child_id_bhh].iter(),
+            |x| {
+                Ok(StacksBlockId::from_column(x, "parent_block_id")
+                    .expect("Bad parent_block_id in database"))
+            },
+        )
+        .optional()
+        .expect("Unexpected SQL failure querying parent block ID");
+
+    if let Some(parent_id_bhh) = parent_id_bhh {
+        StacksChainState::get_matured_miner_payment(conn, &parent_id_bhh, child_id_bhh)
+            .expect("Unexpected SQL failure querying miner reward table")
+    } else {
+        None
+    }
 }
 
 impl BurnStateDB for SortitionHandleTx<'_> {

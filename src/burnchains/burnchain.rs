@@ -117,7 +117,6 @@ impl BurnchainStateTransition {
         parent_snapshot: &BlockSnapshot,
         block_ops: &Vec<BlockstackOperationType>,
         missed_commits: &Vec<MissedBlockCommit>,
-        sunset_end: u64,
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
@@ -169,9 +168,7 @@ impl BurnchainStateTransition {
         let mut windowed_block_commits = vec![block_commits];
         let mut windowed_missed_commits = vec![];
 
-        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
-            && parent_snapshot.block_height + 1 <= burnchain.pox_constants.sunset_end
-        {
+        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1) {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
             //   discovered in this block.
@@ -214,7 +211,7 @@ impl BurnchainStateTransition {
         } else {
             // PoX reward-phase is not active
             debug!(
-                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
+                "Block {} is in a prepare phase, so no windowing will take place",
                 parent_snapshot.block_height + 1
             );
 
@@ -226,18 +223,14 @@ impl BurnchainStateTransition {
         windowed_block_commits.reverse();
         windowed_missed_commits.reverse();
 
-        // figure out if the PoX sunset finished during the window,
-        // and/or which sortitions must be PoB due to them falling in a prepare phase.
+        // figure out which sortitions must be PoB due to them falling in a prepare phase.
         let window_end_height = parent_snapshot.block_height + 1;
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
         let mut burn_blocks = vec![false; windowed_block_commits.len()];
 
-        // set burn_blocks flags to accomodate prepare phases and PoX sunset
+        // set burn_blocks flags to accomodate prepare phases
         for (i, b) in burn_blocks.iter_mut().enumerate() {
-            if sunset_end <= window_start_height + (i as u64) {
-                // past PoX sunset, so must burn
-                *b = true;
-            } else if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
+            if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
                 // must burn
                 *b = true;
             } else {
@@ -464,40 +457,6 @@ impl Burnchain {
         self.network_id == NETWORK_ID_MAINNET
     }
 
-    /// the expected sunset burn is:
-    ///   total_commit * (progress through sunset phase) / (sunset phase duration)
-    pub fn expected_sunset_burn(&self, burn_height: u64, total_commit: u64) -> u64 {
-        if burn_height < self.pox_constants.sunset_start
-            || burn_height >= self.pox_constants.sunset_end
-        {
-            return 0;
-        }
-
-        // no sunset burn needed in prepare phase -- it's already getting burnt
-        if self.is_in_prepare_phase(burn_height) {
-            return 0;
-        }
-
-        let reward_cycle_height = self.reward_cycle_to_block_height(
-            self.block_height_to_reward_cycle(burn_height)
-                .expect("BUG: Sunset start is less than first_block_height"),
-        );
-
-        if reward_cycle_height <= self.pox_constants.sunset_start {
-            return 0;
-        }
-
-        let sunset_duration =
-            (self.pox_constants.sunset_end - self.pox_constants.sunset_start) as u128;
-        let sunset_progress = (reward_cycle_height - self.pox_constants.sunset_start) as u128;
-
-        // use u128 to avoid any possibilities of overflowing in the calculation here.
-        let expected_u128 = (total_commit as u128) * (sunset_progress) / sunset_duration;
-        u64::try_from(expected_u128)
-            // should never be possible, because sunset_burn is <= total_commit, which is a u64
-            .expect("Overflowed u64 in calculating expected sunset_burn")
-    }
-
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
         self.pox_constants
             .is_reward_cycle_start(self.first_block_height, burn_height)
@@ -713,20 +672,18 @@ impl Burnchain {
                     }
                 }
             }
-            x if x == Opcodes::PreStx as u8 => {
-                match PreStxOp::from_tx(block_header, burn_tx, burnchain.pox_constants.sunset_end) {
-                    Ok(op) => Some(BlockstackOperationType::PreStx(op)),
-                    Err(e) => {
-                        warn!(
-                            "Failed to parse pre stack stx tx";
-                            "txid" => %burn_tx.txid(),
-                            "data" => %to_hex(&burn_tx.data()),
-                            "error" => ?e,
-                        );
-                        None
-                    }
+            x if x == Opcodes::PreStx as u8 => match PreStxOp::from_tx(block_header, burn_tx) {
+                Ok(op) => Some(BlockstackOperationType::PreStx(op)),
+                Err(e) => {
+                    warn!(
+                        "Failed to parse pre stack stx tx";
+                        "txid" => %burn_tx.txid(),
+                        "data" => %to_hex(&burn_tx.data()),
+                        "error" => ?e,
+                    );
+                    None
                 }
-            }
+            },
             x if x == Opcodes::TransferStx as u8 => {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
@@ -764,12 +721,7 @@ impl Burnchain {
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
-                    match StackStxOp::from_tx(
-                        block_header,
-                        burn_tx,
-                        sender,
-                        burnchain.pox_constants.sunset_end,
-                    ) {
+                    match StackStxOp::from_tx(block_header, burn_tx, sender) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
                         Err(e) => {
                             warn!(

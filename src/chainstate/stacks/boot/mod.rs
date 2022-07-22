@@ -470,8 +470,8 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::miner::test::*;
     use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::Error as chainstate_error;
     use crate::chainstate::stacks::*;
     use crate::core::*;
@@ -517,7 +517,7 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::max_value());
+        let test_pox_constants = PoxConstants::new(501, 1, 1, 1, 5, u32::max_value());
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;

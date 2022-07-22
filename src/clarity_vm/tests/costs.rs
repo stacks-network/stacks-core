@@ -156,6 +156,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxGetAccount => "(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         Slice => "(slice str-foo u1 u1)",
+        ToConsensusBuff => "(to-consensus-buff u1)",
+        FromConsensusBuff => "(from-consensus-buff bool 0x03)",
     }
 }
 

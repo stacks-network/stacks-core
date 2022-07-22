@@ -540,6 +540,13 @@ fn inner_sql_pragma(
     conn.pragma_update(None, pragma_name, pragma_value)
 }
 
+/// Run a VACUUM command
+pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
+    conn.execute("VACUUM", NO_PARAMS)
+        .map_err(Error::SqliteError)
+        .and_then(|_| Ok(()))
+}
+
 /// Returns true if the database table `table_name` exists in the active
 ///  database of the provided SQLite connection.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {

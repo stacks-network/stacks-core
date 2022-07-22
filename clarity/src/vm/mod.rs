@@ -438,7 +438,8 @@ pub fn execute_with_parameters(
         epoch,
     );
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut (), clarity_version)?.expressions;
+        let parsed =
+            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }

@@ -74,8 +74,6 @@ fn test_store_and_fetch() {
 
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = PoxConstants::test_default();
-    burnchain.pox_constants.sunset_start = 999;
-    burnchain.pox_constants.sunset_end = 1000;
 
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -189,8 +187,6 @@ fn test_classify_stack_stx() {
 
     let mut burnchain = Burnchain::regtest(":memory:");
     burnchain.pox_constants = PoxConstants::test_default();
-    burnchain.pox_constants.sunset_start = 999;
-    burnchain.pox_constants.sunset_end = 1000;
 
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -440,7 +436,6 @@ pub fn make_simple_block_commit(
 ) -> LeaderBlockCommitOp {
     let block_height = burn_header.block_height;
     let mut new_op = LeaderBlockCommitOp {
-        sunset_burn: 0,
         block_header_hash: block_hash,
         new_seed: VRFSeed([1u8; 32]),
         parent_block_ptr: 0,
@@ -500,7 +495,7 @@ fn test_get_commit_at() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -596,7 +591,7 @@ fn test_get_set_check_anchor_block() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -680,7 +675,7 @@ fn test_update_block_descendancy() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, 99, 100, u32::max_value());
+    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;

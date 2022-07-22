@@ -47,10 +47,11 @@ use self::type_checker::TypeChecker;
 pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
+    epoch: StacksEpochId,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use crate::vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = parse(&contract_identifier, snippet, version).unwrap();
+    let mut contract = parse(&contract_identifier, snippet, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();

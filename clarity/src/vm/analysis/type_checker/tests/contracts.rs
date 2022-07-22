@@ -29,12 +29,14 @@ use crate::vm::{
     costs::LimitedCostTracker,
     ClarityVersion, SymbolicExpression,
 };
+use stacks_common::types::StacksEpochId;
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_contracts(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 /// backwards-compatibility shim
 pub fn type_check(
@@ -406,12 +408,12 @@ fn test_names_tokens_contracts_interface() {
 }
 
 #[apply(test_clarity_versions_contracts)]
-fn test_names_tokens_contracts(#[case] version: ClarityVersion) {
+fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version).unwrap();
-    let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES, version).unwrap();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version, epoch).unwrap();
+    let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -423,7 +425,7 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion) {
 }
 
 #[apply(test_clarity_versions_contracts)]
-fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion) {
+fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price uint))
            (if (is-ok (contract-call? .tokens token-transfer
@@ -443,8 +445,8 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion) {
     let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
     let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version).unwrap();
-    let mut names_contract = parse(&names_contract_id, &names_contract, version).unwrap();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version, epoch).unwrap();
+    let mut names_contract = parse(&names_contract_id, &names_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
@@ -518,7 +520,7 @@ fn test_bad_map_usage() {
 }
 
 #[apply(test_clarity_versions_contracts)]
-fn test_same_function_name(#[case] version: ClarityVersion) {
+fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let ca_id = QualifiedContractIdentifier::local("contract-a").unwrap();
     let cb_id = QualifiedContractIdentifier::local("contract-b").unwrap();
 
@@ -527,8 +529,8 @@ fn test_same_function_name(#[case] version: ClarityVersion) {
     let contract_a = "(define-read-only (foo-function (a int))
            (contract-call? .contract-b foo-function a))";
 
-    let mut ca = parse(&ca_id, contract_a, version).unwrap();
-    let mut cb = parse(&cb_id, contract_b, version).unwrap();
+    let mut ca = parse(&ca_id, contract_a, version, epoch).unwrap();
+    let mut cb = parse(&cb_id, contract_b, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 

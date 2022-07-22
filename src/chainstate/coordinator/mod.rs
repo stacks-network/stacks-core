@@ -472,12 +472,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
     if burnchain.is_reward_cycle_start(burn_height) {
-        if burn_height >= burnchain.pox_constants.sunset_end {
-            return Ok(Some(RewardCycleInfo {
-                anchor_status: PoxAnchorBlockStatus::NotSelected,
-            }));
-        }
-
         debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,

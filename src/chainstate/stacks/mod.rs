@@ -32,6 +32,7 @@ use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::MinerRewardInfo;
 use crate::chainstate::stacks::db::StacksHeaderInfo;
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
@@ -71,6 +72,9 @@ pub mod events;
 pub mod index;
 pub mod miner;
 pub mod transaction;
+
+#[cfg(test)]
+pub mod tests;
 
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
@@ -569,7 +573,6 @@ impl_array_newtype!(CoinbasePayload, u8, 32);
 impl_array_hexstring_fmt!(CoinbasePayload);
 impl_byte_array_newtype!(CoinbasePayload, u8, 32);
 impl_byte_array_serde!(CoinbasePayload);
-pub const CONIBASE_PAYLOAD_ENCODED_SIZE: u32 = 32;
 
 pub struct TokenTransferMemo(pub [u8; 34]); // same length as it is in stacks v1
 impl_byte_array_message_codec!(TokenTransferMemo, 34);
@@ -584,7 +587,7 @@ pub enum TransactionPayload {
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload),
+    Coinbase(CoinbasePayload, Option<PrincipalData>),
 }
 
 impl TransactionPayload {
@@ -607,6 +610,7 @@ pub enum TransactionPayloadID {
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
+    CoinbaseToAltRecipient = 5,
 }
 
 /// Encoding of an asset type identifier
@@ -853,7 +857,7 @@ pub struct StacksBlockBuilder {
     bytes_so_far: u64,
     prev_microblock_header: StacksMicroblockHeader,
     miner_privkey: StacksPrivateKey,
-    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward)>,
+    miner_payouts: Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
     parent_consensus_hash: ConsensusHash,
     parent_header_hash: BlockHeaderHash,
     parent_microblock_hash: Option<BlockHeaderHash>,
@@ -1155,7 +1159,19 @@ pub mod test {
                 name: ContractName::try_from(hello_contract_name).unwrap(),
                 code_body: StacksString::from_str(hello_contract_body).unwrap(),
             }),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
+            ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
         ];
 
@@ -1166,7 +1182,7 @@ pub mod test {
                 for tx_payload in tx_payloads.iter() {
                     match tx_payload {
                         // poison microblock and coinbase must be on-chain
-                        TransactionPayload::Coinbase(_) => {
+                        TransactionPayload::Coinbase(..) => {
                             if *anchor_mode != TransactionAnchorMode::OnChainOnly {
                                 continue;
                             }
@@ -1214,7 +1230,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1232,7 +1248,7 @@ pub mod test {
 
         for tx in all_txs.drain(..) {
             match tx.payload {
-                TransactionPayload::Coinbase(_) => {
+                TransactionPayload::Coinbase(..) => {
                     continue;
                 }
                 _ => {}

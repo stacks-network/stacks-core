@@ -116,7 +116,7 @@ impl<'a> SortitionHandleTx<'a> {
         let this_block_hash = block_header.block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits, burnchain.pox_constants.sunset_end)
+        let state_transition = BurnchainStateTransition::from_block_ops(self, burnchain, parent_snapshot, this_block_ops, missed_commits)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash, e);
                 e
@@ -412,7 +412,6 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
-            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed::from_hex(
                 "3333333333333333333333333333333333333333333333333333333333333333",

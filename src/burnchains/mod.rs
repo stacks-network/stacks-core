@@ -305,10 +305,6 @@ pub struct PoxConstants {
     /// percentage of liquid STX that must participate for PoX
     ///  to occur
     pub pox_participation_threshold_pct: u64,
-    /// last+1 block height of sunset phase
-    pub sunset_end: u64,
-    /// first block height of sunset phase
-    pub sunset_start: u64,
     /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
     /// also defines the burn height at which PoX reward sets are calculated using
     /// PoX v2 rather than v1
@@ -323,13 +319,10 @@ impl PoxConstants {
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
         pox_participation_threshold_pct: u64,
-        sunset_start: u64,
-        sunset_end: u64,
         v1_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
-        assert!(sunset_start <= sunset_end);
 
         PoxConstants {
             reward_cycle_length,
@@ -337,8 +330,6 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
-            sunset_start,
-            sunset_end,
             v1_unlock_height,
             _shadow: PhantomData,
         }
@@ -346,7 +337,7 @@ impl PoxConstants {
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
+        PoxConstants::new(10, 5, 3, 25, 5, u32::max_value())
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
@@ -379,8 +370,6 @@ impl PoxConstants {
             80,
             25,
             5,
-            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
         )
     }
@@ -392,23 +381,12 @@ impl PoxConstants {
             40,
             12,
             2,
-            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(
-            5,
-            1,
-            1,
-            3333333333333333,
-            1,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
-            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
-            1_000_000,
-        )
+        PoxConstants::new(5, 1, 1, 3333333333333333, 1, 1_000_000)
     }
 
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {

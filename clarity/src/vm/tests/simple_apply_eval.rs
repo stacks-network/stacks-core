@@ -48,9 +48,14 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 #[template]
 #[rstest]
-#[case(ClarityVersion::Clarity1)]
-#[case(ClarityVersion::Clarity2)]
-fn test_clarity_versions_simple_apply_eval(#[case] version: ClarityVersion) {}
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+fn test_clarity_versions_simple_apply_eval(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+}
 
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::StacksAddressExtensions;
@@ -71,7 +76,7 @@ fn test_doubly_defined_persisted_vars() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_let(#[case] version: ClarityVersion) {
+fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     /*
       test program:
       (let ((x 1) (y 2))
@@ -87,7 +92,7 @@ fn test_simple_let(#[case] version: ClarityVersion) {
                              (+ z y))
                         x))";
     let contract_id = QualifiedContractIdentifier::transient();
-    if let Ok(parsed_program) = parse(&contract_id, &program, version) {
+    if let Ok(parsed_program) = parse(&contract_id, &program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db());
@@ -209,6 +214,206 @@ fn test_keccak256() {
         .iter()
         .zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
+}
+
+#[test]
+/// This test serializes two different values which do fit in
+///  the Clarity maximum value size, but whose serializations
+///  do not. These tests would _not_ pass typechecking: in fact,
+///  the code comes from `type_checker::tests::test_to_consensus_buff`
+///  failure cases.
+fn test_to_consensus_buff_too_big() {
+    let buff_setup = "
+     ;; Make a buffer with repeated concatenation.
+     (define-private (make-buff-10)
+        0x11223344556677889900)
+     (define-private (octo-buff (x (buff 100000)))
+        (concat (concat (concat x x) (concat x x))
+                (concat (concat x x) (concat x x))))
+     (define-private (make-buff-80)
+        (unwrap-panic (as-max-len? (octo-buff (make-buff-10)) u80)))
+     (define-private (make-buff-640)
+        (unwrap-panic (as-max-len? (octo-buff (make-buff-80)) u640)))
+     (define-private (make-buff-5120)
+        (unwrap-panic (as-max-len? (octo-buff (make-buff-640)) u5120)))
+     (define-private (make-buff-40960)
+        (unwrap-panic (as-max-len? (octo-buff (make-buff-5120)) u40960)))
+     (define-private (make-buff-327680)
+        (unwrap-panic (as-max-len? (octo-buff (make-buff-40960)) u327680)))
+
+     (define-private (make-buff-24567)
+        (let ((x (make-buff-5120))
+              (y (make-buff-640))
+              (z (make-buff-80))
+              (a 0x11223344556677))
+          ;; 4x + 6y + 3z + a = 24567
+          (concat
+            (concat
+             ;; 4x
+             (concat (concat x x) (concat x x))
+             ;; 6y
+             (concat (concat (concat y y) (concat y y)) (concat y y)))
+            ;; 3z + a
+            (concat (concat z z) (concat z a)))))
+
+     ;; (3 * 327680) + 40960 + 24567 = 1048567
+     (define-private (make-buff-1048567)
+        (let ((x (make-buff-327680))
+              (y (make-buff-40960))
+              (z (make-buff-24567)))
+         (concat (concat (concat x x) (concat x y)) z)))
+
+     (define-private (make-buff-1048570)
+         (concat (make-buff-1048567) 0x112233))
+    ";
+
+    // this program prints the length of the
+    // constructed 1048570 buffer and then executes
+    // to-consensus-buff on it. if the buffer wasn't the
+    // expect length, just return (some buffer), which will
+    // cause the test assertion to fail.
+    let program_check_1048570 = format!(
+        "{}
+     (let ((a (make-buff-1048570)))
+        (if (is-eq (len a) u1048570)
+            (to-consensus-buff a)
+            (some 0x00)))
+    ",
+        buff_setup
+    );
+
+    let result = vm_execute_v2(&program_check_1048570)
+        .expect("Should execute")
+        .expect("Should have return value");
+
+    assert!(result.expect_optional().is_none());
+
+    // this program prints the length of the
+    // constructed 1048567 buffer and then executes
+    // to-consensus-buff on it. if the buffer wasn't the
+    // expect length, just return (some buffer), which will
+    // cause the test assertion to fail.
+    let program_check_1048567 = format!(
+        "{}
+     (let ((a (make-buff-1048567)))
+        (if (is-eq (len a) u1048567)
+            (to-consensus-buff a)
+            (some 0x00)))
+    ",
+        buff_setup
+    );
+
+    let result = vm_execute_v2(&program_check_1048567)
+        .expect("Should execute")
+        .expect("Should have return value");
+
+    assert!(result.expect_optional().is_none());
+}
+
+#[test]
+fn test_from_consensus_buff_type_checks() {
+    let vectors = [
+        (
+            "(from-consensus-buff uint 0x10 0x00)",
+            "Unchecked(IncorrectArgumentCount(2, 3))",
+        ),
+        (
+            "(from-consensus-buff uint 1)",
+            "Unchecked(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
+        ),
+        (
+            "(from-consensus-buff 2 0x10)",
+            "Unchecked(InvalidTypeDescription)",
+        ),
+    ];
+
+    for (input, expected) in vectors.iter() {
+        let result = vm_execute_v2(input).expect_err("Should raise an error");
+        assert_eq!(&result.to_string(), expected);
+    }
+}
+
+#[test]
+/// This test tries a bunch of buffers which either
+///  do not parse, or parse to the incorrect type
+fn test_from_consensus_buff_missed_expectations() {
+    let vectors = [
+        ("0x0000000000000000000000000000000001", "uint"),
+        ("0x00ffffffffffffffffffffffffffffffff", "uint"),
+        ("0x0100000000000000000000000000000001", "int"),
+        ("0x010000000000000000000000000000000101", "uint"),
+        ("0x0200000004deadbeef", "(buff 2)"),
+        ("0x0200000004deadbeef", "(buff 3)"),
+        ("0x0200000004deadbeef", "(string-ascii 8)"),
+        ("0x03", "uint"),
+        ("0x04", "(optional int)"),
+        ("0x0700ffffffffffffffffffffffffffffffff", "(response uint int)"), 
+        ("0x0800ffffffffffffffffffffffffffffffff", "(response int uint)"),
+        ("0x09", "(response int int)"),
+        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+         "(list 3 int)"),
+        ("0x0c000000020362617a0906666f6f62617203", "{ bat: (optional int), foobar: bool }"),
+        ("0xff", "int"),
+    ];
+
+    for (buff_repr, type_repr) in vectors.iter() {
+        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        eprintln!("{}", program);
+        let result_val = vm_execute_v2(&program)
+            .expect("from-consensus-buff should succeed")
+            .expect("from-consensus-buff should return")
+            .expect_optional();
+        assert!(
+            result_val.is_none(),
+            "from-consensus-buff should return none"
+        );
+    }
+}
+
+#[test]
+fn test_to_from_consensus_buff_vectors() {
+    let vectors = [
+        ("0x0000000000000000000000000000000001", "1", "int"),
+        ("0x00ffffffffffffffffffffffffffffffff", "-1", "int"),
+        ("0x0100000000000000000000000000000001", "u1", "uint"),
+        ("0x0200000004deadbeef", "0xdeadbeef", "(buff 8)"),
+        ("0x03", "true", "bool"),
+        ("0x04", "false", "bool"),
+        ("0x050011deadbeef11ababffff11deadbeef11ababffff", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S", "principal"),
+        ("0x060011deadbeef11ababffff11deadbeef11ababffff0461626364", "'S08XXBDYXW8TQAZZZW8XXBDYXW8TQAZZZZ88551S.abcd", "principal"),
+        ("0x0700ffffffffffffffffffffffffffffffff", "(ok -1)", "(response int int)"), 
+        ("0x0800ffffffffffffffffffffffffffffffff", "(err -1)", "(response int int)"),
+        ("0x09", "none", "(optional int)"),
+        ("0x0a00ffffffffffffffffffffffffffffffff", "(some -1)", "(optional int)"),
+        ("0x0b0000000400000000000000000000000000000000010000000000000000000000000000000002000000000000000000000000000000000300fffffffffffffffffffffffffffffffc",
+         "(list 1 2 3 -4)", "(list 4 int)"),
+        ("0x0c000000020362617a0906666f6f62617203", "{ baz: none, foobar: true }", "{ baz: (optional int), foobar: bool }"),
+    ];
+
+    // do `from-consensus-buff` tests
+    for (buff_repr, value_repr, type_repr) in vectors.iter() {
+        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        eprintln!("{}", program);
+        let result_val = vm_execute_v2(&program)
+            .expect("from-consensus-buff should succeed")
+            .expect("from-consensus-buff should return")
+            .expect_optional()
+            .expect("from-consensus-buff should return (some value)");
+        let expected_val = execute(&value_repr);
+        assert_eq!(result_val, expected_val);
+    }
+
+    // do `to-consensus-buff` tests
+    for (buff_repr, value_repr, _) in vectors.iter() {
+        let program = format!("(to-consensus-buff {})", value_repr);
+        let result_buffer = vm_execute_v2(&program)
+            .expect("to-consensus-buff should succeed")
+            .expect("to-consensus-buff should return")
+            .expect_optional()
+            .expect("to-consensus-buff should return (some buff)");
+        let expected_buff = execute(&buff_repr);
+        assert_eq!(result_buffer, expected_buff);
+    }
 }
 
 #[test]
@@ -435,7 +640,7 @@ fn test_principal_equality() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_if_functions(#[case] version: ClarityVersion) {
+fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     //
     //  test program:
     //  (define (with_else x) (if (is-eq 5 x) 1 0)
@@ -454,6 +659,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
          (without_else 3)
          (with_else 3)",
         version,
+        epoch,
     );
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -463,6 +669,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion) {
         &"(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
         version,
+        epoch,
     );
 
     if let Ok(parsed_bodies) = function_bodies {
@@ -877,7 +1084,7 @@ fn test_sequence_comparisons_mismatched_types() {
 }
 
 #[apply(test_clarity_versions_simple_apply_eval)]
-fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
+fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let tests = [
         "(>= 1)",
         "(+ 1 true)",
@@ -932,8 +1139,8 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion) {
         )
         .into(),
         CheckErrors::TypeError(
-            TypeSignature::from_string("bool", version),
-            TypeSignature::from_string("int", version),
+            TypeSignature::from_string("bool", version, epoch),
+            TypeSignature::from_string("int", version, epoch),
         )
         .into(),
     ];

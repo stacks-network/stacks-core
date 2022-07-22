@@ -39,6 +39,7 @@ use crate::vm::costs::{
 };
 
 mod assets;
+mod conversions;
 mod maps;
 mod options;
 mod sequences;
@@ -554,9 +555,10 @@ fn check_get_block_info(
         .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
 
     let block_info_prop =
-        BlockInfoProperty::lookup_by_name(block_info_prop_str).ok_or(CheckError::new(
-            CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
-        ))?;
+        BlockInfoProperty::lookup_by_name_at_version(block_info_prop_str, &checker.clarity_version)
+            .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(
+                block_info_prop_str.to_string(),
+            )))?;
 
     checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
 
@@ -882,6 +884,12 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
+            ToConsensusBuff => Special(SpecialNativeFunction(
+                &conversions::check_special_to_consensus_buff,
+            )),
+            FromConsensusBuff => Special(SpecialNativeFunction(
+                &conversions::check_special_from_consensus_buff,
+            )),
         }
     }
 }

@@ -71,7 +71,11 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
+use clarity::vm::types::PrincipalData;
+
 use crate::operations::BurnchainOpSigner;
+
+use stacks_common::types::StacksEpochId;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -175,6 +179,15 @@ fn fault_injection_delay_transactions(
     _attempt: u64,
 ) -> bool {
     true
+}
+
+fn get_coinbase_with_recipient(config: &Config, epoch_id: StacksEpochId) -> Option<PrincipalData> {
+    if epoch_id < StacksEpochId::Epoch21 && config.miner.block_reward_recipient.is_some() {
+        warn!("Coinbase pay-to-contract is not supported in the current epoch");
+        None
+    } else {
+        config.miner.block_reward_recipient.clone()
+    }
 }
 
 struct AssembledAnchorBlock {
@@ -307,6 +320,7 @@ fn inner_generate_coinbase_tx(
     nonce: u64,
     is_mainnet: bool,
     chain_id: u32,
+    alt_recipient: Option<PrincipalData>,
 ) -> StacksTransaction {
     let mut tx_auth = keychain.get_transaction_auth().unwrap();
     tx_auth.set_origin_nonce(nonce);
@@ -319,7 +333,7 @@ fn inner_generate_coinbase_tx(
     let mut tx = StacksTransaction::new(
         version,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), alt_recipient),
     );
     tx.chain_id = chain_id;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -399,7 +413,6 @@ fn inner_generate_block_commit_op(
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
     commit_outs: Vec<StacksAddress>,
-    sunset_burn: u64,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -407,7 +420,6 @@ fn inner_generate_block_commit_op(
     let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-        sunset_burn,
         block_header_hash,
         burn_fee,
         input: (Txid([0; 32]), 0),
@@ -1772,6 +1784,11 @@ impl StacksNode {
         last_mined_blocks: &Vec<&AssembledAnchorBlock>,
         event_dispatcher: &EventDispatcher,
     ) -> Option<(AssembledAnchorBlock, Secp256k1PrivateKey)> {
+        let stacks_epoch = burn_db
+            .index_conn()
+            .get_stacks_epoch(burn_block.block_height as u32)
+            .expect("Could not find a stacks epoch.");
+
         let MiningTenureInformation {
             mut stacks_parent_header,
             parent_consensus_hash,
@@ -1970,11 +1987,17 @@ impl StacksNode {
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_secret_key));
 
+        let coinbase_recipient_id = get_coinbase_with_recipient(&config, stacks_epoch.epoch_id);
+        if let Some(id) = coinbase_recipient_id.as_ref() {
+            debug!("Send coinbase rewards to {}", &id);
+        }
+
         let coinbase_tx = inner_generate_coinbase_tx(
             keychain,
             coinbase_nonce,
             config.is_mainnet(),
             config.burnchain.chain_id,
+            coinbase_recipient_id,
         );
 
         // find the longest microblock tail we can build off of
@@ -2031,11 +2054,6 @@ impl StacksNode {
                     config.is_mainnet(),
                     config.burnchain.chain_id,
                 );
-
-                let stacks_epoch = burn_db
-                    .index_conn()
-                    .get_stacks_epoch(burn_block.block_height as u32)
-                    .expect("Could not find a stacks epoch.");
 
                 // submit the poison payload, privately, so we'll mine it when building the
                 // anchored block.
@@ -2149,12 +2167,7 @@ impl StacksNode {
             }
         };
 
-        let sunset_burn = burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap);
-        let rest_commit = burn_fee_cap - sunset_burn;
-
-        let commit_outs = if burn_block.block_height + 1 < burnchain.pox_constants.sunset_end
-            && !burnchain.is_in_prepare_phase(burn_block.block_height + 1)
-        {
+        let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1) {
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
             vec![StacksAddress::burn_address(config.is_mainnet())]
@@ -2164,7 +2177,7 @@ impl StacksNode {
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            rest_commit,
+            burn_fee_cap,
             &registered_key,
             parent_block_burn_height
                 .try_into()
@@ -2172,7 +2185,6 @@ impl StacksNode {
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
             commit_outs,
-            sunset_burn,
             burn_block.block_height,
         );
 

@@ -727,7 +727,7 @@ fn most_recent_utxo_integration_test() {
     channel.stop_chains_coordinator();
 }
 
-fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
+pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128 {
     get_account(http_origin, account).balance
 }
 
@@ -1444,7 +1444,9 @@ fn bitcoind_forking_test() {
     eprintln!("Miner account: {}", miner_account);
 
     let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
+
+    // N.B. rewards mature after 2 confirmations...
+    assert_eq!(account.balance, 4 * (1_000_000_000 + 20_400_000));
     assert_eq!(account.nonce, 7);
 
     // okay, let's figure out the burn block we want to fork away.
@@ -1457,12 +1459,16 @@ fn bitcoind_forking_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 2);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     // but we're able to keep on mining
     assert_eq!(account.nonce, 3);
@@ -1477,13 +1483,15 @@ fn bitcoind_forking_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
+
+    // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 3);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
+
     // but we're able to keep on mining
     assert!(account.nonce >= 3);
 
@@ -4828,8 +4836,6 @@ fn pox_integration_test() {
         4 * prepare_phase_len / 5,
         5,
         15,
-        (16 * reward_cycle_len - 1).into(),
-        (17 * reward_cycle_len).into(),
         u32::max_value(),
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -5122,7 +5128,6 @@ fn pox_integration_test() {
     // let's test the reward information in the observer
     test_observer::clear();
 
-    // before sunset
     // mine until the end of the next reward cycle,
     //   the participation threshold now should be met.
     while sort_height < ((16 * pox_constants.reward_cycle_length) - 1).into() {
@@ -5210,53 +5215,6 @@ fn pox_integration_test() {
 
     eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
     assert_eq!(tip_info.stacks_tip_height, 36);
-
-    // now let's mine into the sunset
-    while sort_height < ((17 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height: {}", sort_height);
-    }
-
-    // get the canonical chain tip
-    let tip_info = get_chain_info(&conf);
-
-    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-    assert_eq!(tip_info.stacks_tip_height, 51);
-
-    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
-
-    // should receive more rewards during this cycle...
-    eprintln!("Got UTXOs: {}", utxos.len());
-    assert_eq!(
-        utxos.len(),
-        14,
-        "Should have received more outputs during the sunsetting PoX reward cycle"
-    );
-
-    // and after sunset
-    while sort_height < ((18 * pox_constants.reward_cycle_length) - 1).into() {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        sort_height = channel.get_sortitions_processed();
-        eprintln!("Sort height: {}", sort_height);
-    }
-
-    let utxos = btc_regtest_controller.get_all_utxos(&pox_2_pubkey);
-
-    // should *not* receive more rewards during the after sunset cycle...
-    eprintln!("Got UTXOs: {}", utxos.len());
-    assert_eq!(
-        utxos.len(),
-        14,
-        "Should have received no more outputs after sunset PoX reward cycle"
-    );
-
-    // should have progressed the chain, though!
-    // get the canonical chain tip
-    let tip_info = get_chain_info(&conf);
-
-    eprintln!("Stacks tip is now {}", tip_info.stacks_tip_height);
-    assert_eq!(tip_info.stacks_tip_height, 66);
 
     test_observer::clear();
     channel.stop_chains_coordinator();

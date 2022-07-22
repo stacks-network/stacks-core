@@ -297,7 +297,9 @@ pub fn test_sim_hash_to_fork(in_bytes: &[u8; 32]) -> Option<u64> {
 
 #[cfg(test)]
 fn check_arithmetic_only(contract: &str, version: ClarityVersion) {
-    let analysis = mem_type_check(contract, version).unwrap().1;
+    let analysis = mem_type_check(contract, version, StacksEpochId::latest())
+        .unwrap()
+        .1;
     ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
 }
 
@@ -489,6 +491,21 @@ impl HeadersDB for TestSimHeadersDB {
 
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
 }
 

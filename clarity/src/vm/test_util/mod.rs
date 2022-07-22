@@ -142,6 +142,7 @@ impl HeadersDB for UnitTestHeaderDB {
     fn get_miner_address(&self, _id_bhh: &StacksBlockId) -> Option<StacksAddress> {
         None
     }
+
     fn get_consensus_hash_for_block(&self, id_bhh: &StacksBlockId) -> Option<ConsensusHash> {
         if *id_bhh == StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
@@ -149,6 +150,21 @@ impl HeadersDB for UnitTestHeaderDB {
         } else {
             None
         }
+    }
+
+    fn get_burnchain_tokens_spent_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 2000)
+    }
+
+    fn get_burnchain_tokens_spent_for_winning_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 1000)
+    }
+
+    fn get_tokens_earned_for_block(&self, id_bhh: &StacksBlockId) -> Option<u128> {
+        // if the block is defined at all, then return a constant
+        self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
 }
 

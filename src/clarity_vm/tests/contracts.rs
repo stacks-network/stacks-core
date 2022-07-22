@@ -152,3 +152,129 @@ fn test_get_burn_block_info_eval() {
         );
     });
 }
+
+#[test]
+fn test_get_block_info_eval_v210() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 3, 5];
+
+    // Advance at least one block because 'get-block-info' only works after the first block.
+    sim.execute_next_block(|_env| {});
+    // Advance another block so we get to Stacks 2.05.
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-1").unwrap();
+        let contract =
+            "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
+        conn.as_transaction(|clarity_db| {
+            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
+                    assert_eq!(name, "block-reward");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+        });
+    });
+    // Advance another block so we get to Stacks 2.1. This is the last block in 2.05
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-2").unwrap();
+        let contract =
+            "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
+        conn.as_transaction(|clarity_db| {
+            let res = clarity_db.analyze_smart_contract(&contract_identifier, contract);
+            if let Err(ClarityError::Analysis(check_error)) = res {
+                if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
+                    assert_eq!(name, "block-reward");
+                } else {
+                    panic!("Bad analysis error: {:?}", &check_error);
+                }
+            } else {
+                panic!("Bad analysis result: {:?}", &res);
+            }
+        });
+    });
+    // now in Stacks 2.1, so this should work!
+    sim.execute_next_block_as_conn(|conn| {
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract-3").unwrap();
+        let contract =
+            "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height)) 
+             (define-private (test-func-2 (height uint)) (get-block-info? miner-spend-winner height))
+             (define-private (test-func-3 (height uint)) (get-block-info? miner-spend-total height))";
+        conn.as_transaction(|clarity_db| {
+            let (ast, _) = clarity_db
+                .analyze_smart_contract(&contract_identifier, contract)
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(&contract_identifier, &ast, contract, None, |_, _| false)
+                .unwrap();
+        });
+        let mut tx = conn.start_transaction_processing();
+        // no values for the genesis block
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-1 u0)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(0)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-2 u0)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(0)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-3 u0)")
+                .unwrap()
+        );
+        // only works at the first block and later (not the 0th block) 
+        assert_eq!(
+            Value::some(Value::UInt(3000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-1 u1)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(1000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-2 u1)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::some(Value::UInt(2000)).unwrap(),
+            tx.eval_read_only(&contract_identifier, "(test-func-3 u1)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-1 u103)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-2 u103)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-3 u103)")
+                .unwrap()
+        );
+        // only works on ancestor blocks, not the current block
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-1 block-height)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-2 block-height)")
+                .unwrap()
+        );
+        assert_eq!(
+            Value::none(),
+            tx.eval_read_only(&contract_identifier, "(test-func-3 block-height)")
+                .unwrap()
+        );
+    });
+}
