@@ -4619,23 +4619,21 @@ impl StacksChainState {
                 burn_header_hash,
                 ..
             } = stack_stx_op;
-            let result = clarity_tx
-                .connection()
-                .as_transaction(ClarityVersion::Clarity1, |tx| {
-                    tx.run_contract_call(
-                        &sender.into(),
-                        None,
-                        &boot_code_id("pox", mainnet),
-                        "stack-stx",
-                        &[
-                            Value::UInt(stacked_ustx),
-                            reward_addr.as_clarity_tuple().into(),
-                            Value::UInt(u128::from(block_height)),
-                            Value::UInt(u128::from(num_cycles)),
-                        ],
-                        |_, _| false,
-                    )
-                });
+            let result = clarity_tx.connection().as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender.into(),
+                    None,
+                    &boot_code_id("pox", mainnet),
+                    "stack-stx",
+                    &[
+                        Value::UInt(stacked_ustx),
+                        reward_addr.as_clarity_tuple().into(),
+                        Value::UInt(u128::from(block_height)),
+                        Value::UInt(u128::from(num_cycles)),
+                    ],
+                    |_, _| false,
+                )
+            });
             match result {
                 Ok((value, _, events)) => {
                     if let Value::Response(ref resp) = value {
@@ -4705,7 +4703,7 @@ impl StacksChainState {
                             memo,
                             ..
                         } = transfer_stx_op;
-                        let result = clarity_tx.connection().as_transaction(ClarityVersion::Clarity1, |tx| {
+                        let result = clarity_tx.connection().as_transaction(|tx| {
                             tx.run_stx_transfer(
                                 &sender.into(),
                                 &recipient.into(),
@@ -4777,7 +4775,7 @@ impl StacksChainState {
         let miner_reward_total = miner_reward.total();
         clarity_tx
             .connection()
-            .as_transaction(ClarityVersion::Clarity1, |x| {
+            .as_transaction(|x| {
                 x.with_clarity_db(|ref mut db| {
                     let recipient_principal =
                         // strictly speaking this check is defensive. It will never be the case
@@ -4845,7 +4843,7 @@ impl StacksChainState {
         let lockup_contract_id = boot_code_id("lockup", mainnet);
         clarity_tx
             .connection()
-            .as_transaction(ClarityVersion::Clarity1, |tx_connection| {
+            .as_transaction(|tx_connection| {
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
                     let res = db.fetch_entry_unknown_descriptor(
