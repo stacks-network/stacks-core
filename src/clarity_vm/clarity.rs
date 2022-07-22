@@ -1409,7 +1409,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, ct_analysis) = tx
+                let (ct_ast, _ct_analysis) = tx
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
