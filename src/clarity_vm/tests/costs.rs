@@ -816,7 +816,12 @@ fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
 
-fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+fn test_tracked_costs(
+    prog: &str,
+    use_mainnet: bool,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> ExecutionCost {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -858,13 +863,13 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(trait_contract_id.clone(), contract_trait, None)
+            .initialize_versioned_contract(trait_contract_id.clone(), version, contract_trait, None)
             .unwrap();
         owned_env
-            .initialize_contract(other_contract_id.clone(), contract_other, None)
+            .initialize_versioned_contract(other_contract_id.clone(), version, contract_other, None)
             .unwrap();
         owned_env
-            .initialize_contract(self_contract_id.clone(), &contract_self, None)
+            .initialize_versioned_contract(self_contract_id.clone(), version, &contract_self, None)
             .unwrap();
 
         let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
@@ -887,13 +892,23 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.00
 fn epoch_20_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch20);
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch20,
+        ClarityVersion::Clarity1,
+    );
 
     for f in NativeFunctions::ALL.iter() {
         // Note: The 2.05 test assumes Clarity1.
         if f.get_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
-            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch20);
+            let cost = test_tracked_costs(
+                test,
+                use_mainnet,
+                StacksEpochId::Epoch20,
+                ClarityVersion::Clarity1,
+            );
             assert!(cost.exceeds(&baseline));
         }
     }
@@ -912,13 +927,23 @@ fn epoch_20_test_all_testnet() {
 // test each individual cost function can be correctly invoked as
 //  Clarity code executes in Epoch 2.05
 fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch2_05,
+        ClarityVersion::Clarity1,
+    );
 
     for f in NativeFunctions::ALL.iter() {
         // Note: The 2.05 test assumes Clarity1.
         if f.get_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
-            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+            let cost = test_tracked_costs(
+                test,
+                use_mainnet,
+                StacksEpochId::Epoch2_05,
+                ClarityVersion::Clarity1,
+            );
             assert!(cost.exceeds(&baseline));
         }
     }
@@ -935,14 +960,24 @@ fn epoch_205_test_all_testnet() {
 }
 
 // test each individual cost function can be correctly invoked as
-//  Clarity code executes in Epoch 2.05
+//  Clarity code executes in Epoch 2.1
 fn epoch_21_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21);
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch21,
+        ClarityVersion::Clarity2,
+    );
 
     for f in NativeFunctions::ALL.iter() {
         // Note: Include Clarity2 functions for Epoch21.
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21);
+        let cost = test_tracked_costs(
+            test,
+            use_mainnet,
+            StacksEpochId::Epoch21,
+            ClarityVersion::Clarity2,
+        );
         assert!(cost.exceeds(&baseline));
     }
 }
