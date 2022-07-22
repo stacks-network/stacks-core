@@ -962,7 +962,9 @@ impl StacksChainState {
                 );
                 Ok(receipt)
             }
-            TransactionPayload::SmartContract(ref smart_contract, ref _version_opt) => {
+            TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
+                let clarity_version = version_opt
+                    .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
                 let issuer_principal = match origin_account.principal {
                     PrincipalData::Standard(ref p) => p.clone(),
                     _ => {
@@ -990,8 +992,11 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
-                let analysis_resp =
-                    clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
+                let analysis_resp = clarity_tx.analyze_smart_contract(
+                    &contract_id,
+                    clarity_version,
+                    &contract_code_str,
+                );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
@@ -1037,6 +1042,7 @@ impl StacksChainState {
                 // accepted, but the contract does not materialize (but the sender is out their fee).
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
+                    clarity_version,
                     &contract_ast,
                     &contract_code_str,
                     sponsor,
@@ -1153,28 +1159,6 @@ impl StacksChainState {
                 // did the caller want to run a particular version of Clarity?
                 version_opt.unwrap_or(ClarityVersion::default_for_epoch(clarity_block.get_epoch()))
             }
-            TransactionPayload::ContractCall(ref contract_call) => {
-                // find the contract and get its version
-                let contract_id = contract_call.to_clarity_contract_id();
-                let clarity_version = match clarity_block
-                    .with_analysis_db_readonly(|db| db.get_clarity_version(&contract_id))
-                {
-                    Ok(version) => version,
-                    Err(check_error) => {
-                        match check_error.err {
-                            CheckErrors::NoSuchContract(_) => {
-                                let msg = format!("No such contract '{}': cannot determine clarity version to use", &contract_id);
-                                warn!("{}", &msg);
-                                return Err(Error::InvalidStacksTransaction(msg, false));
-                            }
-                            _ => {
-                                panic!("FATAL: contract analysis data did not report a clarity version for '{}'", &contract_id);
-                            }
-                        }
-                    }
-                };
-                clarity_version
-            }
             _ => {
                 // whatever the epoch default is, since no Clarity code will be executed anyway
                 ClarityVersion::default_for_epoch(clarity_block.get_epoch())
@@ -1204,9 +1188,7 @@ impl StacksChainState {
             }
         }
 
-        let mut transaction = clarity_block
-            .connection()
-            .start_transaction_processing(clarity_version);
+        let mut transaction = clarity_block.connection().start_transaction_processing();
         let (origin_account, payer_account) =
             StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
 
@@ -1309,10 +1291,9 @@ pub mod test {
         assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
         assert_eq!(recv_account.nonce, 0);
 
-        conn.connection()
-            .as_transaction(ClarityVersion::Clarity1, |tx| {
-                StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
-            });
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
+        });
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
@@ -1515,10 +1496,9 @@ pub mod test {
             &ConsensusHash([1u8; 20]),
             &BlockHeaderHash([1u8; 32]),
         );
-        conn.connection()
-            .as_transaction(ClarityVersion::Clarity1, |tx| {
-                StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
-            });
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
+        });
 
         for (tx_stx_transfer, err_frag) in [
             tx_stx_transfer_same_receiver,
@@ -1639,10 +1619,9 @@ pub mod test {
         assert_eq!(recv_account.stx_balance.amount_unlocked(), 0);
 
         // give the spending account some stx
-        conn.connection()
-            .as_transaction(ClarityVersion::Clarity1, |tx| {
-                StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
-            });
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
+        });
 
         let (fee, _) = StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
@@ -7744,36 +7723,12 @@ pub mod test {
                 TokenTransferMemo([0u8; 34]),
             ),
         );
-        let contract_call_success = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: ContractName::try_from("bns").unwrap(),
-                function_name: ClarityName::try_from("can-receive-name").unwrap(),
-                function_args: vec![Value::Principal(
-                    StacksAddress::burn_address(false).to_account_principal(),
-                )],
-            }),
-        );
-        let contract_call_fail = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: ContractName::try_from("none").unwrap(),
-                function_name: ClarityName::try_from("none").unwrap(),
-                function_args: vec![Value::Int(0)],
-            }),
-        );
 
         let txs = vec![
             smart_contract,
             smart_contract_v1,
             smart_contract_v2,
             token_transfer,
-            contract_call_success,
-            contract_call_fail,
         ];
         let mut signed_txs = vec![];
         for mut tx in txs.into_iter() {
@@ -7787,8 +7742,6 @@ pub mod test {
             signed_txs.push(signed_tx);
         }
 
-        let contract_call_failure = signed_txs.pop().unwrap();
-        let contract_call_success = signed_txs.pop().unwrap();
         let token_transfer = signed_txs.pop().unwrap();
         let smart_contract_v2 = signed_txs.pop().unwrap();
         let smart_contract_v1 = signed_txs.pop().unwrap();
@@ -7821,16 +7774,6 @@ pub mod test {
             ClarityVersion::Clarity1,
             StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
         );
-        assert_eq!(
-            ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &contract_call_success).unwrap()
-        );
-        if let Err(Error::InvalidStacksTransaction(..)) =
-            StacksChainState::get_tx_clarity_version(&mut conn, &contract_call_failure)
-        {
-        } else {
-            panic!("FATAL: succeeded to get clarity version for failed contract call");
-        }
 
         // verify that 2.1 gating is applied for clarity2
         if let Err(Error::InvalidStacksTransaction(msg, ..)) =
@@ -7962,36 +7905,12 @@ pub mod test {
                 TokenTransferMemo([0u8; 34]),
             ),
         );
-        let contract_call_success = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: ContractName::try_from("bns").unwrap(),
-                function_name: ClarityName::try_from("can-receive-name").unwrap(),
-                function_args: vec![Value::Principal(
-                    StacksAddress::burn_address(false).to_account_principal(),
-                )],
-            }),
-        );
-        let contract_call_fail = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            auth.clone(),
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: ContractName::try_from("none").unwrap(),
-                function_name: ClarityName::try_from("none").unwrap(),
-                function_args: vec![Value::Int(0)],
-            }),
-        );
 
         let txs = vec![
             smart_contract,
             smart_contract_v1,
             smart_contract_v2,
             token_transfer,
-            contract_call_success,
-            contract_call_fail,
         ];
         let mut signed_txs = vec![];
         for mut tx in txs.into_iter() {
@@ -8005,8 +7924,6 @@ pub mod test {
             signed_txs.push(signed_tx);
         }
 
-        let contract_call_failure = signed_txs.pop().unwrap();
-        let contract_call_success = signed_txs.pop().unwrap();
         let token_transfer = signed_txs.pop().unwrap();
         let smart_contract_v2 = signed_txs.pop().unwrap();
         let smart_contract_v1 = signed_txs.pop().unwrap();
@@ -8039,16 +7956,6 @@ pub mod test {
             ClarityVersion::Clarity2,
             StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
         );
-        assert_eq!(
-            ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &contract_call_success).unwrap()
-        );
-        if let Err(Error::InvalidStacksTransaction(..)) =
-            StacksChainState::get_tx_clarity_version(&mut conn, &contract_call_failure)
-        {
-        } else {
-            panic!("FATAL: succeeded to get clarity version for failed contract call");
-        }
 
         conn.commit_block();
     }
