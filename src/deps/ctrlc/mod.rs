@@ -72,15 +72,15 @@ where
         return Err(Error::MultipleHandlers);
     }
 
-    unsafe {
-        match platform::init_os_handler() {
+    
+        match unsafe { platform::init_os_handler() } {
             Ok(_) => {}
             Err(err) => {
                 INIT.store(false, Ordering::SeqCst);
                 return Err(err.into());
             }
         }
-    }
+    
 
     thread::Builder::new()
         .name("signal-handler".into())
