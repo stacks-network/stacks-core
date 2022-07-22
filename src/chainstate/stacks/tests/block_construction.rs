@@ -3244,7 +3244,7 @@ fn test_contract_call_across_clarity_versions() {
             start_height: 1,
             end_height: 2, // NOTE: the first 25 burnchain blocks have no sortition
             block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
+            network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
