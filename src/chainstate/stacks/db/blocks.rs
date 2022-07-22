@@ -157,6 +157,7 @@ pub enum MemPoolRejection {
     TransferAmountMustBePositive,
     DBError(db_error),
     EstimatorError(EstimatorError),
+    TemporarilyBlacklisted,
     Other(String),
 }
 
@@ -304,6 +305,7 @@ impl MemPoolRejection {
                 "ServerFailureDatabase",
                 Some(json!({"message": e.to_string()})),
             ),
+            TemporarilyBlacklisted => ("TemporarilyBlacklisted", None),
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
