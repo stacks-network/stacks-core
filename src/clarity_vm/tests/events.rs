@@ -101,7 +101,7 @@ fn helper_execute_epoch(
     );
     let mut placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
-        ClarityVersion::Clarity1,
+        ClarityVersion::default_for_epoch(epoch),
     );
 
     {
