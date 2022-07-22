@@ -2836,14 +2836,7 @@ fn test_pox_processable_block_in_different_pox_forks() {
     let _r = std::fs::remove_dir_all(path);
     let _r = std::fs::remove_dir_all(path_blinded);
 
-    let pox_consts = Some(PoxConstants::new(
-        5,
-        2,
-        2,
-        25,
-        5,
-        u32::max_value(),
-    ));
+    let pox_consts = Some(PoxConstants::new(5, 2, 2, 25, 5, u32::max_value()));
     let b = get_burnchain(path, pox_consts.clone());
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
 
@@ -3220,14 +3213,7 @@ fn test_pox_affirmation_fork_duel() {
     let _r = std::fs::remove_dir_all(path);
     let _r = std::fs::remove_dir_all(path_blinded);
 
-    let pox_consts = Some(PoxConstants::new(
-        5,
-        2,
-        2,
-        25,
-        5,
-        u32::max_value(),
-    ));
+    let pox_consts = Some(PoxConstants::new(5, 2, 2, 25, 5, u32::max_value()));
     let b = get_burnchain(path, pox_consts.clone());
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
 
