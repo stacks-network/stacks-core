@@ -434,7 +434,6 @@ where
         db,
         cost_track,
         DEFAULT_CLI_EPOCH,
-        ClarityVersion::Clarity2,
     );
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
@@ -825,7 +824,6 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     default_chain_id(mainnet),
                     db,
                     DEFAULT_CLI_EPOCH,
-                    ClarityVersion::Clarity2,
                 );
                 vm_env
                     .initialize_contract(contract_identifier, &contract_content, None)
@@ -854,13 +852,8 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env = OwnedEnvironment::new_free(
-        mainnet,
-        default_chain_id(mainnet),
-        db,
-        DEFAULT_CLI_EPOCH,
-        ClarityVersion::Clarity2,
-    );
+    let mut vm_env =
+        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
     vm_env
         .execute_transaction(
             sender,
@@ -1160,9 +1153,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 default_chain_id(mainnet),
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
+            );
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
-            let mut exec_env = vm_env.get_exec_environment(None, None);
+            let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
@@ -1231,16 +1227,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 default_chain_id(true),
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
-                ClarityVersion::Clarity2,
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
 
             let mut ast =
                 friendly_expect(parse(&contract_id, &content), "Failed to parse program.");
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
-                    let result = vm_env.get_exec_environment(None, None).eval_raw(&content);
+                    let result = vm_env
+                        .get_exec_environment(None, None, &mut placeholder_context)
+                        .eval_raw(&content);
                     match result {
                         Ok(x) => (
                             0,
@@ -1286,11 +1287,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None, None)
+                        .get_exec_environment(None, None, &mut placeholder_context)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (header_db, marf, result_and_cost)
@@ -1340,10 +1345,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None, None)
+                        .get_exec_environment(None, None, &mut placeholder_context)
                         .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                 });
                 (marf, result_and_cost)
@@ -1413,10 +1422,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
+            let mut placeholder_context = ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity2,
+            );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
                 let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
                     vm_env
-                        .get_exec_environment(None, None)
+                        .get_exec_environment(None, None, &mut placeholder_context)
                         .eval_read_only(&contract_identifier, &content)
                 });
                 (marf, result_and_cost)
