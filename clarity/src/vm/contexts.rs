@@ -687,6 +687,9 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
+    /// Initialize a contract with the "default" contract context (i.e. clarity1, transient ID).
+    /// No longer appropriate outside of testing, now that there are multiple clarity versions.
+    #[cfg(any(test, feature = "testing"))]
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -697,6 +700,24 @@ impl<'a> OwnedEnvironment<'a> {
             contract_identifier.issuer.clone().into(),
             sponsor.clone(),
             None,
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
+        )
+    }
+
+    pub fn initialize_versioned_contract(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        version: ClarityVersion,
+        contract_content: &str,
+        sponsor: Option<PrincipalData>,
+    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+        self.execute_in_env(
+            contract_identifier.issuer.clone().into(),
+            sponsor.clone(),
+            Some(ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                version,
+            )),
             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
@@ -1056,6 +1077,7 @@ impl<'a, 'b> Environment<'a, 'b> {
 
         finally_drop_memory!(self.global_context, contract_size; {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
+            debug!("Contract-call to {}.{} version {}", &contract_identifier, tx_name, &contract.contract_context.clarity_version);
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
@@ -1081,6 +1103,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
+
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
             self.call_stack.remove(&func_identifier, true)?;
 
