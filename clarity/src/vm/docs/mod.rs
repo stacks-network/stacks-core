@@ -2577,11 +2577,21 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content, None)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    ClarityVersion::Clarity2,
+                    &token_contract_content,
+                    None,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    ClarityVersion::Clarity2,
+                    super::DEFINE_TRAIT_API.example,
+                    None,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;
