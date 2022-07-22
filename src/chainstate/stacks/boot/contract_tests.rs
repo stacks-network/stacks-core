@@ -749,7 +749,7 @@ fn pox_2_lock_extend_units() {
     sim.execute_next_block(|env| {
         env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
             .unwrap();
-        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+        env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
             env.execute_contract(
                 POX_2_CONTRACT_TESTNET.deref(),
                 "set-burnchain-parameters",
@@ -999,7 +999,7 @@ fn pox_2_delegate_extend_units() {
         .unwrap();
 
         // set burnchain params based on old testnet settings (< 2.0.11.0)
-        conn.as_transaction(ClarityVersion::Clarity1, |tx| {
+        conn.as_transaction(|tx| {
             tx.run_contract_call(
                 &boot_code_addr(false).into(),
                 None,
@@ -1611,9 +1611,9 @@ fn test_deploy_smart_contract(
     content: &str,
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
-    block.as_transaction(version, |tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, content)?;
-        tx.initialize_smart_contract(&contract_id, &ast, content, None, |_, _| false)?;
+    block.as_transaction(|tx| {
+        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, version, content)?;
+        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })
