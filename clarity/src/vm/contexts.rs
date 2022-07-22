@@ -79,7 +79,6 @@ pub struct Environment<'a, 'b> {
 
 pub struct OwnedEnvironment<'a> {
     context: GlobalContext<'a>,
-    default_contract: ContractContext,
     call_stack: CallStack,
 }
 
@@ -553,10 +552,6 @@ impl<'a> OwnedEnvironment<'a> {
                 LimitedCostTracker::new_free(),
                 StacksEpochId::Epoch2_05,
             ),
-            default_contract: ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
-            ),
             call_stack: CallStack::new(),
         }
     }
@@ -580,10 +575,6 @@ impl<'a> OwnedEnvironment<'a> {
                 LimitedCostTracker::new_free(),
                 epoch,
             ),
-            default_contract: ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                version,
-            ),
             call_stack: CallStack::new(),
         }
     }
@@ -595,17 +586,12 @@ impl<'a> OwnedEnvironment<'a> {
         use_mainnet: bool,
     ) -> OwnedEnvironment<'a> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
-        let version = ClarityVersion::default_for_epoch(epoch);
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
 
         OwnedEnvironment {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
-            default_contract: ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                version,
-            ),
             call_stack: CallStack::new(),
         }
     }
@@ -623,7 +609,6 @@ impl<'a> OwnedEnvironment<'a> {
         chain_id: u32,
         database: ClarityDatabase<'a>,
         epoch_id: StacksEpochId,
-        version: ClarityVersion,
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(
@@ -632,10 +617,6 @@ impl<'a> OwnedEnvironment<'a> {
                 database,
                 LimitedCostTracker::new_free(),
                 epoch_id,
-            ),
-            default_contract: ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                version,
             ),
             call_stack: CallStack::new(),
         }
@@ -647,14 +628,9 @@ impl<'a> OwnedEnvironment<'a> {
         database: ClarityDatabase<'a>,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-        version: ClarityVersion,
     ) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
-            default_contract: ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                version,
-            ),
             call_stack: CallStack::new(),
         }
     }
@@ -663,10 +639,11 @@ impl<'a> OwnedEnvironment<'a> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
+        context: &'b mut ContractContext,
     ) -> Environment<'b, 'a> {
         Environment::new(
             &mut self.context,
-            &self.default_contract,
+            context,
             &mut self.call_stack,
             sender.clone(),
             sender,
@@ -678,6 +655,7 @@ impl<'a> OwnedEnvironment<'a> {
         &mut self,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
+        initial_context: Option<ContractContext>,
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
@@ -688,7 +666,12 @@ impl<'a> OwnedEnvironment<'a> {
         self.begin();
 
         let result = {
-            let mut exec_env = self.get_exec_environment(Some(sender), sponsor);
+            let mut initial_context = initial_context.unwrap_or(ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ));
+            let mut exec_env =
+                self.get_exec_environment(Some(sender), sponsor, &mut initial_context);
             f(&mut exec_env)
         };
 
@@ -713,6 +696,7 @@ impl<'a> OwnedEnvironment<'a> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor.clone(),
+            None,
             |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
@@ -728,6 +712,10 @@ impl<'a> OwnedEnvironment<'a> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor.clone(),
+            Some(ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                clarity_version,
+            )),
             |exec_env| {
                 exec_env.initialize_contract_from_ast(
                     contract_identifier,
@@ -747,7 +735,7 @@ impl<'a> OwnedEnvironment<'a> {
         tx_name: &str,
         args: &[SymbolicExpression],
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(sender, sponsor, |exec_env| {
+        self.execute_in_env(sender, sponsor, None, |exec_env| {
             exec_env.execute_contract(&contract_identifier, tx_name, args, false)
         })
     }
@@ -759,30 +747,35 @@ impl<'a> OwnedEnvironment<'a> {
         amount: u128,
         memo: &BuffData,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(from.clone(), None, |exec_env| {
+        self.execute_in_env(from.clone(), None, None, |exec_env| {
             exec_env.stx_transfer(from, to, amount, memo)
         })
     }
 
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, crate::vm::errors::Error>(recipient.clone(), None, |env| {
-            let mut snapshot = env
-                .global_context
-                .database
-                .get_stx_balance_snapshot(&recipient);
+        self.execute_in_env::<_, _, crate::vm::errors::Error>(
+            recipient.clone(),
+            None,
+            None,
+            |env| {
+                let mut snapshot = env
+                    .global_context
+                    .database
+                    .get_stx_balance_snapshot(&recipient);
 
-            snapshot.credit(amount);
-            snapshot.save();
+                snapshot.credit(amount);
+                snapshot.save();
 
-            env.global_context
-                .database
-                .increment_ustx_liquid_supply(amount)
-                .unwrap();
+                env.global_context
+                    .database
+                    .increment_ustx_liquid_supply(amount)
+                    .unwrap();
 
-            let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
-            res
-        })
+                let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
+                res
+            },
+        )
         .unwrap();
     }
 
@@ -793,6 +786,7 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
+            None,
             None,
             |exec_env| exec_env.eval_raw(program),
         )
@@ -805,6 +799,7 @@ impl<'a> OwnedEnvironment<'a> {
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
+            None,
             None,
             |exec_env| exec_env.eval_read_only(contract, program),
         )
