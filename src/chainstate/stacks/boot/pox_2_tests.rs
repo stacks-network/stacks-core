@@ -1450,7 +1450,10 @@ fn test_pox_2_getters() {
     let EMPTY_SORTITIONS = 25;
     let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
