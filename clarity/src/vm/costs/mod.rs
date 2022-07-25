@@ -864,6 +864,7 @@ fn compute_cost(
 }
 
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    info!("add_cost: cost [{:?}]", &cost);
     s.total.add(&cost)?;
     if s.total.exceeds(&s.limit) {
         Err(CostErrors::CostBalanceExceeded(

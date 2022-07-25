@@ -994,6 +994,7 @@ impl<'a> ClarityDatabase<'a> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
     ) -> Result<ValueResult> {
+        info!("ClarityDatabase::fetch_entry_with_size");
         if !map_descriptor.key_type.admits(key_value) {
             return Err(CheckErrors::TypeValueError(
                 map_descriptor.key_type.clone(),
