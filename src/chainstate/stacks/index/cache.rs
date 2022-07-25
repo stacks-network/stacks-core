@@ -208,19 +208,20 @@ impl<T: MarfTrieId> TrieCache<T> {
     /// Any other option causes a runtime panic.
     pub fn new(strategy: &str) -> TrieCache<T> {
         //        info!("check, strategy {}", strategy);
+        TrieCache::Everything(TrieCacheState::new())
 
-        match strategy {
-            "noop" => TrieCache::Noop(TrieCacheState::new()),
-            "everything" => TrieCache::Everything(TrieCacheState::new()),
-            "node256" => TrieCache::Node256(TrieCacheState::new()),
-            _ => {
-                error!(
-                    "Unsupported trie node cache strategy '{}'; falling back to `Noop` strategy",
-                    strategy
-                );
-                TrieCache::Noop(TrieCacheState::new())
-            }
-        }
+        // match strategy {
+        //     "noop" => TrieCache::Noop(TrieCacheState::new()),
+        //     "everything" => TrieCache::Everything(TrieCacheState::new()),
+        //     "node256" => TrieCache::Node256(TrieCacheState::new()),
+        //     _ => {
+        //         error!(
+        //             "Unsupported trie node cache strategy '{}'; falling back to `Noop` strategy",
+        //             strategy
+        //         );
+        //         TrieCache::Noop(TrieCacheState::new())
+        //     }
+        // }
     }
 
     /// Get the inner trie cache state, as an immutable reference
