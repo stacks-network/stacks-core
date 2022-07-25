@@ -17,7 +17,6 @@ use stacks::burnchains::{
 
 use stacks::burnchains;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks::core::StacksEpoch;
@@ -95,6 +94,10 @@ fn make_mock_byte_string(from: i64) -> [u8; 32] {
     let mut output = [0; 32];
     output[24..32].copy_from_slice(&from.to_be_bytes());
     output
+}
+
+fn make_mock_txid(from: &BlockHeaderHash) -> Txid {
+    Txid(from.0.clone())
 }
 
 /// Resets the global static variables used for `MockController`-based tests. Call
@@ -220,7 +223,7 @@ impl MockController {
             next_commit_and_withdrawal_root
                 .take()
                 .map(|(next_commit, next_withdrawal_root)| {
-                    let mocked_txid = Txid(next_commit.0.clone());
+                    let mocked_txid = make_mock_txid(&next_commit);
                     let topic = "print".into();
                     let contract_identifier = self.contract_identifier.clone();
                     let value = TupleData::from_data(vec![
@@ -406,55 +409,31 @@ impl BurnchainController for MockController {
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         self.indexer.get_channel()
     }
-    fn submit_operation(
+    fn commit_required_signatures(&self) -> u8 {
+        0
+    }
+
+    fn submit_commit(
         &mut self,
-        operation: BlockstackOperationType,
+        committed_block_hash: BlockHeaderHash,
+        _target_block: BurnchainHeaderHash,
+        withdrawal_merkle_root: Sha512Trunc256Sum,
+        _signatures: Vec<super::ClaritySignature>,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
-    ) -> bool {
-        match operation {
-            BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
-                block_header_hash,
-                withdrawal_merkle_root,
-                ..
-            }) => {
-                let mut next_commit_and_withdrawal_root =
-                    self.next_commit_and_withdrawal_root.lock().unwrap();
-                if let Some((prior_commit, prior_withdrawal_root)) = next_commit_and_withdrawal_root
-                    .replace((block_header_hash, withdrawal_merkle_root))
-                {
-                    warn!("Mocknet controller replaced a staged commit";
-                        "prior_commit" => %prior_commit,
-                        "prior_withdrawal_root" => %prior_withdrawal_root);
-                }
+    ) -> Result<Txid, Error> {
+        let mut next_commit_and_withdrawal_root =
+            self.next_commit_and_withdrawal_root.lock().unwrap();
+        let mocked_txid = make_mock_txid(&committed_block_hash);
+        if let Some((prior_commit, prior_withdrawal_root)) =
+            next_commit_and_withdrawal_root.replace((committed_block_hash, withdrawal_merkle_root))
+        {
+            warn!("Mocknet controller replaced a staged commit";
+                  "prior_commit" => %prior_commit,
+                  "prior_withdrawal_root" => %prior_withdrawal_root);
+        };
 
-                true
-            }
-            BlockstackOperationType::DepositStx(_op) => {
-                debug!("Submitted deposit stx operation");
-                true
-            }
-            BlockstackOperationType::DepositFt(_op) => {
-                debug!("Submitted deposit ft operation");
-                true
-            }
-            BlockstackOperationType::DepositNft(_op) => {
-                debug!("Submitted deposit nft operation");
-                true
-            }
-            BlockstackOperationType::WithdrawStx(_op) => {
-                debug!("Submitted withdraw stx operation");
-                true
-            }
-            BlockstackOperationType::WithdrawFt(_op) => {
-                debug!("Submitted withdraw ft operation");
-                true
-            }
-            BlockstackOperationType::WithdrawNft(_op) => {
-                debug!("Submitted withdraw nft operation");
-                true
-            }
-        }
+        Ok(mocked_txid)
     }
 
     fn sync(&mut self, target_block_height_opt: Option<u64>) -> Result<(BurnchainTip, u64), Error> {

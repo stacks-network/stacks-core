@@ -26,6 +26,10 @@ depends_on = ["trait-standards"]
 path = "contracts/hyperchains.clar"
 depends_on = ["trait-standards"]
 
+[contracts.multi-miner]
+path = "contracts/multi-miner.clar"
+depends_on = ["hyperchains"]
+
 [contracts.test-helpers]
 path = "contracts/helper/test-helpers.clar"
 depends_on = []
