@@ -41,15 +41,21 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     write!(rd, " ")?;
 
     rd.start_timestamp()?;
-    let elapsed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or(Duration::from_secs(0));
-    write!(
-        rd,
-        "[{:5}.{:06}]",
-        elapsed.as_secs(),
-        elapsed.subsec_nanos() / 1000
-    )?;
+    let system_time = SystemTime::now();
+    if env::var("BLOCKSTACK_FORMAT_TIME") != Ok("1".into()) {
+        let elapsed = system_time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0));
+        write!(
+            rd,
+            "[{:5}.{:06}]",
+            elapsed.as_secs(),
+            elapsed.subsec_nanos() / 1000
+        )?;
+    } else {
+        let datetime: DateTime<Local> = system_time.into();
+        write!(rd, "[{}]", datetime.format("%Y-%m-%d %H:%M:%S"))?;
+    }
     write!(rd, " ")?;
     write!(rd, "[{}:{}]", record.file(), record.line())?;
     write!(rd, " ")?;
