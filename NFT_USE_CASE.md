@@ -1,3 +1,6 @@
+# NFT Use Case Demo
+
+## Introduction
 In this demo, you will learn how to:
 1. Publish an NFT contract on the Stacks (L1) chain & hyperchain (L2) respectively.
 2. Register NFT asset with the hyperchain interface contract.
@@ -13,7 +16,7 @@ at the end of step 5.
 ## Hyperchains Background
 A hyperchain is a network that is separate from the Stacks chain. A hyperchain can be thought of as a layer-2 (L2), 
 and the Stacks chain can be thought of as a layer-1 (L1). The hyperchain interfaces with the Stacks chain via a smart 
-contract that is specific to it. Different hyperchain networks will use distinct Stacks contracts as an interface. 
+contract that is specific to the hyperchain. Different hyperchain networks will use distinct Stacks contracts as an interface. 
 This interface contract has several functions that allow it to act as an intermediary between the Stacks chain and 
 some particular hyperchain. These functions include but are not limited to:
 - `commit-block`: Called by hyperchain miners to record block hashes and withdrawal state on the Stacks chain.
@@ -21,6 +24,7 @@ some particular hyperchain. These functions include but are not limited to:
   contract. The Hyperchain "listens" for calls to these functions, and performs a mint on the hyperchains to 
   replicate this state. Meanwhile, on the L1, the assets live in the contract.
 - `withdraw-ft-asset` / `withdraw-stx` / `withdraw-nft-asset`: Called by miners to withdraw assets from the hyperchain. 
+  In an upcoming update to the hyperchains repo, this function will be called by users directly. 
 
 In order to register new allowed assets, a valid miner may call `setup-allowed-contracts`, `register-ft-contract`, or `register-nft-contract`. 
 The transaction sender must be part of the miners list defined in the hyperchains contract.
@@ -36,13 +40,19 @@ clarinet new nft-use-case
 ```
 
 Let us copy contract files and scripts over from the `stacks-hyperchains` repository into the `nft-use-case` directory. 
-If you don't already have the stacks-hyperchains repository, you can clone it [here](https://github.com/hirosystems/stacks-hyperchains).
+If you don't already have the stacks-hyperchains repository, you can [clone it](https://github.com/hirosystems/stacks-hyperchains).
+Here's the command to clone the stacks-hyperchains repository:
+```
+git clone https://github.com/hirosystems/stacks-hyperchains.git
+```
 Set the environment variable `HYPERCHAIN_PATH` to the location of the stacks-hyperchains repository on your computer. 
 ```
 export HYPERCHAIN_PATH=<YOUR_PATH_HERE>
 ```
 
-Now, we can copy files from the stacks-hyperchains repository. 
+Now, we can copy files from the stacks-hyperchains repository. These files are contracts which will define the layer-1
+and layer-2 Clarity traits for NFTs and fungible tokens, implement an NFT in layer-1 and layer-2, and some NodeJS scripts for 
+helping to deploy the contracts.
 ```
 mkdir nft-use-case/contracts-l2
 mkdir nft-use-case/scripts
@@ -60,20 +70,24 @@ Before running the following instructions, make sure you have [node](https://nod
 npm install
 ```
 
-Make the following change in the `settings/Devnet.toml` file in the `nft-use-case` directory to enable the hyperchain:
+The `Devnet.toml` file in the `nft-use-case` directory is responsible for configuring the `clarinet integrate` 
+local network. Make the following change in `settings/Devnet.toml` to enable the hyperchain:
 ```
 [devnet]
 ...
 enable_hyperchain_node = true
 ```
 
-Let's spin up a hyperchain node. 
+Let's spin up a hyperchain node. Before you call this, make sure that you have a working installation of Docker running 
+locally.
 ```
 clarinet integrate
 ```
 
-Before we publish any transactions, you will need to set up some environment variables. Open a 
-separate terminal window, navigate to the directory `nft-use-case/scripts`, and enter the following. 
+Before we publish any transactions, you will need to set up some environment variables.
+These environment variables contain the address and private key of the hyperchain miner, two user addresses 
+and private keys, and the RPC URL which we can query for hyperchain state.
+Open a separate terminal window, navigate to the directory `nft-use-case/scripts`, and enter the following. 
 ```
 export AUTH_HC_MINER_ADDR=ST3AM1A56AK2C1XAFJ4115ZSV26EB49BVQ10MGCS0
 export AUTH_HC_MINER_KEY=7036b29cb5e235e5fd9b09ae3e8eec4404e44906814d5d01cbca968a60ed4bfb01
@@ -91,7 +105,8 @@ export HYPERCHAIN_URL="http://localhost:30443"
 Once the Stacks node and the hyperchain boots up (use the indicators in the top right panel to determine this), we can 
 start to interact with the chains. To begin with, we want to publish NFT contracts onto both the L1 and L2. When the user
 deposits their L1 NFT onto the hyperchain, their asset gets minted by the L2 NFT contract. 
-The publish script takes in two arguments: the layer on which to broadcast the transaction (1 or 2), and the nonce of the transaction.
+The publish script takes in four arguments: the name of the contract to be published, the filename for the contract 
+source code, the layer on which to broadcast the transaction (1 or 2), and the nonce of the transaction.
 First, publish the layer 1 contracts. You can enter this command (and the following transaction commands) in the same 
 terminal window as you entered the environment variables. Make sure you are in the `scripts` directory. 
 ```
@@ -125,8 +140,8 @@ Look for a log line similar to the following in the results:
 Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246, event_type: success, payload: SmartContract
 ```
 
-## Step 2: Register the new asset in the interface hyperchain contract
-Create the transaction to register the new asset. This is going to be called by a miner of the hyperchains contract.
+## Step 2: Register the new NFT asset in the interface hyperchain contract
+Create the transaction to register the new NFT asset we just published. This must be called by a miner of the hyperchains contract.
 Specifically, this transaction will be sent by `AUTH_HC_MINER_ADDR`. 
 ```
 node ./register_nft.js 0
@@ -186,14 +201,14 @@ contract `simple-nft-l2`. You can tweak the `transfer_nft.js` file to make this 
 Withdrawals from the hyperchain are a 2-step process. 
 
 The owner of an asset must call `withdraw-ft?` / `withdraw-stx?` / `withdraw-nft?` in a Clarity contract on the hyperchain,
-which destroys those assets on the hyperchain, and adds that particular withdrawal to a withdrawal Merkle tree for that block.
-The withdrawal Merkle tree serves as a cryptographic record of the withdrawals in a particular block. The root of this
-Merkle tree is committed to the L1 interface contract via the `commit-block` function.
+which destroys those assets on the hyperchain, and adds that particular withdrawal to a withdrawal data structure for that block.
+The withdrawal data structure serves as a cryptographic record of the withdrawals in a particular block, and has an 
+overall associated hash. This hash is committed to the L1 interface contract via the `commit-block` function.
 
 The second step involves calling the appropriate withdraw function in the hyperchains interface 
 contract on the L1 chain. You must also pass in the "proof" that corresponds to your withdrawal. 
-This proof includes the root hash of the withdrawal Merkle tree that this withdrawal was included in, 
-the leaf hash of the withdrawal itself, and a list of hashes to be used to prove that the leaf is valid. Currently, 
+This proof includes the hash of the withdrawal data structure that this withdrawal was included in, 
+the hash of the withdrawal itself, and a list of hashes to be used to prove that the particular withdrawal is valid. Currently, 
 this function must be called by a hyperchain miner, but in an upcoming hyperchain release, the asset owner must call 
 this function. 
 

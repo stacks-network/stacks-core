@@ -1,9 +1,9 @@
 {
+  "type": "module",
   "dependencies": {
     "@stacks/network": "^4.3.2",
     "@stacks/transactions": "^4.3.3"
   },
-  "type": "module",
   "name": "use-case-module",
   "version": "1.0.0",
   "author": "Hiro PBC",
