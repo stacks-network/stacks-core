@@ -31,7 +31,7 @@ pub mod contexts;
 pub mod database;
 pub mod representations;
 
-mod callables;
+pub mod callables;
 pub mod functions;
 pub mod variables;
 
@@ -48,6 +48,8 @@ pub mod tests;
 pub mod test_util;
 
 pub mod clarity;
+
+use serde_json;
 
 // publish the non-generic StacksEpoch form for use throughout module
 use crate::types::StacksEpochId;
@@ -96,8 +98,8 @@ pub struct ExecutionResult {
         ContractAST,
         ContractAnalysis,
     )>,
-    pub result: Option<types::Value>,
-    pub events: Vec<Value>,
+    pub result: Option<Value>,
+    pub events: Vec<serde_json::Value>,
     pub cost: Option<CostSynthesis>,
     pub diagnostics: Vec<Diagnostic>,
 }

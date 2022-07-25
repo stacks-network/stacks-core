@@ -62,6 +62,10 @@ impl AssetIdentifier {
             asset_name: ClarityName::try_from("BURNED".to_string()).unwrap(),
         }
     }
+
+    pub fn sugared(&self) -> String {
+        format!(".{}.{}", self.contract_identifier.name, self.asset_name)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

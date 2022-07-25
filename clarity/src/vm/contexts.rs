@@ -203,7 +203,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
     /// This is the epoch of the the block that this transaction is executing within.
-    epoch_id: StacksEpochId,
+    pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,

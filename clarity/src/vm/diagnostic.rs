@@ -34,7 +34,7 @@ pub trait DiagnosableError {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Diagnostic {
     pub level: Level,
     pub message: String,

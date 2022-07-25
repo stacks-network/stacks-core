@@ -181,6 +181,7 @@ pub enum CheckErrors {
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly,
+    CircularContractDependency(String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -429,6 +430,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
             CheckErrors::CouldNotDetermineSerializationType => format!("could not determine the input type for the serialization function"),
+            CheckErrors::CircularContractDependency(contracts) => format!("circular dependency between contracts: {}", contracts),
         }
     }
 

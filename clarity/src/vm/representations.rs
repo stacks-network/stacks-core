@@ -20,6 +20,7 @@ use regex::Regex;
 use stacks_common::codec::Error as codec_error;
 use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 use std::borrow::Borrow;
+use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
@@ -573,7 +574,7 @@ impl fmt::Display for SymbolicExpression {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,

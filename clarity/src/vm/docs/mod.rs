@@ -32,20 +32,20 @@ struct ReferenceAPIs {
 
 #[derive(Serialize, Clone)]
 pub struct KeywordAPI {
-    name: &'static str,
-    output_type: &'static str,
-    description: &'static str,
-    example: &'static str,
+    pub name: &'static str,
+    pub output_type: &'static str,
+    pub description: &'static str,
+    pub example: &'static str,
 }
 
 #[derive(Serialize)]
 pub struct FunctionAPI {
-    name: String,
-    input_type: String,
-    output_type: String,
-    signature: String,
-    description: String,
-    example: String,
+    pub name: String,
+    pub input_type: String,
+    pub output_type: String,
+    pub signature: String,
+    pub description: String,
+    pub example: String,
 }
 
 struct SimpleFunctionAPI {
