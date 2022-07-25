@@ -767,7 +767,7 @@ simulating a miner.
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
-        for i in 0..2 {
+        for i in 0..1 {
             let result = StacksBlockBuilder::build_anchored_block(
                 &chain_state,
                 &sort_db.index_conn(),

@@ -21,6 +21,7 @@ use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
@@ -132,8 +133,11 @@ pub trait MarfConnection<T: MarfTrieId> {
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     fn get(&mut self, block_hash: &T, key: &str) -> Result<Option<MARFValue>, Error> {
-        info!("MarfConnection::get({:?}, '{}')", block_hash, key);
-        self.with_conn(|c| MARF::get_by_key(c, block_hash, key))
+        let start_time = Instant::now();
+        let r = self.with_conn(|c| MARF::get_by_key(c, block_hash, key));
+        let delta = Instant::now() - start_time;
+        info!("MarfConnection::get({:?}, key='{}', time_cost={:?})", block_hash, key, &delta);
+        r
     }
 
     fn get_with_proof(

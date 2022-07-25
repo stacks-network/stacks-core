@@ -530,6 +530,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "backtrace",
  "integer-sqrt",
  "lazy_static",
  "rand 0.7.3",

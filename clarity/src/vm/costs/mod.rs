@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
-
+// use backtrace::Backtrace;
 use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
@@ -864,7 +864,9 @@ fn compute_cost(
 }
 
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    let bt = backtrace::Backtrace::new();
     info!("add_cost: cost [{:?}]", &cost);
+    // info!("add_cost: bt [{:?}]", &bt);
     s.total.add(&cost)?;
     if s.total.exceeds(&s.limit) {
         Err(CostErrors::CostBalanceExceeded(
