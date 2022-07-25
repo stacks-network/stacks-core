@@ -2658,13 +2658,23 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
             Some(id) => {
                 self.bench.read_nodetype_start();
                 let (node_inst, node_hash) = if read_hash {
+                    // Note: This is an important node read.
                     if let Some((node_inst, node_hash)) =
                         self.cache.load_node_and_hash(id, &clear_ptr)
                     {
                         (node_inst, node_hash)
                     } else {
+                        // Note: This is the cost of a cache miss.
+                        let start_time = Instant::now();
+
                         let (node_inst, node_hash) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
+                        let end_time = Instant::now();
+                        let delta = end_time - start_time;
+                        info!(
+                            "read_nodetype_maybe_hash: result=miss, id={}, time_cost={:?}",
+                            id, delta
+                        );
                         self.cache.store_node_and_hash(
                             id,
                             clear_ptr.clone(),
@@ -2677,8 +2687,16 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
                     } else {
+                        let start_time = Instant::now();
+
                         let (node_inst, _) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
+                        let end_time = Instant::now();
+                        let delta = end_time - start_time;
+                        info!(
+                            "read_nodetype_maybe_hash: result=miss, id={}, time_cost={:?}",
+                            id, delta
+                        );
                         self.cache
                             .store_node(id, clear_ptr.clone(), node_inst.clone());
                         (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
