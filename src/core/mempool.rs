@@ -106,6 +106,7 @@ pub const BLOOM_COUNTER_DEPTH: usize = 2;
 // how long will a transaction be blacklisted?
 // about as long as it takes for it to be garbage-collected
 pub const DEFAULT_BLACKLIST_TIMEOUT: u64 = 24 * 60 * 60 * 2;
+pub const DEFAULT_BLACKLIST_MAX_SIZE: u64 = 134217728; // 2**27 -- the blacklist table can reach at most 4GB at 128 bytes per record
 
 // maximum many tx tags we'll send before sending a bloom filter instead.
 // The parameter choice here is due to performance -- calculating a tag set can be slower than just
@@ -431,6 +432,30 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     );
     "#,
     r#"
+    -- Count the number of entries in the blacklist
+    CREATE TABLE IF NOT EXISTS tx_blacklist_size(
+        size INTEGER NOT NULL
+    );
+    "#,
+    r#"
+    -- Maintain a count of the size of the blacklist
+    CREATE TRIGGER IF NOT EXISTS tx_blacklist_size_inc
+    AFTER INSERT ON tx_blacklist
+    BEGIN
+        UPDATE tx_blacklist_size SET size = size + 1;
+    END
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS tx_blacklist_size_dec
+    AFTER DELETE ON tx_blacklist
+    BEGIN
+        UPDATE tx_blacklist_size SET size = size - 1;
+    END
+    "#,
+    r#"
+    INSERT INTO tx_blacklist_size (size) VALUES (0)
+    "#,
+    r#"
     INSERT INTO schema_version (version) VALUES (4)
     "#,
 ];
@@ -458,6 +483,7 @@ pub struct MemPoolDB {
     cost_estimator: Box<dyn CostEstimator>,
     metric: Box<dyn CostMetric>,
     pub blacklist_timeout: u64,
+    pub blacklist_max_size: u64,
 }
 
 pub struct MemPoolTx<'a> {
@@ -851,6 +877,7 @@ impl MemPoolDB {
             cost_estimator,
             metric,
             blacklist_timeout: DEFAULT_BLACKLIST_TIMEOUT,
+            blacklist_max_size: DEFAULT_BLACKLIST_MAX_SIZE,
         })
     }
 
@@ -1719,10 +1746,29 @@ impl MemPoolDB {
         tx: &DBTx<'a>,
         now: u64,
         timeout: u64,
+        max_size: u64,
     ) -> Result<(), db_error> {
         let sql = "DELETE FROM tx_blacklist WHERE arrival_time + ?1 < ?2";
         let args: &[&dyn ToSql] = &[&u64_to_sql(timeout)?, &u64_to_sql(now)?];
         tx.execute(sql, args)?;
+
+        // if we get too big, then drop some txs at random
+        let sql = "SELECT size FROM tx_blacklist_size";
+        let sz = query_int(tx, sql, NO_PARAMS)? as u64;
+        if sz > max_size {
+            let to_delete = sz - max_size;
+            let txids: Vec<Txid> = query_rows(
+                tx,
+                "SELECT txid FROM tx_blacklist ORDER BY RANDOM() LIMIT ?1",
+                &[&u64_to_sql(to_delete)? as &dyn ToSql],
+            )?;
+            for txid in txids.into_iter() {
+                tx.execute(
+                    "DELETE FROM tx_blacklist WHERE txid = ?1",
+                    &[&txid as &dyn ToSql],
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -1786,11 +1832,17 @@ impl MemPoolDB {
     pub fn drop_and_blacklist_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
         let now = get_epoch_time_secs();
         let blacklist_timeout = self.blacklist_timeout;
+        let blacklist_max_size = self.blacklist_max_size;
 
         let mempool_tx = self.tx_begin()?;
         MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
         MemPoolDB::inner_blacklist_txs(&mempool_tx, txids, now)?;
-        MemPoolDB::garbage_collect_tx_blacklist(&mempool_tx, now, blacklist_timeout)?;
+        MemPoolDB::garbage_collect_tx_blacklist(
+            &mempool_tx,
+            now,
+            blacklist_timeout,
+            blacklist_max_size,
+        )?;
         mempool_tx.commit()?;
 
         Ok(())
