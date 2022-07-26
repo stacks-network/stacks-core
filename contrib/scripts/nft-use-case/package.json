@@ -1,0 +1,12 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@stacks/network": "^4.3.2",
+    "@stacks/transactions": "^4.3.3"
+  },
+  "name": "use-case-module",
+  "version": "1.0.0",
+  "author": "Hiro PBC",
+  "license": "ISC",
+  "description": "Package for running NFT use case"
+}
