@@ -1969,7 +1969,7 @@ impl StacksBlockBuilder {
 
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
-        let mut considered = HashSet::new(); // txids of all transactions we looked at
+        // let mut considered = HashSet::new(); // txids of all transactions we looked at
         let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
         let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
 
@@ -1993,114 +1993,9 @@ impl StacksBlockBuilder {
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
                         let candidate_start= Instant::now();
-                        let txinfo = &to_consider.tx;
-                        let update_estimator = to_consider.update_estimate;
-
-                        if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                            return Ok(false);
-                        }
-                        if get_epoch_time_ms() >= deadline {
-                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
-                            return Ok(false);
-                        }
-
-                        // skip transactions early if we can
-                        if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(true);
-                        }
-
-                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
-                            if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(true);
-                            }
-                        }
-                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
-                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
-                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
-                                    if *nonce >= sponsor_nonce {
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                        }
-
-                        considered.insert(txinfo.tx.txid());
-                        num_considered += 1;
-
-                        let tx_result = builder.try_mine_tx_with_len(
-                            epoch_tx,
-                            &txinfo.tx,
-                            txinfo.metadata.len,
-                            &block_limit_hit,
-                        );
-                        tx_events.push(tx_result.convert_to_event());
-
-                        match tx_result {
-                            TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
-                                num_txs += 1;
-                                if update_estimator {
-                                    if let Err(e) = estimator.notify_event(
-                                        &txinfo.tx.payload,
-                                        &receipt.execution_cost,
-                                        &block_limit,
-                                        &stacks_epoch_id,
-                                    ) {
-                                        warn!("Error updating estimator";
-                                              "txid" => %txinfo.metadata.txid,
-                                              "error" => ?e);
-                                    }
-                                }
-                                mined_origin_nonces.insert(
-                                    txinfo.tx.origin_address(),
-                                    txinfo.tx.get_origin_nonce(),
-                                );
-                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
-                                    (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
-                                {
-                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
-                                }
-                            }
-                            TransactionResult::Skipped(TransactionSkipped { error, .. })
-                            | TransactionResult::ProcessingError(TransactionError {
-                                error, ..
-                            }) => {
-                                match &error {
-                                    Error::StacksTransactionSkipped(_) => {}
-                                    Error::BlockTooBigError => {
-                                        // done mining -- our execution budget is exceeded.
-                                        // Make the block from the transactions we did manage to get
-                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            debug!("Switch to mining stx-transfers only");
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(false);
-                                        }
-                                    }
-                                    Error::TransactionTooBigError => {
-                                        invalidated_txs.push(txinfo.metadata.txid);
-                                    }
-                                    Error::InvalidStacksTransaction(_, true) => {
-                                        // if we have an invalid transaction that was quietly ignored, don't warn here either
-                                    }
-                                    e => {
-                                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                                        return Ok(true);
-                                    }
-                                }
-                            }
-                        }
-
                         let candidate_end= Instant::now();
                         let delta = candidate_end - candidate_start;
-                        info!("candidate delta tx [{:?}] time_cost={:?}", &txinfo.tx, &delta);
+                        info!("candidate delta id={:?} time_cost={:?}",to_consider.tx.tx.txid(), &delta);
                         Ok(true)
                     },
                 );
@@ -2113,7 +2008,7 @@ impl StacksBlockBuilder {
                     break;
                 }
             }
-            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            // debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
             intermediate_result
         };
 
