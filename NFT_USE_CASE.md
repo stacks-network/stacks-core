@@ -102,13 +102,14 @@ export HYPERCHAIN_URL="http://localhost:30443"
 ```
 
 ## Step 1: Publish the NFT contract to the Stacks L1 and the Hyperchain
-Once the Stacks node and the hyperchain boots up (use the indicators in the top right panel to determine this), we can 
+Once the Stacks node and the hyperchain node boots up (use the indicators in the top right panel to determine this), we can 
 start to interact with the chains. To begin with, we want to publish NFT contracts onto both the L1 and L2. When the user
 deposits their L1 NFT onto the hyperchain, their asset gets minted by the L2 NFT contract. 
 The publish script takes in four arguments: the name of the contract to be published, the filename for the contract 
 source code, the layer on which to broadcast the transaction (1 or 2), and the nonce of the transaction.
 First, publish the layer 1 contracts. You can enter this command (and the following transaction commands) in the same 
 terminal window as you entered the environment variables. Make sure you are in the `scripts` directory. 
+These transactions are called by the principal `USER_ADDR`.
 ```
 node ./publish_tx.js trait-standards ../contracts/trait-standards.clar 1 0 
 node ./publish_tx.js simple-nft-l1 ../contracts/simple-nft.clar 1 1
@@ -123,12 +124,13 @@ For the layer 1 contracts, you should see the following in the "transactions" re
 
 Then, publish the layer 2 contracts. Note, it might take a minute for the hyperchain node to start accepting transactions, 
 so these commands could fail if you send them too early (but you can always re-try when the node is ready).
+These transactions are called by the principal `USER_ADDR`.
 ```
 node ./publish_tx.js trait-standards ../contracts-l2/trait-standards.clar 2 0 
 node ./publish_tx.js simple-nft-l2 ../contracts-l2/simple-nft-l2.clar 2 1 
 ```
 
-To verify that the layer 2 contracts were successfully published, grep the hyperchains log for the transaction IDs 
+To verify that the layer 2 transactions were processed, grep the hyperchains log for the transaction IDs 
 of *each* hyperchain transaction.
 The transaction ID is logged to the console after the call to `publish_tx` - make sure this is the ID you grep for.
 ```
@@ -138,6 +140,12 @@ docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "17901e5ad0587d414d5
 Look for a log line similar to the following in the results:
 ```
 Jul 19 12:34:41.683519 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 17901e5ad0587d414d5bb7b1c24c3d17bb1533f5025d154719ba1a2a0f570246, event_type: success, payload: SmartContract
+```
+
+To ensure the contracts were successfully parsed and published, we will grep for the name of the contract and ensure there are no 
+error lines returned (not atypical for no lines to be returned at this step).
+```
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "simple-nft-l2"
 ```
 
 ## Step 2: Register the new NFT asset in the interface hyperchain contract
@@ -167,10 +175,11 @@ function is called by the principal `USER_ADDR`.
 node ./deposit_nft.js 3
 ```
 Verify that the transaction is acknowledged in the next few blocks of the L1 chain. 
-After the transaction is confirmed on the L1, you also may want to verify that the asset was successfully deposited 
+After the transaction is confirmed in an anchored block on the L1 (this means it is included in an explicitly
+numbered block in the Clarinet console), you also may want to verify that the asset was successfully deposited 
 on the hyperchain by grepping for the deposit transaction ID. 
 ```
-docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "67cfd6220ed01c3aca3912c8f1ff55d374e5b3acadb3b995836ae913108e0514"
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "8d042c14323cfd9d31e121cc48c2c641a8db01dce19a0f6dd531eb33689dff44"
 ```
 Look for a line like:
 ```
@@ -179,13 +188,14 @@ Jul 19 12:51:02.396923 INFO ACCEPTED burnchain operation (ThreadId(8), src/chain
 
 ## Step 5: Transfer the NFT within the Hyperchain 
 On the hyperchains, the NFT should belong to the principal that sent the deposit transaction, `USER_ADDR`. 
-This principal can now transfer the NFT within the hyperchain. Let's transfer the NFT to `ALT_USER_ADDR`. 
+This principal can now transfer the NFT within the hyperchain. The principal `USER_ADDR` will now make a 
+transaction to transfer the NFT to `ALT_USER_ADDR`. 
 ```
 node ./transfer_nft.js 2
 ```
 Grep for the transaction ID of the transfer transaction. 
 ```
-docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "74949992488b2519e2d8408169f242c86a6cdacd927638bd4604b3b8d48ea187"
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "6acc2c756ddaed2c4cfb7351dd5930aa93ba923504be85e47db056c99a7e81aa"
 ```
 
 Look for something like the following line:
@@ -220,7 +230,7 @@ node ./withdraw_nft_l2.js 0
 ```
 Grep the hyperchain node to ensure success:
 ```
-docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "3ff9b9b0f33dbd6087f302fa9a7a113466cf7700ba7785a741b391f5ec7c5ba4"
+docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "5b5407ab074b4d78539133fe72020b18d44535a586574d0bd1f668e05dc89c2f"
 Jul 19 13:07:33.804109 INFO Tx successfully processed. (ThreadId(9), src/chainstate/stacks/miner.rs:235), event_name: transaction_result, tx_id: 3ff9b9b0f33dbd6087f302fa9a7a113466cf7700ba7785a741b391f5ec7c5ba4, event_type: success, payload: ContractCall
 
 docker logs hyperchain-node.nft-use-case.devnet 2>&1 | grep "withdraw-nft-asset"
