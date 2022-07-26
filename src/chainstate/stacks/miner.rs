@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::convert::From;
 use std::fs;
 use std::mem;
+use std::time::Instant;
 
 use crate::burnchains::PrivateKey;
 use crate::burnchains::PublicKey;
@@ -1991,6 +1992,7 @@ impl StacksBlockBuilder {
                     tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
+                        let candidate_start= Instant::now();
                         let txinfo = &to_consider.tx;
                         let update_estimator = to_consider.update_estimate;
 
@@ -2096,6 +2098,9 @@ impl StacksBlockBuilder {
                             }
                         }
 
+                        let candidate_end= Instant::now();
+                        let delta = candidate_end - candidate_start;
+                        info!("candidate delta {:?}", &delta);
                         Ok(true)
                     },
                 );

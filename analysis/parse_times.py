@@ -10,6 +10,7 @@ c_vector = []
 matching = 0
 for line in lines:
     if 'MarfConnection::get' not in line:
+    # if 'MARF::get_by_key' not in line:
         continue
     matching += 1
 

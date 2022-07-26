@@ -92,6 +92,7 @@ use blockstack_lib::{
     util_lib::db::sqlite_open,
 };
 use std::collections::HashSet;
+use std::time::Instant;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -768,6 +769,7 @@ simulating a miner.
         settings.mempool_settings.min_tx_fee = min_fee;
 
         for i in 0..1 {
+            let build_start = Instant::now();
             let result = StacksBlockBuilder::build_anchored_block(
                 &chain_state,
                 &sort_db.index_conn(),
@@ -781,6 +783,9 @@ simulating a miner.
                 None,
             );
 
+            let build_end = Instant::now();
+            let delta = build_end - build_start;
+            info!("build_anchored_block delta: {:?}", &delta);
             let stop = get_epoch_time_ms();
 
             info!("round {} finishes with: {:?}", i, &result);
