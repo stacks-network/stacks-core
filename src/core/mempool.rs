@@ -1031,6 +1031,10 @@ impl MemPoolDB {
         let mut rng = rand::thread_rng();
         let mut remember_start_with_estimate = None;
 
+        let mut last_time = Instant::now();
+        let mut total_outside_time = last_time - last_time;
+        let mut total_inside_time = last_time - last_time;
+
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 debug!("Mempool iteration deadline exceeded";
@@ -1079,7 +1083,15 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                    let outside_delta = Instant::now() - last_time;
+                    total_outside_time += outside_delta;
+                    last_time = Instant::now();
+                    let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+                    let inside_delta = Instant::now() - last_time;
+                    total_inside_time += inside_delta;
+                    last_time = Instant::now();
+
+                    if !inside_result? {
                         debug!("Mempool iteration early exit from iterator");
                         break;
                     }
@@ -1092,6 +1104,8 @@ impl MemPoolDB {
             }
         }
 
+        total_outside_time += last_time - Instant::now();
+        info!("total_inside_time: {:?} total_outside_time: {:?}", &total_inside_time, &total_outside_time);
         debug!(
             "Mempool iteration finished";
             "considered_txs" => total_considered,
