@@ -1,0 +1,3 @@
+cargo build --bin stacks-inspect --release && target/release/stacks-inspect try-mine /home/greg/spaces 2> /log/try-mine
+
+cargo build --bin stacks-inspect --release && target/release/stacks-inspect try-mine /home/greg/spaces /home/greg/hackathon/data/id_list.clean.txt
