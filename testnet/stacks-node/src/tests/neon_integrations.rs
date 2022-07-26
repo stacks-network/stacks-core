@@ -3866,7 +3866,7 @@ fn cost_voting_integration() {
 
 #[test]
 #[ignore]
-fn mining_events_integration_test_FLAKY_TEST_FIX_ME() {
+fn mining_events_integration_test_BROKEN() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -4603,7 +4603,7 @@ fn block_large_tx_integration_test() {
 
 #[test]
 #[ignore]
-fn microblock_large_tx_integration_test_FLAKY_TEST_FIX_ME() {
+fn microblock_large_tx_integration_test_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
