@@ -21,8 +21,8 @@ use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
-    Error as coord_error,
+    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, ChainsCoordinatorConfig,
+    CoordinatorCommunication, Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
@@ -455,7 +455,12 @@ impl RunLoop {
                 let mut cost_estimator = moved_config.make_cost_estimator();
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
+                let coord_config = ChainsCoordinatorConfig {
+                    always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
+                    ..ChainsCoordinatorConfig::new()
+                };
                 ChainsCoordinator::run(
+                    coord_config,
                     chain_state_db,
                     moved_burnchain_config,
                     attachments_tx,
