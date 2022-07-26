@@ -1009,7 +1009,7 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         path: &TriePath,
     ) -> Result<Option<TrieLeaf>, Error> {
-        trace!("MARF::get_path({:?}) {:?}", block_hash, path);
+        info!("MARF::get_path({:?}) {:?}", block_hash, path);
 
         // a NotFoundError _here_ means that a block didn't exist
         storage.open_block(block_hash).map_err(|e| {
@@ -1145,6 +1145,7 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
+        info!("MARF::get_by_key");
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
