@@ -2100,7 +2100,7 @@ impl StacksBlockBuilder {
 
                         let candidate_end= Instant::now();
                         let delta = candidate_end - candidate_start;
-                        info!("candidate delta {:?}", &delta);
+                        info!("candidate delta tx [{:?}] time_cost={:?}", &txinfo.tx, &delta);
                         Ok(true)
                     },
                 );
