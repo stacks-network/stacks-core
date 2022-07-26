@@ -450,6 +450,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'a, T,
             notifier: (),
             attachments_tx,
             atlas_config: AtlasConfig::default(false),
+            config: ChainsCoordinatorConfig::new(),
         }
     }
 }
