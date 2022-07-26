@@ -161,6 +161,20 @@ pub trait BlockEventDispatcher {
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
 }
 
+pub struct ChainsCoordinatorConfig {
+    /// true: use affirmation maps before 2.1
+    /// false: only use affirmation maps in 2.1 or later
+    pub always_use_affirmation_maps: bool,
+}
+
+impl ChainsCoordinatorConfig {
+    pub fn new() -> ChainsCoordinatorConfig {
+        ChainsCoordinatorConfig {
+            always_use_affirmation_maps: false,
+        }
+    }
+}
+
 pub struct ChainsCoordinator<
     'a,
     T: BlockEventDispatcher,
@@ -184,6 +198,7 @@ pub struct ChainsCoordinator<
     reward_set_provider: R,
     notifier: N,
     atlas_config: AtlasConfig,
+    config: ChainsCoordinatorConfig,
 }
 
 #[derive(Debug)]
@@ -196,6 +211,7 @@ pub enum Error {
     FailedToProcessSortition(BurnchainError),
     DBError(DBError),
     NotPrepareEndBlock,
+    NotPoXAnchorBlock,
 }
 
 impl From<BurnchainError> for Error {
@@ -279,6 +295,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
     ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE>
 {
     pub fn run(
+        config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
         attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
@@ -332,6 +349,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             cost_estimator,
             fee_estimator,
             atlas_config,
+            config,
         };
 
         loop {
@@ -696,7 +714,7 @@ impl<
             &self.burnchain,
         )?;
         debug!(
-            "Heaviest anchor block affirmation map is {} at height {}, current is {:?}",
+            "Heaviest anchor block affirmation map is `{}` at height {}, current is {:?}",
             &heaviest_am,
             canonical_burnchain_tip.block_height,
             &self.heaviest_anchor_block_affirmation_map
@@ -1165,7 +1183,6 @@ impl<
             self.burnchain_blocks_db.conn(),
             &self.burnchain,
             |anchor_block_commit, anchor_block_metadata| {
-                // TODO: check IBD status (issue #2474)
                 self.has_unaffirmed_pox_anchor_block(anchor_block_commit, anchor_block_metadata)
             },
         )
@@ -1197,10 +1214,9 @@ impl<
         // We halt the ancestry research as soon as we find a processed parent
         let mut last_processed_ancestor = loop {
             if let Some(found_sortition) = self.sortition_db.is_sortition_processed(&cursor)? {
-                test_debug!(
+                debug!(
                     "Ancestor sortition {} of block {} is processed",
-                    &found_sortition,
-                    &cursor
+                    &found_sortition, &cursor
                 );
                 break found_sortition;
             }
@@ -1267,10 +1283,13 @@ impl<
                             header.block_height
                         ));
 
-                if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
+                if cur_epoch.epoch_id >= StacksEpochId::Epoch21
+                    || self.config.always_use_affirmation_maps
+                {
                     // potentially have an anchor block, but only process the next reward cycle (and
                     // subsequent reward cycles) with it if the prepare-phase block-commits affirm its
-                    // presence.  This only gets checked in Stacks 2.1 or later.
+                    // presence.  This only gets checked in Stacks 2.1 or later (unless overridden
+                    // in the config)
 
                     // NOTE: this mutates rc_info
                     if let Some(missing_anchor_block) = self
@@ -1528,20 +1547,72 @@ impl<
         Ok(())
     }
 
+    /// Verify that a PoX anchor block candidate is affirmed by the network.
+    /// Returns Ok(Some(pox_anchor)) if so.
+    /// Returns Ok(None) if not.
+    /// Returns Err(Error::NotPoXAnchorBlock) if this block got F*w confirmations but is not the
+    /// heaviest-confirmed burnchain block.
+    fn check_pox_anchor_affirmation(
+        &mut self,
+        pox_anchor: BlockHeaderHash,
+        winner_snapshot: &BlockSnapshot,
+    ) -> Result<Option<BlockHeaderHash>, Error> {
+        if BurnchainDB::is_anchor_block(
+            self.burnchain_blocks_db.conn(),
+            &winner_snapshot.burn_header_hash,
+            &winner_snapshot.winning_block_txid,
+        )? {
+            // affirmed?
+            let canonical_am = self.get_canonical_affirmation_map()?;
+
+            let commit = BurnchainDB::get_block_commit(
+                self.burnchain_blocks_db.conn(),
+                &winner_snapshot.winning_block_txid,
+            )?
+            .expect("BUG: no commit metadata in DB for existing commit");
+
+            let reward_cycle = self
+                .burnchain
+                .block_height_to_reward_cycle(commit.block_height)
+                .expect(
+                    "BUG: accepted block commit has a block height before the first reward cycle",
+                );
+
+            if canonical_am
+                .at(reward_cycle)
+                .unwrap_or(&AffirmationMapEntry::PoxAnchorBlockAbsent)
+                == &AffirmationMapEntry::PoxAnchorBlockPresent
+            {
+                // yup, we're expecting this
+                info!("Discovered an old anchor block: {}", &pox_anchor);
+                return Ok(Some(pox_anchor));
+            } else {
+                // nope -- can ignore
+                debug!("Discovered unaffirmed old anchor block: {}", &pox_anchor);
+                return Ok(None);
+            }
+        } else {
+            debug!("Stacks block {} received F*w confirmations but is not the heaviest-confirmed burnchain block, so treating as non-anchor block", &pox_anchor);
+            return Err(Error::NotPoXAnchorBlock);
+        }
+    }
+
     ///
     /// Process any ready staging blocks until there are either:
     ///   * there are no more to process
     ///   * a PoX anchor block is processed which invalidates the current PoX fork
     ///
-    /// Returns Some(StacksBlockId) if such an anchor block is discovered,
+    /// Returns Some(BlockHeaderHash) if such an anchor block is discovered,
     ///   otherwise returns None
     ///
     fn process_ready_blocks(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
-        let canonical_sortition_tip = self.canonical_sortition_tip.as_ref().expect(
+        let canonical_sortition_tip = self.canonical_sortition_tip.clone().expect(
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
         );
 
-        let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+        let sortdb_handle = self
+            .sortition_db
+            .tx_handle_begin(&canonical_sortition_tip)?;
         let mut processed_blocks =
             self.chain_state_db
                 .process_blocks(sortdb_handle, 1, self.dispatcher)?;
@@ -1553,17 +1624,17 @@ impl<
                 //  TODO: we should update the staging block logic to prevent
                 //    blocks like these from getting processed at all.
                 let in_sortition_set = self.sortition_db.is_stacks_block_in_sortition_set(
-                    canonical_sortition_tip,
+                    &canonical_sortition_tip,
                     &block_receipt.header.anchored_header.block_hash(),
                 )?;
                 if in_sortition_set {
                     let new_canonical_block_snapshot = SortitionDB::get_block_snapshot(
                         self.sortition_db.conn(),
-                        canonical_sortition_tip,
+                        &canonical_sortition_tip,
                     )?
                     .expect(&format!(
                         "FAIL: could not find data for the canonical sortition {}",
-                        canonical_sortition_tip
+                        &canonical_sortition_tip
                     ));
                     let new_canonical_stacks_block =
                         new_canonical_block_snapshot.get_canonical_stacks_block_id();
@@ -1580,7 +1651,7 @@ impl<
                     let block_hash = block_receipt.header.anchored_header.block_hash();
                     let winner_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                         &self.sortition_db.index_conn(),
-                        canonical_sortition_tip,
+                        &canonical_sortition_tip,
                         &block_hash,
                     )
                     .expect("FAIL: could not find block snapshot for winning block hash")
@@ -1623,7 +1694,7 @@ impl<
                     // network?
                     if let Some(pox_anchor) = self
                         .sortition_db
-                        .is_stacks_block_pox_anchor(&block_hash, canonical_sortition_tip)?
+                        .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)?
                     {
                         // what epoch is this block in?
                         let cur_epoch = SortitionDB::get_stacks_epoch(
@@ -1640,52 +1711,61 @@ impl<
                                 panic!("BUG: Snapshot predates Stacks 2.0");
                             }
                             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                                // 2.0/2.05 behavior: only consult the sortition DB
-                                // if, just after processing the block, we _know_ that this block is a pox anchor, that means
-                                //   that sortitions have already begun processing that didn't know about this pox anchor.
-                                //   we need to trigger an unwind
-                                info!("Discovered an old anchor block: {}", &pox_anchor);
-                                return Ok(Some(pox_anchor));
+                                if self.config.always_use_affirmation_maps {
+                                    // use affirmation maps even if they're not supported yet.
+                                    // if the chain is healthy, this won't cause a chain split.
+                                    match self
+                                        .check_pox_anchor_affirmation(pox_anchor, &winner_snapshot)
+                                    {
+                                        Ok(Some(pox_anchor)) => {
+                                            // yup, affirmed. unwind the sortition history at this
+                                            // block
+                                            return Ok(Some(pox_anchor));
+                                        }
+                                        Ok(None) => {
+                                            // unaffirmed old anchor block, so no rewind is needed.
+                                            return Ok(None);
+                                        }
+                                        Err(Error::NotPoXAnchorBlock) => {
+                                            panic!("FATAL: found Stacks block that 2.0/2.05 rules would treat as an anchor block, but that 2.1+ would not");
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to check PoX affirmation: {:?}", &e);
+                                            return Err(e);
+                                        }
+                                    }
+                                } else {
+                                    // 2.0/2.05 behavior: only consult the sortition DB
+                                    // if, just after processing the block, we _know_ that this block is a pox anchor, that means
+                                    //   that sortitions have already begun processing that didn't know about this pox anchor.
+                                    //   we need to trigger an unwind
+                                    info!("Discovered an old anchor block: {}", &pox_anchor);
+                                    return Ok(Some(pox_anchor));
+                                }
                             }
                             StacksEpochId::Epoch21 => {
                                 // 2.1 behavior: the anchor block must also be the
                                 // heaviest-confirmed anchor block by BTC weight, and the highest
                                 // such anchor block if there are multiple contenders.
-                                if BurnchainDB::is_anchor_block(
-                                    self.burnchain_blocks_db.conn(),
-                                    &winner_snapshot.burn_header_hash,
-                                    &winner_snapshot.winning_block_txid,
-                                )? {
-                                    // affirmed?
-                                    let canonical_am = self.get_canonical_affirmation_map()?;
-
-                                    let commit = BurnchainDB::get_block_commit(
-                                        self.burnchain_blocks_db.conn(),
-                                        &winner_snapshot.winning_block_txid,
-                                    )?
-                                    .expect("BUG: no commit metadata in DB for existing commit");
-
-                                    let reward_cycle = self.burnchain.block_height_to_reward_cycle(commit.block_height)
-                                        .expect("BUG: accepted block commit has a block height before the first reward cycle");
-
-                                    if canonical_am
-                                        .at(reward_cycle)
-                                        .unwrap_or(&AffirmationMapEntry::PoxAnchorBlockAbsent)
-                                        == &AffirmationMapEntry::PoxAnchorBlockPresent
-                                    {
-                                        // yup, we're expecting this
-                                        info!("Discovered an old anchor block: {}", &pox_anchor);
+                                match self
+                                    .check_pox_anchor_affirmation(pox_anchor, &winner_snapshot)
+                                {
+                                    Ok(Some(pox_anchor)) => {
+                                        // yup, affirmed. unwind the sortition history at this
+                                        // block
                                         return Ok(Some(pox_anchor));
-                                    } else {
-                                        // nope -- can ignore
-                                        debug!(
-                                            "Discovered unaffirmed old anchor block: {}",
-                                            &pox_anchor
-                                        );
+                                    }
+                                    Ok(None) => {
+                                        // unaffirmed old anchor block, so no rewind is needed.
                                         return Ok(None);
                                     }
-                                } else {
-                                    debug!("Stacks block {} received F*w confirmations but is not the heaviest-confirmed burnchain block, so treating as non-anchor block", &pox_anchor);
+                                    Err(Error::NotPoXAnchorBlock) => {
+                                        // keep going -- this actually isn't an anchor block
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to check PoX affirmation: {:?}", &e);
+                                        return Err(e);
+                                    }
                                 }
                             }
                         }
@@ -1694,7 +1774,9 @@ impl<
             }
             // TODO: do something with a poison result
 
-            let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
+            let sortdb_handle = self
+                .sortition_db
+                .tx_handle_begin(&canonical_sortition_tip)?;
             // Right before a block is set to processed, the event dispatcher will emit a new block event
             processed_blocks =
                 self.chain_state_db
