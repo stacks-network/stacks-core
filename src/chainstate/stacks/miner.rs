@@ -1981,6 +1981,7 @@ impl StacksBlockBuilder {
         let deadline = ts_start + (max_miner_time_ms as u128);
         let mut num_txs = 0;
 
+        
         debug!(
             "Anchored block transaction selection begins (child of {})",
             &parent_stacks_header.anchored_header.block_hash()
