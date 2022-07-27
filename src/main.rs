@@ -715,7 +715,7 @@ check if the associated microblocks can be downloaded
 
         let id_contents =
             fs::read_to_string(id_list_path).expect("Something went wrong reading the file");
-        let id_list = id_contents.split("\n").collect();
+        let id_list:Vec<&str> = id_contents.split("\n").collect();
         info!("id_list {:?}", &id_list);
         info!("id_contents {:?}", &id_contents);
         let start = get_epoch_time_ms();

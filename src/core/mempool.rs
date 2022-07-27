@@ -1028,81 +1028,115 @@ impl MemPoolDB {
 
         debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let tx_consideration_sampler = Uniform::new(0, 100);
+        // let tx_consideration_sampler = Uniform::new(0, 100);
         let mut rng = rand::thread_rng();
-        let mut remember_start_with_estimate = None;
+        // let mut remember_start_with_estimate = None;
 
         let mut last_time = Instant::now();
         let mut total_outside_time = last_time - last_time;
         let mut total_inside_time = last_time - last_time;
 
-        loop {
-            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                debug!("Mempool iteration deadline exceeded";
-                       "deadline_ms" => settings.max_walk_time_ms);
-                break;
-            }
+        for id in id_list {
+            info!("id {}", id);
+            let txid = Txid::from_hex(id).expect("Couldn't parse id");
+            let _tx_info = MemPoolDB::get_tx(&self.db, &txid).unwrap();
 
-            let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
-            });
+                    // // if we actually consider the chosen transaction,
+                    // //  compute a new start_with_no_estimate on the next loop
+                    // remember_start_with_estimate = None;
+                    // debug!("Consider mempool transaction";
+                    //        "txid" => %consider.tx.tx.txid(),
+                    //        "origin_addr" => %consider.tx.metadata.origin_address,
+                    //        "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+                    //        "accept_time" => consider.tx.metadata.accept_time,
+                    //        "tx_fee" => consider.tx.metadata.tx_fee,
+                    //        "size" => consider.tx.metadata.len);
+                    // total_considered += 1;
+                    //
+                    // let outside_delta = Instant::now() - last_time;
+                    // total_outside_time += outside_delta;
+                    // last_time = Instant::now();
+                    // let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+                    // let inside_delta = Instant::now() - last_time;
+                    // total_inside_time += inside_delta;
+                    // last_time = Instant::now();
+                    //
+                    // if !inside_result? {
+                    //     debug!("Mempool iteration early exit from iterator");
+                    //     break;
+                    // }
+                    //
+                    // self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
+                    // if consider.tx.tx.auth.is_sponsored() {
+                    //     self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
+                    // }
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
-                ConsiderTransactionResult::NoTransactions => {
-                    debug!("No more transactions to consider in mempool");
-                    break;
-                }
-                ConsiderTransactionResult::UpdateNonces(addresses) => {
-                    // if we need to update the nonce for the considered transaction,
-                    //  use the last value of start_with_no_estimate on the next loop
-                    remember_start_with_estimate = Some(start_with_no_estimate);
-                    let mut last_addr = None;
-                    for address in addresses.into_iter() {
-                        debug!("Update nonce"; "address" => %address);
-                        // do not recheck nonces if the sponsor == origin
-                        if last_addr.as_ref() == Some(&address) {
-                            continue;
-                        }
-                        let min_nonce =
-                            StacksChainState::get_account(clarity_tx, &address.clone().into())
-                                .nonce;
-
-                        self.update_last_known_nonces(&address, min_nonce)?;
-                        last_addr = Some(address)
-                    }
-                }
-                ConsiderTransactionResult::Consider(consider) => {
-                    // if we actually consider the chosen transaction,
-                    //  compute a new start_with_no_estimate on the next loop
-                    remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
-                           "txid" => %consider.tx.tx.txid(),
-                           "origin_addr" => %consider.tx.metadata.origin_address,
-                           "sponsor_addr" => %consider.tx.metadata.sponsor_address,
-                           "accept_time" => consider.tx.metadata.accept_time,
-                           "tx_fee" => consider.tx.metadata.tx_fee,
-                           "size" => consider.tx.metadata.len);
-                    total_considered += 1;
-
-                    let outside_delta = Instant::now() - last_time;
-                    total_outside_time += outside_delta;
-                    last_time = Instant::now();
-                    let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
-                    let inside_delta = Instant::now() - last_time;
-                    total_inside_time += inside_delta;
-                    last_time = Instant::now();
-
-                    if !inside_result? {
-                        debug!("Mempool iteration early exit from iterator");
-                        break;
-                    }
-
-                    self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
-                    if consider.tx.tx.auth.is_sponsored() {
-                        self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
-                    }
-                }
-            }
+                // if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
+            //     debug!("Mempool iteration deadline exceeded";
+            //            "deadline_ms" => settings.max_walk_time_ms);
+            //     break;
+            // }
+            //
+            // let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
+            //     tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
+            // });
+            //
+            // match self.get_next_tx_to_consider(start_with_no_estimate)? {
+            //     ConsiderTransactionResult::NoTransactions => {
+            //         debug!("No more transactions to consider in mempool");
+            //         break;
+            //     }
+            //     ConsiderTransactionResult::UpdateNonces(addresses) => {
+            //         // if we need to update the nonce for the considered transaction,
+            //         //  use the last value of start_with_no_estimate on the next loop
+            //         remember_start_with_estimate = Some(start_with_no_estimate);
+            //         let mut last_addr = None;
+            //         for address in addresses.into_iter() {
+            //             debug!("Update nonce"; "address" => %address);
+            //             // do not recheck nonces if the sponsor == origin
+            //             if last_addr.as_ref() == Some(&address) {
+            //                 continue;
+            //             }
+            //             let min_nonce =
+            //                 StacksChainState::get_account(clarity_tx, &address.clone().into())
+            //                     .nonce;
+            //
+            //             self.update_last_known_nonces(&address, min_nonce)?;
+            //             last_addr = Some(address)
+            //         }
+            //     }
+            //     ConsiderTransactionResult::Consider(consider) => {
+            //         // if we actually consider the chosen transaction,
+            //         //  compute a new start_with_no_estimate on the next loop
+            //         remember_start_with_estimate = None;
+            //         debug!("Consider mempool transaction";
+            //                "txid" => %consider.tx.tx.txid(),
+            //                "origin_addr" => %consider.tx.metadata.origin_address,
+            //                "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+            //                "accept_time" => consider.tx.metadata.accept_time,
+            //                "tx_fee" => consider.tx.metadata.tx_fee,
+            //                "size" => consider.tx.metadata.len);
+            //         total_considered += 1;
+            //
+            //         let outside_delta = Instant::now() - last_time;
+            //         total_outside_time += outside_delta;
+            //         last_time = Instant::now();
+            //         let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+            //         let inside_delta = Instant::now() - last_time;
+            //         total_inside_time += inside_delta;
+            //         last_time = Instant::now();
+            //
+            //         if !inside_result? {
+            //             debug!("Mempool iteration early exit from iterator");
+            //             break;
+            //         }
+            //
+            //         self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
+            //         if consider.tx.tx.auth.is_sponsored() {
+            //             self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
+            //         }
+            //     }
+            // }
         }
 
         total_outside_time += last_time - Instant::now();
