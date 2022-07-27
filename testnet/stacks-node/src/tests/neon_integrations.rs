@@ -3866,7 +3866,7 @@ fn cost_voting_integration() {
 
 #[test]
 #[ignore]
-fn mining_events_integration_test_BROKEN() {
+fn mining_events_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }

@@ -48,7 +48,7 @@ jobs:
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::should_fix_2771
           - tests::neon_integrations::pox_integration_test
-          - tests::neon_integrations::mining_events_integration_test_BROKEN
+          - tests::neon_integrations::mining_events_integration_test
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
