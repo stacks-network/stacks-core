@@ -74,20 +74,17 @@ pub struct LoneBlockHeader {
 
 impl BlockHeader {
     /// Computes the target [0, T] that a blockhash must land in to be valid
-    pub fn target(&self) -> Uint256 {
+    pub fn compact_target_to_u256(bits: u32) -> Uint256 {
         // This is a floating-point "compact" encoding originally used by
         // OpenSSL, which satoshi put into consensus code, so we're stuck
         // with it. The exponent needs to have 3 subtracted from it, hence
         // this goofy decoding code:
         let (mant, expt) = {
-            let unshifted_expt = self.bits >> 24;
+            let unshifted_expt = bits >> 24;
             if unshifted_expt <= 3 {
-                (
-                    (self.bits & 0xFFFFFF) >> (8 * (3 - unshifted_expt as usize)),
-                    0,
-                )
+                ((bits & 0xFFFFFF) >> (8 * (3 - unshifted_expt as usize)), 0)
             } else {
-                (self.bits & 0xFFFFFF, 8 * ((self.bits >> 24) - 3))
+                (bits & 0xFFFFFF, 8 * ((bits >> 24) - 3))
             }
         };
 
@@ -97,6 +94,11 @@ impl BlockHeader {
         } else {
             Uint256::from_u64(mant as u64) << (expt as usize)
         }
+    }
+
+    /// Computes the target [0, T] that a blockhash must land in to be valid
+    pub fn target(&self) -> Uint256 {
+        BlockHeader::compact_target_to_u256(self.bits)
     }
 
     /// Computes the target value in float format from Uint256 format.
