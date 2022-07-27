@@ -43,11 +43,13 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 #[deny(missing_docs)]
 /// Top-level struct representing the parsed config file
 pub struct ConfigFile {
-    /// Configuration related to the blockchain that the stacks-node binds to on the backend for proof-of-transfer (BTC).
+    /// Configuration related to the Bitcoin blockchain that stacks-node binds to on the backend for proof-of-transfer.
     pub burnchain: Option<BurnchainConfigFile>,
-    /// Configuration related to the stacks-node.
+    /// Configuration related to stacks-node.
     pub node: Option<NodeConfigFile>,
-    ///
+    /// This section contains configuration options pertaining to the genesis block allocation for an address in micro-STX.
+    /// If a user changes these values, their node may be in conflict with other nodes on the network and find themselves unable to sync with other nodes.
+    /// For use with testnet/regtest only.
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
     /// Contains options for watching events emitted by a local stacks-blockchain-api service.
     /// This section can be repeated multiple times.
@@ -56,7 +58,7 @@ pub struct ConfigFile {
     pub connection_options: Option<ConnectionOptionsFile>,
     ///
     pub fee_estimation: Option<FeeEstimationConfigFile>,
-    ///
+    /// Configuration related to mining.
     pub miner: Option<MinerConfigFile>,
 }
 
@@ -1023,39 +1025,43 @@ impl BurnchainConfig {
 
 #[derive(Clone, Deserialize, Default)]
 #[deny(missing_docs)]
-///
+/// Configuration related to the Bitcoin blockchain that stacks-node binds to on the backend for proof-of-transfer.
 pub struct BurnchainConfigFile {
-    ///
+    /// The blockchain stacks-node binds to on the backend for proof-of-transfer. Only value supported: "bitcoin".
     pub chain: Option<String>,
-    ///
+    /// Maximum amount (in Satoshis) of "burn commitment" to broadcast for the next block's leader election. Optional.
     pub burn_fee_cap: Option<u64>,
-    ///
+    /// The profile or test phase of which to run stacks-node. Valid values for each Bitcoin network type are:
+    /// - Mainnet: mainnet
+    /// - Testnet: xenon
+    /// - Regnet: mocknet helium neon argon krypton
     pub mode: Option<String>,
-    ///
+    /// Sets the time period (in milliseconds) for commitments. Only used when mode is set to "helium".
     pub commit_anchor_block_within: Option<u64>,
-    ///
+    /// Domain name of the host running the backend Bitcoin blockchain. 
+    /// It's required to either run a personal Bitcoin node locally, or to use a publicly hosted Bitcoin node.
     pub peer_host: Option<String>,
-    ///
+    /// peer_host's port stacks-node will connect to for P2P connections.
     pub peer_port: Option<u16>,
-    ///
+    /// peer_host's port stacks-node will connect to for RPC connections.
     pub rpc_port: Option<u16>,
-    ///
+    /// Whether to use SSL for RPC connections.
     pub rpc_ssl: Option<bool>,
-    ///
+    /// Username for RPC connections.
     pub username: Option<String>,
-    ///
+    /// Password for RPC connections.
     pub password: Option<String>,
-    ///
+    /// Timeout for RPC connections.
     pub timeout: Option<u32>,
-    ///
+    /// Magic bytes for the Bitcoin blockchain which identify the the Mainnet, Testnet, and Regtest Bitcoin networks.
     pub magic_bytes: Option<String>,
-    ///
+    /// Public key of the local miner. Only used when mode is set to "mocknet".
     pub local_mining_public_key: Option<String>,
-    ///
+    /// The height at which to exit the process. Only used when mode is set to "mocknet".
     pub process_exit_at_block_height: Option<u64>,
-    ///
+    /// The time (in seconds) between polls for new blocks. Only used when mode is set to "mocknet".
     pub poll_time_secs: Option<u64>,
-    ///
+    /// 
     pub satoshis_per_byte: Option<u64>,
     ///
     pub leader_key_tx_estimated_size: Option<u64>,
