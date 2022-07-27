@@ -786,8 +786,9 @@ impl Value {
                 let matched = captures.name("value").unwrap();
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
-                    let u = u32::from_str_radix(&scalar_value, 16).unwrap();
-                    let c = char::from_u32(u).unwrap();
+                    let u = u32::from_str_radix(&scalar_value, 16)
+                        .map_err(|_| CheckErrors::InvalidUTF8Encoding)?;
+                    let c = char::from_u32(u).ok_or_else(|| CheckErrors::InvalidUTF8Encoding)?;
                     let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
                     c.encode_utf8(&mut encoded_char[..]);
                     encoded_char

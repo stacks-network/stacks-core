@@ -17,6 +17,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Make it so that a new peer private key in the config file will propagate to
   the peer database (#3165).
 
+## [2.05.0.2.1]
+
+### Fixed
+- Fixed a security bug in the SPV client whereby the chain work was not being
+  considered at all when determining the canonical Bitcoin fork.  The SPV client
+now only accepts a new Bitcoin fork if it has a higher chain work than any other
+previously-seen chain (#3152).
+
 ## [2.05.0.2.0]
 
 ### IMPORTANT! READ THIS FIRST
