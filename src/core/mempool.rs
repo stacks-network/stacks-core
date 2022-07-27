@@ -1041,8 +1041,8 @@ impl MemPoolDB {
         let mut remember_start_with_estimate = None;
 
         let mut last_time = Instant::now();
-        let mut total_outside_time = last_time - last_time;
-        let mut total_inside_time = last_time - last_time;
+        let mut total_outside_time = last_time - last_time;  // zero duration
+        let mut total_inside_time = last_time - last_time;  // zero duration
 
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
