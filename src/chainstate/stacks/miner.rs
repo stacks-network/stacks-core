@@ -1917,7 +1917,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        id_list: &Vec<String>,
+        id_list: &Vec<&str>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;

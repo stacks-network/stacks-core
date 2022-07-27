@@ -1015,7 +1015,7 @@ impl MemPoolDB {
         clarity_tx: &mut C,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
-        id_list: &Vec<String>,
+        id_list: &Vec<&str>,
         mut todo: F,
     ) -> Result<u64, E>
     where
@@ -1038,40 +1038,47 @@ impl MemPoolDB {
 
         for id in id_list {
             info!("id {}", id);
+            if id.is_empty() {
+                continue;
+            }
             let txid = Txid::from_hex(id).expect("Couldn't parse id");
-            let _tx_info = MemPoolDB::get_tx(&self.db, &txid).unwrap();
+            let tx = MemPoolDB::get_tx(&self.db, &txid)
+                .unwrap()
+                .expect("No mempool tx found.");
 
-                    // // if we actually consider the chosen transaction,
-                    // //  compute a new start_with_no_estimate on the next loop
-                    // remember_start_with_estimate = None;
-                    // debug!("Consider mempool transaction";
-                    //        "txid" => %consider.tx.tx.txid(),
-                    //        "origin_addr" => %consider.tx.metadata.origin_address,
-                    //        "sponsor_addr" => %consider.tx.metadata.sponsor_address,
-                    //        "accept_time" => consider.tx.metadata.accept_time,
-                    //        "tx_fee" => consider.tx.metadata.tx_fee,
-                    //        "size" => consider.tx.metadata.len);
-                    // total_considered += 1;
-                    //
-                    // let outside_delta = Instant::now() - last_time;
-                    // total_outside_time += outside_delta;
-                    // last_time = Instant::now();
-                    // let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
-                    // let inside_delta = Instant::now() - last_time;
-                    // total_inside_time += inside_delta;
-                    // last_time = Instant::now();
-                    //
-                    // if !inside_result? {
-                    //     debug!("Mempool iteration early exit from iterator");
-                    //     break;
-                    // }
-                    //
-                    // self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
-                    // if consider.tx.tx.auth.is_sponsored() {
-                    //     self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
-                    // }
+            let consider = ConsiderTransaction {
+                tx,
+                update_estimate: true,
+            };
 
-                // if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
+            debug!("Consider mempool transaction";
+                           "txid" => %consider.tx.tx.txid(),
+                           "origin_addr" => %consider.tx.metadata.origin_address,
+                           "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+                           "accept_time" => consider.tx.metadata.accept_time,
+                           "tx_fee" => consider.tx.metadata.tx_fee,
+                           "size" => consider.tx.metadata.len);
+            total_considered += 1;
+
+            let outside_delta = Instant::now() - last_time;
+            total_outside_time += outside_delta;
+            last_time = Instant::now();
+            let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+            let inside_delta = Instant::now() - last_time;
+            total_inside_time += inside_delta;
+            last_time = Instant::now();
+
+            if !inside_result? {
+                debug!("Mempool iteration early exit from iterator");
+                break;
+            }
+
+            self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
+            if consider.tx.tx.auth.is_sponsored() {
+                self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
+            }
+
+            // if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
             //     debug!("Mempool iteration deadline exceeded";
             //            "deadline_ms" => settings.max_walk_time_ms);
             //     break;
