@@ -1041,12 +1041,17 @@ impl MemPoolDB {
         let mut remember_start_with_estimate = None;
 
         let mut last_time = Instant::now();
+
+        // all time inside `todo`
         let mut total_outside_time = Duration::ZERO;
+        // all time outside of `todo`
         let mut total_inside_time = Duration::ZERO;
 
         // time for get_next_tx_to_consider
         let mut total_consider_next_time = Duration::ZERO;
+        // time spent updating nonce
         let mut total_update_nonce_time = Duration::ZERO;
+        // time spent bumping nonce
         let mut total_bump_nonce_time = Duration::ZERO;
 
         loop {
