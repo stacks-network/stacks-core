@@ -980,27 +980,24 @@ impl Burnchain {
         if sync_height + 1 < orig_header_height {
             // a reorg happened
             warn!(
-                "Dropping headers higher than {} due to burnchain reorg",
+                "Dropped headers higher than {} due to burnchain reorg",
                 sync_height
             );
-            indexer.drop_headers(sync_height)?;
         }
 
         // get latest headers.
-        debug!("Sync headers from {}", sync_height);
+        let highest_header = indexer.get_highest_header_height()?;
 
-        let end_block = indexer.sync_headers(sync_height, None)?;
-        let mut start_block = match sync_height {
-            0 => 0,
-            _ => sync_height,
-        };
+        debug!("Sync headers from {}", highest_header);
+        let end_block = indexer.sync_headers(highest_header, None)?;
+        let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
         }
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            highest_header, end_block, db_height
         );
         if start_block == db_height && db_height == end_block {
             // all caught up
@@ -1218,22 +1215,22 @@ impl Burnchain {
 
         let db_height = burn_chain_tip.block_height;
 
-        // handle reorgs
+        // handle reorgs (which also updates our best-known chain work and headers DB)
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
         if did_reorg {
             // a reorg happened
             warn!(
-                "Dropping headers higher than {} due to burnchain reorg",
+                "Dropped headers higher than {} due to burnchain reorg",
                 sync_height
             );
-            indexer.drop_headers(sync_height)?;
         }
 
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
-        // fetch all headers, no matter what
-        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        // fetch all new headers
+        let highest_header_height = indexer.get_highest_header_height()?;
+        let mut end_block = indexer.sync_headers(highest_header_height, None)?;
         if did_reorg && sync_height > 0 {
             // a reorg happened, and the last header fetched
             // is on a smaller fork than the one we just
@@ -1258,7 +1255,7 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            sync_height, end_block, db_height
+            highest_header_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {
