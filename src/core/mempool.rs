@@ -64,7 +64,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::net::MemPoolSyncData;
 
@@ -1041,8 +1041,13 @@ impl MemPoolDB {
         let mut remember_start_with_estimate = None;
 
         let mut last_time = Instant::now();
-        let mut total_outside_time = last_time - last_time;  // zero duration
-        let mut total_inside_time = last_time - last_time;  // zero duration
+        let mut total_outside_time = Duration::ZERO;
+        let mut total_inside_time = Duration::ZERO;
+
+        // time for get_next_tx_to_consider
+        let mut total_consider_next_time = Duration::ZERO;
+        let mut total_update_nonce_time = Duration::ZERO;
+        let mut total_bump_nonce_time = Duration::ZERO;
 
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1055,7 +1060,11 @@ impl MemPoolDB {
                 tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
             });
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
+            let consider_next_start = Instant::now();
+            let consider_next = self.get_next_tx_to_consider(start_with_no_estimate);
+            total_consider_next_time += Instant::now() - consider_next_start;
+
+            match consider_next? {
                 ConsiderTransactionResult::NoTransactions => {
                     debug!("No more transactions to consider in mempool");
                     break;
@@ -1063,6 +1072,7 @@ impl MemPoolDB {
                 ConsiderTransactionResult::UpdateNonces(addresses) => {
                     // if we need to update the nonce for the considered transaction,
                     //  use the last value of start_with_no_estimate on the next loop
+                    let update_nonce_start = Instant::now();
                     remember_start_with_estimate = Some(start_with_no_estimate);
                     let mut last_addr = None;
                     for address in addresses.into_iter() {
@@ -1078,6 +1088,7 @@ impl MemPoolDB {
                         self.update_last_known_nonces(&address, min_nonce)?;
                         last_addr = Some(address)
                     }
+                    total_update_nonce_time += Instant::now() - update_nonce_start;
                 }
                 ConsiderTransactionResult::Consider(consider) => {
                     // if we actually consider the chosen transaction,
@@ -1118,18 +1129,20 @@ impl MemPoolDB {
                         }
                     }
 
+                    let bump_nonce_start = Instant::now();
                     self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
                     if consider.tx.tx.auth.is_sponsored() {
                         self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
                     }
+                    total_bump_nonce_time += Instant::now() - bump_nonce_start;
                 }
             }
         }
 
         total_outside_time += last_time - Instant::now();
         info!(
-            "total_inside_time: {:?} total_outside_time: {:?}",
-            &total_inside_time, &total_outside_time
+            "total_inside_time: {:?} total_outside_time: {:?} total_consider_next_time: {:?} total_update_nonce_time: {:?} total_bump_nonce_time: {:?}",
+            &total_inside_time, &total_outside_time, &total_consider_next_time, &total_update_nonce_time, &total_bump_nonce_time
         );
         debug!(
             "Mempool iteration finished";
