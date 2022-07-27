@@ -326,7 +326,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         match self {
             TrieCache::Noop(_) => {}
             TrieCache::Everything(ref mut state) => {
-               // info!("everything check");
+                // info!("everything check");
 
                 state.store_node(block_id, trieptr, node)
             }

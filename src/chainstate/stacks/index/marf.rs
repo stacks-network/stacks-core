@@ -136,7 +136,10 @@ pub trait MarfConnection<T: MarfTrieId> {
         let start_time = Instant::now();
         let r = self.with_conn(|c| MARF::get_by_key(c, block_hash, key));
         let delta = Instant::now() - start_time;
-        info!("MarfConnection::get({:?}, key='{}', time_cost={:?})", block_hash, key, &delta);
+        info!(
+            "MarfConnection::get({:?}, key='{}', time_cost={:?})",
+            block_hash, key, &delta
+        );
         r
     }
 
@@ -1147,7 +1150,6 @@ impl<T: MarfTrieId> MARF<T> {
     ) -> Result<Option<MARFValue>, Error> {
         let start_time = Instant::now();
 
-
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
@@ -1169,7 +1171,7 @@ impl<T: MarfTrieId> MARF<T> {
                 e
             })?;
 
-        let r=result.map(|option_result| option_result.map(|leaf| leaf.data));
+        let r = result.map(|option_result| option_result.map(|leaf| leaf.data));
 
         let delta = Instant::now() - start_time;
         // info!("MarfConnection::get({:?}, key='{}', time_cost={:?})", block_hash, key, &delta);

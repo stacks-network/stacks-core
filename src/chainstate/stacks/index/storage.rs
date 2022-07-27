@@ -2557,9 +2557,9 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     let end_time = Instant::now();
                     let delta = end_time - start_time;
                     info!(
-                            "read_node_hash_bytes: result=miss, block_id={}, time_cost={:?}",
-                            block_id, delta
-                        );
+                        "read_node_hash_bytes: result=miss, block_id={}, time_cost={:?}",
+                        block_id, delta
+                    );
                     self.cache
                         .store_node_hash(block_id, ptr.clone(), node_hash.clone());
                     self.bench.read_node_hash_finish(false);

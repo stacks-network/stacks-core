@@ -1015,6 +1015,7 @@ impl MemPoolDB {
         clarity_tx: &mut C,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
+        id_list: &Vec<String>,
         mut todo: F,
     ) -> Result<u64, E>
     where
@@ -1105,7 +1106,10 @@ impl MemPoolDB {
         }
 
         total_outside_time += last_time - Instant::now();
-        info!("total_inside_time: {:?} total_outside_time: {:?}", &total_inside_time, &total_outside_time);
+        info!(
+            "total_inside_time: {:?} total_outside_time: {:?}",
+            &total_inside_time, &total_outside_time
+        );
         debug!(
             "Mempool iteration finished";
             "considered_txs" => total_considered,

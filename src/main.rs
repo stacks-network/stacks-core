@@ -713,10 +713,11 @@ check if the associated microblocks can be downloaded
         let base_path = argv[2].clone();
         let id_list_path = argv[3].clone();
 
-        let contents = fs::read_to_string(id_list_path)
-            .expect("Something went wrong reading the file");
-
-        info!("contents {:?}", &contents);
+        let id_contents =
+            fs::read_to_string(id_list_path).expect("Something went wrong reading the file");
+        let id_list = id_contents.split("\n").collect();
+        info!("id_list {:?}", &id_list);
+        info!("id_contents {:?}", &id_contents);
         let start = get_epoch_time_ms();
         let sort_db_path = format!("{}/mainnet/burnchain/sortition", &base_path);
         let chain_state_path = format!("{}/mainnet/chainstate/", &base_path);
@@ -767,7 +768,7 @@ check if the associated microblocks can be downloaded
         settings.max_miner_time_ms = max_time;
         settings.mempool_settings.min_tx_fee = min_fee;
 
-        for i in 0..1 {
+        {
             let build_start = Instant::now();
             let result = StacksBlockBuilder::build_anchored_block(
                 &chain_state,
@@ -780,6 +781,7 @@ check if the associated microblocks can be downloaded
                 &coinbase_tx,
                 settings.clone(),
                 None,
+                &id_list,
             );
 
             let build_end = Instant::now();
@@ -787,7 +789,6 @@ check if the associated microblocks can be downloaded
             info!("build_anchored_block delta: {:?}", &delta);
             let stop = get_epoch_time_ms();
 
-            info!("round {} finishes with: {:?}", i, &result);
             println!(
                 "{} mined block @ height = {} off of {} ({}/{}) in {}ms. Min-fee: {}, Max-time: {}",
                 if result.is_ok() {

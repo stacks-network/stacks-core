@@ -882,6 +882,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                     &mut clarity_tx,
                     self.anchor_block_height,
                     mempool_settings.clone(),
+                    &vec![],
                     |clarity_tx, to_consider, estimator| {
                         let mempool_tx = &to_consider.tx;
                         let update_estimator = to_consider.update_estimate;
@@ -1916,6 +1917,7 @@ impl StacksBlockBuilder {
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        id_list: &Vec<String>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
         let mempool_settings = settings.mempool_settings;
         let max_miner_time_ms = settings.max_miner_time_ms;
@@ -1991,11 +1993,16 @@ impl StacksBlockBuilder {
                     &mut epoch_tx,
                     tip_height,
                     mempool_settings.clone(),
+                    id_list,
                     |epoch_tx, to_consider, estimator| {
-                        let candidate_start= Instant::now();
-                        let candidate_end= Instant::now();
+                        let candidate_start = Instant::now();
+                        let candidate_end = Instant::now();
                         let delta = candidate_end - candidate_start;
-                        info!("candidate delta id={:?} time_cost={:?}",to_consider.tx.tx.txid(), &delta);
+                        info!(
+                            "candidate delta id={:?} time_cost={:?}",
+                            to_consider.tx.tx.txid(),
+                            &delta
+                        );
                         Ok(true)
                     },
                 );
