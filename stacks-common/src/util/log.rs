@@ -26,8 +26,7 @@ use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
-    pub static ref STACKS_LOG_FORMAT_TIME: Result<String, env::VarError> =
-        env::var("STACKS_LOG_FORMAT_TIME");
+    pub static ref STACKS_LOG_FORMAT_TIME: Option<String> = env::var("STACKS_LOG_FORMAT_TIME").ok();
 }
 struct TermFormat<D: Decorator> {
     decorator: D,
@@ -45,7 +44,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     rd.start_timestamp()?;
     let system_time = SystemTime::now();
     match &*STACKS_LOG_FORMAT_TIME {
-        Err(e) => {
+        None => {
             let elapsed = system_time
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0));
@@ -56,7 +55,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
                 elapsed.subsec_nanos() / 1000
             )?;
         }
-        Ok(ref format) => {
+        Some(ref format) => {
             let datetime: DateTime<Local> = system_time.into();
             write!(rd, "[{}]", datetime.format(format))?;
         }
