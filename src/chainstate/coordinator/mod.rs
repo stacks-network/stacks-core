@@ -352,19 +352,36 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             config,
         };
 
+        let mut missing_affirmed_anchor_block = None;
+        let mut last_retry_ts = 0;
+        let retry_interval = 5;
         loop {
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
                     debug!("Received new stacks block notice");
-                    if let Err(e) = inst.handle_new_stacks_block() {
-                        warn!("Error processing new stacks block: {:?}", e);
+                    match inst.handle_new_stacks_block() {
+                        Ok(missing_block_opt) => {
+                            if missing_block_opt.is_some() {
+                                missing_affirmed_anchor_block = missing_block_opt;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error processing new stacks block: {:?}", e);
+                        }
                     }
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
                     debug!("Received new burn block notice");
-                    if let Err(e) = inst.handle_new_burnchain_block() {
-                        warn!("Error processing new burn block: {:?}", e);
+                    match inst.handle_new_burnchain_block() {
+                        Ok(missing_block_opt) => {
+                            if missing_block_opt.is_some() {
+                                missing_affirmed_anchor_block = missing_block_opt;
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error processing new burn block: {:?}", e);
+                        }
                     }
                 }
                 CoordinatorEvents::STOP => {
@@ -372,6 +389,29 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
                     return;
                 }
                 CoordinatorEvents::TIMEOUT => {}
+            }
+
+            if let Some(missing_block) = missing_affirmed_anchor_block {
+                if last_retry_ts + retry_interval < get_epoch_time_secs() {
+                    // periodically retry processing sortitions in the event that a missing anchor
+                    // block arrives
+                    match inst.retry_burnchain_block() {
+                        Ok(missing_block_opt) => {
+                            if missing_block_opt.is_none() {
+                                debug!(
+                                    "Successfully processed missing affirmed anchor block {}",
+                                    &missing_block
+                                );
+                            }
+
+                            missing_affirmed_anchor_block = missing_block_opt;
+                        }
+                        Err(e) => {
+                            warn!("Error retrying sortition-processing with missing affirmed anchor block: {:?}", e);
+                        }
+                    }
+                    last_retry_ts = get_epoch_time_secs();
+                }
             }
         }
     }
@@ -1190,12 +1230,25 @@ impl<
         .map_err(|e| e.into())
     }
 
+    pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+        self.inner_handle_new_burnchain_block(false)
+    }
+
+    pub fn retry_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+        self.inner_handle_new_burnchain_block(true)
+    }
+
     /// Handle a new burnchain block, optionally rolling back the canonical PoX sortition history
     /// and setting it up to be replayed in the event the network affirms a different history.  If
     /// this happens, *and* if re-processing the new affirmed history is *blocked on* the
     /// unavailability of a PoX anchor block that *must now* exist, then return the hash of this
     /// anchor block.
-    pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+    ///
+    /// `retry` just controls log verbosity
+    fn inner_handle_new_burnchain_block(
+        &mut self,
+        retry: bool,
+    ) -> Result<Option<BlockHeaderHash>, Error> {
         // first, see if the canonical affirmation map has changed.  If so, this will wind back the
         // canonical sortition and stacks chain tips.
         self.handle_affirmation_reorg()?;
@@ -1204,9 +1257,11 @@ impl<
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let canonical_affirmation_map = self.get_canonical_affirmation_map()?;
 
-        debug!("Handle new canonical burnchain tip";
-               "height" => %canonical_burnchain_tip.block_height,
-               "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
+        if !retry {
+            debug!("Handle new canonical burnchain tip";
+                   "height" => %canonical_burnchain_tip.block_height,
+                   "block_hash" => %canonical_burnchain_tip.block_hash.to_string());
+        }
 
         // Retrieve all the direct ancestors of this block with an unprocessed sortition
         let mut cursor = canonical_burnchain_tip.block_hash.clone();
@@ -1300,8 +1355,10 @@ impl<
                             rc_info,
                         )?
                     {
-                        // missing this anchor block -- cannot proceed
-                        info!("Burnchain block processing stops due to missing affirmed anchor block {}", &missing_anchor_block);
+                        // missing this anchor block -- cannot proceed until we have it
+                        if !retry {
+                            info!("Burnchain block processing stops due to missing affirmed anchor block {}", &missing_anchor_block);
+                        }
                         return Ok(Some(missing_anchor_block));
                     }
                 }
