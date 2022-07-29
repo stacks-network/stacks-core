@@ -7,8 +7,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Upcoming
 
-- Updates to the logging of transaction events (#3139).
+### Added
 - Added prometheus output for "transactions in last block" (#3138).
+
+### Changed
+- Updates to the logging of transaction events (#3139).
+
+### Fixed
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
 
 ## [2.05.0.2.1]
 
