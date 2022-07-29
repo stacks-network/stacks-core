@@ -4685,7 +4685,7 @@ fn block_large_tx_integration_test() {
 
 #[test]
 #[ignore]
-fn microblock_large_tx_integration_test() {
+fn microblock_large_tx_integration_test_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
