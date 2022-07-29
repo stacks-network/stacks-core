@@ -7,11 +7,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Upcoming
 
-- Updates to the logging of transaction events (#3139).
+### Added
 - Added prometheus output for "transactions in last block" (#3138).
 
-### Fixed
+### Changed
+- Updates to the logging of transaction events (#3139).
 
+### Fixed
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
 - Fixed default miner behavior regarding block assembly
   attempts. Previously, the miner would only attempt to assemble a
   larger block after their first attempt (by Bitcoin RBF) if new
