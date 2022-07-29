@@ -500,7 +500,7 @@ impl Config {
                 };
 
                 if let Some(ref conf_epochs) = burnchain.epochs {
-                    let mut default_epochs = match result.get_bitcoin_network().1 {
+                    let default_epochs = match result.get_bitcoin_network().1 {
                         BitcoinNetworkType::Mainnet => {
                             panic!("Cannot configure epochs in mainnet mode");
                         }
