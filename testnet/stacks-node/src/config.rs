@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
@@ -499,37 +500,90 @@ impl Config {
                 };
 
                 if let Some(ref conf_epochs) = burnchain.epochs {
-                    let mut epochs = match result.get_bitcoin_network().1 {
+                    let mut default_epochs = match result.get_bitcoin_network().1 {
                         BitcoinNetworkType::Mainnet => {
                             panic!("Cannot configure epochs in mainnet mode");
                         }
                         BitcoinNetworkType::Testnet => stacks::core::STACKS_EPOCHS_TESTNET.to_vec(),
                         BitcoinNetworkType::Regtest => stacks::core::STACKS_EPOCHS_REGTEST.to_vec(),
                     };
+                    let mut matched_epochs: Vec<_> = conf_epochs
+                        .iter()
+                        .map(|configured_epoch| {
+                            let epoch_name = &configured_epoch.epoch_name;
+                            let epoch_id = if epoch_name == EPOCH_CONFIG_1_0_0 {
+                                StacksEpochId::Epoch10
+                            } else if epoch_name == EPOCH_CONFIG_2_0_0 {
+                                StacksEpochId::Epoch20
+                            } else if epoch_name == EPOCH_CONFIG_2_0_5 {
+                                StacksEpochId::Epoch2_05
+                            } else if epoch_name == EPOCH_CONFIG_2_1_0 {
+                                StacksEpochId::Epoch21
+                            } else {
+                                panic!("Unknown epoch name specified: {}", epoch_name);
+                            };
+                            (epoch_id, configured_epoch.start_height)
+                        })
+                        .collect();
+
+                    matched_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
+                    // epochs must be sorted the same both by start height and by epoch
+                    let mut check_sort = matched_epochs.clone();
+                    check_sort.sort_by_key(|(_, start)| *start);
+                    assert_eq!(
+                        matched_epochs, check_sort,
+                        "Configured epochs must have start heights in the correct epoch order",
+                    );
+
+                    // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
+                    let expected_list = [
+                        StacksEpochId::Epoch10,
+                        StacksEpochId::Epoch20,
+                        StacksEpochId::Epoch2_05,
+                        StacksEpochId::Epoch21,
+                    ];
+                    for (expected_epoch, configured_epoch) in expected_list
+                        .iter()
+                        .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
+                    {
+                        if expected_epoch != configured_epoch {
+                            panic!("Configured epochs may not skip an epoch. Expected epoch = {}, Found epoch = {}",
+                                       expected_epoch, configured_epoch);
+                        }
+                    }
+
+                    // Stacks 1.0 must start at 0
+                    assert_eq!(
+                        matched_epochs[0].1, 0,
+                        "Stacks 1.0 must start at height = 0"
+                    );
+
+                    assert!(matched_epochs.len() <= default_epochs.len(), "Cannot configure more epochs than support by this node. Supported epoch count: {}", default_epochs.len());
+                    let mut out_epochs = default_epochs[..matched_epochs.len()].to_vec();
+
+                    for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
+                        assert_eq!(epoch_id, &out_epochs[i].epoch_id,
+                                   "Unmatched epochs in configuration and node implementation. Implemented = {}, Configured = {}",
+                                   epoch_id, &out_epochs[i].epoch_id);
+                        // end_height = next epoch's start height || i64::max if last epoch
+                        let end_height = if i + 1 < matched_epochs.len() {
+                            matched_epochs[i + 1].1
+                        } else {
+                            i64::MAX
+                        };
+                        out_epochs[i].start_height = u64::try_from(*start_height)
+                            .expect("Start height must be a non-negative integer");
+                        out_epochs[i].end_height = u64::try_from(end_height)
+                            .expect("End height must be a non-negative integer");
+                    }
+
                     if result.mode == "mocknet" {
-                        for epoch in epochs.iter_mut() {
+                        for epoch in out_epochs.iter_mut() {
                             epoch.block_limit = ExecutionCost::max_value();
                         }
                     }
-                    for configured_epoch in conf_epochs.iter() {
-                        let mut epoch = epochs
-                            .iter_mut()
-                            .find(|x| x.epoch_id as u32 == configured_epoch.epoch_id)
-                            .expect(&format!(
-                                "Failed to find Epoch ID in defined epochs: {} not found",
-                                configured_epoch.epoch_id
-                            ));
-                        epoch.start_height = configured_epoch
-                            .start_height
-                            .try_into()
-                            .expect("Epoch start height must be a positive integer");
-                        epoch.end_height = configured_epoch
-                            .end_height
-                            .try_into()
-                            .expect("Epoch end height must be a positive integer");
-                    }
 
-                    result.epochs = Some(epochs);
+                    result.epochs = Some(out_epochs);
                 }
 
                 result
@@ -1051,10 +1105,14 @@ impl BurnchainConfig {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct StacksEpochConfigFile {
-    epoch_id: u32,
+    epoch_name: String,
     start_height: i64,
-    end_height: i64,
 }
+
+pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
+pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
+pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
+pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
 
 #[derive(Clone, Deserialize, Default)]
 pub struct BurnchainConfigFile {
