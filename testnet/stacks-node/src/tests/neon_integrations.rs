@@ -3968,7 +3968,7 @@ fn mining_events_integration_test() {
     // check tx events in the first microblock
     // 1 success: 1 contract publish, 2 error (on chain transactions)
     let microblock_tx_events = &mined_microblock_events[0].tx_events;
-    assert_eq!(microblock_tx_events.len(), 3);
+    assert_eq!(microblock_tx_events.len(), 1);
 
     // contract publish
     match &microblock_tx_events[0] {
@@ -3992,15 +3992,6 @@ fn mining_events_integration_test() {
             )
         }
         _ => panic!("unexpected event type"),
-    }
-    for i in 1..3 {
-        // on chain only transactions will be skipped in a microblock
-        match &microblock_tx_events[i] {
-            TransactionEvent::Skipped(TransactionSkippedEvent { error, .. }) => {
-                assert_eq!(error, "Invalid transaction anchor mode for streamed data");
-            }
-            _ => panic!("unexpected event type"),
-        }
     }
 
     // check mined block events
