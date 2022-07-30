@@ -1702,7 +1702,15 @@ impl StacksNode {
         };
 
         // has the tip changed from our previously-mined block for this epoch?
-        let attempt = {
+        let attempt = if last_mined_blocks.len() <= 1 {
+            // always mine if we've not mined a block for this epoch yet, or
+            // if we've mined just one attempt, unconditionally try again (so we
+            // can use `subsequent_miner_time_ms` in this attempt)
+            if last_mined_blocks.len() == 1 {
+                debug!("Have only attempted one block; unconditionally trying again");
+            }
+            last_mined_blocks.len() as u64 + 1
+        } else {
             let mut best_attempt = 0;
             debug!(
                 "Consider {} in-flight Stacks tip(s)",
@@ -1717,20 +1725,12 @@ impl StacksNode {
                     &prev_block.my_burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
-                if prev_block.anchored_block.txs.len() == 1 {
-                    if last_mined_blocks.len() == 1 {
-                        // this is an empty block, and we've only tried once before. We should always
-                        // try again, with the `subsequent_miner_time_ms` allotment, in order to see if
-                        // we can make a bigger block
-                        debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
-                        best_attempt = 1;
-                        break;
-                    } else if prev_block.attempt == 1 {
-                        // Don't let the fact that we've built an empty block during this sortition
-                        // prevent us from trying again.
-                        best_attempt = 1;
-                        continue;
-                    }
+
+                if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
+                    // Don't let the fact that we've built an empty block during this sortition
+                    // prevent us from trying again.
+                    best_attempt = 1;
+                    continue;
                 }
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash

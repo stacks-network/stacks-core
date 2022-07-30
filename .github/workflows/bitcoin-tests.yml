@@ -38,6 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
+          - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::microblock_integration_test
           - tests::neon_integrations::size_check_integration_test
           - tests::neon_integrations::cost_voting_integration
