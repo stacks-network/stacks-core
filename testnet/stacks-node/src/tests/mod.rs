@@ -616,7 +616,7 @@ fn should_succeed_mining_valid_txs() {
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(_) => true,
+                        TransactionPayload::SmartContract(..) => true,
                         _ => false,
                     });
 
@@ -902,7 +902,7 @@ fn should_succeed_handling_malformed_and_valid_txs() {
                     let contract_tx = &chain_tip.block.txs[1];
                     assert!(contract_tx.chain_id == CHAIN_ID_TESTNET);
                     assert!(match contract_tx.payload {
-                        TransactionPayload::SmartContract(_) => true,
+                        TransactionPayload::SmartContract(..) => true,
                         _ => false,
                     });
                 }

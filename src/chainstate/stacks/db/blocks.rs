@@ -6407,7 +6407,7 @@ impl StacksChainState {
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
-    /// Used when mining transactions.
+    /// Used when determining whether a transaction can be added to the mempool.
     fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
@@ -6579,7 +6579,10 @@ impl StacksChainState {
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }
-            TransactionPayload::SmartContract(TransactionSmartContract { name, code_body: _ }) => {
+            TransactionPayload::SmartContract(
+                TransactionSmartContract { name, code_body: _ },
+                version_opt,
+            ) => {
                 let contract_identifier =
                     QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
 
@@ -6588,6 +6591,15 @@ impl StacksChainState {
 
                 if exists {
                     return Err(MemPoolRejection::ContractAlreadyExists(contract_identifier));
+                }
+
+                if let Some(_version) = version_opt.as_ref() {
+                    if clarity_connection.get_epoch() < StacksEpochId::Epoch21 {
+                        return Err(MemPoolRejection::Other(
+                            "Versioned smart contract transactions are not supported in this epoch"
+                                .to_string(),
+                        ));
+                    }
                 }
             }
             TransactionPayload::PoisonMicroblock(microblock_header_1, microblock_header_2) => {
@@ -6762,6 +6774,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                 &contract_16k.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -6848,6 +6861,7 @@ pub mod test {
                 TransactionPayload::new_smart_contract(
                     &format!("hello-world-{}", &thread_rng().gen::<u32>()),
                     &contract_16k.to_string(),
+                    None,
                 )
                 .unwrap(),
             );
@@ -8493,6 +8507,7 @@ pub mod test {
                             TransactionPayload::new_smart_contract(
                                 &"name-contract".to_string(),
                                 &format!("conflicting smart contract {}", i),
+                                None,
                             )
                             .unwrap(),
                         );

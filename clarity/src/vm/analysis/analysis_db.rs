@@ -25,6 +25,8 @@ use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 
+use crate::vm::ClarityVersion;
+
 pub struct AnalysisDatabase<'a> {
     store: RollbackWrapper<'a>,
 }
@@ -108,6 +110,20 @@ impl<'a> AnalysisDatabase<'a> {
         self.store
             .insert_metadata(contract_identifier, key, &contract.serialize());
         Ok(())
+    }
+
+    pub fn get_clarity_version(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> CheckResult<ClarityVersion> {
+        // TODO: this function loads the whole contract to obtain the function type.
+        //         but it doesn't need to -- rather this information can just be
+        //         stored as its own entry. the analysis cost tracking currently only
+        //         charges based on the function type size.
+        let contract = self
+            .load_contract(contract_identifier)
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.clarity_version)
     }
 
     pub fn get_public_function_type(

@@ -330,7 +330,7 @@ fn fee_rate_and_weight_from_receipt(
         }
         TransactionPayload::PoisonMicroblock(_, _)
         | TransactionPayload::ContractCall(_)
-        | TransactionPayload::SmartContract(_) => {
+        | TransactionPayload::SmartContract(..) => {
             // These transaction payload types all "work" the same: they have associated ExecutionCosts
             // and contibute to the block length limit with their tx_len
             metric.from_cost_and_len(&tx_receipt.execution_cost, &block_limit, tx_size)

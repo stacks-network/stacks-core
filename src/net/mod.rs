@@ -2096,6 +2096,7 @@ pub mod test {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
+    use clarity::vm::ClarityVersion;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
@@ -2655,13 +2656,15 @@ pub mod test {
                             conf.setup_code.len()
                         );
 
-                        let smart_contract =
-                            TransactionPayload::SmartContract(TransactionSmartContract {
+                        let smart_contract = TransactionPayload::SmartContract(
+                            TransactionSmartContract {
                                 name: ContractName::try_from(conf.test_name.as_str())
                                     .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
                                     .expect("FATAL: invalid boot code body"),
-                            });
+                            },
+                            None,
+                        );
 
                         let boot_code_smart_contract = StacksTransaction::new(
                             TransactionVersion::Testnet,

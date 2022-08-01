@@ -1201,6 +1201,7 @@ mod test {
                     TransactionPayload::new_smart_contract(
                         &"hello-world".to_string(),
                         &big_contract.to_string(),
+                        None,
                     )
                     .unwrap(),
                 );
