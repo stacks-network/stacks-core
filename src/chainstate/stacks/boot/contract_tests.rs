@@ -747,9 +747,14 @@ fn pox_2_lock_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
-            .unwrap();
-        env.execute_in_env(boot_code_addr(false).into(), None, |env| {
+        env.initialize_versioned_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &POX_2_TESTNET_CODE,
+            None,
+        )
+        .unwrap();
+        env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
             env.execute_contract(
                 POX_2_CONTRACT_TESTNET.deref(),
                 "set-burnchain-parameters",
@@ -990,7 +995,13 @@ fn pox_2_delegate_extend_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|conn| {
-        test_deploy_smart_contract(conn, &POX_2_CONTRACT_TESTNET, &POX_2_TESTNET_CODE).unwrap();
+        test_deploy_smart_contract(
+            conn,
+            &POX_2_CONTRACT_TESTNET,
+            &POX_2_TESTNET_CODE,
+            ClarityVersion::Clarity2,
+        )
+        .unwrap();
 
         // set burnchain params based on old testnet settings (< 2.0.11.0)
         conn.as_transaction(|tx| {
@@ -1544,10 +1555,20 @@ fn simple_epoch21_test() {
 ";
 
     sim.execute_next_block_as_conn(|block| {
-        test_deploy_smart_contract(block, &clarity_2_0_id, clarity_2_0_content)
-            .expect("2.0 'good' contract should deploy successfully");
-        match test_deploy_smart_contract(block, &clarity_2_0_bad_id, clarity_2_1_content)
-            .expect_err("2.0 'bad' contract should not deploy successfully")
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_0_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect("2.0 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_0_bad_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity1,
+        )
+        .expect_err("2.0 'bad' contract should not deploy successfully")
         {
             ClarityError::Analysis(e) => {
                 assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
@@ -1561,10 +1582,20 @@ fn simple_epoch21_test() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block_as_conn(|block| {
-        test_deploy_smart_contract(block, &clarity_2_1_id, clarity_2_1_content)
-            .expect("2.1 'good' contract should deploy successfully");
-        match test_deploy_smart_contract(block, &clarity_2_1_bad_id, clarity_2_0_content)
-            .expect_err("2.1 'bad' contract should not deploy successfully")
+        test_deploy_smart_contract(
+            block,
+            &clarity_2_1_id,
+            clarity_2_1_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect("2.1 'good' contract should deploy successfully");
+        match test_deploy_smart_contract(
+            block,
+            &clarity_2_1_bad_id,
+            clarity_2_0_content,
+            ClarityVersion::Clarity2,
+        )
+        .expect_err("2.1 'bad' contract should not deploy successfully")
         {
             ClarityError::Interpreter(e) => {
                 assert_eq!(
@@ -1583,10 +1614,11 @@ fn test_deploy_smart_contract(
     block: &mut ClarityBlockConnection,
     contract_id: &QualifiedContractIdentifier,
     content: &str,
+    version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, content)?;
-        tx.initialize_smart_contract(&contract_id, &ast, content, None, |_, _| false)?;
+        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, version, content)?;
+        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })
@@ -1598,8 +1630,13 @@ fn recency_tests() {
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
-            .unwrap()
+        env.initialize_versioned_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &BOOT_CODE_POX_TESTNET,
+            None,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         // try to issue a far future stacking tx
@@ -1670,8 +1707,13 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET, None)
-            .unwrap()
+        env.initialize_versioned_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &BOOT_CODE_POX_TESTNET,
+            None,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         assert_eq!(
@@ -2242,8 +2284,9 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(
+        env.initialize_versioned_contract(
             COST_VOTING_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
             None,
         )

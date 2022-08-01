@@ -73,6 +73,7 @@ use clarity::vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
     TypeSignature, Value,
 };
+use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
 
 use crate::util_lib::db::Error as DatabaseError;
@@ -375,12 +376,17 @@ impl ClarityInstance {
 
         let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("costs", use_mainnet), BOOT_CODE_COSTS)
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS,
+                )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     BOOT_CODE_COSTS,
                     None,
@@ -393,12 +399,14 @@ impl ClarityInstance {
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
                 )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     None,
@@ -412,12 +420,17 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("pox", use_mainnet), &*BOOT_CODE_POX_TESTNET)
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    &*BOOT_CODE_POX_TESTNET,
+                )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
@@ -719,12 +732,15 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 &*BOOT_CODE_COSTS_2_TESTNET
             };
 
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(COSTS_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(cost_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
 
             let costs_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
@@ -831,16 +847,22 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let pox_2_contract_id = boot_code_id(POX_2_NAME, mainnet);
 
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(POX_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(pox_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(POX_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(pox_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
 
             let pox_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
+            // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
+            // features
+            self.epoch = StacksEpochId::Epoch21;
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
                 tx_conn
@@ -894,8 +916,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
-            // upgrade epoch here as well
-            self.epoch = StacksEpochId::Epoch21;
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
@@ -1112,7 +1132,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), None, |env| {
+                    .execute_in_env(sender.clone(), None, None, |env| {
                         env.run_as_transaction(|env| {
                             StacksChainState::handle_poison_microblock(
                                 env,
@@ -1222,13 +1242,25 @@ mod tests {
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
 
             let _e = conn
-                .as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
+                .as_transaction(|tx| {
+                    tx.analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
+                })
                 .unwrap_err();
 
             // okay, let's try it again:
 
             let _e = conn
-                .as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
+                .as_transaction(|tx| {
+                    tx.analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
+                })
                 .unwrap_err();
 
             conn.commit_block();
@@ -1270,10 +1302,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1317,10 +1354,15 @@ mod tests {
                 let mut tx = conn.start_transaction_processing();
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1339,10 +1381,15 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1363,12 +1410,17 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, _ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 assert!(format!(
                     "{}",
                     tx.initialize_smart_contract(
                         &contract_identifier,
+                        ClarityVersion::Clarity1,
                         &ct_ast,
                         &contract,
                         None,
@@ -1411,10 +1463,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1465,10 +1522,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1551,10 +1613,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1676,10 +1743,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1812,20 +1884,26 @@ mod tests {
         let mut tx1 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
         let tx2 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
@@ -1998,10 +2076,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,

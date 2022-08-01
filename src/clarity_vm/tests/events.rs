@@ -33,6 +33,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::database::MemoryBackingStore;
 
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
+use clarity::vm::ClarityVersion;
+use clarity::vm::ContractContext;
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
     helper_execute_epoch(contract, method, None, StacksEpochId::Epoch21, false)
@@ -97,9 +99,13 @@ fn helper_execute_epoch(
         epoch,
         use_mainnet,
     );
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::default_for_epoch(epoch),
+    );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         env.initialize_contract(contract_id.clone(), contract)
             .unwrap();
     }

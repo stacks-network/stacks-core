@@ -35,6 +35,7 @@ use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn};
 use stacks_common::util::hash::to_hex;
 
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::util_lib::strings::{StacksString, VecDisplay};
 pub use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::analysis::run_analysis;
@@ -52,13 +53,11 @@ use clarity::vm::database::ClarityDatabase;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
+use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StandardPrincipalData, TupleData, TypeSignature, Value,
 };
-
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -823,7 +822,12 @@ impl StacksChainState {
     }
 
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
-    /// Returns the number of STX burned.
+    ///
+    /// NOTE: this does not verify that the transaction can be processed in the clarity_tx's Stacks
+    /// epoch.  This check must be performed by the caller before processing the block, e.g. via
+    /// StacksBlock::validate_transactions_static().
+    ///
+    /// Returns the stacks transaction receipt
     pub fn process_transaction_payload(
         clarity_tx: &mut ClarityTransactionConnection,
         tx: &StacksTransaction,
@@ -958,7 +962,9 @@ impl StacksChainState {
                 );
                 Ok(receipt)
             }
-            TransactionPayload::SmartContract(ref smart_contract) => {
+            TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
+                let clarity_version = version_opt
+                    .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
                 let issuer_principal = match origin_account.principal {
                     PrincipalData::Standard(ref p) => p.clone(),
                     _ => {
@@ -986,8 +992,11 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
-                let analysis_resp =
-                    clarity_tx.analyze_smart_contract(&contract_id, &contract_code_str);
+                let analysis_resp = clarity_tx.analyze_smart_contract(
+                    &contract_id,
+                    clarity_version,
+                    &contract_code_str,
+                );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
@@ -1033,6 +1042,7 @@ impl StacksChainState {
                 // accepted, but the contract does not materialize (but the sender is out their fee).
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
+                    clarity_version,
                     &contract_ast,
                     &contract_code_str,
                     sponsor,
@@ -1139,6 +1149,24 @@ impl StacksChainState {
         }
     }
 
+    /// Deduce the Clarity version to run
+    pub fn get_tx_clarity_version(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+    ) -> Result<ClarityVersion, Error> {
+        let clarity_version = match &tx.payload {
+            TransactionPayload::SmartContract(_, ref version_opt) => {
+                // did the caller want to run a particular version of Clarity?
+                version_opt.unwrap_or(ClarityVersion::default_for_epoch(clarity_block.get_epoch()))
+            }
+            _ => {
+                // whatever the epoch default is, since no Clarity code will be executed anyway
+                ClarityVersion::default_for_epoch(clarity_block.get_epoch())
+            }
+        };
+        Ok(clarity_version)
+    }
+
     /// Process a transaction.  Return the fee and the transaction receipt
     pub fn process_transaction(
         clarity_block: &mut ClarityTx,
@@ -1148,6 +1176,17 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx)?;
+
+        // what version of Clarity did the transaction caller want? And, is it valid now?
+        let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
+        if clarity_version == ClarityVersion::Clarity2 {
+            // requires 2.1 and higher
+            if clarity_block.get_epoch() < StacksEpochId::Epoch21 {
+                let msg = format!("Invalid transaction {}: asks for Clarity2, but not in Stacks epoch 2.1 or later", tx.txid());
+                warn!("{}", &msg);
+                return Err(Error::InvalidStacksTransaction(msg, false));
+            }
+        }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
         let (origin_account, payer_account) =
@@ -1196,6 +1235,7 @@ pub mod test {
     use clarity::vm::representations::ContractName;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use clarity::vm::types::*;
+    use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
 
     use super::*;
@@ -1628,6 +1668,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -1726,7 +1767,7 @@ pub mod test {
             let mut tx_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
-                TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap(),
+                TransactionPayload::new_smart_contract(&contract_name, &contract, None).unwrap(),
             );
 
             tx_contract.chain_id = 0x80000000;
@@ -1825,7 +1866,7 @@ pub mod test {
             let mut tx_contract = StacksTransaction::new(
                 TransactionVersion::Testnet,
                 auth.clone(),
-                TransactionPayload::new_smart_contract(&contract_name, &contract).unwrap(),
+                TransactionPayload::new_smart_contract(&contract_name, &contract, None).unwrap(),
             );
 
             tx_contract.chain_id = 0x80000000;
@@ -1898,6 +1939,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -1974,6 +2016,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2096,6 +2139,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2208,6 +2252,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2270,6 +2315,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2403,6 +2449,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -2621,6 +2668,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3314,6 +3362,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -3952,7 +4001,8 @@ pub mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth_origin.clone(),
-            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract).unwrap(),
+            TransactionPayload::new_smart_contract(&"hello-world".to_string(), &contract, None)
+                .unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -7074,6 +7124,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"hello-world".to_string(),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -7159,6 +7210,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-{}", &rng.gen::<u32>()),
                 &contract.to_string(),
+                None,
             )
             .unwrap(),
         );
@@ -7538,6 +7590,372 @@ pub mod test {
         assert_eq!(mblock_pubkh, block_pubkh.0.to_vec());
         assert_eq!(seq, 122);
         assert_eq!(reporter, reporter_addr_2.to_account_principal());
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn test_get_tx_clarity_version_v205() {
+        struct MockedBurnDB {}
+
+        impl BurnStateDB for MockedBurnDB {
+            fn get_v1_unlock_height(&self) -> u32 {
+                2
+            }
+            fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+                Some(sortition_id.0[0] as u32)
+            }
+            fn get_burn_start_height(&self) -> u32 {
+                0
+            }
+            fn get_pox_prepare_length(&self) -> u32 {
+                3
+            }
+            fn get_pox_reward_cycle_length(&self) -> u32 {
+                6
+            }
+            fn get_pox_rejection_fraction(&self) -> u64 {
+                15
+            }
+            fn get_burn_header_hash(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<BurnchainHeaderHash> {
+                Some(BurnchainHeaderHash([height as u8; 32]))
+            }
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
+                Some(SortitionId([consensus_hash.0[0]; 32]))
+            }
+            fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+                Some(match height {
+                    0 => StacksEpoch {
+                        epoch_id: StacksEpochId::Epoch2_05,
+                        start_height: 1,
+                        end_height: 2,
+                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        network_epoch: PEER_VERSION_EPOCH_2_05,
+                    },
+                    _ => StacksEpoch {
+                        epoch_id: StacksEpochId::Epoch21,
+                        start_height: 2,
+                        end_height: u64::MAX,
+                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        network_epoch: PEER_VERSION_EPOCH_2_1,
+                    },
+                })
+            }
+            fn get_stacks_epoch_by_epoch_id(
+                &self,
+                epoch_id: &StacksEpochId,
+            ) -> Option<StacksEpoch> {
+                match epoch_id {
+                    StacksEpochId::Epoch10 => Some(StacksEpoch {
+                        epoch_id: StacksEpochId::Epoch10,
+                        start_height: 0,
+                        end_height: 0,
+                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        network_epoch: PEER_VERSION_EPOCH_2_0,
+                    }),
+                    StacksEpochId::Epoch20 => self.get_stacks_epoch(0),
+                    StacksEpochId::Epoch2_05 => self.get_stacks_epoch(1),
+                    StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
+                }
+            }
+        }
+
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_get_tx_clarity_version_v205");
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+
+        let smart_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                None,
+            ),
+        );
+        let smart_contract_v1 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+        );
+        let smart_contract_v2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
+        );
+        let token_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        let txs = vec![
+            smart_contract,
+            smart_contract_v1,
+            smart_contract_v2,
+            token_transfer,
+        ];
+        let mut signed_txs = vec![];
+        for mut tx in txs.into_iter() {
+            tx.chain_id = 0x80000000;
+            tx.post_condition_mode = TransactionPostConditionMode::Allow;
+            tx.set_tx_fee(0);
+
+            let mut signer = StacksTransactionSigner::new(&tx);
+            signer.sign_origin(&privk).unwrap();
+            let signed_tx = signer.get_tx().unwrap();
+            signed_txs.push(signed_tx);
+        }
+
+        let token_transfer = signed_txs.pop().unwrap();
+        let smart_contract_v2 = signed_txs.pop().unwrap();
+        let smart_contract_v1 = signed_txs.pop().unwrap();
+        let smart_contract = signed_txs.pop().unwrap();
+
+        let burndb = MockedBurnDB {};
+
+        let mut conn = chainstate.block_begin(
+            &burndb,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([2u8; 20]),
+            &BlockHeaderHash([2u8; 32]),
+        );
+
+        assert_eq!(conn.get_epoch(), StacksEpochId::Epoch2_05);
+        assert_eq!(
+            ClarityVersion::Clarity1,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity1,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v1).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity2,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v2).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity1,
+            StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
+        );
+
+        // verify that 2.1 gating is applied for clarity2
+        if let Err(Error::InvalidStacksTransaction(msg, ..)) =
+            StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false)
+        {
+            assert!(msg.find("not in Stacks epoch 2.1 or later").is_some());
+        } else {
+            panic!("FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
+        }
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn test_get_tx_clarity_version_v210() {
+        struct MockedBurnDB {}
+
+        impl BurnStateDB for MockedBurnDB {
+            fn get_v1_unlock_height(&self) -> u32 {
+                2
+            }
+            fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+                Some(sortition_id.0[0] as u32)
+            }
+            fn get_burn_start_height(&self) -> u32 {
+                0
+            }
+            fn get_pox_prepare_length(&self) -> u32 {
+                3
+            }
+            fn get_pox_reward_cycle_length(&self) -> u32 {
+                6
+            }
+            fn get_pox_rejection_fraction(&self) -> u64 {
+                15
+            }
+            fn get_burn_header_hash(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<BurnchainHeaderHash> {
+                Some(BurnchainHeaderHash([height as u8; 32]))
+            }
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
+                Some(SortitionId([consensus_hash.0[0]; 32]))
+            }
+            fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+                Some(StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 0,
+                    end_height: u64::MAX,
+                    block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                    network_epoch: PEER_VERSION_EPOCH_2_1,
+                })
+            }
+            fn get_stacks_epoch_by_epoch_id(
+                &self,
+                epoch_id: &StacksEpochId,
+            ) -> Option<StacksEpoch> {
+                match epoch_id {
+                    StacksEpochId::Epoch10 => Some(StacksEpoch {
+                        epoch_id: StacksEpochId::Epoch10,
+                        start_height: 0,
+                        end_height: 0,
+                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        network_epoch: PEER_VERSION_EPOCH_2_0,
+                    }),
+                    _ => self.get_stacks_epoch(0),
+                }
+            }
+        }
+
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_get_tx_clarity_version_v210");
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+
+        let smart_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                None,
+            ),
+        );
+        let smart_contract_v1 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+        );
+        let smart_contract_v2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
+        );
+        let token_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        let txs = vec![
+            smart_contract,
+            smart_contract_v1,
+            smart_contract_v2,
+            token_transfer,
+        ];
+        let mut signed_txs = vec![];
+        for mut tx in txs.into_iter() {
+            tx.chain_id = 0x80000000;
+            tx.post_condition_mode = TransactionPostConditionMode::Allow;
+            tx.set_tx_fee(0);
+
+            let mut signer = StacksTransactionSigner::new(&tx);
+            signer.sign_origin(&privk).unwrap();
+            let signed_tx = signer.get_tx().unwrap();
+            signed_txs.push(signed_tx);
+        }
+
+        let token_transfer = signed_txs.pop().unwrap();
+        let smart_contract_v2 = signed_txs.pop().unwrap();
+        let smart_contract_v1 = signed_txs.pop().unwrap();
+        let smart_contract = signed_txs.pop().unwrap();
+
+        let burndb = MockedBurnDB {};
+
+        let mut conn = chainstate.block_begin(
+            &burndb,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([2u8; 20]),
+            &BlockHeaderHash([2u8; 32]),
+        );
+
+        assert_eq!(conn.get_epoch(), StacksEpochId::Epoch21);
+        assert_eq!(
+            ClarityVersion::Clarity2,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity1,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v1).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity2,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v2).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity2,
+            StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
+        );
 
         conn.commit_block();
     }

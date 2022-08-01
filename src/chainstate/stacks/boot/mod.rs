@@ -50,6 +50,7 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use clarity::vm::ClarityVersion;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -214,6 +215,7 @@ impl StacksChainState {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
+                    ClarityVersion::Clarity1,
                     sender,
                     None,
                     cost_track,
@@ -1026,7 +1028,7 @@ pub mod test {
         name: &str,
         code: &str,
     ) -> StacksTransaction {
-        let payload = TransactionPayload::new_smart_contract(name, code).unwrap();
+        let payload = TransactionPayload::new_smart_contract(name, code, None).unwrap();
         make_tx(key, nonce, tx_fee, payload)
     }
 

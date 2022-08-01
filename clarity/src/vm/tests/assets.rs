@@ -26,6 +26,8 @@ use crate::vm::tests::{
 use crate::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
+use crate::vm::version::ClarityVersion;
+use crate::vm::ContractContext;
 use stacks_common::util::hash::hex_bytes;
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -942,6 +944,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!(),
     };
 
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity2,
+    );
+
     let tokens_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
 
@@ -1031,7 +1038,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
                 .unwrap(),
@@ -1271,7 +1278,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     assert_eq!(asset_map.to_table().len(), 0);
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
                 .unwrap(),

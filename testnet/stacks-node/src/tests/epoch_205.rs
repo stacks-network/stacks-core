@@ -783,7 +783,7 @@ fn test_cost_limit_switch_version205() {
     let increment_contract_defines = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
-            TransactionPayload::SmartContract(contract) => {
+            TransactionPayload::SmartContract(contract, ..) => {
                 contract.name == ContractName::try_from("increment-contract").unwrap()
             }
             _ => false,
@@ -1115,7 +1115,7 @@ fn bigger_microblock_streams_in_2_05() {
                 }
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
                 let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-                if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                     if tsc.name.to_string().find("costs-2").is_some() {
                         in_205 = true;
                     } else if tsc.name.to_string().find("large").is_some() {

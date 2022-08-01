@@ -667,7 +667,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             ));
                         }
                     }
-                    TransactionPayload::SmartContract(_) => {
+                    TransactionPayload::SmartContract(..) => {
                         return Ok(TransactionResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
@@ -1257,7 +1257,7 @@ impl StacksBlockBuilder {
                             );
                         }
                     }
-                    TransactionPayload::SmartContract(_) => {
+                    TransactionPayload::SmartContract(..) => {
                         return TransactionResult::skipped(
                             &tx,
                             "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),

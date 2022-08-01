@@ -35,6 +35,7 @@ use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use clarity::vm::ContractContext;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -103,13 +104,28 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             .unwrap(),
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    let burn_db = match epoch {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch),
+    };
+
+    clarity
+        .begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &StacksBlockId([0xfe as u8; 32]),
+            &TEST_HEADER_DB,
+            burn_db,
+        )
+        .commit_block();
 
     {
-        let mut block = clarity.begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &test_block_headers(0),
+        let mut block = clarity.begin_block(
+            &StacksBlockId([0xfe as u8; 32]),
+            &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let tokens_contract = SIMPLE_TOKENS;
@@ -126,6 +142,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         block.as_transaction(|tx| {
             tx.initialize_smart_contract(
                 &contract_identifier,
+                version,
                 &contract_ast,
                 tokens_contract,
                 None,
@@ -273,7 +290,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 &test_block_headers(i),
                 &test_block_headers(i + 1),
                 &TEST_HEADER_DB,
-                &TEST_BURN_STATE_DB,
+                burn_db,
             );
             block.commit_block();
         }
@@ -284,7 +301,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             &test_block_headers(25),
             &test_block_headers(26),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
         assert!(is_committed(
             &block
@@ -423,9 +440,13 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity1,
+    );
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
         env.initialize_contract(contract_identifier, tokens_contract)
@@ -437,7 +458,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
 
         assert!(is_err_code_i128(
             &env.execute_contract(
@@ -452,7 +477,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     }
 
     {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -476,7 +505,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_err_code_i128(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -491,7 +524,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // should work!
-        let mut env = owned_env.get_exec_environment(Some(p1.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -505,7 +542,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         // try to underpay!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone().expect_principal()), None);
+        let mut env = owned_env.get_exec_environment(
+            Some(p2.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
         assert!(is_committed(
             &env.execute_contract(
                 &QualifiedContractIdentifier::local("names").unwrap(),
@@ -565,12 +606,20 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
  *   `(define-data-var var-x ...)` uses more than 1048576 bytes of memory.
  *      this is mainly due to using hex encoding in the sqlite storage.
  */
-#[test]
-#[ignore]
-pub fn rollback_log_memory_test() {
+#[apply(clarity_version_template)]
+pub fn rollback_log_memory_test(
+    #[case] clarity_version: ClarityVersion,
+    #[case] epoch_id: StacksEpochId,
+) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
     clarity_instance
@@ -578,7 +627,7 @@ pub fn rollback_log_memory_test() {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -587,7 +636,7 @@ pub fn rollback_log_memory_test() {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-data-var XZ (buff 1048576) 0x00)";
@@ -610,12 +659,13 @@ pub fn rollback_log_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -628,11 +678,17 @@ pub fn rollback_log_memory_test() {
     }
 }
 
-#[test]
-pub fn let_memory_test() {
+#[apply(clarity_version_template)]
+pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -641,7 +697,7 @@ pub fn let_memory_test() {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -650,7 +706,7 @@ pub fn let_memory_test() {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -678,12 +734,13 @@ pub fn let_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -696,20 +753,29 @@ pub fn let_memory_test() {
     }
 }
 
-#[test]
-pub fn argument_memory_test() {
+#[apply(clarity_version_template)]
+pub fn argument_memory_test(
+    #[case] clarity_version: ClarityVersion,
+    #[case] epoch_id: StacksEpochId,
+) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let EXPLODE_N = 100;
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
+    };
 
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -718,7 +784,7 @@ pub fn argument_memory_test() {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -746,12 +812,13 @@ pub fn argument_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract,
                     None,
@@ -764,12 +831,18 @@ pub fn argument_memory_test() {
     }
 }
 
-#[test]
-pub fn fcall_memory_test() {
+#[apply(clarity_version_template)]
+pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_FUNC = 10;
     let FUNCS = 10;
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
+    };
 
     let contract_identifier = QualifiedContractIdentifier::local("foo").unwrap();
 
@@ -778,7 +851,7 @@ pub fn fcall_memory_test() {
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -787,7 +860,7 @@ pub fn fcall_memory_test() {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)";
@@ -833,12 +906,13 @@ pub fn fcall_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_ok)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok)
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
                     // initialize the ok contract without errs, but still abort.
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract_ok,
                     None,
@@ -853,12 +927,13 @@ pub fn fcall_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_err)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err)
                 .unwrap();
             assert!(format!(
                 "{:?}",
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    clarity_version,
                     &ct_ast,
                     &contract_err,
                     None,
@@ -871,20 +946,25 @@ pub fn fcall_memory_test() {
     }
 }
 
-#[test]
-#[ignore]
-pub fn ccall_memory_test() {
+#[apply(clarity_version_template)]
+pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id: StacksEpochId) {
     let marf = MarfedKV::temporary();
     let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
     let COUNT_PER_CONTRACT = 20;
     let CONTRACTS = 5;
+    let burn_db = match epoch_id {
+        StacksEpochId::Epoch20 => &TEST_BURN_STATE_DB,
+        StacksEpochId::Epoch2_05 => &TEST_BURN_STATE_DB_205,
+        StacksEpochId::Epoch21 => &TEST_BURN_STATE_DB_21,
+        _ => panic!("Epoch {} not covered", &epoch_id),
+    };
 
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
             &StacksBlockId([0 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         )
         .commit_block();
 
@@ -893,7 +973,7 @@ pub fn ccall_memory_test() {
             &StacksBlockId([0 as u8; 32]),
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
+            burn_db,
         );
 
         let define_data_var = "(define-constant buff-0 0x00)\n";
@@ -934,10 +1014,11 @@ pub fn ccall_memory_test() {
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
+                        clarity_version,
                         &ct_ast,
                         &contract,
                         None,
@@ -950,12 +1031,13 @@ pub fn ccall_memory_test() {
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     assert!(format!(
                         "{:?}",
                         conn.initialize_smart_contract(
                             &contract_identifier,
+                            clarity_version,
                             &ct_ast,
                             &contract,
                             None,

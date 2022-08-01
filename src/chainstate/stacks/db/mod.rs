@@ -1167,12 +1167,15 @@ impl StacksChainState {
                     boot_code_contract.len()
                 );
 
-                let smart_contract = TransactionPayload::SmartContract(TransactionSmartContract {
-                    name: ContractName::try_from(boot_code_name.to_string())
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(boot_code_contract)
-                        .expect("FATAL: invalid boot code body"),
-                });
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(boot_code_name.to_string())
+                            .expect("FATAL: invalid boot-code contract name"),
+                        code_body: StacksString::from_str(boot_code_contract)
+                            .expect("FATAL: invalid boot code body"),
+                    },
+                    None,
+                );
 
                 let boot_code_smart_contract = StacksTransaction::new(
                     tx_version.clone(),
