@@ -774,10 +774,9 @@ fn spawn_peer(
                         }
                     }
                     Err(e) => {
-                        error!("P2P: Failed to process network dispatch: {:?}", &e);
-                        if config.is_node_event_driven() {
-                            panic!();
-                        }
+                        // this is only reachable if the network is not instantiated correctly --
+                        // i.e. you didn't connect it
+                        panic!("P2P: Failed to process network dispatch: {:?}", &e);
                     }
                 };
 

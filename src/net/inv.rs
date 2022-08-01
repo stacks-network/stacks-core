@@ -2249,7 +2249,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked",
@@ -2481,6 +2481,7 @@ impl PeerNetwork {
                 Ok((false, false, vec![], vec![]))
             }
         })
+        .expect("FATAL: network not connected")
     }
 
     pub fn with_inv_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
