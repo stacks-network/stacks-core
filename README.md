@@ -332,7 +332,7 @@ seed = "YOUR PRIVATE KEY"
 wait_time_for_microblocks = 10000
 # Run as a mock-miner, to test mining without spending BTC.
 # Mutually exclusive with `miner`.
-#mock_miner = True
+#mock_mining = True
 
 [miner]
 # Smallest allowed tx fee, in microSTX
