@@ -9,6 +9,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 - Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+  stacks-node uses for logging.
+  Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
 
 ### Changed
 - Updates to the logging of transaction events (#3139).
