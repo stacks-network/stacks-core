@@ -4661,6 +4661,7 @@ impl StacksChainState {
                             execution_cost,
                             microblock_header: None,
                             tx_index: 0,
+                            vm_error: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4724,6 +4725,7 @@ impl StacksChainState {
                                     execution_cost: ExecutionCost::zero(),
                                     microblock_header: None,
                                     tx_index: 0,
+                                    vm_error: None,
                                 })
                             }
                             Err(e) => {
