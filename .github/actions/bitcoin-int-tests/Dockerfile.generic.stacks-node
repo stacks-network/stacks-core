@@ -1,4 +1,4 @@
-FROM blockstack/stacks-blockchain:2.05.0.1.0-stretch as stacks-node
+FROM blockstack/stacks-blockchain:2.05.0.2.0-stretch as stacks-node
 
 FROM rust:stretch AS test
 
