@@ -8161,7 +8161,7 @@ pub mod test {
         let balances = vec![(addr.clone(), 1000000000)];
 
         let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, "process_fee_v210", balances);
+            instantiate_chainstate_with_balances(false, 0x80000000, "process_fee_gating", balances);
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -8307,7 +8307,7 @@ pub mod test {
         let balances = vec![(addr.clone(), 1000000000)];
 
         let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, "process_fee_v210", balances);
+            instantiate_chainstate_with_balances(false, 0x80000000, "process_fee_gating_sponsored", balances);
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
