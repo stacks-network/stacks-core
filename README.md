@@ -330,8 +330,7 @@ miner = True
 seed = "YOUR PRIVATE KEY"
 # How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
 wait_time_for_microblocks = 10000
-# Run as a mock-miner, to test mining without spending BTC.
-# Mutually exclusive with `miner`.
+# Run as a mock-miner, to test mining without spending BTC. Needs miner=True.
 #mock_mining = True
 
 [miner]
