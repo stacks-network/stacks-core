@@ -509,7 +509,7 @@ fn check_principal_construct(
             TupleTypeSignature::try_from(vec![
                 ("error_code".into(), TypeSignature::UIntType),
                 (
-                    "principal".into(),
+                    "value".into(),
                     TypeSignature::new_option(TypeSignature::PrincipalType).expect("FATAL: failed to create (optional principal) type signature"),
                 ),
             ])

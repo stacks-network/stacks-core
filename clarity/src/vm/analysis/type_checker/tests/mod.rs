@@ -1329,11 +1329,11 @@ fn test_slice_list() {
         "(slice (list) u0 u3)",
     ];
     let expected = [
-        "(list 7 int)",
-        "(list 5 uint)",
-        "(list 7 int)",
-        "(list 7 int)",
-        "(list 0 UnknownType)",
+        "(optional (list 7 int))",
+        "(optional (list 5 uint))",
+        "(optional (list 7 int))",
+        "(optional (list 7 int))",
+        "(optional (list 0 UnknownType))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1365,7 +1365,7 @@ fn test_slice_buff() {
         "(slice 0x000102030405 u0 u3)",
         "(slice 0x000102030405 u3 u2)",
     ];
-    let expected = ["(buff 6)", "(buff 6)"];
+    let expected = ["(optional (buff 6))", "(optional (buff 6))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -1396,7 +1396,10 @@ fn test_slice_ascii() {
         "(slice \"blockstack\" u4 u5)",
         "(slice \"blockstack\" u0 u5)",
     ];
-    let expected = ["(string-ascii 10)", "(string-ascii 10)"];
+    let expected = [
+        "(optional (string-ascii 10))",
+        "(optional (string-ascii 10))",
+    ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -1427,7 +1430,7 @@ fn test_slice_utf8() {
         "(slice u\"blockstack\" u4 u5)",
         "(slice u\"blockstack\" u4 u5)",
     ];
-    let expected = ["(string-utf8 10)", "(string-utf8 10)"];
+    let expected = ["(optional (string-utf8 10))", "(optional (string-utf8 10))"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -2958,7 +2961,7 @@ fn test_principal_destruct() {
 fn test_principal_construct() {
     // This is the type we expect on success.
     let expected_type =
-        "(response principal (tuple (error_code uint) (principal (optional principal))))";
+        "(response principal (tuple (error_code uint) (value (optional principal))))";
     let good_pairs = [
         // Standard good example of a standard principal
         (
