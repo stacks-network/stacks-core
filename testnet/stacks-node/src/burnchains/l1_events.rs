@@ -9,6 +9,7 @@ use stacks::burnchains::{Burnchain, Error as BurnchainError, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks::chainstate::stacks::miner::Proposal;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
@@ -18,7 +19,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 
 use super::commitment::{Layer1Committer, MultiPartyCommitter};
 use super::db_indexer::DBBurnchainIndexer;
-use super::{burnchain_from_config, BurnchainChannel, Error};
+use super::{burnchain_from_config, BurnchainChannel, ClaritySignature, Error};
 
 use crate::burnchains::commitment::DirectCommitter;
 use crate::config::CommitStrategy;
@@ -99,10 +100,13 @@ impl L1Controller {
             CommitStrategy::MultiMiner {
                 required_signers,
                 contract,
+                other_participants,
+                leader,
             } => Box::new(MultiPartyCommitter::new(
                 &config.burnchain,
                 *required_signers,
                 contract,
+                other_participants.clone(),
             )),
         };
         Ok(L1Controller {
@@ -238,9 +242,24 @@ impl BurnchainController for L1Controller {
     fn get_channel(&self) -> Arc<dyn BurnchainChannel> {
         self.indexer.get_channel()
     }
+
     fn commit_required_signatures(&self) -> u8 {
-        0
+        self.committer.commit_required_signatures()
     }
+
+    fn propose_block(
+        &self,
+        participant_index: u8,
+        proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
+        self.committer
+            .propose_block_to(participant_index, proposal)
+            .map_err(|e| {
+                warn!("Block proposal failed"; "error" => %e);
+                Error::BadCommitment(e)
+            })
+    }
+
     fn submit_commit(
         &mut self,
         committed_block_hash: BlockHeaderHash,

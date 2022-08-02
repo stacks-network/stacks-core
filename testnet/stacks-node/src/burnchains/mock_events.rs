@@ -19,6 +19,7 @@ use stacks::burnchains;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks::chainstate::stacks::miner::Proposal;
 use stacks::core::StacksEpoch;
 use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks::util::sleep_ms;
@@ -29,6 +30,7 @@ use crate::operations::BurnchainOpSigner;
 use crate::{BurnchainController, BurnchainTip, Config};
 
 use super::db_indexer::DBBurnchainIndexer;
+use super::ClaritySignature;
 use super::{burnchain_from_config, BurnchainChannel, Error};
 use clarity::util::hash::Sha512Trunc256Sum;
 
@@ -418,7 +420,7 @@ impl BurnchainController for MockController {
         committed_block_hash: BlockHeaderHash,
         _target_block: BurnchainHeaderHash,
         withdrawal_merkle_root: Sha512Trunc256Sum,
-        _signatures: Vec<super::ClaritySignature>,
+        _signatures: Vec<ClaritySignature>,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
     ) -> Result<Txid, Error> {
@@ -526,6 +528,14 @@ impl BurnchainController for MockController {
     #[cfg(test)]
     fn bootstrap_chain(&mut self, _blocks_count: u64) {
         todo!()
+    }
+
+    fn propose_block(
+        &self,
+        _participant_index: u8,
+        _proposal: &Proposal,
+    ) -> Result<ClaritySignature, Error> {
+        panic!()
     }
 }
 

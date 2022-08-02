@@ -231,7 +231,8 @@ pub fn new_l1_test_conf(
 ) -> Config {
     let mut config = new_test_conf();
     config.node.mining_key = Some(mining_key.clone());
-
+    // this local peer seed corresponds to pubkey: 03f76a39d05686e34a4420897e359371836145dd3973e3982568b60f8433adde6e
+    config.node.local_peer_seed = vec![02; 32];
     config.burnchain.first_burn_header_height = 1;
     config.burnchain.chain = "stacks_layer_1".to_string();
     config.burnchain.rpc_ssl = false;

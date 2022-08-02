@@ -31,6 +31,7 @@ use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::TrySendError;
 
+use clarity::util::secp256k1::Secp256k1PrivateKey;
 use mio;
 use mio::net as mio_net;
 
@@ -397,6 +398,9 @@ pub struct ConnectionOptions {
     pub disable_natpunch: bool,
     pub disable_inbound_handshakes: bool,
     pub force_disconnect_interval: Option<u64>,
+
+    /// hyperchain validator key
+    pub hyperchain_validator: Option<Secp256k1PrivateKey>,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -483,6 +487,7 @@ impl std::default::Default for ConnectionOptions {
             disable_natpunch: false,
             disable_inbound_handshakes: false,
             force_disconnect_interval: None,
+            hyperchain_validator: None,
         }
     }
 }

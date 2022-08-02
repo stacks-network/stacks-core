@@ -4228,6 +4228,37 @@ impl StacksChainState {
         Ok(list)
     }
 
+    pub fn can_attach(
+        chainstate_conn: &Connection,
+        parent_anchored_block_hash: &BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+    ) -> Result<bool, Error> {
+        if parent_anchored_block_hash == &FIRST_STACKS_BLOCK_HASH {
+            // this block's parent is the boot code -- it's the first-ever block,
+            // so it can be processed immediately
+            Ok(true)
+        } else {
+            // not the first-ever block.  Does this connect to a previously-accepted
+            // block in the headers database?
+            let hdr_sql =
+                "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2"
+                    .to_string();
+            let hdr_args: &[&dyn ToSql] = &[parent_anchored_block_hash, parent_consensus_hash];
+            let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
+                chainstate_conn,
+                &hdr_sql,
+                hdr_args,
+                || {
+                    format!(
+                        "Stored the same block twice: {}/{}",
+                        parent_anchored_block_hash, parent_consensus_hash
+                    )
+                },
+            )?;
+            Ok(hdr_row.is_some())
+        }
+    }
+
     /// Given access to the chain state (headers) and the staging blocks, find a staging block we
     /// can process, as well as its parent microblocks that it confirms
     /// Returns Some(microblocks, staging block) if we found a sequence of blocks to process.
@@ -5223,7 +5254,7 @@ impl StacksChainState {
     /// necessary so that the Headers database and Clarity database's
     /// transactions can commit very close to one another, after the
     /// event observer has emitted.
-    fn append_block<'a>(
+    pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,

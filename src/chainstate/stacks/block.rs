@@ -101,7 +101,7 @@ impl StacksBlockHeader {
     /// If `empty_sig` is true, write an empty list for `miner_signatures`, instead of whatever is
     /// actually in `this`. This is used to create a consistent object that can be signed multiple
     /// times.
-    fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), codec_error> {
+    pub fn serialize<W: Write>(&self, fd: &mut W, empty_sig: bool) -> Result<(), codec_error> {
         write_next(fd, &self.version)?;
         write_next(fd, &self.total_work)?;
         write_next(fd, &self.proof)?;

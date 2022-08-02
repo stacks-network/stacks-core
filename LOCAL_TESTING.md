@@ -25,7 +25,7 @@ cp stacks-hyperchains/core-contracts/contracts/helper/nft-trait-standard.clar my
 Set the miners list to contain the address generated in Step 1:
 
 ```bash
-sed -ie "s#^(define-constant miners.*#(define-constant miners (list \'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP))#" my-hyperchain/contracts/hyperchains.clar
+sed -ie "s#^(define-data-var miner (optional principal) none)#(define-data-var miner (optional principal) (some \'ST2GE6HSXT81X9X3ATQ14WPT49X915R8X7FVERMBP))#" my-hyperchain/contracts/hyperchains.clar
 ```
 
 Make the transactions -- you will need to set the private key of the contract publisher as an env var:
@@ -125,18 +125,13 @@ Find the withdrawal event in our log:
 
 ```bash
 cat /tmp/stacks-hc.log | grep "Parsed L2"
-curl -s localhost:19443/v2/withdrawal/stx/14/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8/0/50000 | jq .
-{
-  "withdrawal_root": "0x0200000020898a1d67146f768bea82df555bebad41d2919518c843bdce83057f970efb3889",
-  "withdrawal_leaf_hash": "0x0200000020a6b03891a27f3cbea3b64c24fed1740740785c8da960bb11cacb55333e8191bc",
-  "sibling_hashes": "0x0b000000010c0000000204686173680200000020a6b03891a27f3cbea3b64c24fed1740740785c8da960bb11cacb55333e8191bc0c69732d6c6566742d7369646504"
-}
 ```
 
 Perform the withdrawal on layer-1
 
 ```js
-let json_merkle_entry = await fetch("http://localhost:19443/v2/withdrawal/stx/45/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8/0/50000").then(x => x.json())
+let withdrawUrl = "http://localhost:19443/v2/withdrawal/stx/14/ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8/0/50000";
+let json_merkle_entry = await fetch(withdrawUrl).then(x => x.json())
 let cv_merkle_entry = {
     withdrawal_leaf_hash: transactions.deserializeCV(json_merkle_entry.withdrawal_leaf_hash),
     withdrawal_root: transactions.deserializeCV(json_merkle_entry.withdrawal_root),
