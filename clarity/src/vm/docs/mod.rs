@@ -337,7 +337,7 @@ On success, this function returns either a standard principal or contract princi
 depending on whether or not the third `(string-ascii 40)` argument is given.
 
 This function returns a `Response`. On success, the `ok` value is a `Principal`.
-The `err` value is a value tuple with the form `{ error_int: uint, value: (optional principal) }`.
+The `err` value is a value tuple with the form `{ error_code: uint, value: (optional principal) }`.
 
 If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
 version byte for the current network, then the error will be `u0`, and `value` will contain
@@ -345,23 +345,23 @@ version byte for the current network, then the error will be `u0`, and `value` w
 however, then the `value` will be `none`.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
-value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_int`
+value greater than `0x1f`, or the `hash-bytes` is a `buff` of length not equal to 20, then `error_code`
 will be `u1` and `value` will be `None`.
 
 If a name is given, and the name is either an empty string or contains ASCII characters
-that are not allowed in contract names, then `error_int` will be `u2`.
+that are not allowed in contract names, then `error_code` will be `u2`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
 (principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
 (principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_int u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
-(principal-construct 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u1) (value none)))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_int u1) (value none)))
-(principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_int u1) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_int u2) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_int u2) (value none)))
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
+(principal-construct 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
 "#,
 };
 
@@ -2419,7 +2419,7 @@ mod test {
             .unwrap()
             .expressions;
 
-            type_check(
+            let analysis = type_check(
                 &contract_id,
                 &mut parsed,
                 &mut analysis_db,
@@ -2427,6 +2427,39 @@ mod test {
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
+        }
+
+        let mut type_results = vec![];
+        let mut total_example = "".to_string();
+        for segment in segments.iter() {
+            total_example.push_str(segment);
+            let mut parsed = ast::build_ast(
+                &contract_id,
+                &total_example,
+                &mut (),
+                ClarityVersion::latest(),
+                StacksEpochId::latest(),
+            )
+            .unwrap()
+            .expressions;
+
+            let mut analysis_db = store.as_analysis_db();
+            let analysis = type_check(
+                &contract_id,
+                &mut parsed,
+                &mut analysis_db,
+                false,
+                &ClarityVersion::latest(),
+            )
+            .expect("Failed to type check");
+            type_results.push(
+                analysis
+                    .type_map
+                    .as_ref()
+                    .unwrap()
+                    .get_type(&analysis.expressions.last().unwrap())
+                    .cloned(),
+            );
         }
 
         let conn = store.as_docs_clarity_db();
@@ -2442,7 +2475,7 @@ mod test {
 
         global_context
             .execute(|g| {
-                for segment in segments.iter() {
+                for (segment, type_result) in segments.iter().zip(type_results.iter()) {
                     let expected = if segment.contains("Returns ") {
                         let expects_start = segment.rfind("Returns ").unwrap() + "Returns ".len();
                         Some(segment[expects_start..].trim().to_string())
@@ -2462,11 +2495,18 @@ mod test {
                         )
                         .unwrap()
                         .expressions;
+
                         eval_all(&parsed, &mut contract_context, g, None).unwrap()
                     };
 
                     if let Some(expected) = expected {
-                        assert_eq!(expected, result.unwrap().to_string());
+                        assert_eq!(expected, result.as_ref().unwrap().to_string());
+                        assert!(
+                            type_result.as_ref().unwrap().admits(result.as_ref().unwrap()),
+                            "Type checker's expected type must admit result. Expected type = {}. Result = {}",
+                            type_result.as_ref().unwrap(),
+                            result.as_ref().unwrap()
+                        );
                     }
                 }
                 Ok(())
