@@ -550,7 +550,7 @@ impl RunLoop {
 
         // Wait for some sortitions!
         let mut burnchain_tip = burnchain
-            .wait_for_sortitions(Some(burnchain_config.first_block_height))
+            .wait_for_sortitions(Some(burnchain_config.first_block_height + 1))
             .expect("Unable to get burnchain tip");
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
