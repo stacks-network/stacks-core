@@ -3014,7 +3014,7 @@ impl PeerNetwork {
                                 }
                             }
                         }
-                        Ok((local_blocks, local_microblocks))
+                        (local_blocks, local_microblocks)
                     },
                 ) {
                     Ok(x) => x,
@@ -3109,9 +3109,8 @@ impl PeerNetwork {
                         .inv
                         .truncate_pox_inventory(&network.burnchain, reward_cycle);
                 }
-                Ok(())
             })
-            .expect("FATAL: with_inv_state() should be infallible");
+            .expect("FATAL: with_inv_state() should be infallible (not connected)");
         }
     }
 
