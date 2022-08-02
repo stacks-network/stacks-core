@@ -21,6 +21,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   larger block after their first attempt (by Bitcoin RBF) if new
   microblock or block data arrived. This changes the miner to always
   attempt a second block assembly (#3184).
+- Fixed a deadlock condition that can arise when the node boots from existing
+  chainstate and feeds the P2P thread too many Atlas attachment records (#3216).
 
 ## [2.05.0.2.1]
 
