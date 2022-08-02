@@ -12,6 +12,7 @@ use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::ClarityVersion;
+use crate::vm::ContractContext;
 use crate::vm::{ast, SymbolicExpression, Value};
 use stacks_common::types::StacksEpochId;
 use std::fmt;
@@ -120,6 +121,7 @@ pub trait ClarityConnection {
         &mut self,
         mainnet: bool,
         chain_id: u32,
+        clarity_version: ClarityVersion,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
@@ -130,11 +132,13 @@ pub trait ClarityConnection {
     {
         let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
+            let initial_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
             let mut vm_env = OwnedEnvironment::new_cost_limited(
                 mainnet, chain_id, clarity_db, cost_track, epoch_id,
             );
             let result = vm_env
-                .execute_in_env(sender, sponsor, to_do)
+                .execute_in_env(sender, sponsor, Some(initial_context), to_do)
                 .map(|(result, _, _)| result);
             let (db, _) = vm_env
                 .destruct()
@@ -167,12 +171,10 @@ pub trait TransactionConnection: ClarityConnection {
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
         contract_content: &str,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let epoch_id = self.get_epoch();
-
-        // ClarityVersionPragmaTodo: need to use contract's declared version or default
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
 
         self.with_analysis_db(|db, mut cost_track| {
             let ast_result = ast::build_ast(
@@ -304,6 +306,7 @@ pub trait TransactionConnection: ClarityConnection {
     fn initialize_smart_contract<F>(
         &mut self,
         identifier: &QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
         contract_ast: &ContractAST,
         contract_str: &str,
         sponsor: Option<PrincipalData>,
@@ -317,6 +320,7 @@ pub trait TransactionConnection: ClarityConnection {
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),
+                        clarity_version,
                         contract_ast,
                         contract_str,
                         sponsor,

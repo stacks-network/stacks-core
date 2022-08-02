@@ -2739,7 +2739,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+            if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
                     total_big_txs_per_block += 1;
@@ -2942,7 +2942,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+            if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
@@ -3118,7 +3118,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+            if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("small").is_some() {
                     num_big_microblock_txs += 1;
                     total_big_txs_per_microblock += 1;
@@ -3399,7 +3399,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             eprintln!("tx: {:?}", &parsed);
-            if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+            if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                 if tsc.name.to_string().find("large-").is_some() {
                     num_big_anchored_txs += 1;
                     total_big_txs_in_blocks += 1;

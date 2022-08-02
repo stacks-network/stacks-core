@@ -94,6 +94,7 @@ use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::clarity_store::make_contract_hash_key;
 use clarity::vm::types::TraitIdentifier;
+use clarity::vm::ClarityVersion;
 use clarity::vm::{
     analysis::errors::CheckErrors,
     costs::{ExecutionCost, LimitedCostTracker},
@@ -277,6 +278,7 @@ impl RPCPoxInfoData {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
+                    ClarityVersion::Clarity1,
                     sender,
                     None,
                     cost_track,
@@ -1385,9 +1387,21 @@ impl ConversationHttp {
                         ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                     })?;
 
+                let clarity_version = clarity_tx
+                    .with_analysis_db_readonly(|analysis_db| {
+                        analysis_db.get_clarity_version(&contract_identifier)
+                    })
+                    .map_err(|_| {
+                        ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
+                            "{}",
+                            &contract_identifier
+                        )))
+                    })?;
+
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
+                    clarity_version,
                     sender.clone(),
                     sponsor.cloned(),
                     cost_track,
@@ -3617,8 +3631,12 @@ mod test {
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::new_smart_contract(&format!("hello-world"), &contract.to_string())
-                .unwrap(),
+            TransactionPayload::new_smart_contract(
+                &format!("hello-world"),
+                &contract.to_string(),
+                None,
+            )
+            .unwrap(),
         );
 
         tx_contract.chain_id = 0x80000000;
@@ -3658,6 +3676,7 @@ mod test {
             TransactionPayload::new_smart_contract(
                 &format!("hello-world-unconfirmed"),
                 &unconfirmed_contract.to_string(),
+                None,
             )
             .unwrap(),
         );

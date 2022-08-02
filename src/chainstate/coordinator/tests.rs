@@ -57,6 +57,7 @@ use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::ClarityVersion;
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
@@ -983,6 +984,7 @@ fn missed_block_commits() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1153,6 +1155,7 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1460,6 +1463,7 @@ fn test_sortition_with_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1702,6 +1706,7 @@ fn test_sortition_with_burner_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1955,6 +1960,7 @@ fn test_pox_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2247,6 +2253,7 @@ fn test_stx_transfer_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2475,6 +2482,7 @@ fn test_initial_coinbase_reward_distributions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3502,6 +3510,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
+                    ClarityVersion::Clarity1,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),
