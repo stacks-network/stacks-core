@@ -1302,6 +1302,11 @@ pub mod test {
         &TestBurnStateDB_21 as &dyn BurnStateDB,
     ];
 
+    pub const PRE_21_DBS: &[&dyn BurnStateDB] = &[
+        &TestBurnStateDB_20 as &dyn BurnStateDB,
+        &TestBurnStateDB_2_05 as &dyn BurnStateDB,
+    ];
+
     #[test]
     fn process_token_transfer_stx_transaction() {
         let mut chainstate =
@@ -7310,7 +7315,9 @@ pub mod test {
 
         let signed_contract_call_tx = signer.get_tx().unwrap();
 
-        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+        // in epoch 2.05 and earlier, this fails because we debit the fee _after_ we run the tx,
+        // which leads to an InvalidFee error
+        for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -7334,6 +7341,31 @@ pub mod test {
                 assert!(false)
             };
         }
+
+        // in epoch 2.1, this passes, since we debit the fee _before_ we run the tx, and then the
+        // call to stx-transfer? fails.
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([3u8; 20]),
+            &BlockHeaderHash([3u8; 32]),
+        );
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false)
+                .unwrap();
+
+        assert_eq!(fee, 1);
+        assert_eq!(
+            StacksChainState::get_account(&mut conn, &addr.into())
+                .stx_balance
+                .get_available_balance_at_burn_block(0, 0),
+            (1000000000 - fee) as u128
+        );
+
+        conn.commit_block();
     }
 
     fn make_signed_microblock(
@@ -8306,8 +8338,12 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, "process_fee_gating_sponsored", balances);
+        let mut chainstate = instantiate_chainstate_with_balances(
+            false,
+            0x80000000,
+            "process_fee_gating_sponsored",
+            balances,
+        );
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
