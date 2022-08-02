@@ -1229,7 +1229,7 @@ enum LeaderKeyRegistrationState {
 impl StacksNode {
     pub fn spawn(
         runloop: &RunLoop,
-        last_burn_block: Option<BurnchainTip>,
+        last_burn_block: Option<BlockSnapshot>,
         coord_comms: CoordinatorChannels,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
@@ -1403,7 +1403,6 @@ impl StacksNode {
         // setup the relayer channel
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
-        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
         let last_sortition = Arc::new(Mutex::new(last_burn_block));
 
         let burnchain_signer = keychain.get_burnchain_signer();
