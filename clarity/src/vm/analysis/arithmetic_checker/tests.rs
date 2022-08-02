@@ -234,6 +234,10 @@ fn test_functions_clarity1() {
         ("(define-private (foo (a principal)) 
            (nft-mint? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))",
          Err(FunctionNotPermitted(NativeFunctions::MintAsset))),
+        ("(ft-burn? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+         Err(FunctionNotPermitted(NativeFunctions::BurnToken))),
+        ("(nft-burn? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+         Err(FunctionNotPermitted(NativeFunctions::BurnAsset))),
         ("(nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)",
          Err(FunctionNotPermitted(NativeFunctions::TransferAsset))),
         ("(nft-get-owner? stackaroo \"Roo\")",

@@ -879,6 +879,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 let mut num_added = 0;
                 intermediate_result = mem_pool.iterate_candidates(
                     &mut clarity_tx,
+                    &mut tx_events,
                     self.anchor_block_height,
                     mempool_settings.clone(),
                     |clarity_tx, to_consider, estimator| {
@@ -890,11 +891,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                 "Microblock miner deadline exceeded ({} ms)",
                                 self.settings.max_miner_time_ms
                             );
-                            return Ok(false);
+                            return Ok(None);
                         }
 
                         if considered.contains(&mempool_tx.tx.txid()) {
-                            return Ok(true);
+                            return Ok(Some(TransactionResult::skipped(
+                                &mempool_tx.tx, "Transaction already considered.".to_string()).convert_to_event()));
                         } else {
                             considered.insert(mempool_tx.tx.txid());
                         }
@@ -907,7 +909,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             &block_limit_hit,
                         ) {
                             Ok(tx_result) => {
-                                tx_events.push(tx_result.convert_to_event());
+                                let result_event = tx_result.convert_to_event();
                                 match tx_result {
                                     TransactionResult::Success(TransactionSuccess {
                                         receipt,
@@ -937,7 +939,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                         num_txs += 1;
                                         num_added += 1;
                                         num_selected += 1;
-                                        Ok(true)
+                                        Ok(Some(result_event))
                                     }
                                     TransactionResult::Skipped(TransactionSkipped {
                                         error,
@@ -963,7 +965,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                                     debug!("Block budget exceeded while mining microblock"; 
                                                         "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Stop mining microblock");
                                                     block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                                    return Ok(false);
+                                                    return Ok(None);
                                                 }
                                             }
                                             Error::TransactionTooBigError => {
@@ -971,7 +973,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             }
                                             _ => {}
                                         }
-                                        return Ok(true)
+                                        return Ok(Some(result_event))
                                     }
                                 }
                             }
@@ -1988,6 +1990,7 @@ impl StacksBlockBuilder {
                 let mut num_considered = 0;
                 intermediate_result = mempool.iterate_candidates(
                     &mut epoch_tx,
+                    &mut tx_events,
                     tip_height,
                     mempool_settings.clone(),
                     |epoch_tx, to_consider, estimator| {
@@ -1995,28 +1998,53 @@ impl StacksBlockBuilder {
                         let update_estimator = to_consider.update_estimate;
 
                         if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
-                            return Ok(false);
+                            return Ok(None);
                         }
                         if get_epoch_time_ms() >= deadline {
                             debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
-                            return Ok(false);
+                            return Ok(None);
                         }
 
                         // skip transactions early if we can
                         if considered.contains(&txinfo.tx.txid()) {
-                            return Ok(true);
+                            return Ok(Some(
+                                TransactionResult::skipped(
+                                    &txinfo.tx,
+                                    "Transaction already considered.".to_string(),
+                                )
+                                .convert_to_event(),
+                            ));
                         }
 
                         if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
                             if *nonce >= txinfo.tx.get_origin_nonce() {
-                                return Ok(true);
+                                return Ok(Some(
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        format!(
+                                            "Bad origin nonce, tx nonce {} versus {}.",
+                                            txinfo.tx.get_origin_nonce(),
+                                            *nonce
+                                        ),
+                                    )
+                                    .convert_to_event(),
+                                ));
                             }
                         }
                         if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
                             if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
                                 if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
                                     if *nonce >= sponsor_nonce {
-                                        return Ok(true);
+                                        return Ok(Some(
+                                            TransactionResult::skipped(
+                                                &txinfo.tx,
+                                                format!(
+                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
+                                                    sponsor_nonce, *nonce
+                                                ),
+                                            )
+                                            .convert_to_event(),
+                                        ));
                                     }
                                 }
                             }
@@ -2031,8 +2059,8 @@ impl StacksBlockBuilder {
                             txinfo.metadata.len,
                             &block_limit_hit,
                         );
-                        tx_events.push(tx_result.convert_to_event());
 
+                        let result_event = tx_result.convert_to_event();
                         match tx_result {
                             TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
                                 num_txs += 1;
@@ -2079,7 +2107,7 @@ impl StacksBlockBuilder {
                                                 "Stop mining anchored block due to limit exceeded"
                                             );
                                             block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(false);
+                                            return Ok(None);
                                         }
                                     }
                                     Error::TransactionTooBigError => {
@@ -2090,13 +2118,13 @@ impl StacksBlockBuilder {
                                     }
                                     e => {
                                         warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
-                                        return Ok(true);
+                                        return Ok(Some(result_event));
                                     }
                                 }
                             }
                         }
 
-                        Ok(true)
+                        Ok(Some(result_event))
                     },
                 );
 

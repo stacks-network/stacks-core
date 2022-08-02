@@ -15,6 +15,31 @@ This release will contain consensus-breaking changes.
 - Added a new parser which will be used to parse Clarity code beginning with 2.1,
   resolving several bugs in the old parser and improving performance.
 
+## [Unreleased - Stacks 2.05.x]
+
+### Added
+- Added prometheus output for "transactions in last block" (#3138).
+
+### Changed
+- Updates to the logging of transaction events (#3139).
+
+### Fixed
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
+- Fixed default miner behavior regarding block assembly
+  attempts. Previously, the miner would only attempt to assemble a
+  larger block after their first attempt (by Bitcoin RBF) if new
+  microblock or block data arrived. This changes the miner to always
+  attempt a second block assembly (#3184).
+
+## [2.05.0.2.1]
+
+### Fixed
+- Fixed a security bug in the SPV client whereby the chain work was not being
+  considered at all when determining the canonical Bitcoin fork.  The SPV client
+  now only accepts a new Bitcoin fork if it has a higher chain work than any other
+  previously-seen chain (#3152).
+
 ## [2.05.0.2.0]
 
 ### IMPORTANT! READ THIS FIRST
