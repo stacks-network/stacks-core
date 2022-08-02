@@ -565,7 +565,7 @@ impl RunLoop {
         let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
             // need at least one sortition to happen.
             burnchain
-                .wait_for_sortitions(Some(1))
+                .wait_for_sortitions(Some(sn.block_height + 1))
                 .expect("Unable to get burnchain tip")
                 .block_snapshot
         } else {
