@@ -2551,7 +2551,48 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+        // invalid contract-calls
+        let contract_calls = vec![
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar-not-a-method",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // call into non-existant method
+            (
+                addr.clone(),
+                "hello-world-not-a-contract",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // call into non-existant contract
+            (
+                addr_2.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // address does not have a contract
+            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1), Value::Int(1)],
+            ), // wrong number of args (too many)
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)],
+            ), // wrong arg type
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::UInt(1), Value::Int(1)],
+            ), // wrong arg type
+        ];
+
+        for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -2562,52 +2603,11 @@ pub mod test {
             let (_fee, _) =
                 StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
-            // invalid contract-calls
-            let contract_calls = vec![
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar-not-a-method",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // call into non-existant method
-                (
-                    addr.clone(),
-                    "hello-world-not-a-contract",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // call into non-existant contract
-                (
-                    addr_2.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // address does not have a contract
-                (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1), Value::Int(1)],
-                ), // wrong number of args (too many)
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)],
-                ), // wrong arg type
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::UInt(1), Value::Int(1)],
-                ), // wrong arg type
-            ];
-
             let next_nonce = 0;
 
-            for contract_call in contract_calls {
+            for contract_call in contract_calls.iter() {
                 let (contract_addr, contract_name, contract_function, contract_args) =
-                    contract_call;
+                    contract_call.clone();
                 let mut tx_contract_call = StacksTransaction::new(
                     TransactionVersion::Testnet,
                     auth_2.clone(),
@@ -2648,6 +2648,64 @@ pub mod test {
                 assert_eq!(var_res, Some(Value::Int(1)));
             }
             conn.commit_block();
+        }
+
+        // in 2.1, all of these are mineable -- the fee will be collected, and the nonce(s) will
+        // advance, but no state changes go through
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([3u8; 20]),
+            &BlockHeaderHash([3u8; 32]),
+        );
+        let (_fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
+
+        let mut next_nonce = 0;
+
+        for contract_call in contract_calls.iter() {
+            let (contract_addr, contract_name, contract_function, contract_args) =
+                contract_call.clone();
+            let mut tx_contract_call = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                auth_2.clone(),
+                TransactionPayload::new_contract_call(
+                    contract_addr.clone(),
+                    contract_name,
+                    contract_function,
+                    contract_args,
+                )
+                .unwrap(),
+            );
+
+            tx_contract_call.chain_id = 0x80000000;
+            tx_contract_call.set_tx_fee(0);
+            tx_contract_call.set_origin_nonce(next_nonce);
+
+            let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+            signer_2.sign_origin(&privk_2).unwrap();
+
+            let signed_tx_2 = signer_2.get_tx().unwrap();
+
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // this is expected to be mined
+            let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2, false);
+            assert!(res.is_ok());
+
+            next_nonce += 1;
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // no state change though
+            let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+            assert!(var_res.is_some());
+            assert_eq!(var_res, Some(Value::Int(1)));
         }
     }
 
@@ -8594,6 +8652,7 @@ pub mod test {
             (use-trait trait .foo.foo)
 
             (define-data-var mutex bool true)
+            (define-data-var executed bool false)
 
             (define-public (flip)
               (ok (var-set mutex (not (var-get mutex))))
@@ -8605,6 +8664,7 @@ pub mod test {
                 (ok (internal (if (var-get mutex)
                     (begin
                         (print \"some case\")
+                        (var-set executed true)
                         (some ref)
                     )
                     none
@@ -8645,7 +8705,7 @@ pub mod test {
 
         tx_runtime_checkerror_trait.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_runtime_checkerror_trait.chain_id = 0x80000000;
-        tx_runtime_checkerror_trait.set_tx_fee(0);
+        tx_runtime_checkerror_trait.set_tx_fee(1);
         tx_runtime_checkerror_trait.set_origin_nonce(0);
 
         let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_trait);
@@ -8666,7 +8726,7 @@ pub mod test {
 
         tx_runtime_checkerror_impl.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_runtime_checkerror_impl.chain_id = 0x80000000;
-        tx_runtime_checkerror_impl.set_tx_fee(0);
+        tx_runtime_checkerror_impl.set_tx_fee(1);
         tx_runtime_checkerror_impl.set_origin_nonce(1);
 
         let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_impl);
@@ -8687,7 +8747,7 @@ pub mod test {
 
         tx_runtime_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_runtime_checkerror.chain_id = 0x80000000;
-        tx_runtime_checkerror.set_tx_fee(0);
+        tx_runtime_checkerror.set_tx_fee(1);
         tx_runtime_checkerror.set_origin_nonce(2);
 
         let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror);
@@ -8711,7 +8771,7 @@ pub mod test {
 
         tx_test_trait_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_test_trait_checkerror.chain_id = 0x80000000;
-        tx_test_trait_checkerror.set_tx_fee(0);
+        tx_test_trait_checkerror.set_tx_fee(1);
         tx_test_trait_checkerror.set_origin_nonce(3);
 
         let mut signer = StacksTransactionSigner::new(&tx_test_trait_checkerror);
@@ -8732,13 +8792,18 @@ pub mod test {
 
         tx_runtime_checkerror_cc_contract.post_condition_mode = TransactionPostConditionMode::Allow;
         tx_runtime_checkerror_cc_contract.chain_id = 0x80000000;
-        tx_runtime_checkerror_cc_contract.set_tx_fee(0);
+        tx_runtime_checkerror_cc_contract.set_tx_fee(1);
         tx_runtime_checkerror_cc_contract.set_origin_nonce(3);
 
         let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract);
         signer.sign_origin(&privk).unwrap();
 
         let signed_runtime_checkerror_cc_contract_tx = signer.get_tx().unwrap();
+
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("trait-checkerror"),
+        );
 
         // in 2.0, this invalidates the block
         let mut conn = chainstate.block_begin(
@@ -8755,7 +8820,7 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -8763,12 +8828,12 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
                 .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let err = StacksChainState::process_transaction(
             &mut conn,
@@ -8783,6 +8848,8 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
 
         let err = StacksChainState::process_transaction(
             &mut conn,
@@ -8797,6 +8864,9 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
         conn.commit_block();
 
         // in 2.05, this invalidates the block
@@ -8814,7 +8884,7 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -8822,12 +8892,12 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
                 .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let err = StacksChainState::process_transaction(
             &mut conn,
@@ -8842,6 +8912,8 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
 
         let err = StacksChainState::process_transaction(
             &mut conn,
@@ -8856,6 +8928,9 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
         conn.commit_block();
 
         // in 2.1, this is a runtime error
@@ -8881,7 +8956,7 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -8889,12 +8964,12 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
                 .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
 
         let (fee, tx_receipt) = StacksChainState::process_transaction(
             &mut conn,
@@ -8902,7 +8977,16 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing despite error
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 4);
+
+        // no state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(false)));
 
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
@@ -8916,7 +9000,16 @@ pub mod test {
             false,
         )
         .unwrap();
-        assert_eq!(fee, 0);
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing despite error
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 5);
+
+        // no state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(false)));
 
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
