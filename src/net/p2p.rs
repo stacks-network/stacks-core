@@ -5121,7 +5121,7 @@ impl PeerNetwork {
     }
 
     /// Store a single transaction
-    /// Return true if stored; false if it was a dup.
+    /// Return true if stored; false if it was a dup or if it's temporarily blacklisted.
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
@@ -6159,6 +6159,218 @@ mod test {
 
             for tx in peer_2_mempool_txs {
                 assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mempool_sync_2_peers_blacklisted() {
+        with_timeout(600, || {
+            // peer 1 gets some transactions; peer 2 blacklists some of them;
+            // verify peer 2 gets only the non-blacklisted ones.
+            let mut peer_1_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2218, 2219);
+            let mut peer_2_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2220, 2221);
+
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            peer_1_config.connection_opts.mempool_sync_interval = 1;
+            peer_2_config.connection_opts.mempool_sync_interval = 1;
+
+            let num_txs = 1024;
+            let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+            let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
+            let initial_balances: Vec<_> = addrs
+                .iter()
+                .map(|a| (a.to_account_principal(), 1000000000))
+                .collect();
+
+            peer_1_config.initial_balances = initial_balances.clone();
+            peer_2_config.initial_balances = initial_balances.clone();
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let num_blocks = 10;
+            let first_stacks_block_height = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    &peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            for i in 0..num_blocks {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
+            let addr = StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([0xff; 20]),
+            };
+
+            // fill peer 1 with lots of transactions
+            let mut txs = HashMap::new();
+            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
+            let mut peer_2_blacklist = vec![];
+            for i in 0..num_txs {
+                let pk = &pks[i];
+                let mut tx = StacksTransaction {
+                    version: TransactionVersion::Testnet,
+                    chain_id: 0x80000000,
+                    auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                    anchor_mode: TransactionAnchorMode::Any,
+                    post_condition_mode: TransactionPostConditionMode::Allow,
+                    post_conditions: vec![],
+                    payload: TransactionPayload::TokenTransfer(
+                        addr.to_account_principal(),
+                        123,
+                        TokenTransferMemo([0u8; 34]),
+                    ),
+                };
+                tx.set_tx_fee(1000);
+                tx.set_origin_nonce(0);
+
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer.sign_origin(&pk).unwrap();
+
+                let tx = tx_signer.get_tx().unwrap();
+
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin_nonce();
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+                let tx_fee = tx.get_tx_fee();
+
+                txs.insert(tx.txid(), tx.clone());
+
+                // should succeed
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    peer_1.chainstate(),
+                    &ConsensusHash([0x1 + (num_blocks as u8); 20]),
+                    &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
+                    txid.clone(),
+                    tx_bytes,
+                    tx_fee,
+                    num_blocks,
+                    &origin_addr,
+                    origin_nonce,
+                    &sponsor_addr,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
+
+                eprintln!("Added {} {}", i, &txid);
+
+                if i % 2 == 0 {
+                    // peer 2 blacklists even-numbered txs
+                    peer_2_blacklist.push(txid);
+                }
+            }
+            mempool_tx.commit().unwrap();
+            peer_1.mempool = Some(peer_1_mempool);
+
+            // peer 2 blacklists them all
+            let mut peer_2_mempool = peer_2.mempool.take().unwrap();
+
+            // blacklisted txs never time out
+            peer_2_mempool.blacklist_timeout = u64::MAX / 2;
+
+            let mempool_tx = peer_2_mempool.tx_begin().unwrap();
+            MemPoolDB::inner_blacklist_txs(&mempool_tx, &peer_2_blacklist, get_epoch_time_secs())
+                .unwrap();
+            mempool_tx.commit().unwrap();
+
+            peer_2.mempool = Some(peer_2_mempool);
+
+            let num_burn_blocks = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            let mut round = 0;
+            let mut peer_1_mempool_txs = 0;
+            let mut peer_2_mempool_txs = 0;
+
+            while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
+                if let Ok(mut result) = peer_1.step() {
+                    let lp = peer_1.network.local_peer.clone();
+                    peer_1
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                if let Ok(mut result) = peer_2.step() {
+                    let lp = peer_2.network.local_peer.clone();
+                    peer_2
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                round += 1;
+
+                let mp = peer_1.mempool.take().unwrap();
+                peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_1.mempool.replace(mp);
+
+                let mp = peer_2.mempool.take().unwrap();
+                peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_2.mempool.replace(mp);
+
+                info!(
+                    "Peer 1: {}, Peer 2: {}",
+                    peer_1_mempool_txs, peer_2_mempool_txs
+                );
+            }
+
+            info!("Completed mempool sync in {} step(s)", round);
+
+            let mp = peer_2.mempool.take().unwrap();
+            let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
+            peer_2.mempool.replace(mp);
+
+            for tx in peer_2_mempool_txs {
+                assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
+                assert!(!peer_2_blacklist.contains(&tx.tx.txid()));
             }
         });
     }
