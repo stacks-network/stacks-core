@@ -668,13 +668,24 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     Ok(tx)
 }
 
+use std::sync::Mutex;
+use std::time::Duration;
+lazy_static! {
+    static ref MUTEX: Mutex<i32> = Mutex::new(0);
+}
+fn profiler(s: &str, d: Duration) {
+    MUTEX.lock();
+    let obj = json!({"duration":d.as_nanos(),"sql":s});
+}
+
 /// Open a database connection and set some typically-used pragmas
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
-    let db = Connection::open_with_flags(path, flags)?;
+    let mut db = Connection::open_with_flags(path, flags)?;
+    db.profile(Some(profiler));
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
