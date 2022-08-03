@@ -23,6 +23,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   attempt a second block assembly (#3184).
 - Fixed a bug in the node whereby the node would encounter a deadlock when
   processing attachment requests before the P2P thread had started (#3236).
+- Fixed a bug in the P2P state machine whereby it would not absorb all transient errors
+  from sockets, but instead propagate them to the outer caller. This would lead
+  to a node crash in nodes connected to event observers, which expect the P2P
+  state machine to only report fatal errors (#3228)
 
 ## [2.05.0.2.1]
 
