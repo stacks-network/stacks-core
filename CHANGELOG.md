@@ -21,6 +21,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   larger block after their first attempt (by Bitcoin RBF) if new
   microblock or block data arrived. This changes the miner to always
   attempt a second block assembly (#3184).
+- Fixed a bug in the node whereby the node would encounter a deadlock when
+  processing attachment requests before the P2P thread had started (#3236).
 
 ## [2.05.0.2.1]
 
