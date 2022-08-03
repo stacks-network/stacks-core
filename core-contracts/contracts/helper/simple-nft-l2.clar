@@ -20,7 +20,7 @@
 )
 
 (define-read-only (get-token-uri (id uint))
-  (ok "unimplemented")
+  (ok (some "unimplemented"))
 )
 
 (define-public (transfer (id uint) (sender principal) (recipient principal))
