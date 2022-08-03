@@ -676,6 +676,7 @@ lazy_static! {
 fn profiler(s: &str, d: Duration) {
     MUTEX.lock();
     let obj = json!({"duration":d.as_nanos(),"sql":s});
+    eprintln!("{}", serde_json::to_string(&obj).unwrap());
 }
 
 /// Open a database connection and set some typically-used pragmas
