@@ -39,7 +39,6 @@ use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::util_lib::strings::{StacksString, VecDisplay};
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::analysis::CheckError;
 use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
@@ -76,6 +75,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -96,6 +96,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -116,6 +117,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -136,6 +138,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -156,6 +159,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -170,6 +174,7 @@ impl StacksTransactionReceipt {
             execution_cost: ExecutionCost::zero(),
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -187,6 +192,7 @@ impl StacksTransactionReceipt {
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
         }
     }
 
@@ -205,6 +211,46 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
+            vm_error: None,
+        }
+    }
+
+    pub fn from_runtime_failure_smart_contract(
+        tx: StacksTransaction,
+        cost: ExecutionCost,
+        contract_analysis: ContractAnalysis,
+        error: CheckErrors,
+    ) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            events: vec![],
+            stx_burned: 0,
+            contract_analysis: Some(contract_analysis),
+            execution_cost: cost,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: Some(format!("{}", &error)),
+        }
+    }
+
+    pub fn from_runtime_failure_contract_call(
+        tx: StacksTransaction,
+        cost: ExecutionCost,
+        error: CheckErrors,
+    ) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            events: vec![],
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: cost,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: Some(format!("{}", &error)),
         }
     }
 
@@ -262,6 +308,7 @@ enum ClarityRuntimeTxError {
     },
     AbortedByCallback(Option<Value>, AssetMap, Vec<StacksTransactionEvent>),
     CostError(ExecutionCost, ExecutionCost),
+    AnalysisError(CheckErrors),
     Rejectable(clarity_error),
 }
 
@@ -279,6 +326,9 @@ fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
                 error,
                 err_type: "short return/panic",
             }
+        }
+        clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
+            ClarityRuntimeTxError::AnalysisError(check_error)
         }
         clarity_error::AbortedByCallback(val, assets, events) => {
             ClarityRuntimeTxError::AbortedByCallback(val, assets, events)
@@ -884,6 +934,7 @@ impl StacksChainState {
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
+                let epoch_id = clarity_tx.get_epoch();
 
                 let contract_call_resp = clarity_tx.run_contract_call(
                     &origin_account.principal,
@@ -942,6 +993,35 @@ impl StacksChainState {
                             warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
+                        ClarityRuntimeTxError::AnalysisError(check_error) => {
+                            if epoch_id >= StacksEpochId::Epoch21 {
+                                // in 2.1 and later, this is a permitted runtime error.  take the
+                                // fee from the payer and keep the tx.
+                                warn!("Contract-call encountered an analysis error at runtime";
+                                      "contract_name" => %contract_id,
+                                      "function_name" => %contract_call.function_name,
+                                      "function_args" => %VecDisplay(&contract_call.function_args),
+                                      "error" => %check_error);
+
+                                let receipt =
+                                    StacksTransactionReceipt::from_runtime_failure_contract_call(
+                                        tx.clone(),
+                                        total_cost,
+                                        check_error,
+                                    );
+                                return Ok(receipt);
+                            } else {
+                                // prior to 2.1, this is not permitted in a block.
+                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                           "contract_name" => %contract_id,
+                                           "function_name" => %contract_call.function_name,
+                                           "function_args" => %VecDisplay(&contract_call.function_args),
+                                           "error" => %check_error);
+                                return Err(Error::ClarityError(clarity_error::Interpreter(
+                                    InterpreterError::Unchecked(check_error),
+                                )));
+                            }
+                        }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
@@ -963,6 +1043,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
+                let epoch_id = clarity_tx.get_epoch();
                 let clarity_version = version_opt
                     .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
                 let issuer_principal = match origin_account.principal {
@@ -1094,6 +1175,34 @@ impl StacksChainState {
                                       "cost" => %cost_after,
                                       "budget" => %budget);
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
+                        }
+                        ClarityRuntimeTxError::AnalysisError(check_error) => {
+                            if epoch_id >= StacksEpochId::Epoch21 {
+                                // in 2.1 and later, this is a permitted runtime error.  take the
+                                // fee from the payer and keep the tx.
+                                warn!("Smart-contract encountered an analysis error at runtime";
+                                      "contract" => %contract_id,
+                                      "code" => %contract_code_str,
+                                      "error" => %check_error);
+
+                                let receipt =
+                                    StacksTransactionReceipt::from_runtime_failure_smart_contract(
+                                        tx.clone(),
+                                        total_cost,
+                                        contract_analysis,
+                                        check_error,
+                                    );
+                                return Ok(receipt);
+                            } else {
+                                // prior to 2.1, this is not permitted in a block.
+                                warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
+                                      "contract" => %contract_id,
+                                      "code" => %contract_code_str,
+                                      "error" => %check_error);
+                                return Err(Error::ClarityError(clarity_error::Interpreter(
+                                    InterpreterError::Unchecked(check_error),
+                                )));
+                            }
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
@@ -2442,7 +2551,48 @@ pub mod test {
 
         let signed_tx = signer.get_tx().unwrap();
 
-        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+        // invalid contract-calls
+        let contract_calls = vec![
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar-not-a-method",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // call into non-existant method
+            (
+                addr.clone(),
+                "hello-world-not-a-contract",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // call into non-existant contract
+            (
+                addr_2.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1)],
+            ), // address does not have a contract
+            (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::Int(1), Value::Int(1), Value::Int(1)],
+            ), // wrong number of args (too many)
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)],
+            ), // wrong arg type
+            (
+                addr.clone(),
+                "hello-world",
+                "set-bar",
+                vec![Value::UInt(1), Value::Int(1)],
+            ), // wrong arg type
+        ];
+
+        for (dbi, burn_db) in PRE_21_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -2453,52 +2603,11 @@ pub mod test {
             let (_fee, _) =
                 StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
 
-            // invalid contract-calls
-            let contract_calls = vec![
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar-not-a-method",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // call into non-existant method
-                (
-                    addr.clone(),
-                    "hello-world-not-a-contract",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // call into non-existant contract
-                (
-                    addr_2.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1)],
-                ), // address does not have a contract
-                (addr.clone(), "hello-world", "set-bar", vec![Value::Int(1)]), // wrong number of args (too few)
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::Int(1), Value::Int(1), Value::Int(1)],
-                ), // wrong number of args (too many)
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::buff_from([0xff, 4].to_vec()).unwrap(), Value::Int(1)],
-                ), // wrong arg type
-                (
-                    addr.clone(),
-                    "hello-world",
-                    "set-bar",
-                    vec![Value::UInt(1), Value::Int(1)],
-                ), // wrong arg type
-            ];
-
             let next_nonce = 0;
 
-            for contract_call in contract_calls {
+            for contract_call in contract_calls.iter() {
                 let (contract_addr, contract_name, contract_function, contract_args) =
-                    contract_call;
+                    contract_call.clone();
                 let mut tx_contract_call = StacksTransaction::new(
                     TransactionVersion::Testnet,
                     auth_2.clone(),
@@ -2539,6 +2648,64 @@ pub mod test {
                 assert_eq!(var_res, Some(Value::Int(1)));
             }
             conn.commit_block();
+        }
+
+        // in 2.1, all of these are mineable -- the fee will be collected, and the nonce(s) will
+        // advance, but no state changes go through
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([3u8; 20]),
+            &BlockHeaderHash([3u8; 32]),
+        );
+        let (_fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_tx, false).unwrap();
+
+        let mut next_nonce = 0;
+
+        for contract_call in contract_calls.iter() {
+            let (contract_addr, contract_name, contract_function, contract_args) =
+                contract_call.clone();
+            let mut tx_contract_call = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                auth_2.clone(),
+                TransactionPayload::new_contract_call(
+                    contract_addr.clone(),
+                    contract_name,
+                    contract_function,
+                    contract_args,
+                )
+                .unwrap(),
+            );
+
+            tx_contract_call.chain_id = 0x80000000;
+            tx_contract_call.set_tx_fee(0);
+            tx_contract_call.set_origin_nonce(next_nonce);
+
+            let mut signer_2 = StacksTransactionSigner::new(&tx_contract_call);
+            signer_2.sign_origin(&privk_2).unwrap();
+
+            let signed_tx_2 = signer_2.get_tx().unwrap();
+
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // this is expected to be mined
+            let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2, false);
+            assert!(res.is_ok());
+
+            next_nonce += 1;
+            let account_2 =
+                StacksChainState::get_account(&mut conn, &addr_2.to_account_principal());
+            assert_eq!(account_2.nonce, next_nonce);
+
+            // no state change though
+            let var_res = StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
+            assert!(var_res.is_some());
+            assert_eq!(var_res, Some(Value::Int(1)));
         }
     }
 
@@ -8384,7 +8551,7 @@ pub mod test {
         tx_contract_call.chain_id = 0x80000000;
         tx_contract_call.set_tx_fee(1);
         tx_contract_call.set_origin_nonce(0);
-        tx_contract_call.set_sponsor_nonce(0);
+        tx_contract_call.set_sponsor_nonce(0).unwrap();
         tx_contract_call.post_condition_mode = TransactionPostConditionMode::Allow;
 
         let mut signer = StacksTransactionSigner::new(&tx_contract_call);
@@ -8452,5 +8619,404 @@ pub mod test {
         } else {
             assert!(false)
         };
+    }
+
+    #[test]
+    fn test_checkerrors_at_runtime() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let runtime_checkerror_trait = "
+            (define-trait foo
+                (
+                    (lolwut () (response bool uint))
+                )
+            )
+            "
+        .to_string();
+
+        let runtime_checkerror_impl = "
+            (impl-trait .foo.foo)
+
+            (define-public (lolwut)
+                (ok true)
+            )
+            "
+        .to_string();
+
+        let runtime_checkerror = "
+            (use-trait trait .foo.foo)
+
+            (define-data-var mutex bool true)
+            (define-data-var executed bool false)
+
+            (define-public (flip)
+              (ok (var-set mutex (not (var-get mutex))))
+            )
+
+            ;; triggers checkerror at runtime because <trait> gets coerced
+            ;; into a principal when `internal` is called.
+            (define-public (test (ref <trait>))
+                (ok (internal (if (var-get mutex)
+                    (begin
+                        (print \"some case\")
+                        (var-set executed true)
+                        (some ref)
+                    )
+                    none
+                )))
+            )
+
+            (define-private (internal (ref (optional <trait>))) true)
+            "
+        .to_string();
+
+        let runtime_checkerror_contract = "
+            (begin
+                (print \"about to contract-call with trait impl\")
+                (unwrap-panic (contract-call? .trait-checkerror test .foo-impl))
+                (print \"contract-call with trait impl finished\")
+            )
+            ";
+
+        let balances = vec![(addr.clone(), 1000000000)];
+
+        let mut chainstate = instantiate_chainstate_with_balances(
+            false,
+            0x80000000,
+            "test_checkerrors_at_runtime",
+            balances,
+        );
+
+        let mut tx_runtime_checkerror_trait = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo".to_string(),
+                &runtime_checkerror_trait.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_trait.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_trait.chain_id = 0x80000000;
+        tx_runtime_checkerror_trait.set_tx_fee(1);
+        tx_runtime_checkerror_trait.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_trait);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_trait_tx = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror_impl = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo-impl".to_string(),
+                &runtime_checkerror_impl.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_impl.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_impl.chain_id = 0x80000000;
+        tx_runtime_checkerror_impl.set_tx_fee(1);
+        tx_runtime_checkerror_impl.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_impl);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_impl_tx = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror".to_string(),
+                &runtime_checkerror.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror.chain_id = 0x80000000;
+        tx_runtime_checkerror.set_tx_fee(1);
+        tx_runtime_checkerror.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_tx = signer.get_tx().unwrap();
+
+        let mut tx_test_trait_checkerror = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_contract_call(
+                addr.clone(),
+                "trait-checkerror",
+                "test",
+                vec![Value::Principal(PrincipalData::Contract(
+                    QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap(),
+                ))],
+            )
+            .unwrap(),
+        );
+
+        tx_test_trait_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_test_trait_checkerror.chain_id = 0x80000000;
+        tx_test_trait_checkerror.set_tx_fee(1);
+        tx_test_trait_checkerror.set_origin_nonce(3);
+
+        let mut signer = StacksTransactionSigner::new(&tx_test_trait_checkerror);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_test_trait_checkerror_tx = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror_cc_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror-cc".to_string(),
+                &runtime_checkerror_contract.to_string(),
+                None,
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_cc_contract.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_cc_contract.chain_id = 0x80000000;
+        tx_runtime_checkerror_cc_contract.set_tx_fee(1);
+        tx_runtime_checkerror_cc_contract.set_origin_nonce(3);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_cc_contract_tx = signer.get_tx().unwrap();
+
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("trait-checkerror"),
+        );
+
+        // in 2.0, this invalidates the block
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_20,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_trait_checkerror_tx,
+            false,
+        )
+        .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+            _check_error,
+        ))) = err
+        {
+        } else {
+            panic!("Did not get unchecked interpreter error");
+        }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_cc_contract_tx,
+            false,
+        )
+        .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+            _check_error,
+        ))) = err
+        {
+        } else {
+            panic!("Did not get unchecked interpreter error");
+        }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
+        conn.commit_block();
+
+        // in 2.05, this invalidates the block
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_20,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([2u8; 20]),
+            &BlockHeaderHash([2u8; 32]),
+        );
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_trait_checkerror_tx,
+            false,
+        )
+        .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+            _check_error,
+        ))) = err
+        {
+        } else {
+            panic!("Did not get unchecked interpreter error");
+        }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_cc_contract_tx,
+            false,
+        )
+        .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+            _check_error,
+        ))) = err
+        {
+        } else {
+            panic!("Did not get unchecked interpreter error");
+        }
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 3);
+
+        conn.commit_block();
+
+        // in 2.1, this is a runtime error
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([3u8; 20]),
+            &BlockHeaderHash([3u8; 32]),
+        );
+
+        // make this mineable
+        tx_runtime_checkerror_cc_contract.set_origin_nonce(4);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_cc_contract_tx = signer.get_tx().unwrap();
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_trait_checkerror_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing despite error
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 4);
+
+        // no state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(false)));
+
+        assert!(tx_receipt.vm_error.is_some());
+        let err_str = tx_receipt.vm_error.unwrap();
+        assert!(err_str
+            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .is_some());
+
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_cc_contract_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing despite error
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 5);
+
+        // no state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(false)));
+
+        assert!(tx_receipt.vm_error.is_some());
+        let err_str = tx_receipt.vm_error.unwrap();
+        assert!(err_str
+            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .is_some());
+
+        conn.commit_block();
     }
 }
