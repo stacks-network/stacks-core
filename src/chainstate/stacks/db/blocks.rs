@@ -83,7 +83,7 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::monitoring::set_last_execution_cost_observed;
+use crate::monitoring::{set_last_block_transaction_count, set_last_execution_cost_observed};
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -158,6 +158,7 @@ pub enum MemPoolRejection {
     TransferAmountMustBePositive,
     DBError(db_error),
     EstimatorError(EstimatorError),
+    TemporarilyBlacklisted,
     Other(String),
 }
 
@@ -307,6 +308,7 @@ impl MemPoolRejection {
                 "ServerFailureDatabase",
                 Some(json!({"message": e.to_string()})),
             ),
+            TemporarilyBlacklisted => ("TemporarilyBlacklisted", None),
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
@@ -5695,6 +5697,7 @@ impl StacksChainState {
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
+        set_last_block_transaction_count(block.txs.len() as u64);
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {

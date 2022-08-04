@@ -301,7 +301,7 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
     }
 }
 
-enum ClarityRuntimeTxError {
+pub enum ClarityRuntimeTxError {
     Acceptable {
         error: clarity_error,
         err_type: &'static str,
@@ -312,7 +312,7 @@ enum ClarityRuntimeTxError {
     Rejectable(clarity_error),
 }
 
-fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
         clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
