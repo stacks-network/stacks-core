@@ -1,4 +1,4 @@
-FROM blockstack/stacks-blockchain:3207-merge-stretch as stacks-node
+FROM stacks-blockchain:2.1-stretch as stacks-node
 
 FROM rust:stretch AS test
 

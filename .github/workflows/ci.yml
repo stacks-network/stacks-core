@@ -35,11 +35,40 @@ jobs:
           files: ./coverage-output/lcov.info
           name: unit_tests
           fail_ci_if_error: true
-  # Run tests that require stacks-node
-  build-layer-1-tests:
+  # Build Stacks 2.1 for tests that require stacks-node
+  build-stacks-2.1:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: stacks-network/stacks-blockchain
+          ref: feat/configurable-epochs
+      - name: Build stacks-node 2.1
+        env:
+          DOCKER_BUILDKIT: 1
+          run: |
+            rm .dockerignore
+            docker build -f ./Dockerfile.stretch -t stacks-blockchain:2.1-stretch .
+      - name: Export docker image as tarball
+        run: docker save -o stacks-node-image.tar stacks-blockchain:2.1-stretch
+      - name: Upload built docker image
+        uses: actions/upload-artifact@v2
+        with:
+          name: stacks-node-image.tar
+          path: stacks-node-image.tar
+  # Build subnets image for tests that require stacks-node
+  build-layer-1-tests:
+    runs-on: ubuntu-latest
+    needs:
+      - build-stacks-2.1
+    steps:
       - uses: actions/checkout@v2
+      - name: Download Stacks 2.1 image
+        uses: actions/download-artifact@v2
+        with:
+          name: stacks-node-image.tar
+      - name: Load Stacks 2.1 image
+        run: docker load -i stacks-node-image.tar && rm stacks-node-image.tar
       - name: Build layer-1 integration testing image
         env:
           DOCKER_BUILDKIT: 1
@@ -64,7 +93,7 @@ jobs:
         run: |
           cargo test --workspace --bin=hyperchain-node -- l1_ --list --format=terse | sed -e 's/: test//g' | jq -ncR '{"test-name": [inputs]}' > test_names.json
           echo "::set-output name=matrix::$(cat test_names.json)"
-
+  # Run the tests that require stacks-node
   layer-1-tests:
     runs-on: ubuntu-latest
     needs:
@@ -135,13 +164,39 @@ jobs:
         env:
           DOCKER_BUILDKIT: 1
         run: docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.rustfmt .
-
-  clarinet-test:
+  build-clarinet-2.1:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: hirosystems/clarinet
+          ref: hack/2.1
+      - name: Build Clarinet with 2.1
+        env:
+          DOCKER_BUILDKIT: 1
+          run: |
+            rm .dockerignore
+            docker build -f ./dockerfiles/ci/clarinet.dockerfile -t clarinet:2.1 .
+      - name: Export docker image as tarball
+        run: docker save -o clarinet-image.tar clarinet:2.1
+      - name: Upload built docker image
+        uses: actions/upload-artifact@v2
+        with:
+          name: clarinet-image.tar
+          path: clarinet-image.tar
+  clarinet-test:
+    runs-on: ubuntu-latest
+    needs: clarinet-2.1
+    steps:
       - uses: actions/checkout@v2
+      - name: Download docker image
+        uses: actions/download-artifact@v2
+        with:
+          name: clarinet-image.tar
+      - name: Load docker image
+        run: docker load -i clarinet-image.tar && rm clarinet-image.tar
       - name: "Execute unit tests"
-        uses: docker://hirosystems/clarinet:latest
+        uses: docker://clarinet:2.1
         with:
           args: test --coverage --manifest-path=./core-contracts/Clarinet.toml
       - name: "Export code coverage"
@@ -149,42 +204,6 @@ jobs:
         with:
           files: ./coverage.lcov
           verbose: true
-
-  # # Create distributions
-  # dist:
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     matrix:
-  #       platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
-
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Set Vars
-  #       run: |
-  #         echo "GITHUB_SHA_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
-  #         echo "GITHUB_REF_SHORT=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-
-  #     - name: Set up Docker Buildx
-  #       uses: docker/setup-buildx-action@v1
-
-  #     - name: Build distributable
-  #       uses: docker/build-push-action@v2.2.1
-  #       with:
-  #         file: build-scripts/Dockerfile.${{ matrix.platform }}
-  #         outputs: dist/${{ matrix.platform }}
-  #         build-args: |
-  #           STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
-  #           GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
-  #           GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          
-  #     - name: Compress artifact
-  #       run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
-
-  #     - name: Upload artifact
-  #       uses: actions/upload-artifact@v2
-  #       with:
-  #         name: ${{ matrix.platform }}
-  #         path: ${{ matrix.platform }}.zip
 
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
@@ -272,92 +291,3 @@ jobs:
           build_args: STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }},GIT_BRANCH=${{ env.GITHUB_REF_SHORT }},GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
           # Only push if (a tag was passed in) or (we're building a non-master branch)
           push: ${{ github.event.inputs.tag != '' || (github.ref != 'refs/heads/master') }}
-
-  # # Create a new release if we're building a tag
-  # create-release:
-  #   runs-on: ubuntu-latest
-  #   if: ${{ github.event.inputs.tag != '' }}
-  #   outputs:
-  #     upload_url: ${{ steps.create_release.outputs.upload_url }}
-  #   needs:
-  #     - dist
-  #     - build-publish
-  #     - build-publish-stretch
-
-  #   steps:
-  #     - name: Create Release
-  #       id: create_release
-  #       uses: actions/create-release@v1
-  #       env:
-  #         # Use custom secrets.GH_TOKEN instead of default secrets.GITHUB_TOKEN because the custom token will trigger the
-  #         # clarity-js-sdk-pr workflow. As events caused by default tokens do not trigger subsequent workflow runs to avoid loops.
-  #         GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-  #       with:
-  #         tag_name: ${{ github.event.inputs.tag || github.ref }}
-  #         release_name: Release ${{ github.event.inputs.tag || github.ref }}
-  #         draft: false
-  #         prerelease: true
-
-  # Upload distributables to a new release if we're building a tag or a tag was passed in
-  # upload-dist:
-  #   runs-on: ubuntu-latest
-  #   if: ${{ github.event.inputs.tag != '' }}
-  #   needs:
-  #     - create-release
-  #   strategy:
-  #     matrix:
-  #       platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
-
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - name: Download distro
-  #       uses: actions/download-artifact@v2
-  #       with:
-  #         name: ${{ matrix.platform }}
-  #         path: dist/
-
-  #     - name: Upload Release Asset
-  #       uses: actions/upload-release-asset@v1
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  #       with:
-  #         upload_url: ${{ needs.create-release.outputs.upload_url }}
-  #         asset_path: ./dist/${{ matrix.platform }}.zip
-  #         asset_name: ${{ matrix.platform }}.zip
-  #         asset_content_type: application/zip
-
-  # # Notify Slack channel of workflow end
-  # notify-end:
-  #   runs-on: ubuntu-latest
-  #   needs:
-  #     - notify-start
-  #     - dist
-  #     - build-publish
-  #     - build-publish-stretch
-  #     - create-release
-  #     - upload-dist
-  #   if: always()
-  #   steps:
-  #     - name: Notify slack success
-  #       # Only run on non-PR events or only PRs that aren't from forks
-  #       if: (!contains(needs.*.result, 'failure')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-  #       env:
-  #         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-  #       uses: voxmedia/github-action-slack-notify-build@v1.1.2
-  #       with:
-  #         message_id: ${{ needs.notify-start.outputs.slack_message_id }}
-  #         channel: devops-notify
-  #         status: SUCCESS
-  #         color: good
-
-  #     - name: Notify slack fail
-  #       # Only run on non-PR events or only PRs that aren't from forks
-  #       if: (contains(needs.*.result, 'failure')) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-  #       env:
-  #         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-  #       uses: voxmedia/github-action-slack-notify-build@v1.1.2
-  #       with:
-  #         message_id: ${{ needs.notify-start.outputs.slack_message_id }}
-  #         channel: devops-notify
-  #         status: FAILED
-  #         color: danger
