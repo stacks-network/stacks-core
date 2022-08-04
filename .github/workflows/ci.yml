@@ -46,7 +46,7 @@ jobs:
       - name: Build stacks-node 2.1
         env:
           DOCKER_BUILDKIT: 1
-          run: |
+        run: |
             rm .dockerignore
             docker build -f ./Dockerfile.stretch -t stacks-blockchain:2.1-stretch .
       - name: Export docker image as tarball
@@ -174,7 +174,7 @@ jobs:
       - name: Build Clarinet with 2.1
         env:
           DOCKER_BUILDKIT: 1
-          run: |
+        run: |
             rm .dockerignore
             docker build -f ./dockerfiles/ci/clarinet.dockerfile -t clarinet:2.1 .
       - name: Export docker image as tarball
