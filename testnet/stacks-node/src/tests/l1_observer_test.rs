@@ -230,7 +230,6 @@ pub fn wait_for_target_l1_block(sortition_db: &SortitionDB, target: u64) -> bool
             .expect("Could not read from SortitionDB.");
 
         next = tip_snapshot.block_height;
-
     }
     info!("wait_for_target_l1_block finished"; "target" => target);
     true

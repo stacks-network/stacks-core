@@ -623,7 +623,8 @@ impl Config {
                     hyperchain_validator: node.mining_key.clone(),
                     ..ConnectionOptions::default()
                 };
-                if let CommitStrategy::MultiMiner { ref contract, .. } = &burnchain.commit_strategy {
+                if let CommitStrategy::MultiMiner { ref contract, .. } = &burnchain.commit_strategy
+                {
                     result_opts.hyperchain_signing_contract = Some(contract.clone());
                 }
 

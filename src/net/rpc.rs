@@ -959,7 +959,8 @@ impl ConversationHttp {
                 let response = HttpResponseType::BlockProposalInvalid {
                     metadata: response_metadata,
                     error_message:
-                        "Cannot validate block proposal: not configured with a multiparty contract".into(),
+                        "Cannot validate block proposal: not configured with a multiparty contract"
+                            .into(),
                 };
                 return response.send(http, fd);
             }

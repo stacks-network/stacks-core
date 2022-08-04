@@ -40,8 +40,8 @@ use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use clarity::util::hash::Sha256Sum;
 use clarity::util::hash::to_hex;
+use clarity::util::hash::Sha256Sum;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::TupleData;
 use serde::Deserialize;
@@ -2286,7 +2286,11 @@ impl StacksBlockBuilder {
 impl Proposal {
     /// Sign this proposal with `signing_key`, returning a serialized recoverable
     /// signature that can be validated by the multiminer contract.
-    pub fn sign(&self, signing_key: &Secp256k1PrivateKey, signing_contract: QualifiedContractIdentifier) -> [u8; 65] {
+    pub fn sign(
+        &self,
+        signing_key: &Secp256k1PrivateKey,
+        signing_contract: QualifiedContractIdentifier,
+    ) -> [u8; 65] {
         // when using a 2.0 layer-1, must use a constant
         // let structured_hash =
         //     hex_bytes("e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9")
@@ -2294,26 +2298,33 @@ impl Proposal {
         // when using a 2.1 layer-1, this will need to use the structured data hash
         let block_hash_buff = Value::buff_from(self.block.block_hash().0.to_vec())
             .expect("Failed to form Clarity buffer from block hash");
-        let withdrawal_root_buff = Value::buff_from(self.block.header.withdrawal_merkle_root.0.to_vec())
-            .expect("Failed to form Clarity buffer from withdrawal root");
+        let withdrawal_root_buff =
+            Value::buff_from(self.block.header.withdrawal_merkle_root.0.to_vec())
+                .expect("Failed to form Clarity buffer from withdrawal root");
         let target_tip = Value::buff_from(self.burn_tip.0.to_vec())
             .expect("Failed to form Clarity buffer from target burnchain tip");
         let signing_contract = Value::Principal(PrincipalData::Contract(signing_contract));
 
-        let data_tuple = Value::Tuple(TupleData::from_data(vec![
-            ("block".into(), block_hash_buff),
-            ("withdrawal-root".into(), withdrawal_root_buff),
-            ("target-tip".into(), target_tip),
-            ("multi-contract".into(), signing_contract),
-        ]).expect("Failed to construct data tuple for block proposal"));
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                ("block".into(), block_hash_buff),
+                ("withdrawal-root".into(), withdrawal_root_buff),
+                ("target-tip".into(), target_tip),
+                ("multi-contract".into(), signing_contract),
+            ])
+            .expect("Failed to construct data tuple for block proposal"),
+        );
 
         let data_hash = Sha256Sum::from_data(&data_tuple.serialize_to_vec());
-        let sip18_data_prefix = "53495030313881c24181e24119f609a28023c4943d3a41592656eb90560c15ee02b8e1ce19b8";
+        let sip18_data_prefix =
+            "53495030313881c24181e24119f609a28023c4943d3a41592656eb90560c15ee02b8e1ce19b8";
         let mut hash_input = hex_bytes(sip18_data_prefix).expect("Bad SIP18 data prefix");
         hash_input.extend_from_slice(&data_hash.0);
         let structured_hash = Sha256Sum::from_data(&hash_input);
 
-        let msg_signature = signing_key.sign(structured_hash.as_bytes()).expect("Bad message hash");
+        let msg_signature = signing_key
+            .sign(structured_hash.as_bytes())
+            .expect("Bad message hash");
         // format the signature vector as Clarity expects
         let recov_signature = msg_signature
             .to_secp256k1_recoverable()
