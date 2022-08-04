@@ -171,6 +171,7 @@ jobs:
         with:
           repository: hirosystems/clarinet
           ref: hack/2.1
+          submodules: recursive
       - name: Build Clarinet with 2.1
         run: cargo build --release -p=clarinet-cli
       - name: Upload Clarinet binary
