@@ -188,6 +188,8 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: clarinet
+      - name: "Make Clarinet executable"
+        run: chmod +x ./clarinet
       - name: "Execute Clarinet tests"
         run: ./clarinet test --coverage --manifest-path=./core-contracts/Clarinet.toml
       - name: "Export code coverage"
