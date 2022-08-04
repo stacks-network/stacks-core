@@ -3746,3 +3746,498 @@ fn test_contract_call_across_clarity_versions() {
         },
     );
 }
+
+// verify that the problematic checker works
+#[test]
+fn test_is_tx_problematic() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let privk_extra = StacksPrivateKey::from_hex(
+        "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
+    )
+    .unwrap();
+    let mut privks_expensive = vec![];
+    let mut addrs_expensive = vec![];
+    let mut initial_balances = vec![];
+    let num_blocks = 10;
+    for i in 0..num_blocks {
+        let pk = StacksPrivateKey::new();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&pk)],
+        )
+        .unwrap();
+
+        privks_expensive.push(pk);
+        addrs_expensive.push(addr.clone());
+        initial_balances.push((addr.to_account_principal(), 10000000000));
+    }
+
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+    let addr_extra = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk_extra)],
+    )
+    .unwrap();
+
+    initial_balances.push((addr.to_account_principal(), 100000000000));
+    initial_balances.push((addr_extra.to_account_principal(), 200000000000));
+
+    let mut peer_config = TestPeerConfig::new("test_is_tx_problematic", 2018, 2019);
+    peer_config.initial_balances = initial_balances;
+    peer_config.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: i64::MAX as u64,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+    ]);
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let mut last_block = None;
+    for tenure_id in 0..num_blocks {
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot =
+                            SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                &ic,
+                                &tip.sortition_id,
+                                &block.block_hash(),
+                            )
+                            .unwrap()
+                            .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut mempool =
+                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+                let mut expected_txids = vec![];
+                expected_txids.push(coinbase_tx.txid());
+
+                let mut problematic_txids = vec![];
+
+                if tenure_id == 2 {
+                    // make a contract that, when instantiated, spends way too much STX.
+                    // Should result in an Error::InvalidFee, causing the tx to get evicted
+                    // from the mempool.
+                    let contract_spends_too_much =
+                        "(begin
+                            (stx-transfer? (stx-get-balance tx-sender) tx-sender 'ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV)
+                        )".to_string();
+
+                    let contract_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        0,
+                        (2 * contract_spends_too_much.len()) as u64,
+                        &format!("hello-world-{}", &tenure_id),
+                        &contract_spends_too_much
+                    );
+                    let contract_spends_too_much_txid = contract_spends_too_much_tx.txid();
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), contract_spends_too_much_tx.clone()]
+                    ) {
+                        assert_eq!(txid, contract_spends_too_much_txid);
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    // for tenure_id == 3:
+                    // make a contract that, when called, will cause the caller to spend too
+                    // much stx
+                    let contract_call_spends_too_much =
+                        "(define-public (spend-too-much)
+                            (begin
+                                (print { balance: (stx-get-balance tx-sender) })
+                                (stx-transfer? (stx-get-balance tx-sender) tx-sender 'ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV)
+                            )
+                        )".to_string();
+
+                    let contract_call_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        0,
+                        (2 * contract_call_spends_too_much.len()) as u64,
+                        "spend-too-much",
+                        &contract_call_spends_too_much
+                    );
+
+                    expected_txids.push(contract_call_spends_too_much_tx.txid());
+
+                    // for tenure_id == 4:
+                    // make a contract that, when called, will result in a CheckError at
+                    // runtime
+                    let runtime_checkerror_trait =
+                        "
+                        (define-trait foo
+                            (
+                                (lolwut () (response bool uint))
+                            )
+                        )
+                        ".to_string();
+
+                    let runtime_checkerror_impl =
+                        "
+                        (impl-trait .foo.foo)
+
+                        (define-public (lolwut)
+                            (ok true)
+                        )
+                        ".to_string();
+
+                    let runtime_checkerror = format!(
+                        "
+                        (use-trait trait .foo.foo)
+
+                        (define-data-var mutex bool true)
+
+                        (define-public (flip)
+                          (ok (var-set mutex (not (var-get mutex))))
+                        )
+
+                        ;; triggers checkerror at runtime because <trait> gets coerced
+                        ;; into a principal when `internal` is called.
+                        (define-public (test (ref <trait>))
+                            (ok (internal (if (var-get mutex)
+                                (some ref)
+                                none
+                            )))
+                        )
+
+                        ;; triggers a checkerror at runtime because the code in
+                        ;; `at-block` is buggy
+                        (define-public (test-past (ref <trait>))
+                            (at-block 0x{} (test ref))
+                        )
+
+                        (define-private (internal (ref (optional <trait>))) true)
+                        ",
+                        &last_block.clone().unwrap()
+                    );
+
+                    let runtime_checkerror_trait_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        1,
+                        (2 * runtime_checkerror_trait.len()) as u64,
+                        "foo",
+                        &runtime_checkerror_trait
+                    );
+
+                    let runtime_checkerror_impl_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        2,
+                        (2 * runtime_checkerror_impl.len()) as u64,
+                        "foo-impl",
+                        &runtime_checkerror_impl
+                    );
+
+                    let runtime_checkerror_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        3,
+                        (2 * runtime_checkerror.len()) as u64,
+                        "trait-checkerror",
+                        &runtime_checkerror
+                    );
+
+                    expected_txids.push(runtime_checkerror_trait_tx.txid());
+                    expected_txids.push(runtime_checkerror_impl_tx.txid());
+                    expected_txids.push(runtime_checkerror_tx.txid());
+
+                    for tx in &[&contract_call_spends_too_much_tx, &runtime_checkerror_trait_tx, &runtime_checkerror_impl_tx, &runtime_checkerror_tx] {
+                        mempool
+                            .submit(
+                                chainstate,
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                                tx,
+                                None,
+                                &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch2_05,
+                            )
+                            .unwrap();
+                    }
+
+                    // the same tx, but with nonce 4 (since we expect the `spends-too-much` contract to get
+                    // mined, as well as the other problem setup txs)
+                    let contract_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        4,
+                        (2 * contract_spends_too_much.len()) as u64,
+                        &format!("hello-world-{}", &tenure_id),
+                        &contract_spends_too_much
+                    );
+                    let contract_spends_too_much_txid = contract_spends_too_much_tx.txid();
+                    problematic_txids.push(contract_spends_too_much_txid);
+
+                    // put this into the mempool anyway, so we can verify it gets rejected
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &contract_spends_too_much_tx,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 3 {
+                    // call spend-too-much and verify that it's flagged as problematic
+                    let spend_too_much = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "spend-too-much",
+                        "spend-too-much",
+                        vec![]
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), spend_too_much.clone()]
+                    ) {
+                        assert_eq!(txid, spend_too_much.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    problematic_txids.push(spend_too_much.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &spend_too_much,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 4 {
+                    // call trait-checkerror.test and verify that it's flagged as problematic
+                    let runtime_checkerror_problematic = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "trait-checkerror",
+                        "test",
+                        vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    let err = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
+                    );
+
+                    if let Err(ChainstateError::ProblematicTransaction(ref txid)) = &err {
+                        assert_eq!(txid, &runtime_checkerror_problematic.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
+                    }
+
+                    problematic_txids.push(runtime_checkerror_problematic.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &runtime_checkerror_problematic,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 5 {
+                    // call trait-checkerror.test-past and verify that it's flagged as problematic
+                    let runtime_checkerror_problematic = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "trait-checkerror",
+                        "test-past",
+                        vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
+                    ) {
+                        assert_eq!(txid, runtime_checkerror_problematic.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    problematic_txids.push(runtime_checkerror_problematic.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &runtime_checkerror_problematic,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                // all problematic txids are present
+                for problematic_txid in problematic_txids.iter() {
+                    assert!(mempool.has_tx(problematic_txid));
+                }
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(
+                    chainstate,
+                    &sortdb.index_conn(),
+                    &mut mempool,
+                    &parent_tip,
+                    tip.total_burn,
+                    vrf_proof,
+                    Hash160([tenure_id as u8; 20]),
+                    &coinbase_tx,
+                    BlockBuilderSettings::limited(),
+                    None,
+                )
+                .unwrap();
+
+                // all problematic txids are absent
+                for problematic_txid in problematic_txids.iter() {
+                    assert!(!mempool.has_tx(problematic_txid));
+                }
+
+                // make sure the right txs get included
+                let txids : Vec<_> = anchored_block.0.txs.iter().map(|tx| tx.txid()).collect();
+                assert_eq!(txids, expected_txids);
+
+                (anchored_block.0, vec![])
+            },
+        );
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        last_block = Some(StacksBlockHeader::make_index_block_hash(
+            &consensus_hash,
+            &stacks_block.block_hash(),
+        ));
+    }
+}
