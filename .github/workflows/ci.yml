@@ -173,12 +173,12 @@ jobs:
           ref: hack/2.1
           submodules: recursive
       - name: Build Clarinet with 2.1
-        run: cargo build --release -p=clarinet-cli
+        run: cargo build -p=clarinet-cli
       - name: Upload Clarinet binary
         uses: actions/upload-artifact@v2
         with:
           name: clarinet
-          path: ./target/release/clarinet
+          path: ./target/debug/clarinet
   clarinet-test:
     runs-on: ubuntu-latest
     needs: build-clarinet-2_1

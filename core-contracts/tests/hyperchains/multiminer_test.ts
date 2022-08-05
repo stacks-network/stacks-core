@@ -1,12 +1,56 @@
 import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land/x/clarinet@v0.31.0/index.ts';
 import { assertEquals } from "https://deno.land/std@0.90.0/testing/asserts.ts";
 import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";
+import { decode as decHex, encode as encHex } from "https://deno.land/std@0.149.0/encoding/hex.ts";
+// import * as secp from "https://deno.land/x/secp256k1@1.6.3/mod.ts";
 
 const ERR_SIGNER_APPEARS_TWICE = 101;
 const ERR_NOT_ENOUGH_SIGNERS = 102;
 const ERR_INVALID_SIGNATURE = 103;
 const ERR_UNAUTHORIZED_CONTRACT_CALLER = 104;
 const ERR_MINER_ALREADY_SET = 105;
+
+function fromHex(input: string) {
+    const hexBytes = new TextEncoder().encode(input);
+    return decHex(hexBytes);
+}
+
+function toHex(input: Uint8Array) {
+    const hexBytes = encHex(input);
+    return new TextDecoder().decode(hexBytes);
+}
+
+function buffFromHex(input: string) {
+    return types.buff(fromHex(input));
+}
+
+// function sign(messageHash: string, signer: string) {
+//     const result = secp.signSync(messageHash, signer.slice(0, -2), { der: false, recovered: true });
+//     return `0x${toHex(result[0])}0${result[1]}`
+// }
+
+
+function sign(messageHash: string, signer: string) {
+    const signature_map = new Map<string, string>();
+    signature_map.set('(7acbdb54d0798e8b2930a0b2adeea24e46813edadd04f3497f020f328c77dbb2, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xea418d4ae220a5c4afdc0c8e21c28e26a338117fee39f878ebb1251c56f74ac3da64b20e66fca8b697a9751ba0599ba2a5210add0f7a43e5c2a230d3f4df051600');
+    signature_map.set('(63ba42b8727b1f01d78de3b7bfad61d6f3b146695350457e1dbb252861135461, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xb459af09a1d6200766e32f4513392da7ffd374b6ba925a41c26854c5e02c7623ec419b4f68eae501f36fccfd9a40c83489f232446ae6dc04c075efc17b5b6eaa00');
+    signature_map.set('(63ba42b8727b1f01d78de3b7bfad61d6f3b146695350457e1dbb252861135461, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x9874cae8caf04ac52bf0af74c79edd58f81164d78245e2e197d2832b60e0921b3dff0430720b725956df91672eab183b85402c164a6819eb7ac0a0850a1d21f801');
+    signature_map.set('(822caf4a720c0d1db92bb948521650dbeabe5fa94b5817f718d6e4a715d2b583, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x549f505da94df6f56df8da10eb2b5585a95ceca2ca3a6168176840215a330c5825ab16f6eb8b48474006f9eb2ce3fd61a5552ccb53755aaccdee1c0fbc6fcb8e01');
+    signature_map.set('(822caf4a720c0d1db92bb948521650dbeabe5fa94b5817f718d6e4a715d2b583, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xc223b412c0e2ae1dc28c981b23de7d8a601c94cc190e7e37227ecd47fe4be8a628394f826cb8a25c133a599ef2fc3796155c5ecc924cbc35fff4ab6a0cc685ff01');
+    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xc8ee11648c48ae85f1b8003c53690efc9aab20ce05526643fb0ccc3f2ac46cee174c51ba62f5e06cc5223cee0efccb7c1eec20e1fe22bb6654daab78e067f16a00');
+    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xc8ee11648c48ae85f1b8003c53690efc9aab20ce05526643fb0ccc3f2ac46cee174c51ba62f5e06cc5223cee0efccb7c1eec20e1fe22bb6654daab78e067f16a00');    
+    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0x7090b64cc6c63fe675de25d0c890bbac58e5ca93e9bd2c9c40a05229ef464fae6232490c2d8c66565a22a97d2155aa2d12b6434e8ba75c081e11b9f9d9a4ef7500');
+    signature_map.set('(84b70510646b9b5967d637fca9fd9cf29d957848d52577348d09ca59432a867a, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x11796554ddafc42d3aae1738ee1ddf573988404d5c990c574cbdefb73d31b8995e54abcda499738aaeffb6432fe37f1c2bc749471a3815fea131eb4ba76da14c00');
+    signature_map.set('(84b70510646b9b5967d637fca9fd9cf29d957848d52577348d09ca59432a867a, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xf34be14d6411debab873c0a79033d4a4a6e39a8acb46eb214d2ac112148698011a62abf466cc3fbb2b5f7e144c631abd86547c3a0763675315bad32531e8084e01');
+
+    const key = `(${messageHash}, ${signer})`;
+    if (signature_map.has(key)) {
+        return signature_map.get(key)!;
+    } else {
+        console.log(`sign("${messageHash}", "${signer}")`);
+        throw "No known signature for request";
+    }
+}
 
 Clarinet.test({
     name: "Test multi-party commit when one party submits transactions and other party is signatory",
@@ -48,65 +92,72 @@ Clarinet.test({
             alice.address),
         ]);
 
-        //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101
-        let signatorySigned    = "0xac04279c1a6fa31e87d6ee54790c4016a7c8b90587d9c71938b4f4eae2d448280435ebb9b9b7462e54d6eff23350aa8272e8d9f8f02332883dd845c14c19d5c300";
-        //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001
-        let nonSignatorySigned = "0xee504bc280ff1564195638ed2d86e74994c75833432dff9be56a0880c0e52b146582a0b46fbda9640f32e2fc44a6cd1521ea2ef4816d2b1a48a36bb70f1b37fd00";
-        let badSignature       = "0x0ca28913fe5d08da93f4738cee281747b00a76d6e1d266bcfa17d87b9542e0c979a3065dff06518bbd7d5d08059be79a41e3d5a74f39738bf1183f56091e5d7c01";
+        const block_hash_1 = "0x0000000000000001000000000000000100000000000000010000000000000001";
+        const withdrawal_root_1 = "0x0000000000000001000000000000000100000000000000010000000000000002";
 
         const id_header_hash_1 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const commit_data_1 = types.tuple({ 
+            "block": buffFromHex(block_hash_1.slice(2)),
+            "withdrawal-root": buffFromHex(withdrawal_root_1.slice(2)),
+            "target-tip": id_header_hash_1
+        });
+        const message_hash_1 = chain.callReadOnlyFn('multi-miner', 'make-block-commit-hash', [commit_data_1], alice.address).result.toString();
+        const signatory_signed_1 = sign(message_hash_1.slice(2), signatory.secretKey);
+
         let block = chain.mineBlock([
           // Successfully commit block with alice and signatory as the miners
           Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash_1 }),
-                    types.list([signatorySigned]),
+                    commit_data_1,
+                    types.list([signatory_signed_1]),
                 ],
                 alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
-            .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+            .expectBuff(fromHex(block_hash_1.slice(2)));
 
         const id_header_hash_2 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const commit_data_2 = types.tuple({ 
+            "block": buffFromHex(block_hash_1.slice(2)),
+            "withdrawal-root": buffFromHex(withdrawal_root_1.slice(2)),
+            "target-tip": id_header_hash_2
+        });
+        const message_hash_2 = chain.callReadOnlyFn('multi-miner', 'make-block-commit-hash', [commit_data_2], alice.address).result.toString();
+        const non_signatory_signed_2 = sign(message_hash_2.slice(2), nonSignatory.secretKey);
+        const signatory_signed_2 = sign(message_hash_2.slice(2), signatory.secretKey);
+        // provide a totally invalid signature
+        const bad_signature_1 = "0x500f511da88df8856d77da10eb2ff585a95cecddca3a6ee817aa40215a330c5825ab16f6eb8b48474006f9eb2ce3fd61a5552ccb53755aaccdee1c0fbc6fcb8e88";
+        // sign the wrong hash
+        const bad_signature_2 = sign(message_hash_1.slice(2), signatory.secretKey);
 
         block = chain.mineBlock([
             // Fail to commit block with alice and nonSignatory as the miners
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash_2 }),
-                    types.list([nonSignatorySigned]),
+                    commit_data_2,
+                    types.list([non_signatory_signed_2]),
                 ],
                 alice.address),
             // Fail to commit block with a bad signature
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash_2 }),
-                    types.list([badSignature]),
+                    commit_data_2,
+                    types.list([bad_signature_1]),
                 ],
                 alice.address),
             // Fail to commit block with non-unique signers
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash_2 }),
-                    types.list([signatorySigned, signatorySigned]),
+                    commit_data_2,
+                    types.list([signatory_signed_2, signatory_signed_2]),
                 ],
                 alice.address),
             // Fail to commit block with not-enough signers when sender isn't a miner
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash_2 }),
-                    types.list([signatorySigned]),
+                    commit_data_2,
+                    types.list([signatory_signed_2]),
                 ],
                 bob.address),
         ]);
@@ -166,64 +217,80 @@ Clarinet.test({
             alice.address),
         ]);
 
-        //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101
-        let signatory1Signed = "0xac04279c1a6fa31e87d6ee54790c4016a7c8b90587d9c71938b4f4eae2d448280435ebb9b9b7462e54d6eff23350aa8272e8d9f8f02332883dd845c14c19d5c300";
-        //  to generate: stacks-inspect secp256k1-sign e2f4d0b1eca5f1b4eb853cd7f1c843540cfb21de8bfdaa59c504a6775cd2cfe9 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001
-        let signatory2Signed = "0xee504bc280ff1564195638ed2d86e74994c75833432dff9be56a0880c0e52b146582a0b46fbda9640f32e2fc44a6cd1521ea2ef4816d2b1a48a36bb70f1b37fd00";
-        let badSignature     = "0x0ca28913fe5d08da93f4738cee281747b00a76d6e1d266bcfa17d87b9542e0c979a3065dff06518bbd7d5d08059be79a41e3d5a74f39738bf1183f56091e5d7c01";
+        const block_hash_1 = "0x0000000200000001000000000000000100000000000000010000000000000001";
+        const withdrawal_root_1 = "0x0000000000000001000000000000000100000000400000010000000000000002";
 
-        let id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+
+        const id_header_hash_1 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const commit_data_1 = types.tuple({ 
+            "block": buffFromHex(block_hash_1.slice(2)),
+            "withdrawal-root": buffFromHex(withdrawal_root_1.slice(2)),
+            "target-tip": id_header_hash_1
+        });
+        const message_hash_1 = chain.callReadOnlyFn('multi-miner', 'make-block-commit-hash', [commit_data_1], alice.address).result.toString();
+        const signatory1_sig_1 = sign(message_hash_1.slice(2), signatory1.secretKey);
+        const signatory2_sig_1 = sign(message_hash_1.slice(2), signatory2.secretKey);
 
         let block = chain.mineBlock([
           // Successfully commit block with alice as a sender and signatory1/2 as the miners
           Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash }),
-                    types.list([signatory1Signed, signatory2Signed]),
+                    commit_data_1,
+                    types.list([signatory2_sig_1, signatory1_sig_1]),
                 ],
                 alice.address),
         ]);
         block.receipts[0].result
             .expectOk()
-            .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+            .expectBuff(fromHex(block_hash_1.slice(2)));
 
-        id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const id_header_hash_2 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const commit_data_2 = types.tuple({ 
+            "block": buffFromHex(block_hash_1.slice(2)),
+            "withdrawal-root": buffFromHex(withdrawal_root_1.slice(2)),
+            "target-tip": id_header_hash_2
+        });
+        const message_hash_2 = chain.callReadOnlyFn('multi-miner', 'make-block-commit-hash', [commit_data_2], alice.address).result.toString()
+        const signatory1_sig_2 = sign(message_hash_2.slice(2), signatory1.secretKey);
+        const signatory2_sig_2 = sign(message_hash_2.slice(2), signatory2.secretKey);
+
         block = chain.mineBlock([
             // Successfully commit block with bob as a sender and signatory1/2 as the miners
             Tx.contractCall("multi-miner", "commit-block",
                     [
-                        types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                      "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                      "target-tip": id_header_hash }),
-                        types.list([signatory1Signed, signatory2Signed]),
+                        commit_data_2,
+                        types.list([signatory1_sig_2, signatory2_sig_2]),
                     ],
                     bob.address),
             ]);
         block.receipts[0].result
             .expectOk()
-            .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
+            .expectBuff(fromHex(block_hash_1.slice(2)));
 
         // now test failure modes
-        id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const id_header_hash_3 = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
+        const commit_data_3 = types.tuple({ 
+            "block": buffFromHex(block_hash_1.slice(2)),
+            "withdrawal-root": buffFromHex(withdrawal_root_1.slice(2)),
+            "target-tip": id_header_hash_3
+        });
+        const message_hash_3 = chain.callReadOnlyFn('multi-miner', 'make-block-commit-hash', [commit_data_3], alice.address).result.toString();
+        const signatory1_sig_3 = sign(message_hash_3.slice(2), signatory1.secretKey);
+        const signatory2_sig_3 = sign(message_hash_3.slice(2), signatory2.secretKey);
+
         block = chain.mineBlock([
             // Fail to commit block with alice and signatory as the miners
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash }),
-                    types.list([signatory1Signed]),
+                    commit_data_3,
+                    types.list([signatory2_sig_3]),
                 ],
                 alice.address),
             // Fail to commit block with non-unique signers
             Tx.contractCall("multi-miner", "commit-block",
                 [
-                    types.tuple({ "block": types.buff(new Uint8Array([0, 1, 1, 1, 1])),
-                                  "withdrawal-root": types.buff(new Uint8Array([0, 1, 1, 1, 2])),
-                                  "target-tip": id_header_hash }),
-                    types.list([signatory1Signed, signatory2Signed]),
+                    commit_data_3,
+                    types.list([signatory1_sig_3, signatory2_sig_3]),
                 ],
                 signatory1.address),
         ]);

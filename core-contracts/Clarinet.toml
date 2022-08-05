@@ -1,6 +1,7 @@
 
 [project]
 name = "core-contracts"
+# deno_import_file = "import_map.json"
 
 [contracts.trait-standards]
 path = "contracts/helper/trait-standards.clar"
