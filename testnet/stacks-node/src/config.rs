@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
@@ -30,6 +31,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -392,6 +394,103 @@ lazy_static! {
 }
 
 impl Config {
+    fn make_epochs(
+        conf_epochs: &[StacksEpochConfigFile],
+        burn_mode: &str,
+        bitcoin_network: BitcoinNetworkType,
+    ) -> Result<Vec<StacksEpoch>, String> {
+        let default_epochs = match bitcoin_network {
+            BitcoinNetworkType::Mainnet => {
+                Err("Cannot configure epochs in mainnet mode".to_string())
+            }
+            BitcoinNetworkType::Testnet => Ok(stacks::core::STACKS_EPOCHS_TESTNET.to_vec()),
+            BitcoinNetworkType::Regtest => Ok(stacks::core::STACKS_EPOCHS_REGTEST.to_vec()),
+        }?;
+        let mut matched_epochs = vec![];
+        for configured_epoch in conf_epochs.iter() {
+            let epoch_name = &configured_epoch.epoch_name;
+            let epoch_id = if epoch_name == EPOCH_CONFIG_1_0_0 {
+                Ok(StacksEpochId::Epoch10)
+            } else if epoch_name == EPOCH_CONFIG_2_0_0 {
+                Ok(StacksEpochId::Epoch20)
+            } else if epoch_name == EPOCH_CONFIG_2_0_5 {
+                Ok(StacksEpochId::Epoch2_05)
+            } else if epoch_name == EPOCH_CONFIG_2_1_0 {
+                Ok(StacksEpochId::Epoch21)
+            } else {
+                Err(format!("Unknown epoch name specified: {}", epoch_name))
+            }?;
+            matched_epochs.push((epoch_id, configured_epoch.start_height));
+        }
+
+        matched_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
+        // epochs must be sorted the same both by start height and by epoch
+        let mut check_sort = matched_epochs.clone();
+        check_sort.sort_by_key(|(_, start)| *start);
+        if matched_epochs != check_sort {
+            return Err(
+                "Configured epochs must have start heights in the correct epoch order".to_string(),
+            );
+        }
+
+        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
+        let expected_list = [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+        ];
+        for (expected_epoch, configured_epoch) in expected_list
+            .iter()
+            .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
+        {
+            if expected_epoch != configured_epoch {
+                return Err(format!(
+                                "Configured epochs may not skip an epoch. Expected epoch = {}, Found epoch = {}",
+                                expected_epoch, configured_epoch));
+            }
+        }
+
+        // Stacks 1.0 must start at 0
+        if matched_epochs[0].1 != 0 {
+            return Err("Stacks 1.0 must start at height = 0".into());
+        }
+
+        if matched_epochs.len() > default_epochs.len() {
+            return Err(format!(
+                "Cannot configure more epochs than support by this node. Supported epoch count: {}",
+                default_epochs.len()
+            ));
+        }
+        let mut out_epochs = default_epochs[..matched_epochs.len()].to_vec();
+
+        for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
+            if epoch_id != &out_epochs[i].epoch_id {
+                return Err(
+                                format!("Unmatched epochs in configuration and node implementation. Implemented = {}, Configured = {}",
+                                   epoch_id, &out_epochs[i].epoch_id));
+            }
+            // end_height = next epoch's start height || i64::max if last epoch
+            let end_height = if i + 1 < matched_epochs.len() {
+                matched_epochs[i + 1].1
+            } else {
+                i64::MAX
+            };
+            out_epochs[i].start_height = u64::try_from(*start_height)
+                .map_err(|_| "Start height must be a non-negative integer")?;
+            out_epochs[i].end_height = u64::try_from(end_height)
+                .map_err(|_| "End height must be a non-negative integer")?;
+        }
+
+        if burn_mode == "mocknet" {
+            for epoch in out_epochs.iter_mut() {
+                epoch.block_limit = ExecutionCost::max_value();
+            }
+        }
+
+        Ok(out_epochs)
+    }
+
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
@@ -487,7 +586,7 @@ impl Config {
                     }
                 }
 
-                BurnchainConfig {
+                let mut result = BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
                         CHAIN_ID_MAINNET
@@ -569,11 +668,18 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
-                    epochs: match burnchain.epochs {
-                        Some(epochs) => Some(epochs),
-                        None => default_burnchain_config.epochs,
-                    },
+                    epochs: default_burnchain_config.epochs,
+                };
+
+                if let Some(ref conf_epochs) = burnchain.epochs {
+                    result.epochs = Some(Self::make_epochs(
+                        conf_epochs,
+                        &result.mode,
+                        result.get_bitcoin_network().1,
+                    )?);
                 }
+
+                result
             }
             None => default_burnchain_config,
         };
@@ -1091,6 +1197,17 @@ impl BurnchainConfig {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+pub struct StacksEpochConfigFile {
+    epoch_name: String,
+    start_height: i64,
+}
+
+pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
+pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
+pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
+pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
+
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1112,7 +1229,7 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<Vec<StacksEpochConfigFile>>,
 }
 
 #[derive(Clone, Debug, Default)]
