@@ -34,6 +34,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
+use crate::burnchains::commitment::MultiMinerParticipant;
 use crate::burnchains::l1_events::L1Controller;
 use crate::burnchains::mock_events::MockController;
 use crate::BurnchainController;
@@ -424,11 +425,11 @@ impl Config {
         };
 
         if let Some(bootstrap_node) = bootstrap_node {
-            node.set_bootstrap_nodes(bootstrap_node, burnchain.chain_id, burnchain.peer_version);
+            node.set_bootstrap_nodes(bootstrap_node, node.chain_id, burnchain.peer_version);
         }
 
         if let Some(deny_nodes) = deny_nodes {
-            node.set_deny_nodes(deny_nodes, burnchain.chain_id, burnchain.peer_version);
+            node.set_deny_nodes(deny_nodes, node.chain_id, burnchain.peer_version);
         }
 
         let initial_balances: Vec<InitialBalance> = match config_file.ustx_balance {
@@ -619,6 +620,7 @@ impl Config {
                     handshake_timeout: opts.connect_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
+                    hyperchain_validator: node.mining_key.clone(),
                     ..ConnectionOptions::default()
                 }
             }
@@ -737,6 +739,16 @@ impl Config {
         self.events_observers.len() > 0
     }
 
+    /// Add a bootstrap node to the configuration, automatically setting the
+    /// network_id and peer_version using `self`.
+    pub fn add_bootstrap_node(&mut self, bootstrap_node: &str) {
+        self.node.add_bootstrap_node(
+            bootstrap_node,
+            self.node.chain_id,
+            self.burnchain.peer_version,
+        );
+    }
+
     pub fn make_block_builder_settings(
         &self,
         attempt: u64,
@@ -803,6 +815,8 @@ pub enum CommitStrategy {
     MultiMiner {
         required_signers: u8,
         contract: QualifiedContractIdentifier,
+        other_participants: Vec<MultiMinerParticipant>,
+        leader: bool,
     },
 }
 
@@ -969,7 +983,9 @@ pub struct NodeConfig {
     pub marf_defer_hashing: bool,
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Used to specify the keychain signing key exactly
+    /// Used to specify the keychain signing key exactly. This is also used
+    ///  as the validation key when running as a hyperchain 'validator' (i.e.,
+    ///  the follower in the two-phase commit protocol)
     pub mining_key: Option<StacksPrivateKey>,
 }
 
@@ -1276,13 +1292,13 @@ impl NodeConfig {
     fn default_neighbor(
         addr: SocketAddr,
         pubk: Secp256k1PublicKey,
-        chain_id: u32,
+        network_id: u32,
         peer_version: u32,
     ) -> Neighbor {
         Neighbor {
             addr: NeighborKey {
-                peer_version: peer_version,
-                network_id: chain_id,
+                peer_version,
+                network_id,
                 addrbytes: PeerAddress::from_socketaddr(&addr),
                 port: addr.port(),
             },
@@ -1298,7 +1314,7 @@ impl NodeConfig {
         }
     }
 
-    pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
+    fn add_bootstrap_node(&mut self, bootstrap_node: &str, l2_network_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_node.split("@").collect();
         if parts.len() != 2 {
             panic!(
@@ -1310,16 +1326,11 @@ impl NodeConfig {
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
-        let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
+        let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, l2_network_id, peer_version);
         self.bootstrap_node.push(neighbor);
     }
 
-    pub fn set_bootstrap_nodes(
-        &mut self,
-        bootstrap_nodes: String,
-        chain_id: u32,
-        peer_version: u32,
-    ) {
+    fn set_bootstrap_nodes(&mut self, bootstrap_nodes: String, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = bootstrap_nodes.split(",").collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
@@ -1339,7 +1350,7 @@ impl NodeConfig {
         self.deny_nodes.push(neighbor);
     }
 
-    pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
+    fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
         let parts: Vec<&str> = deny_nodes.split(",").collect();
         for part in parts.into_iter() {
             if part.len() > 0 {

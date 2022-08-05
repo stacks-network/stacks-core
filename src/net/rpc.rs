@@ -36,6 +36,7 @@ use clarity::vm::types::TupleData;
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
@@ -925,6 +926,46 @@ impl ConversationHttp {
         let fee = MINIMUM_TX_FEE_RATE_PER_BYTE;
         let response = HttpResponseType::TokenTransferCost(response_metadata, fee);
         response.send(http, fd).map(|_| ())
+    }
+
+    fn handle_validate_block_proposal<W: Write>(
+        http: &mut StacksHttp,
+        fd: &mut W,
+        req: &HttpRequestType,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        proposal: &miner::Proposal,
+        validator_key: Option<&Secp256k1PrivateKey>,
+        canonical_stacks_tip_height: u64,
+    ) -> Result<(), net_error> {
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let validator_key = match validator_key {
+            Some(key) => key,
+            None => {
+                let response = HttpResponseType::BlockProposalInvalid {
+                    metadata: response_metadata,
+                    error_message:
+                        "Cannot validate block proposal: not configured with validation key".into(),
+                };
+                return response.send(http, fd);
+            }
+        };
+
+        let response = match proposal.validate(chainstate, &sortdb.index_conn()) {
+            Ok(_) => {
+                let signature = proposal.sign(validator_key);
+                HttpResponseType::BlockProposalValid {
+                    metadata: response_metadata,
+                    signature,
+                }
+            }
+            Err(e) => HttpResponseType::BlockProposalInvalid {
+                metadata: response_metadata,
+                error_message: e.to_string(),
+            },
+        };
+        response.send(http, fd)
     }
 
     fn handle_get_withdrawal_stx_entry<W: Write>(
@@ -2709,6 +2750,24 @@ impl ConversationHttp {
                         network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
+                None
+            }
+            HttpRequestType::BlockProposal(_, ref proposal) => {
+                let validator_key = self.connection.options.hyperchain_validator.as_ref();
+
+                // TODO(#135): add sender validation. This method should only
+                //  be sent by the leader: we should not accept proposals
+                //  not signed by the leader
+                ConversationHttp::handle_validate_block_proposal(
+                    &mut self.connection.protocol,
+                    &mut reply,
+                    &req,
+                    chainstate,
+                    sortdb,
+                    &proposal,
+                    validator_key,
+                    network.burnchain_tip.canonical_stacks_tip_height,
+                )?;
                 None
             }
             HttpRequestType::GetWithdrawalNft {
