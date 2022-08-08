@@ -809,7 +809,7 @@ pub fn special_get_burn_block_info(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+    runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
 

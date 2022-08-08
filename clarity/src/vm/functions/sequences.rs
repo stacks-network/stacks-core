@@ -354,7 +354,7 @@ pub fn special_slice(
 
     // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
     // Set the input to runtime_cost to 0, since slicing is an O(1) operation.
-    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+    runtime_cost(ClarityCostFunction::Slice, env, 0)?;
 
     let seq = eval(&args[0], env, context)?;
     let left_position = eval(&args[1], env, context)?;
