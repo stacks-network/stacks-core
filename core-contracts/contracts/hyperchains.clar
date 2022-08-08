@@ -300,13 +300,12 @@
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
         (asserts! (is-eq withdrawal-leaf-hash
-                         (print (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height)))
+                         (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))
 
         (asserts! (try! (as-contract (inner-transfer-without-mint-nft-asset id recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
-        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root })
-)
+        (ok           (finish-withdraw { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
     )
 )
 
@@ -512,7 +511,7 @@
 )))))
 
 (define-read-only (leaf-hash-withdraw-ft (asset-contract principal) (amount uint) (recipient principal) (withdrawal-id uint) (height uint))
-    (sha512/256 (concat 0x00 (unwrap-panic (print (to-consensus-buff
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
         {
             type: "ft",
             amount: amount,
@@ -521,7 +520,7 @@
             withdrawal-id: withdrawal-id,
             height: height
         }
-))))))
+)))))
 
 ;; A user calls this function to withdraw STX from this contract. 
 ;; In order for this withdrawal to go through, the given withdrawal must have been included 
@@ -600,14 +599,11 @@
                        { withdrawal-leaf-hash: withdrawal-leaf-hash, withdrawal-root-hash: withdrawal-root }))
             (err ERR_WITHDRAWAL_ALREADY_PROCESSED))
 
-        (let (
-                (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
-                (roots-match (is-eq (print calculated-withdrawal-root) withdrawal-root))
-            )
-            (if roots-match
+        (let ((calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
+              (roots-match (is-eq calculated-withdrawal-root withdrawal-root)))
+             (if roots-match
                 (ok true)
-                (err ERR_MERKLE_ROOT_DOES_NOT_MATCH)
-            )
+                (err ERR_MERKLE_ROOT_DOES_NOT_MATCH))
         )
     )
 )
