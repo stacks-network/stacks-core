@@ -101,7 +101,7 @@ impl L1Controller {
                 required_signers,
                 contract,
                 other_participants,
-                leader,
+                leader: _,
             } => Box::new(MultiPartyCommitter::new(
                 &config.burnchain,
                 *required_signers,

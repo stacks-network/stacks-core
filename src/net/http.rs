@@ -4184,7 +4184,6 @@ impl HttpResponseType {
             HttpResponseType::ServerError(ref md, _) => md,
             HttpResponseType::ServiceUnavailable(ref md, _) => md,
             HttpResponseType::Error(ref md, _, _) => md,
-            HttpResponseType::GetWithdrawal(ref md, _) => md,
             HttpResponseType::BlockProposalValid { ref metadata, .. } => metadata,
             HttpResponseType::BlockProposalInvalid { ref metadata, .. } => metadata,
         }

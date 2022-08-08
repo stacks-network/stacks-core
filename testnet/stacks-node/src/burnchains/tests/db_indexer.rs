@@ -5,7 +5,6 @@ use crate::config::BurnchainConfig;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
 use stacks::core::LAYER_1_CHAIN_ID_MAINNET;
-use stacks::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
 /// Create config settings for the tests.
 fn make_test_config() -> BurnchainConfig {

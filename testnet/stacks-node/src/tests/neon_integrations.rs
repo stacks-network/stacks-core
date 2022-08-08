@@ -1383,7 +1383,7 @@ pub fn submit_tx_and_wait(http_origin: &str, tx: &Vec<u8>) -> String {
 #[ignore]
 fn transactions_microblocks_then_block() {
     reset_static_burnblock_simulator_channel();
-    let (mut conf, miner_account) = mockstack_test_conf();
+    let (mut conf, _miner_account) = mockstack_test_conf();
     conf.node.microblock_frequency = 100;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
