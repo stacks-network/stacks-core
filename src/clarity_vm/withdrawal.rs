@@ -12,13 +12,13 @@ use clarity::vm::Value;
 use regex::internal::Input;
 
 fn clarity_ascii_str(input: &str) -> Value {
-    Value::string_ascii_from_bytes(input.as_bytes().to_vec()).expect("Supplied string was not ASCII")
+    Value::string_ascii_from_bytes(input.as_bytes().to_vec())
+        .expect("Supplied string was not ASCII")
 }
 
 pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
     Value::buff_from(hash.0.to_vec()).expect("Failed to construct buffer from hash")
 }
-
 
 /// The supplied withdrawal ID is inserted into the supplied withdraw event
 /// (this is why the event are supplied as a mutable argument).
@@ -29,17 +29,19 @@ pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
 ///
 /// ```
 ///   { type: "stx",
-///     block-height: u128,
+///     height: u128,
 ///     withdrawal-id: u128,
 ///     recipient: principal,
 ///     amount: u128 }
 /// ```
 ///
+/// *NOTE*: because subnets support SIP-009 and SIP-010 tokens only,
+///   these wire formats *do not* include the `asset-name`, because
+///   only one asset can be supported per contract.
 /// ```
 ///   { type: "nft",
 ///     asset-contract: principal,
-///     asset-name: utf8,
-///     block-height: u128,
+///     height: u128,
 ///     withdrawal-id: u128,
 ///     recipient: principal,
 ///     nft-id: u128 }
@@ -48,8 +50,7 @@ pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
 /// ```
 ///   { type: "ft",
 ///     asset-contract: principal,
-///     asset-name: utf8,
-///     block-height: u128,
+///     height: u128,
 ///     withdrawal-id: u128,
 ///     recipient: principal,
 ///     amount: u128 }
@@ -63,11 +64,11 @@ pub fn generate_key_from_event(
     match event {
         StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(data)) => {
             data.withdrawal_id = Some(withdrawal_id);
-            make_key_for_nft_withdrawal_event(data, block_height)
+            Some(make_key_for_nft_withdrawal_event(data, block_height))
         }
         StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) => {
             data.withdrawal_id = Some(withdrawal_id);
-            make_key_for_ft_withdrawal_event(data, block_height)
+            Some(make_key_for_ft_withdrawal_event(data, block_height))
         }
         StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) => {
             data.withdrawal_id = Some(withdrawal_id);
@@ -77,7 +78,7 @@ pub fn generate_key_from_event(
     }
 }
 
-pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height: u64) -> Option<Value> {
+pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height: u64) -> Value {
     let withdrawal_id = data
         .withdrawal_id
         .expect("Tried to serialize a withdraw event before setting withdrawal ID");
@@ -98,7 +99,7 @@ pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height
     )
 }
 
-pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_height: u64) -> Option<Value> {
+pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_height: u64) -> Value {
     let withdrawal_id = data
         .withdrawal_id
         .expect("Tried to serialize a withdraw event before setting withdrawal ID");
@@ -136,15 +137,18 @@ pub fn make_key_for_stx_withdrawal(
     amount: u128,
     block_height: u64,
 ) -> Value {
-    TupleData::from_data(
-        vec![
-            ("type".into(), clarity_ascii_str("stx")),
-            ("block-height".into(), Value::UInt(u128::from(block_height))),
-            ("withdrawal-id".into(), Value::UInt(u128::from(withdrawal_id))),
-            ("recipient".into(), Value::Principal(recipient.clone())),
-            ("amount".into(), Value::UInt(amount)),
-        ]
-    ).expect("Withdrawal key tuple is too large for Clarity").into()
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("stx")),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(recipient.clone())),
+        ("amount".into(), Value::UInt(amount)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
 }
 
 pub fn make_key_for_nft_withdrawal(
@@ -153,29 +157,23 @@ pub fn make_key_for_nft_withdrawal(
     asset_identifier: &AssetIdentifier,
     id: u128,
     block_height: u64,
-) -> Option<Value> {
-    let asset_contract = Value::Principal(PrincipalData::from(asset_identifier.contract_identifier.clone()));
-    let asset_name = Value::string_utf8_from_bytes(asset_identifier.asset_name.as_bytes().to_vec());
-    let asset_name = match asset_name {
-        Ok(x) => x,
-        Err(e) => {
-            warn!("Failed to create FT withdrawal entry: asset name is non-UTF8";
-                  "asset_identifier" => %asset_identifier,
-                  "err" => ?e);
-            return None
-        }
-    };
-    Some(TupleData::from_data(
-        vec![
-            ("type".into(), clarity_ascii_str("nft")),
-            ("asset-contract".into(), asset_contract),
-            ("asset-name".into(), asset_name),
-            ("block-height".into(), Value::UInt(u128::from(block_height))),
-            ("withdrawal-id".into(), Value::UInt(u128::from(withdrawal_id))),
-            ("recipient".into(), Value::Principal(sender.clone())),
-            ("nft-id".into(), Value::UInt(id)),
-        ]
-    ).expect("Withdrawal key tuple is too large for Clarity").into())
+) -> Value {
+    let asset_contract = Value::Principal(PrincipalData::from(
+        asset_identifier.contract_identifier.clone(),
+    ));
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("nft")),
+        ("asset-contract".into(), asset_contract),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(sender.clone())),
+        ("nft-id".into(), Value::UInt(id)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
 }
 
 pub fn make_key_for_ft_withdrawal(
@@ -184,29 +182,23 @@ pub fn make_key_for_ft_withdrawal(
     asset_identifier: &AssetIdentifier,
     amount: u128,
     block_height: u64,
-) -> Option<Value> {
-    let asset_contract = Value::Principal(PrincipalData::from(asset_identifier.contract_identifier.clone()));
-    let asset_name = Value::string_utf8_from_bytes(asset_identifier.asset_name.as_bytes().to_vec());
-    let asset_name = match asset_name {
-        Ok(x) => x,
-        Err(e) => {
-            warn!("Failed to create FT withdrawal entry: asset name is non-UTF8";
-                  "asset_identifier" => %asset_identifier,
-                  "err" => ?e);
-            return None
-        }
-    };
-    Some(TupleData::from_data(
-        vec![
-            ("type".into(), clarity_ascii_str("ft")),
-            ("asset-contract".into(), asset_contract),
-            ("asset-name".into(), asset_name),
-            ("block-height".into(), Value::UInt(u128::from(block_height))),
-            ("withdrawal-id".into(), Value::UInt(u128::from(withdrawal_id))),
-            ("recipient".into(), Value::Principal(sender.clone())),
-            ("amount".into(), Value::UInt(amount)),
-        ]
-    ).expect("Withdrawal key tuple is too large for Clarity").into())
+) -> Value {
+    let asset_contract = Value::Principal(PrincipalData::from(
+        asset_identifier.contract_identifier.clone(),
+    ));
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("ft")),
+        ("asset-contract".into(), asset_contract),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(sender.clone())),
+        ("amount".into(), Value::UInt(amount)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
 }
 
 pub fn convert_withdrawal_key_to_bytes(key: &Value) -> Vec<u8> {
@@ -250,7 +242,10 @@ pub fn create_withdrawal_merkle_tree(
 
 #[cfg(test)]
 mod test {
+    use clarity::types::chainstate::StacksAddress;
+    use clarity::types::Address;
     use clarity::util::hash::to_hex;
+    use clarity::vm::types::StandardPrincipalData;
 
     use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
     use crate::chainstate::stacks::{
@@ -283,6 +278,9 @@ mod test {
         )
         .unwrap();
         let user_addr = to_addr(&pk);
+        let contract_addr =
+            StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+
         let mut spending_condition =
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&pk))
                 .expect("Failed to create p2pkh spending condition from public key.");
@@ -299,7 +297,7 @@ mod test {
             StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
                 asset_identifier: AssetIdentifier {
                     contract_identifier: QualifiedContractIdentifier::new(
-                        user_addr.into(),
+                        contract_addr.into(),
                         ContractName::from("simple-ft"),
                     ),
                     asset_name: ClarityName::from("ft-token"),
@@ -312,7 +310,7 @@ mod test {
             StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData {
                 asset_identifier: AssetIdentifier {
                     contract_identifier: QualifiedContractIdentifier::new(
-                        user_addr.into(),
+                        contract_addr.into(),
                         ContractName::from("simple-nft"),
                     ),
                     asset_name: ClarityName::from("nft-token"),
@@ -353,16 +351,17 @@ mod test {
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice());
         assert_eq!(
             to_hex(stx_withdrawal_leaf_hash.as_bytes()),
-            "ac19cdbd2ba696e608a290fac03d9c6990f76d2681dba17a08f8cf9e41577be0",
+            "bde3658bbc38952599ef925ea3075a2fbfc5619cebf48cce140994c8b328fe35",
         );
 
         let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 1, 0).unwrap();
         let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
+        eprintln!("BYTES: {}", to_hex(&ft_withdrawal_key_bytes));
         let ft_withdrawal_leaf_hash =
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice());
         assert_eq!(
             to_hex(ft_withdrawal_leaf_hash.as_bytes()),
-            "30747fd7af1ef218d55509f40cf34afb098c5372dada8a7cd20850f445dcf781",
+            "be7bcffde781f217150cfc63c88fc2e78bca424b318f5421abdfe96842321e79"
         );
 
         let nft_withdrawal_key = generate_key_from_event(&mut nft_withdraw_event, 2, 0).unwrap();
@@ -371,7 +370,7 @@ mod test {
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice());
         assert_eq!(
             to_hex(nft_withdrawal_leaf_hash.as_bytes()),
-            "ae4ca9344bd846cd3e5c34021e91d578aee6baf70043075b2637289d1090a46b",
+            "6456c2cdb1c1016fddf2e9b7eb88cd677741f0420614a824ac8b774a24285a35"
         );
 
         let first_level_first_node = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
@@ -380,7 +379,7 @@ mod test {
         );
         assert_eq!(
             to_hex(first_level_first_node.as_bytes()),
-            "0ce53ee167f74b784b6ce98284c7d4199f519a53a82495f8ba41d951091d4e1e",
+            "a00db116739a78d6547e18399924b8ec0201079149369b43422e816587f97ede"
         );
         let first_level_second_node = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
             &nft_withdrawal_leaf_hash,
@@ -388,7 +387,7 @@ mod test {
         );
         assert_eq!(
             to_hex(first_level_second_node.as_bytes()),
-            "45a070a5f00300efa4f0a90ba3a9835899db27da972420c27f080f09e2ed506b"
+            "8bec7ac5a0ec8eed899374f25fa8c0aa67e852b0c5a99ff6595e589a8d123ea0"
         );
 
         let calculated_root_hash = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
@@ -397,7 +396,7 @@ mod test {
         );
         assert_eq!(
             to_hex(calculated_root_hash.as_bytes()),
-            "7d7e8202df32ebfb4fa510a7ddb856ca5a234540901fb15428a930da2c6ce102",
+            "b02609e344ebb6525c83cd6c2bd3d2a1c73daa2c9344119f036d615b110aad15",
         );
         assert_eq!(root_hash, calculated_root_hash);
     }

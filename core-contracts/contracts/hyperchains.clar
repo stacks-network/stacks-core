@@ -23,6 +23,7 @@
 ;; The contract does not own this NFT to withdraw it.
 (define-constant ERR_NFT_NOT_OWNED_BY_CONTRACT 16)
 (define-constant ERR_MINER_ALREADY_SET 20)
+(define-constant ERR_VALIDATION_LEAF_FAILED 30)
 
 ;; Map from Stacks block height to block commit
 (define-map block-commits uint (buff 32))
@@ -238,14 +239,14 @@
 
 ;; Helper function for `withdraw-nft-asset`
 ;; Returns response<bool, int>
-(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let (
-            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
-         )
+(define-public (inner-withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
-        ;; TODO: should check leaf validity
+        (asserts! (is-eq withdrawal-leaf-hash
+                         (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
+                  (err ERR_VALIDATION_LEAF_FAILED))
 
         (asserts! (try! (as-contract (inner-transfer-or-mint-nft-asset id recipient nft-contract nft-mint-contract))) (err ERR_TRANSFER_FAILED))
 
@@ -263,12 +264,12 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-nft-asset (id uint) (recipient principal) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>)  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-nft-asset (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (nft-mint-contract <mint-from-hyperchain-trait>)  (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        (asserts! (try! (inner-withdraw-nft-asset id recipient nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (inner-withdraw-nft-asset id recipient withdrawal-id height nft-contract nft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
@@ -294,13 +295,13 @@
 
 ;; Like `inner-withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
 ;; have the appropriate balance.
-(define-public (inner-withdraw-nft-asset-no-mint (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let (
-            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
-         )
-
+(define-public (inner-withdraw-nft-asset-no-mint (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
-        ;; TODO: should check leaf validity
+
+        (asserts! (is-eq withdrawal-leaf-hash
+                         (print (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height)))
+                  (err ERR_VALIDATION_LEAF_FAILED))
 
         (asserts! (try! (as-contract (inner-transfer-without-mint-nft-asset id recipient nft-contract))) (err ERR_TRANSFER_FAILED))
 
@@ -311,16 +312,12 @@
 
 ;; Like `withdraw-nft-asset` but without allowing or requiring a mint function. In order to withdraw, the user must
 ;; have the appropriate balance.
-(define-public (withdraw-nft-asset-no-mint (id uint) (recipient principal) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-nft-asset-no-mint (id uint) (recipient principal) (withdrawal-id uint) (height uint) (nft-contract <nft-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of nft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        ;; check that the tx sender is one of the miners
-        ;; TODO: can remove this check once leaf validity is checked
-        (asserts! (is-miner tx-sender) (err ERR_INVALID_MINER))
-        
-        (asserts! (try! (inner-withdraw-nft-asset-no-mint id recipient nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (inner-withdraw-nft-asset-no-mint id recipient withdrawal-id height nft-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         ;; Emit a print event
         (print { event: "withdraw-nft", nft-id: id, l1-contract-id: nft-contract, recipient: recipient })
@@ -411,14 +408,13 @@
 
 ;; This function performs validity checks related to the withdrawal and performs the withdrawal as well. 
 ;; Returns response<bool, int>
-(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let (
-            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
-         )
-
+(define-private (inner-withdraw-ft-asset (amount uint) (recipient principal) (withdrawal-id uint) (height uint) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
-        ;; TODO: should check leaf validity
+        (asserts! (is-eq withdrawal-leaf-hash
+                         (leaf-hash-withdraw-ft (contract-of ft-contract) amount recipient withdrawal-id height))
+                  (err ERR_VALIDATION_LEAF_FAILED))
 
         (asserts! (try! (as-contract (inner-transfer-or-mint-ft-asset amount recipient memo ft-contract ft-mint-contract))) (err ERR_TRANSFER_FAILED))
 
@@ -437,7 +433,7 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-ft-asset (amount uint) (recipient principal) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+(define-public (withdraw-ft-asset (amount uint) (recipient principal) (withdrawal-id uint) (height uint) (memo (optional (buff 34))) (ft-contract <ft-trait>) (ft-mint-contract <mint-from-hyperchain-trait>) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
     (begin
         ;; Check that the withdraw amount is positive
         (asserts! (> amount u0) (err ERR_ATTEMPT_TO_TRANSFER_ZERO_AMOUNT))
@@ -445,7 +441,7 @@
         ;; Check that the asset belongs to the allowed-contracts map
         (unwrap! (map-get? allowed-contracts (contract-of ft-contract)) (err ERR_DISALLOWED_ASSET))
 
-        (asserts! (try! (inner-withdraw-ft-asset amount recipient memo ft-contract ft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
+        (asserts! (try! (inner-withdraw-ft-asset amount recipient withdrawal-id height memo ft-contract ft-mint-contract withdrawal-root withdrawal-leaf-hash sibling-hashes)) (err ERR_TRANSFER_FAILED))
 
         (let (
                 (ft-name (unwrap! (contract-call? ft-contract get-name) (err ERR_CONTRACT_CALL_FAILED)))
@@ -492,6 +488,41 @@
     )
 )
 
+(define-read-only (leaf-hash-withdraw-stx (amount uint) (recipient principal) (withdrawal-id uint) (height uint))
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
+        {
+            type: "stx",
+            amount: amount,
+            recipient: recipient,
+            withdrawal-id: withdrawal-id,
+            height: height
+        }
+)))))
+
+(define-read-only (leaf-hash-withdraw-nft (asset-contract principal) (nft-id uint) (recipient principal) (withdrawal-id uint) (height uint))
+    (sha512/256 (concat 0x00 (unwrap-panic (to-consensus-buff
+        {
+            type: "nft",
+            nft-id: nft-id,
+            asset-contract: asset-contract,    
+            recipient: recipient,
+            withdrawal-id: withdrawal-id,
+            height: height
+        }
+)))))
+
+(define-read-only (leaf-hash-withdraw-ft (asset-contract principal) (amount uint) (recipient principal) (withdrawal-id uint) (height uint))
+    (sha512/256 (concat 0x00 (unwrap-panic (print (to-consensus-buff
+        {
+            type: "ft",
+            amount: amount,
+            asset-contract: asset-contract,
+            recipient: recipient,
+            withdrawal-id: withdrawal-id,
+            height: height
+        }
+))))))
+
 ;; A user calls this function to withdraw STX from this contract. 
 ;; In order for this withdrawal to go through, the given withdrawal must have been included 
 ;; in a withdrawal Merkle tree a hyperchain miner submitted. The user must provide the leaf 
@@ -500,14 +531,13 @@
 ;; uses the provided hashes to ensure the requested withdrawal is valid. 
 ;; The function emits a print with details of this event.
 ;; Returns response<bool, int>
-(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
-    (let (
-            (hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes))
-         )
+(define-public (withdraw-stx (amount uint) (recipient principal) (withdrawal-id uint) (height uint) (withdrawal-root (buff 32)) (withdrawal-leaf-hash (buff 32)) (sibling-hashes (list 50 (tuple (hash (buff 32)) (is-left-side bool) ) )))
+    (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
-
-        ;; TODO: should check leaf validity
+        (asserts! (is-eq withdrawal-leaf-hash
+                         (leaf-hash-withdraw-stx amount recipient withdrawal-id height))
+                  (err ERR_VALIDATION_LEAF_FAILED))
 
         (asserts! (try! (as-contract (inner-transfer-stx amount tx-sender recipient))) (err ERR_TRANSFER_FAILED))
 
@@ -539,8 +569,6 @@
 
           (concat 0x01 concatted-hash)
     )
-
-
 )
 
 ;; This function hashes the curr hash with its sibling hash.
@@ -574,7 +602,7 @@
 
         (let (
                 (calculated-withdrawal-root (fold hash-help sibling-hashes withdrawal-leaf-hash))
-                (roots-match (is-eq calculated-withdrawal-root withdrawal-root))
+                (roots-match (is-eq (print calculated-withdrawal-root) withdrawal-root))
             )
             (if roots-match
                 (ok true)

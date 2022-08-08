@@ -1032,22 +1032,6 @@ impl ConversationHttp {
             id,
             requested_block_height,
         );
-        let withdrawal_key = match withdrawal_key {
-            Some(x) => x,
-            None => {
-                let response_metadata =
-                    HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
-
-                return HttpResponseType::BadRequestJSON(
-                    response_metadata,
-                    json!({
-                        "error": "Withdrawal NFT contract uses invalid NFT asset name"
-                    }),
-                )
-                    .send(http, fd)
-                    .map(|_| ())
-            }
-        };
         Self::handle_get_generic_withdrawal_entry(
             http,
             fd,

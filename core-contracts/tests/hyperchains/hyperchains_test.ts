@@ -1,6 +1,50 @@
 import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land/x/clarinet@v0.31.0/index.ts';
 import { assertEquals } from "https://deno.land/std@0.90.0/testing/asserts.ts";
-import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";
+
+import { decode as decHex, encode as encHex } from "https://deno.land/std@0.149.0/encoding/hex.ts";
+
+function fromHex(input: string) {
+    const hexBytes = new TextEncoder().encode(input);
+    return decHex(hexBytes);
+}
+
+Clarinet.test({
+   name: "Unit test the withdrawal leaf hash calculations using test vectors", 
+   async fn(chain: Chain, accounts: Map<string, Account>, contracts: Map<string, Contract>) {
+        const alice = accounts.get("wallet_1")!.address;
+        // Test data comes from clarity_vm::withdrawal tests
+        const block_height = 0;
+        const recipient = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8";
+        const leaf_hash_1 = chain.callReadOnlyFn('hyperchains', 'leaf-hash-withdraw-stx', [
+            types.uint(1),
+            types.principal(recipient),
+            types.uint(0),
+            types.uint(block_height),
+        ], alice).result.toString();
+        assertEquals(leaf_hash_1, "0xbde3658bbc38952599ef925ea3075a2fbfc5619cebf48cce140994c8b328fe35");
+
+        const ft_contract = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8.simple-ft";
+        const nft_contract = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8.simple-nft";
+
+        const leaf_hash_2 = chain.callReadOnlyFn('hyperchains', 'leaf-hash-withdraw-ft', [
+            types.principal(ft_contract),
+            types.uint(1),
+            types.principal(recipient),
+            types.uint(1),
+            types.uint(block_height),
+        ], alice).result.toString();
+        assertEquals(leaf_hash_2, "0x33dcd4279c21663c457927c300fe58e415e518b34e6ae90018d536cc69cda811");
+
+        const leaf_hash_3 = chain.callReadOnlyFn('hyperchains', 'leaf-hash-withdraw-nft', [
+            types.principal(nft_contract),
+            types.uint(1),
+            types.principal(recipient),
+            types.uint(2),
+            types.uint(block_height),
+        ], alice).result.toString();
+        assertEquals(leaf_hash_3, "0x56c3dcca6e8900359d7172be38a74da7a350a7af2ab102fbb3fd251d57f76316");
+   }
+})
 
 Clarinet.test({
     name: "Ensure that block can be committed by subnet miner",
@@ -307,7 +351,9 @@ Clarinet.test({
             .expectErr()
             .expectInt(3);
 
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("fd5ece9024d526e1114ef41ce319a129053d739e0f81960483209d49aec29e62");
+        let nft_sib_hash = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("1964591d7db5eaad6d89e8556303ed932d1dffd0420b6d76476f8e8b84f11401");
 
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
@@ -327,14 +373,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
         // Miner should be able to withdraw NFT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -363,6 +409,8 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -506,9 +554,12 @@ Clarinet.test({
             .expectErr()
             .expectInt(3);
 
+        let ft_leaf_hash = fromHex("0710ad82cb4fd77b664629f8079b9410b1fcbd6b2b057edd39f6397eb8f37c03"); //new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
+        let root_hash = fromHex("c075d6e19bbe76e23cff6256d97333941e1365feb7d16572f8eba8cbc39f6c64"); // new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let ft_sib_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
+                
         // Miner should commit a block with the appropriate root hash
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -523,14 +574,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let ft_leaf_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let ft_sib_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
         // Miner should be able to withdraw FT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -559,6 +610,8 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -644,8 +697,11 @@ Clarinet.test({
 
         // Miner should commit a block with the appropriate root hash
         // Mocks a withdrawal of ft-token for amount 3
+        let ft_leaf_hash = fromHex("b393fb2ea05f2f28535cee6111de603996bbf4de5b15321f3e6b4258e933c7aa");
+        let root_hash = fromHex("2390d2b6476c5cb4543a67b7f1d5cc1ba979f5b9963f4b7c640d3828dd21f94f");
+        let ft_sib_hash = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([75, 11, 162, 16, 9, 174, 3, 191, 160, 53, 213, 117, 249, 40, 80, 63, 178, 17, 45, 89, 137, 106, 15, 148, 76, 178, 234, 205, 235, 176, 72, 38]);
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -660,15 +716,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let ft_leaf_hash = new Uint8Array([138, 192, 248, 99, 139, 224, 84, 8, 212, 163, 71, 126, 4, 78, 128, 221, 188, 251, 200, 121, 170, 234, 177, 85, 39, 95, 55, 167, 207, 115, 174, 75]);
-        let ft_sib_hash = new Uint8Array([35, 129, 133, 124, 197, 102, 86, 12, 21, 202, 199, 152, 210, 112, 124, 66, 208, 189, 70, 136, 75, 125, 139, 188, 112, 151, 144, 212, 201, 40, 64, 149]);
-
         // Miner should be able to withdraw FT asset for user
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(3),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -697,6 +752,8 @@ Clarinet.test({
                 [
                     types.uint(3),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -722,6 +779,8 @@ Clarinet.test({
                 [
                     types.uint(0),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -751,7 +810,10 @@ Clarinet.test({
         const alice = accounts.get("wallet_1")!;
         // user
         const charlie = accounts.get("wallet_3")!;
+
         let charlie_init_balance = 100000000000000;
+
+        const recipient = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8";
 
         // get address of contracts
         const ft_contract = contracts.get("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.simple-ft")!;
@@ -860,7 +922,22 @@ Clarinet.test({
 
         // Here we are using the root hash that would be constructed for 3 withdrawal requests.
         // The data used for this can be seen in the test `test_verify_withdrawal_merkle_tree` in `withdrawal.rs`
-        let root_hash = new Uint8Array([186, 138, 157, 125, 128, 50, 197, 200, 75, 139, 27, 104, 110, 157, 182, 49, 140, 62, 51, 70, 251, 139, 131, 82, 67, 53, 118, 168, 54, 239, 111, 30]);
+
+        let root_hash = fromHex("b02609e344ebb6525c83cd6c2bd3d2a1c73daa2c9344119f036d615b110aad15");
+        
+        let ft_leaf_hash = fromHex("be7bcffde781f217150cfc63c88fc2e78bca424b318f5421abdfe96842321e79");
+        let stx_leaf_hash = fromHex("bde3658bbc38952599ef925ea3075a2fbfc5619cebf48cce140994c8b328fe35");
+
+        let ft_level_one_sib_hash = stx_leaf_hash;
+        let ft_level_two_sib_hash = fromHex("8bec7ac5a0ec8eed899374f25fa8c0aa67e852b0c5a99ff6595e589a8d123ea0");
+
+        let stx_level_one_sib_hash = ft_leaf_hash;
+        let stx_level_two_sib_hash = ft_level_two_sib_hash;
+
+        let nft_leaf_hash = fromHex("6456c2cdb1c1016fddf2e9b7eb88cd677741f0420614a824ac8b774a24285a35");
+        let nft_level_one_sib_hash = nft_leaf_hash;
+        let nft_level_two_sib_hash = fromHex("a00db116739a78d6547e18399924b8ec0201079149369b43422e816587f97ede");
+
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
 
         block = chain.mineBlock([
@@ -878,14 +955,13 @@ Clarinet.test({
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
         // Miner should be able to withdraw FT asset
-        let ft_leaf_hash = new Uint8Array([168, 206, 151, 196, 231, 103, 99, 34, 213, 247, 225, 237, 184, 34, 243, 125, 125, 213, 140, 199, 41, 34, 35, 208, 125, 174, 10, 55, 139, 82, 34, 213]);
-        let ft_level_one_sib_hash = new Uint8Array([166, 126, 56, 176, 32, 46, 181, 232, 203, 157, 163, 237, 42, 69, 2, 20, 196, 115, 199, 233, 214, 168, 217, 10, 100, 144, 59, 114, 68, 88, 116, 34]);
-        let ft_level_two_sib_hash = new Uint8Array([125, 135, 145, 128, 20, 186, 79, 199, 225, 200, 112, 161, 40, 176, 202, 130, 69, 245, 254, 231, 47, 73, 129, 255, 238, 48, 165, 14, 175, 180, 192, 121]);
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(1),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -908,14 +984,14 @@ Clarinet.test({
             .expectBool(true);
 
         // Miner should be able to withdraw STX
-        let stx_leaf_hash = new Uint8Array([166, 126, 56, 176, 32, 46, 181, 232, 203, 157, 163, 237, 42, 69, 2, 20, 196, 115, 199, 233, 214, 168, 217, 10, 100, 144, 59, 114, 68, 88, 116, 34]);
-        let stx_level_one_sib_hash = new Uint8Array([168, 206, 151, 196, 231, 103, 99, 34, 213, 247, 225, 237, 184, 34, 243, 125, 125, 213, 140, 199, 41, 34, 35, 208, 125, 174, 10, 55, 139, 82, 34, 213]);
-        let stx_level_two_sib_hash = new Uint8Array([125, 135, 145, 128, 20, 186, 79, 199, 225, 200, 112, 161, 40, 176, 202, 130, 69, 245, 254, 231, 47, 73, 129, 255, 238, 48, 165, 14, 175, 180, 192, 121]);
+
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-stx",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(0),
+                    types.uint(0),
                     types.buff(root_hash),
                     types.buff(stx_leaf_hash),
                     types.list([types.tuple({
@@ -935,15 +1011,13 @@ Clarinet.test({
             .expectBool(true);
 
         // Miner should be able to withdraw NFT asset
-        let nft_leaf_hash = new Uint8Array([8, 0, 211, 114, 10, 69, 44, 38, 38, 104, 140, 88, 105, 75, 97, 72, 218, 204, 55, 225, 59, 120, 37, 235, 204, 33, 229, 37, 45, 39, 75, 116]);
-        let nft_level_one_sib_hash = new Uint8Array([8, 0, 211, 114, 10, 69, 44, 38, 38, 104, 140, 88, 105, 75, 97, 72, 218, 204, 55, 225, 59, 120, 37, 235, 204, 33, 229, 37, 45, 39, 75, 116]);
-        let nft_level_two_sib_hash = new Uint8Array([94, 66, 211, 71, 239, 174, 90, 87, 146, 231, 42, 206, 116, 57, 31, 8, 128, 148, 191, 242, 102, 223, 86, 35, 241, 182, 144, 23, 12, 76, 40, 102]);
-
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(2),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -966,12 +1040,14 @@ Clarinet.test({
         // Check balances after withdrawals
         stx_assets = chain.getAssetsMaps().assets["STX"];
         stx_amount = stx_assets[charlie.address];
-        assertEquals(stx_amount, charlie_init_balance-4);
+        assertEquals(stx_amount, charlie_init_balance-5);
+        stx_amount = stx_assets[recipient];
+        assertEquals(stx_amount, 1);
         ft_assets = chain.getAssetsMaps().assets[".simple-ft.ft-token"];
-        ft_amount = ft_assets[charlie.address];
+        ft_amount = ft_assets[recipient];
         assertEquals(ft_amount, 1);
         nft_assets = chain.getAssetsMaps().assets[".simple-nft.nft-token"];
-        nft_amount = nft_assets[charlie.address];
+        nft_amount = nft_assets[recipient];
         assertEquals(nft_amount, 1);
 
         // For safety, check that miner can't withdraw FT asset a second time with same key
@@ -979,7 +1055,9 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "withdraw-ft-asset",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(1),
+                    types.uint(0),
                     types.none(),
                     types.principal(ft_contract.contract_id),
                     types.principal(ft_contract.contract_id),
@@ -1007,7 +1085,9 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "withdraw-stx",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(0),
+                    types.uint(0),
                     types.buff(root_hash),
                     types.buff(stx_leaf_hash),
                     types.list([types.tuple({
@@ -1032,7 +1112,9 @@ Clarinet.test({
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
-                    types.principal(charlie.address),
+                    types.principal(recipient),
+                    types.uint(2),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -1102,7 +1184,10 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("fd5ece9024d526e1114ef41ce319a129053d739e0f81960483209d49aec29e62");
+        let nft_sib_hash  = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("1964591d7db5eaad6d89e8556303ed932d1dffd0420b6d76476f8e8b84f11401");
+
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -1116,8 +1201,6 @@ Clarinet.test({
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
         // Miner should be not able to withdraw NFT asset since it already exists on the L1
         block = chain.mineBlock([
@@ -1125,6 +1208,8 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -1145,7 +1230,6 @@ Clarinet.test({
     },
 
 });
-
 
 Clarinet.test({
     name: "Ensure that user can mint an NFT on the hyperchain and L1 miner can withdraw it by minting",
@@ -1184,7 +1268,10 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], alice.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("fd5ece9024d526e1114ef41ce319a129053d739e0f81960483209d49aec29e62");
+        let nft_sib_hash  = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("1964591d7db5eaad6d89e8556303ed932d1dffd0420b6d76476f8e8b84f11401");
+
         block = chain.mineBlock([
             // Successfully commit block at height 0 with alice.
             Tx.contractCall("hyperchains", "commit-block",
@@ -1200,15 +1287,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
-
         // Miner should be able to withdraw NFT asset
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset",
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),                    
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -1234,6 +1320,8 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(charlie.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
@@ -1285,7 +1373,9 @@ Clarinet.test({
         // Miner should commit a block with the appropriate root hash (mocking a withdrawal Merkle tree)
         // This tree mocks the withdrawal of an NFT with ID = 1
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("381dc593ba22617f227f5e1e413f91989394fa2934fcaba7badb2d7aaf0b2d49");
+        let nft_sib_hash  = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("d95c47532db6bdf22595bbff81ca31a5128417f243988f7da23b917c67c969eb");
         block = chain.mineBlock([
             // Successfully commit block at height 0.
             Tx.contractCall("hyperchains", "commit-block",
@@ -1301,15 +1391,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
-
         // Miner should *not* be able to withdraw NFT asset because the contract doesn't own it.
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
                 [
                     types.uint(1),
                     types.principal(user.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
@@ -1385,7 +1474,10 @@ Clarinet.test({
 
         // Miner commits block.
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("381dc593ba22617f227f5e1e413f91989394fa2934fcaba7badb2d7aaf0b2d49");
+        let nft_sib_hash  = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("d95c47532db6bdf22595bbff81ca31a5128417f243988f7da23b917c67c969eb");
+
         block = chain.mineBlock([
             // Successfully commit block at height 0.
             Tx.contractCall("hyperchains", "commit-block",
@@ -1401,8 +1493,6 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
 
         // Miner should be able to withdraw NFT asset to original user.
         block = chain.mineBlock([
@@ -1410,6 +1500,8 @@ Clarinet.test({
                 [
                     types.uint(1),
                     types.principal(user.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
@@ -1500,7 +1592,10 @@ Clarinet.test({
         assertEquals(nft_amount, undefined);
 
         // Miner commits a block.
-        let root_hash = new Uint8Array([203, 225, 170, 121, 99, 143, 221, 118, 153, 59, 252, 68, 117, 30, 27, 33, 49, 100, 166, 167, 250, 154, 172, 149, 149, 79, 236, 105, 254, 184, 172, 103]);
+        let root_hash = fromHex("381dc593ba22617f227f5e1e413f91989394fa2934fcaba7badb2d7aaf0b2d49");
+        let nft_sib_hash  = fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+        let nft_leaf_hash = fromHex("d95c47532db6bdf22595bbff81ca31a5128417f243988f7da23b917c67c969eb");
+
         const id_header_hash = chain.callReadOnlyFn('test-helpers', 'get-id-header-hash', [], miner.address).result.expectOk().toString();
         block = chain.mineBlock([
             // Successfully commit block at height 0.
@@ -1517,15 +1612,14 @@ Clarinet.test({
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
 
-        let nft_sib_hash = new Uint8Array([33, 202, 115, 15, 237, 187, 156, 88, 59, 212, 42, 195, 30, 149, 130, 0, 37, 203, 93, 165, 189, 33, 107, 213, 116, 211, 170, 0, 89, 231, 154, 3]);
-        let nft_leaf_hash = new Uint8Array([38, 72, 158, 13, 57, 120, 9, 95, 13, 62, 11, 118, 71, 237, 60, 173, 121, 221, 127, 38, 163, 75, 203, 191, 227, 4, 195, 17, 239, 76, 42, 55]);
-
         // Miner should be able to withdraw NFT asset to other_user.
         block = chain.mineBlock([
             Tx.contractCall("hyperchains", "withdraw-nft-asset-no-mint",
                 [
                     types.uint(1),
                     types.principal(other_user.address),
+                    types.uint(0),
+                    types.uint(0),
                     types.principal(nft_contract.contract_id),
                     types.buff(root_hash),
                     types.buff(nft_leaf_hash),
