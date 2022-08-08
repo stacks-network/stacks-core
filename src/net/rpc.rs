@@ -1032,6 +1032,22 @@ impl ConversationHttp {
             id,
             requested_block_height,
         );
+        let withdrawal_key = match withdrawal_key {
+            Some(x) => x,
+            None => {
+                let response_metadata =
+                    HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+                return HttpResponseType::BadRequestJSON(
+                    response_metadata,
+                    json!({
+                        "error": "Withdrawal NFT contract uses invalid NFT asset name"
+                    }),
+                )
+                    .send(http, fd)
+                    .map(|_| ())
+            }
+        };
         Self::handle_get_generic_withdrawal_entry(
             http,
             fd,
@@ -1051,11 +1067,12 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         canonical_tip: &StacksBlockId,
         requested_block_height: u64,
-        withdrawal_key: String,
+        withdrawal_key: Value,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let withdrawal_key_bytes = withdrawal_key.serialize_to_vec();
 
         let requested_block = match chainstate
             .index_conn()
@@ -1092,7 +1109,7 @@ impl ConversationHttp {
             }
         };
 
-        let merkle_path = match withdrawal_tree.path(withdrawal_key.as_bytes()) {
+        let merkle_path = match withdrawal_tree.path(&withdrawal_key_bytes) {
             Some(path) => path,
             None => {
                 return HttpResponseType::NotFound(
@@ -1141,7 +1158,7 @@ impl ConversationHttp {
 
         let withdrawal_root = withdrawal::buffer_from_hash(withdrawal_tree.root());
         let withdrawal_leaf_hash = withdrawal::buffer_from_hash(
-            MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(withdrawal_key.as_bytes()),
+            MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(&withdrawal_key_bytes),
         );
 
         let response = WithdrawalResponse {
