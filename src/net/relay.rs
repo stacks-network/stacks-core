@@ -1359,7 +1359,7 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(recipients)
+            recipients
         })?;
 
         // make a normalized random sample of inbound recipients, but don't send to an inbound peer
@@ -1561,7 +1561,6 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(())
         })
     }
 
@@ -1604,7 +1603,6 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(())
         })
     }
 

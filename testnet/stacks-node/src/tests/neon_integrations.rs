@@ -2267,6 +2267,97 @@ fn filter_long_runtime_tx_integration_test() {
 
 #[test]
 #[ignore]
+fn miner_submit_twice() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    let contract_content = "
+       (define-public (foo (a int))
+         (ok (* 2 (+ a 1))))
+       (define-private (bar)
+         (foo 56))
+    ";
+    let tx_1 = make_contract_publish(&spender_sk, 0, 50_000, "first-contract", contract_content);
+    let tx_2 = make_contract_publish(&spender_sk, 1, 50_000, "second-contract", contract_content);
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: 1049230,
+    });
+
+    // all transactions have high-enough fees...
+    conf.miner.min_tx_fee = 1;
+    conf.node.mine_microblocks = false;
+    // one should be mined in first attempt, and two should be in second attempt
+    conf.miner.first_attempt_time_ms = 20;
+    conf.miner.subsequent_attempt_time_ms = 30_000;
+
+    // note: this test depends on timing of how long it takes to assemble a block,
+    //  but it won't flake if the miner behaves correctly: a correct miner should
+    //  always be able to mine both transactions by the end of this test. an incorrect
+    //  miner may sometimes pass this test though, if they can successfully mine a
+    //  2-transaction block in 20 ms *OR* if they are slow enough that they mine a
+    //  0-transaction block in that time (because this would trigger a re-attempt, which
+    //  is exactly what this test is measuring).
+    //
+    // The "fixed" behavior is the corner case where a miner did a "first attempt", which
+    //  included 1 or more transaction, but they could have made a second attempt with
+    //  more transactions.
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    submit_tx(&http_origin, &tx_1);
+    submit_tx(&http_origin, &tx_2);
+
+    // mine a couple more blocks
+    // waiting enough time between them that a second attempt could be made.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    thread::sleep(Duration::from_secs(15));
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // 1 transaction mined
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 2);
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn mining_transactions_is_fair() {
     // test that origin addresses with higher-than-min-fee transactions pending will get considered
     // in a round-robin fashion, even if one origin has waaaaaay more outstanding transactions than
@@ -3968,7 +4059,7 @@ fn mining_events_integration_test() {
     // check tx events in the first microblock
     // 1 success: 1 contract publish, 2 error (on chain transactions)
     let microblock_tx_events = &mined_microblock_events[0].tx_events;
-    assert_eq!(microblock_tx_events.len(), 3);
+    assert_eq!(microblock_tx_events.len(), 1);
 
     // contract publish
     match &microblock_tx_events[0] {
@@ -3992,15 +4083,6 @@ fn mining_events_integration_test() {
             )
         }
         _ => panic!("unexpected event type"),
-    }
-    for i in 1..3 {
-        // on chain only transactions will be skipped in a microblock
-        match &microblock_tx_events[i] {
-            TransactionEvent::Skipped(TransactionSkippedEvent { error, .. }) => {
-                assert_eq!(error, "Invalid transaction anchor mode for streamed data");
-            }
-            _ => panic!("unexpected event type"),
-        }
     }
 
     // check mined block events
@@ -4603,7 +4685,7 @@ fn block_large_tx_integration_test() {
 
 #[test]
 #[ignore]
-fn microblock_large_tx_integration_test() {
+fn microblock_large_tx_integration_test_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
