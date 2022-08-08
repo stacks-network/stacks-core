@@ -256,7 +256,7 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
     }
 }
 
-enum ClarityRuntimeTxError {
+pub enum ClarityRuntimeTxError {
     Acceptable {
         error: clarity_error,
         err_type: &'static str,
@@ -266,7 +266,7 @@ enum ClarityRuntimeTxError {
     Rejectable(clarity_error),
 }
 
-fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
         clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
@@ -925,7 +925,7 @@ impl StacksChainState {
                             return Err(Error::CostOverflowError(cost_before, cost_after, budget));
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
-                            error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
+                            error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                        "contract_name" => %contract_id,
                                        "function_name" => %contract_call.function_name,
                                        "function_args" => %VecDisplay(&contract_call.function_args),
