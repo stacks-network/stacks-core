@@ -30,7 +30,7 @@ use crate::vm::errors::{
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
-    TypeSignature, Value, BUFF_32,
+    TupleData, TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -794,9 +794,10 @@ pub fn special_get_block_info(
     Ok(Value::some(result)?)
 }
 
-/// Interprets `args` as variables `[property_name, burnblock_height]`, and returns
+/// Interprets `args` as variables `[property_name, burn_block_height]`, and returns
 /// a property value determined by `property_name`:
-/// - `header_hash` returns the burnblock header hash at `burnblock_height`
+/// - `header_hash` returns the burn block header hash at `burn_block_height`
+/// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
 ///
 /// # Errors:
 /// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
@@ -848,6 +849,39 @@ pub fn special_get_burn_block_info(
                     Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
                     })))
+                }
+                None => Ok(Value::none()),
+            }
+        }
+        BurnBlockInfoProperty::PoxAddrs => {
+            let pox_addrs_and_payout = env
+                .global_context
+                .database
+                .get_pox_payout_addrs_for_burnchain_height(height_value);
+
+            match pox_addrs_and_payout {
+                Some((pox_addrs, payout)) => {
+                    // extract to { version: ..., hashbytes: ... }, just as we have in .pox-2
+                    let mut addrs = vec![];
+                    for pox_addr in pox_addrs {
+                        let addr_tuple = pox_addr
+                            .as_clarity_tuple()
+                            .expect("FATAL: no address hash mode set");
+                        let addr = Value::Tuple(addr_tuple);
+                        addrs.push(addr);
+                    }
+                    Ok(Value::some(Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                "addrs".into(),
+                                Value::list_from(addrs)
+                                    .expect("FATAL: could not convert address list to Value"),
+                            ),
+                            ("payout".into(), Value::UInt(payout)),
+                        ])
+                        .expect("FATAL: failed to build pox addrs and payout tuple"),
+                    ))
+                    .expect("FATAL: could not build Some(..)"))
                 }
                 None => Ok(Value::none()),
             }
