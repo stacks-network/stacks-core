@@ -56,7 +56,11 @@ extern crate rstest_reuse;
 pub extern crate prometheus;
 
 #[macro_use]
-extern crate stacks_common;
+pub extern crate stacks_common;
+pub use stacks_common::{
+    impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
+    impl_byte_array_serde,
+};
 
 pub use stacks_common::types;
 pub use stacks_common::util;
