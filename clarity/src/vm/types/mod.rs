@@ -635,6 +635,7 @@ define_versioned_named_enum!(BlockInfoProperty(ClarityVersion) {
 // Properties for "get-burn-block-info".
 define_named_enum!(BurnBlockInfoProperty {
     HeaderHash("header-hash"),
+    PoxAddrs("pox-addrs"),
 });
 
 impl OptionalData {
@@ -692,6 +693,25 @@ impl BurnBlockInfoProperty {
         use self::BurnBlockInfoProperty::*;
         match self {
             HeaderHash => BUFF_32.clone(),
+            PoxAddrs => TupleTypeSignature::try_from(vec![
+                (
+                    "addrs".into(),
+                    TypeSignature::list_of(
+                        TypeSignature::TupleType(
+                            TupleTypeSignature::try_from(vec![
+                                ("version".into(), BUFF_1.clone()),
+                                ("hashbytes".into(), BUFF_20.clone()),
+                            ])
+                            .expect("FATAL: bad type signature for pox addr"),
+                        ),
+                        2,
+                    )
+                    .expect("FATAL: bad list type signature"),
+                ),
+                ("payout".into(), TypeSignature::UIntType),
+            ])
+            .expect("FATAL: bad type signature for pox addr")
+            .into(),
         }
     }
 }
