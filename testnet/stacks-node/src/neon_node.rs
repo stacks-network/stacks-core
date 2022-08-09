@@ -72,6 +72,7 @@ use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 use clarity::vm::types::PrincipalData;
+use clarity::vm::PoxAddress;
 
 use crate::operations::BurnchainOpSigner;
 
@@ -412,7 +413,7 @@ fn inner_generate_block_commit_op(
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    commit_outs: Vec<StacksAddress>,
+    commit_outs: Vec<PoxAddress>,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -2170,7 +2171,7 @@ impl StacksNode {
         let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1) {
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(config.is_mainnet())]
+            vec![PoxAddress::standard_burn_address(config.is_mainnet())]
         };
 
         // let's commit
