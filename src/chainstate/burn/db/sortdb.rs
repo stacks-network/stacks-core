@@ -4262,13 +4262,24 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    fn get_pox_payout_per_output(block_ops: &[BlockstackOperationType]) -> u128 {
+    fn get_pox_payout_per_output(&self, block_ops: &[BlockstackOperationType]) -> u128 {
         let mut total = 0u128;
         for block_op in block_ops.iter() {
             if let BlockstackOperationType::LeaderBlockCommit(ref op) = block_op {
                 // burn_fee = pox_fee * OUTPUTS_PER_COMMIT
                 // we're finding sum(pox_fee)
-                total += (op.burn_fee as u128) / (OUTPUTS_PER_COMMIT as u128);
+                let num_outputs = if Burnchain::static_is_in_prepare_phase(
+                    self.context.first_block_height,
+                    self.context.pox_constants.reward_cycle_length as u64,
+                    self.context.pox_constants.prepare_length.into(),
+                    op.block_height,
+                ) {
+                    1
+                } else {
+                    2
+                };
+
+                total += (op.burn_fee as u128) / num_outputs
             }
         }
 
@@ -4313,7 +4324,7 @@ impl<'a> SortitionHandleTx<'a> {
         let mut keys = vec![];
         let mut values = vec![];
 
-        let pox_payout = SortitionHandleTx::get_pox_payout_per_output(block_ops);
+        let pox_payout = self.get_pox_payout_per_output(block_ops);
 
         // record each new VRF key, and each consumed VRF key
         for block_op in block_ops {
