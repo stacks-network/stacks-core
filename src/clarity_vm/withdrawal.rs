@@ -27,7 +27,7 @@ pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
 /// Merkle withdrawal tree is the consensus serialization of one of the following
 /// tuples:
 ///
-/// ```no_run
+/// ```javascript
 ///   { type: "stx",
 ///     height: u128,
 ///     withdrawal-id: u128,
@@ -38,7 +38,7 @@ pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
 /// *NOTE*: because subnets support SIP-009 and SIP-010 tokens only,
 ///   these wire formats *do not* include the `asset-name`, because
 ///   only one asset can be supported per contract.
-/// ```no_run
+/// ```javascript
 ///   { type: "nft",
 ///     asset-contract: principal,
 ///     height: u128,
@@ -47,7 +47,7 @@ pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
 ///     nft-id: u128 }
 /// ```
 ///
-/// ```no_run
+/// ```javascript
 ///   { type: "ft",
 ///     asset-contract: principal,
 ///     height: u128,
