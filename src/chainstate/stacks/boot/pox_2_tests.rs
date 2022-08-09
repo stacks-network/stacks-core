@@ -1975,6 +1975,12 @@ fn test_get_pox_addrs() {
             // there's always some burnchain tokens spent.
             assert!(payout > 0);
 
+            if burnchain.is_in_prepare_phase(burn_height - 1) {
+                assert_eq!(payout, 1000);
+            } else {
+                assert_eq!(payout, 500);
+            }
+
             if burn_height - 1 >= burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 1)
                 && burn_height - 1
                     < burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2)
