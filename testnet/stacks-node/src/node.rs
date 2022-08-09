@@ -56,6 +56,8 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::vm::database::BurnStateDB;
 
+use clarity::vm::PoxAddress;
+
 #[derive(Debug, Clone)]
 pub struct ChainTip {
     pub metadata: StacksHeaderInfo,
@@ -1005,7 +1007,7 @@ impl Node {
             if !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1) {
                 RewardSetInfo::into_commit_outs(None, self.config.is_mainnet())
             } else {
-                vec![StacksAddress::burn_address(self.config.is_mainnet())]
+                vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
             };
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
