@@ -32,6 +32,7 @@ use crate::chainstate::stacks::{
 use crate::net::Error as net_error;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::types::{TupleData, Value};
+use clarity::vm::PoxAddress;
 use stacks_common::address::b58;
 use stacks_common::address::c32::c32_address;
 use stacks_common::address::c32::c32_address_decode;
@@ -49,11 +50,15 @@ use crate::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 use crate::util_lib::boot::boot_code_addr;
 
 pub trait StacksAddressExtensions {
-    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut;
-    fn as_clarity_tuple(&self) -> TupleData;
     fn to_b58(self) -> String;
     fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress;
     fn is_boot_code_addr(&self) -> bool;
+}
+
+pub trait PoxAddressExtensions {
+    fn to_b58(self) -> String;
+    fn is_boot_code_addr(&self) -> bool;
+    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut;
 }
 
 impl StacksAddressExtensions for StacksAddress {
@@ -63,32 +68,8 @@ impl StacksAddressExtensions for StacksAddress {
         self == &boot_code_addr(self.is_mainnet())
     }
 
-    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        let btc_version = to_b58_version_byte(self.version)
-            .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
-        let btc_addr_type = version_byte_to_address_type(btc_version)
-            .expect("BUG: failed to decode Bitcoin version byte")
-            .0;
-        match btc_addr_type {
-            BitcoinAddressType::PublicKeyHash => {
-                BitcoinAddress::to_p2pkh_tx_out(&self.bytes, value)
-            }
-            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&self.bytes, value),
-        }
-    }
-
-    fn as_clarity_tuple(&self) -> TupleData {
-        let version = Value::buff_from_byte(AddressHashMode::from_version(self.version) as u8);
-        let hashbytes = Value::buff_from(Vec::from(self.bytes.0.clone()))
-            .expect("BUG: hash160 bytes do not fit in Clarity Value");
-        TupleData::from_data(vec![
-            ("version".into(), version),
-            ("hashbytes".into(), hashbytes),
-        ])
-        .expect("BUG: StacksAddress byte representation does not fit in Clarity Value")
-    }
-
     /// Convert from a Bitcoin address
+    /// WARNING: this does not distinguish between p2sh and segwit-p2sh
     fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
         let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
 
@@ -109,6 +90,40 @@ impl StacksAddressExtensions for StacksAddress {
         let mut all_bytes = vec![btc_version];
         all_bytes.extend(bytes.0.iter());
         b58::check_encode_slice(&all_bytes)
+    }
+}
+
+impl PoxAddressExtensions for PoxAddress {
+    fn to_b58(self) -> String {
+        match self {
+            PoxAddress::Standard(addr, _) => addr.to_b58(),
+        }
+    }
+
+    fn is_boot_code_addr(&self) -> bool {
+        match *self {
+            PoxAddress::Standard(ref addr, _) => addr.is_boot_code_addr(),
+        }
+    }
+
+    fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
+        match *self {
+            PoxAddress::Standard(addr, _) => {
+                let btc_version = to_b58_version_byte(addr.version)
+                    .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
+                let btc_addr_type = version_byte_to_address_type(btc_version)
+                    .expect("BUG: failed to decode Bitcoin version byte")
+                    .0;
+                match btc_addr_type {
+                    BitcoinAddressType::PublicKeyHash => {
+                        BitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+                    }
+                    BitcoinAddressType::ScriptHash => {
+                        BitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+                    }
+                }
+            }
+        }
     }
 }
 
