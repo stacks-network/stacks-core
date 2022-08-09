@@ -85,6 +85,8 @@ use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 
+use clarity::vm::PoxAddress;
+
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
         BurnchainStateTransitionOps {
@@ -352,9 +354,10 @@ impl BurnchainSigner {
 
 impl BurnchainRecipient {
     pub fn from_bitcoin_output(o: &BitcoinTxOutput) -> BurnchainRecipient {
-        let stacks_addr = StacksAddress::from_bitcoin_address(&o.address);
+        let addr = StacksAddress::from_bitcoin_address(&o.address);
+        let pox_addr = PoxAddress::Standard(addr, None);
         BurnchainRecipient {
-            address: stacks_addr,
+            address: pox_addr,
             amount: o.units,
         }
     }
@@ -489,21 +492,32 @@ impl Burnchain {
         )
     }
 
-    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
-        if block_height <= self.first_block_height {
+    pub fn static_is_in_prepare_phase(
+        first_block_height: u64,
+        reward_cycle_length: u64,
+        prepare_length: u64,
+        block_height: u64,
+    ) -> bool {
+        if block_height <= first_block_height {
             // not a reward cycle start if we're the first block after genesis.
             false
         } else {
-            let effective_height = block_height - self.first_block_height;
-            let reward_index = effective_height % (self.pox_constants.reward_cycle_length as u64);
+            let effective_height = block_height - first_block_height;
+            let reward_index = effective_height % reward_cycle_length;
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
-            reward_index == 0
-                || reward_index
-                    > ((self.pox_constants.reward_cycle_length - self.pox_constants.prepare_length)
-                        as u64)
+            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
         }
+    }
+
+    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
+        Self::static_is_in_prepare_phase(
+            self.first_block_height,
+            self.pox_constants.reward_cycle_length as u64,
+            self.pox_constants.prepare_length.into(),
+            block_height,
+        )
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
