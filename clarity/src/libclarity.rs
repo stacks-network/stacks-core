@@ -62,10 +62,10 @@ pub use stacks_common::{
     impl_byte_array_serde,
 };
 
+pub use stacks_common::codec;
+pub use stacks_common::consts;
 pub use stacks_common::types;
 pub use stacks_common::util;
-
-pub use stacks_common::codec;
 
 #[macro_use]
 /// The Clarity virtual machine
