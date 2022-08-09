@@ -59,8 +59,14 @@ impl<'a> SortitionHandleTx<'a> {
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 op.check(burnchain, self, reward_info).map_err(|e| {
                     warn!(
-                        "REJECTED({}) leader block commit {} at {},{}: {:?}",
-                        op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                        "REJECTED({}) leader block commit {} at {},{} (parent {},{}): {:?}",
+                        op.block_height,
+                        &op.txid,
+                        op.block_height,
+                        op.vtxindex,
+                        op.parent_block_ptr,
+                        op.parent_vtxindex,
+                        &e
                     );
                     BurnchainError::OpError(e)
                 })
