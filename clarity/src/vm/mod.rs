@@ -53,6 +53,7 @@ pub mod clarity;
 
 // publish the non-generic StacksEpoch form for use throughout module
 use crate::types::StacksEpochId;
+pub use crate::vm::database::clarity_db::PoxAddress;
 pub use crate::vm::database::clarity_db::StacksEpoch;
 
 use crate::vm::callables::CallableType;
