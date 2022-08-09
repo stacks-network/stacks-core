@@ -65,6 +65,7 @@ use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 pub struct TrieNodeAddr(u32, TriePtr);
 
 /// Cache state for all node caching strategies.
+#[derive(Clone)]
 pub struct TrieCacheState<T: MarfTrieId> {
     /// Mapping between trie blob IDs (i.e. rowids) and the MarfTrieId of the trie.  Contents are
     /// never evicted, since the size of this map grows only at the rate of new Stacks blocks.
@@ -167,6 +168,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
 }
 
 /// Trie node cache strategies
+#[derive(Clone)]
 pub enum TrieCache<T: MarfTrieId> {
     /// Do nothing
     Noop(TrieCacheState<T>),
