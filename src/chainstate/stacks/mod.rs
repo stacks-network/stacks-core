@@ -125,6 +125,7 @@ pub enum Error {
     PoxNoRewardCycle,
     PoxExtendNotLocked,
     DefunctPoxContract,
+    ProblematicTransaction(Txid),
 }
 
 impl From<marf_error> for Error {
@@ -201,6 +202,11 @@ impl fmt::Display for Error {
             Error::DefunctPoxContract => {
                 write!(f, "A defunct PoX contract was called after transition")
             }
+            Error::ProblematicTransaction(ref txid) => write!(
+                f,
+                "Transaction {} is problematic and will not be mined again",
+                txid
+            ),
         }
     }
 }
@@ -236,6 +242,7 @@ impl error::Error for Error {
             Error::PoxExtendNotLocked => None,
             Error::DefunctPoxContract => None,
             Error::StacksTransactionSkipped(ref _r) => None,
+            Error::ProblematicTransaction(ref _txid) => None,
         }
     }
 }
@@ -271,6 +278,7 @@ impl Error {
             Error::PoxExtendNotLocked => "PoxExtendNotLocked",
             Error::DefunctPoxContract => "DefunctPoxContract",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
+            Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
         }
     }
 
@@ -558,6 +566,14 @@ pub struct TransactionContractCall {
     pub contract_name: ContractName,
     pub function_name: ClarityName,
     pub function_args: Vec<Value>,
+}
+
+impl TransactionContractCall {
+    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
+        let standard_principal =
+            StandardPrincipalData(self.address.version, self.address.bytes.0.clone());
+        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
+    }
 }
 
 /// A transaction that instantiates a smart contract

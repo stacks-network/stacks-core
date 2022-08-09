@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochId;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
@@ -30,6 +31,7 @@ use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
 const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -39,7 +41,7 @@ const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
@@ -58,6 +60,69 @@ pub struct LegacyMstxConfigFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_config_file() {
+        assert_eq!(
+            format!("Invalid path: No such file or directory (os error 2)"),
+            ConfigFile::from_path("some_path").unwrap_err()
+        );
+        assert_eq!(
+            format!("Invalid toml: unexpected character found: `/` at line 1 column 1"),
+            ConfigFile::from_str("//[node]").unwrap_err()
+        );
+        assert!(ConfigFile::from_str("").is_ok());
+    }
+
+    #[test]
+    fn test_config() {
+        assert_eq!(
+            format!("node.seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap()
+            )
+            .unwrap_err()
+        );
+
+        assert_eq!(
+            format!("node.local_peer_seed should be a hex encoded string"),
+            Config::from_config_file(
+                ConfigFile::from_str(
+                    r#"
+                    [node]
+                    local_peer_seed = "invalid-hex-value"
+                    "#,
+                )
+                .unwrap()
+            )
+            .unwrap_err()
+        );
+
+        let expected_err_prefix =
+            "Invalid burnchain.peer_host: failed to lookup address information:";
+        let actual_err_msg = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "bitcoin2.blockstack.com"
+                "#,
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            expected_err_prefix,
+            &actual_err_msg[..expected_err_prefix.len()]
+        );
+
+        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap()).is_ok());
+    }
 
     #[test]
     fn should_load_legacy_mstx_balances_toml() {
@@ -80,6 +145,7 @@ mod tests {
             amount = 10000000000000000
             "#,
         );
+        let config = config.unwrap();
         assert!(config.ustx_balance.is_some());
         let balances = config
             .ustx_balance
@@ -105,13 +171,14 @@ mod tests {
 }
 
 impl ConfigFile {
-    pub fn from_path(path: &str) -> ConfigFile {
-        let content_str = fs::read_to_string(path).unwrap();
-        Self::from_str(&content_str)
+    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
+        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
+        Self::from_str(&content)
     }
 
-    pub fn from_str(content: &str) -> ConfigFile {
-        let mut config: ConfigFile = toml::from_str(content).unwrap();
+    pub fn from_str(content: &str) -> Result<ConfigFile, String> {
+        let mut config: ConfigFile =
+            toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
         let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
         if let Some(mstx_balance) = legacy_config.mstx_balance {
             warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
@@ -120,7 +187,7 @@ impl ConfigFile {
                 None => Some(mstx_balance),
             };
         }
-        config
+        Ok(config)
     }
 
     pub fn xenon() -> ConfigFile {
@@ -284,7 +351,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
@@ -327,7 +394,104 @@ lazy_static! {
 }
 
 impl Config {
-    pub fn from_config_file(config_file: ConfigFile) -> Config {
+    fn make_epochs(
+        conf_epochs: &[StacksEpochConfigFile],
+        burn_mode: &str,
+        bitcoin_network: BitcoinNetworkType,
+    ) -> Result<Vec<StacksEpoch>, String> {
+        let default_epochs = match bitcoin_network {
+            BitcoinNetworkType::Mainnet => {
+                Err("Cannot configure epochs in mainnet mode".to_string())
+            }
+            BitcoinNetworkType::Testnet => Ok(stacks::core::STACKS_EPOCHS_TESTNET.to_vec()),
+            BitcoinNetworkType::Regtest => Ok(stacks::core::STACKS_EPOCHS_REGTEST.to_vec()),
+        }?;
+        let mut matched_epochs = vec![];
+        for configured_epoch in conf_epochs.iter() {
+            let epoch_name = &configured_epoch.epoch_name;
+            let epoch_id = if epoch_name == EPOCH_CONFIG_1_0_0 {
+                Ok(StacksEpochId::Epoch10)
+            } else if epoch_name == EPOCH_CONFIG_2_0_0 {
+                Ok(StacksEpochId::Epoch20)
+            } else if epoch_name == EPOCH_CONFIG_2_0_5 {
+                Ok(StacksEpochId::Epoch2_05)
+            } else if epoch_name == EPOCH_CONFIG_2_1_0 {
+                Ok(StacksEpochId::Epoch21)
+            } else {
+                Err(format!("Unknown epoch name specified: {}", epoch_name))
+            }?;
+            matched_epochs.push((epoch_id, configured_epoch.start_height));
+        }
+
+        matched_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
+        // epochs must be sorted the same both by start height and by epoch
+        let mut check_sort = matched_epochs.clone();
+        check_sort.sort_by_key(|(_, start)| *start);
+        if matched_epochs != check_sort {
+            return Err(
+                "Configured epochs must have start heights in the correct epoch order".to_string(),
+            );
+        }
+
+        // epochs must be a prefix of [1.0, 2.0, 2.05, 2.1]
+        let expected_list = [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+        ];
+        for (expected_epoch, configured_epoch) in expected_list
+            .iter()
+            .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
+        {
+            if expected_epoch != configured_epoch {
+                return Err(format!(
+                                "Configured epochs may not skip an epoch. Expected epoch = {}, Found epoch = {}",
+                                expected_epoch, configured_epoch));
+            }
+        }
+
+        // Stacks 1.0 must start at 0
+        if matched_epochs[0].1 != 0 {
+            return Err("Stacks 1.0 must start at height = 0".into());
+        }
+
+        if matched_epochs.len() > default_epochs.len() {
+            return Err(format!(
+                "Cannot configure more epochs than support by this node. Supported epoch count: {}",
+                default_epochs.len()
+            ));
+        }
+        let mut out_epochs = default_epochs[..matched_epochs.len()].to_vec();
+
+        for (i, (epoch_id, start_height)) in matched_epochs.iter().enumerate() {
+            if epoch_id != &out_epochs[i].epoch_id {
+                return Err(
+                                format!("Unmatched epochs in configuration and node implementation. Implemented = {}, Configured = {}",
+                                   epoch_id, &out_epochs[i].epoch_id));
+            }
+            // end_height = next epoch's start height || i64::max if last epoch
+            let end_height = if i + 1 < matched_epochs.len() {
+                matched_epochs[i + 1].1
+            } else {
+                i64::MAX
+            };
+            out_epochs[i].start_height = u64::try_from(*start_height)
+                .map_err(|_| "Start height must be a non-negative integer")?;
+            out_epochs[i].end_height = u64::try_from(end_height)
+                .map_err(|_| "End height must be a non-negative integer")?;
+        }
+
+        if burn_mode == "mocknet" {
+            for epoch in out_epochs.iter_mut() {
+                epoch.block_limit = ExecutionCost::max_value();
+            }
+        }
+
+        Ok(out_epochs)
+    }
+
+    pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -335,9 +499,8 @@ impl Config {
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
-                        Some(seed) => {
-                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
-                        }
+                        Some(seed) => hex_bytes(&seed)
+                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -351,9 +514,9 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => {
-                            hex_bytes(&seed).expect("Seed should be a hex encoded string")
-                        }
+                        Some(seed) => hex_bytes(&seed).map_err(|e| {
+                            format!("node.local_peer_seed should be a hex encoded string")
+                        })?,
                         None => default_node_config.local_peer_seed,
                     },
                     miner: node.miner.unwrap_or(default_node_config.miner),
@@ -404,24 +567,26 @@ impl Config {
                         burnchain.magic_bytes = mainnet_magic.clone();
                     }
                     if burnchain.magic_bytes != mainnet_magic {
-                        panic!(
+                        return Err(format!(
                             "Attempted to run mainnet node with bad magic bytes '{}'",
                             burnchain.magic_bytes.as_ref().unwrap()
-                        );
+                        ));
                     }
                     if node.use_test_genesis_chainstate == Some(true) {
-                        panic!("Attempted to run mainnet node with `use_test_genesis_chainstate`");
+                        return Err(format!(
+                            "Attempted to run mainnet node with `use_test_genesis_chainstate`"
+                        ));
                     }
                     if let Some(ref balances) = config_file.ustx_balance {
                         if balances.len() > 0 {
-                            panic!(
+                            return Err(format!(
                                 "Attempted to run mainnet node with specified `initial_balances`"
-                            );
+                            ));
                         }
                     }
                 }
 
-                BurnchainConfig {
+                let mut result = BurnchainConfig {
                     chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
                     chain_id: if &burnchain_mode == "mainnet" {
                         CHAIN_ID_MAINNET
@@ -445,9 +610,18 @@ impl Config {
                             // Using std::net::LookupHost would be preferable, but it's
                             // unfortunately unstable at this point.
                             // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
-                            let mut addrs_iter =
-                                format!("{}:1", peer_host).to_socket_addrs().unwrap();
-                            let sock_addr = addrs_iter.next().unwrap();
+                            let mut sock_addrs = format!("{}:1", &peer_host)
+                                .to_socket_addrs()
+                                .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
+                            let sock_addr = match sock_addrs.next() {
+                                Some(addr) => addr,
+                                None => {
+                                    return Err(format!(
+                                        "No IP address could be queried for '{}'",
+                                        &peer_host
+                                    ));
+                                }
+                            };
                             format!("{}", sock_addr.ip())
                         }
                         None => default_burnchain_config.peer_host,
@@ -494,11 +668,18 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
-                    epochs: match burnchain.epochs {
-                        Some(epochs) => Some(epochs),
-                        None => default_burnchain_config.epochs,
-                    },
+                    epochs: default_burnchain_config.epochs,
+                };
+
+                if let Some(ref conf_epochs) = burnchain.epochs {
+                    result.epochs = Some(Self::make_epochs(
+                        conf_epochs,
+                        &result.mode,
+                        result.get_bitcoin_network().1,
+                    )?);
                 }
+
+                result
             }
             None => default_burnchain_config,
         };
@@ -532,14 +713,14 @@ impl Config {
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
-            panic!(
+            return Err(format!(
                 "Setting burnchain.network not supported (should be: {})",
                 supported_modes.join(", ")
-            )
+            ));
         }
 
         if burnchain.mode == "helium" && burnchain.local_mining_public_key.is_none() {
-            panic!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)")
+            return Err(format!("Config is missing the setting `burnchain.local_mining_public_key` (mandatory for helium)"));
         }
 
         if let Some(bootstrap_node) = bootstrap_node {
@@ -761,7 +942,7 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
-        Config {
+        Ok(Config {
             node,
             burnchain,
             initial_balances,
@@ -769,7 +950,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
-        }
+        })
     }
 
     fn get_burnchain_path(&self) -> PathBuf {
@@ -1015,7 +1196,18 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
+pub struct StacksEpochConfigFile {
+    epoch_name: String,
+    start_height: i64,
+}
+
+pub const EPOCH_CONFIG_1_0_0: &'static str = "1.0";
+pub const EPOCH_CONFIG_2_0_0: &'static str = "2.0";
+pub const EPOCH_CONFIG_2_0_5: &'static str = "2.05";
+pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
+
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1037,7 +1229,7 @@ pub struct BurnchainConfigFile {
     pub block_commit_tx_estimated_size: Option<u64>,
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
-    pub epochs: Option<Vec<StacksEpoch>>,
+    pub epochs: Option<Vec<StacksEpochConfigFile>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1455,7 +1647,7 @@ impl MinerConfig {
     }
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize, Debug)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
@@ -1499,7 +1691,7 @@ pub struct ConnectionOptionsFile {
     pub antientropy_public: Option<bool>,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -1524,7 +1716,7 @@ pub struct NodeConfigFile {
     pub use_test_genesis_chainstate: Option<bool>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -1549,7 +1741,7 @@ impl Default for FeeEstimationConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
@@ -1559,19 +1751,19 @@ pub struct MinerConfigFile {
     pub block_reward_recipient: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
@@ -1649,7 +1841,7 @@ pub struct InitialBalance {
     pub amount: u64,
 }
 
-#[derive(Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
