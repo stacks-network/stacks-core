@@ -1210,6 +1210,8 @@ mod tests {
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
 
+    use clarity::vm::PoxAddress;
+
     use stacks_common::types::chainstate::ConsensusHash;
 
     use super::*;
@@ -2044,6 +2046,13 @@ mod tests {
             }
             fn get_burn_start_height(&self) -> u32 {
                 0
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                _height: u32,
+                _sortition_id: &SortitionId,
+            ) -> Option<(Vec<PoxAddress>, u128)> {
+                return None;
             }
         }
 
