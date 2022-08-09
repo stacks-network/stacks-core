@@ -43,6 +43,8 @@ use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 use crate::types::chainstate::VRFSeed;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
 
+use clarity::vm::PoxAddress;
+
 // return type from parse_data below
 struct ParsedData {
     stacked_ustx: u128,
@@ -104,8 +106,17 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         };
 
+        let output = outputs[0]
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         Ok(PreStxOp {
-            output: outputs[0].address,
+            output: output,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -118,7 +129,7 @@ impl StackStxOp {
     #[cfg(test)]
     pub fn new(
         sender: &StacksAddress,
-        reward_addr: &StacksAddress,
+        reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
     ) -> StackStxOp {
@@ -236,9 +247,13 @@ impl StackStxOp {
             op_error::ParseError
         })?;
 
+        // coerce a hash mode for this address if need be, since we'll need it when we feed this
+        // address into the .pox contract
+        let reward_addr = outputs[0].address.clone().coerce_hash_mode();
+
         Ok(StackStxOp {
             sender: sender.clone(),
-            reward_addr: outputs[0].address,
+            reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
             txid: tx.txid(),
@@ -322,6 +337,8 @@ mod tests {
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
+
+    use clarity::vm::PoxAddress;
 
     use super::*;
 
@@ -458,7 +475,10 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(
             &op.reward_addr,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &PoxAddress::Standard(
+                StacksAddress::from_bitcoin_address(&tx.outputs[0].address),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);
