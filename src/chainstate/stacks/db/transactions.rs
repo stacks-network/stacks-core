@@ -1235,6 +1235,7 @@ pub mod test {
     use clarity::vm::representations::ContractName;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use clarity::vm::types::*;
+    use clarity::vm::PoxAddress;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
 
@@ -7665,6 +7666,13 @@ pub mod test {
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
                 }
             }
+            fn get_pox_payout_addrs(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<(Vec<PoxAddress>, u128)> {
+                None
+            }
         }
 
         let mut chainstate =
@@ -7846,6 +7854,13 @@ pub mod test {
                     }),
                     _ => self.get_stacks_epoch(0),
                 }
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<(Vec<PoxAddress>, u128)> {
+                None
             }
         }
 
