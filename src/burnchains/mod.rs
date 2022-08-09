@@ -58,6 +58,8 @@ use self::bitcoin::{
 
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
 
+use clarity::vm::PoxAddress;
+
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;
 pub mod burnchain;
@@ -170,7 +172,7 @@ pub struct BurnchainSigner {
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BurnchainRecipient {
-    pub address: StacksAddress,
+    pub address: PoxAddress,
     pub amount: u64,
 }
 
