@@ -100,9 +100,12 @@ pub fn neon_integration_test_conf() -> (Config, StacksAddress) {
     conf.burnchain.commit_anchor_block_within = 0;
 
     // test to make sure config file parsing is correct
-    let magic_bytes = Config::from_config_file(ConfigFile::xenon())
-        .burnchain
-        .magic_bytes;
+    let mut cfile = ConfigFile::xenon();
+    if let Some(burnchain) = cfile.burnchain.as_mut() {
+        burnchain.peer_host = Some("127.0.0.1".to_string());
+    }
+
+    let magic_bytes = Config::from_config_file(cfile).burnchain.magic_bytes;
     assert_eq!(magic_bytes.as_bytes(), &['T' as u8, '2' as u8]);
     conf.burnchain.magic_bytes = magic_bytes;
     conf.burnchain.poll_time_secs = 1;
