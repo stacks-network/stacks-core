@@ -1166,10 +1166,9 @@ fn transition_adds_get_pox_addr_recipients() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if parsed.txid() == cc_txid {
                 // check events for this block
-                for event in events.iter() {
+                for (i, event) in events.iter().enumerate() {
                     if let Some(cev) = event.get("contract_event") {
                         // strip leading `0x`
-                        eprintln!("{:#?}", &cev);
                         let clarity_serialized_value = hex_bytes(
                             &String::from_utf8(
                                 cev.get("raw_value").unwrap().as_str().unwrap().as_bytes()[2..]
@@ -1182,7 +1181,8 @@ fn transition_adds_get_pox_addr_recipients() {
                             Value::deserialize_read(&mut &clarity_serialized_value[..], None)
                                 .unwrap();
                         let pair = clarity_value.expect_tuple();
-                        let height = pair.get("burn-height").unwrap().clone().expect_u128() as u64;
+                        let burn_block_height =
+                            pair.get("burn-height").unwrap().clone().expect_u128() as u64;
                         let pox_addr_tuples_opt =
                             pair.get("pox-addrs").unwrap().clone().expect_optional();
 
@@ -1200,16 +1200,34 @@ fn transition_adds_get_pox_addr_recipients() {
                                 .to_owned()
                                 .expect_u128();
 
-                            eprintln!("payout = {}", &payout);
-                            assert_eq!(
-                                payout,
-                                (conf.burnchain.burn_fee_cap / (OUTPUTS_PER_COMMIT as u64)) as u128
-                            );
+                            // NOTE: there's an even number of payouts here, so this works
+                            eprintln!("payout at {} = {}", burn_block_height, &payout);
+
+                            if Burnchain::static_is_in_prepare_phase(
+                                0,
+                                pox_constants.reward_cycle_length as u64,
+                                pox_constants.prepare_length.into(),
+                                burn_block_height,
+                            ) {
+                                // in prepare phase
+                                eprintln!("{} in prepare phase", burn_block_height);
+                                assert_eq!(payout, conf.burnchain.burn_fee_cap as u128);
+                            } else {
+                                // in reward phase
+                                eprintln!("{} in reward phase", burn_block_height);
+                                assert_eq!(
+                                    payout,
+                                    (conf.burnchain.burn_fee_cap / (OUTPUTS_PER_COMMIT as u64))
+                                        as u128
+                                );
+                            }
+
                             for pox_addr_value in pox_addr_tuples.into_iter() {
                                 let pox_addr =
                                     PoxAddress::try_from_pox_tuple(false, &pox_addr_value).expect(
                                         &format!("FATAL: invalid PoX tuple {:?}", &pox_addr_value),
                                     );
+                                eprintln!("at {}: {:?}", burn_block_height, &pox_addr);
                                 found_pox_addrs.insert(pox_addr);
                             }
                         }
