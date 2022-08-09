@@ -2097,6 +2097,7 @@ pub mod test {
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
+    use clarity::vm::PoxAddress;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
@@ -2363,9 +2364,9 @@ pub mod test {
             &self,
             _burn_block: &BurnchainHeaderHash,
             _burn_block_height: u64,
-            _rewards: Vec<(StacksAddress, u64)>,
+            _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
-            _reward_recipients: Vec<StacksAddress>,
+            _reward_recipients: Vec<PoxAddress>,
         ) {
             // pass
         }
@@ -3498,9 +3499,9 @@ pub mod test {
                                 .recipients
                                 .into_iter()
                                 .map(|x| x.0)
-                                .collect::<Vec<StacksAddress>>();
+                                .collect::<Vec<PoxAddress>>();
                             if recipients.len() == 1 {
-                                recipients.push(StacksAddress::burn_address(false));
+                                recipients.push(PoxAddress::standard_burn_address(false));
                             }
                             recipients
                         }
