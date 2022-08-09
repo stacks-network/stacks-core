@@ -3505,7 +3505,20 @@ pub mod test {
                             }
                             recipients
                         }
-                        None => vec![],
+                        None => {
+                            if self
+                                .config
+                                .burnchain
+                                .is_in_prepare_phase(burn_block.block_height)
+                            {
+                                vec![PoxAddress::standard_burn_address(false)]
+                            } else {
+                                vec![
+                                    PoxAddress::standard_burn_address(false),
+                                    PoxAddress::standard_burn_address(false),
+                                ]
+                            }
+                        }
                     };
                     test_debug!(
                         "Block commit at height {} has {} recipients: {:?}",
