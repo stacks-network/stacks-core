@@ -46,6 +46,8 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
 
+use clarity::vm::PoxAddress;
+
 use crate::types::chainstate::BurnchainHeaderHash;
 
 pub mod leader_block_commit;
@@ -180,8 +182,10 @@ pub struct TransferStxOp {
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct StackStxOp {
     pub sender: StacksAddress,
-    /// the PoX reward address
-    pub reward_addr: StacksAddress,
+    /// the PoX reward address.
+    /// NOTE: the address in .pox will be tagged as either p2pkh or p2sh; it's impossible to tell
+    /// if it's a segwit-p2sh since that looks identical to a p2sh address.
+    pub reward_addr: PoxAddress,
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
@@ -229,7 +233,7 @@ pub struct LeaderBlockCommitOp {
     pub apparent_sender: BurnchainSigner,
 
     /// PoX/Burn outputs
-    pub commit_outs: Vec<StacksAddress>,
+    pub commit_outs: Vec<PoxAddress>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
