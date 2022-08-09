@@ -2071,7 +2071,7 @@ fn test_marf_read_only() {
     let f = TrieFileStorage::new_memory(marf_opts).unwrap();
     let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
     let marf = MARF::from_storage(f);
-    let mut ro_marf = marf.reopen_readonly().unwrap();
+    let mut ro_marf = marf.reopen_uncommitted_readonly().unwrap();
 
     let path = [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
