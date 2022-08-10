@@ -17,13 +17,17 @@ For help cross-compiling on memory-constrained devices, please see the community
 
 ## Getting started
 
-[Here](http://docs.stacks.co/docs/blockchain/) is a full guide on how to get started by downloading the Stacks blockchain and building it locally. 
+[Here](http://docs.stacks.co/docs/blockchain/) is a full guide on how to get started by downloading the Stacks blockchain and building it locally.
+
+We also have guides to setup your own [Stacks node or miners](https://docs.stacks.co/docs/nodes-and-miners/).
 
 ## Contributing
 
 For more information on how to contribute to this repository please refer to [CONTRIBUTORS](CONTRIBUTORS).
 
 For more information on Stacks Improvement Proposals (SIPs) please refer to [SIPs documentation](https://docs.stacks.co/docs/governance/sips).
+
+[Here](https://docs.stacks.co/docs/contribute/) you can find other ways to contribute to the Stacks ecosystem. 
 
 ## Community and Further reading
 

@@ -1,7 +1,6 @@
-# Contributing to Blockstack Core
+# Contributing to Stacks Blockchain
 
-Blockstack Core is open-source software written in Rust.  Contributions
-should adhere to the following best practices.
+Stacks Blockchain is open-source software written in Rust.  Contributions should adhere to the following best practices.
 
 You can find information on joining online community forums (Discord, mailing list etc.) in the [README](README.md).
 
@@ -94,7 +93,7 @@ require nightly Rust features to build and run.
 
 ### Use built-in logging facilities
 
-Blockstack Core implements logging macros in `util::log`.  If your code needs to
+Stacks Blockchain implements logging macros in `util::log`.  If your code needs to
 output data, it should use these macros _exclusively_ for doing so.  The only
 exception is code that is explicitly user-facing, such as help documentation.
 
@@ -490,7 +489,7 @@ is tagged.
 
 # Licensing and contributor license agreement
 
-Blockstack Core is released under the terms of the GPL version 3.  Contributions
+Stacks Blockchain is released under the terms of the GPL version 3.  Contributions
 that are not licensed under compatible terms will be rejected.  Moreover,
 contributions will not be accepted unless _all_ authors accept the project's
 contributor license agreement.
