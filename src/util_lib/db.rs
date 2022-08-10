@@ -593,7 +593,8 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
-    /// Get a value from the fork index
+    /// Get a value from the fork index.
+    /// N.B. This will search uncommitted state, if there is any.
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         let mut ro_index = self.index.reopen_uncommitted_readonly()?;
         get_indexed(&mut ro_index, header_hash, key)
@@ -850,7 +851,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(marf_value)
     }
 
-    /// Get a value from the fork index
+    /// Get a value from the fork index.
+    /// N.B. This searches uncommitted state, if there is any.
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
         self.index()
             .storage_tx()
