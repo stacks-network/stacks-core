@@ -1266,8 +1266,8 @@ mod tests {
                     memo: vec![0x1f],
 
                     commit_outs: vec![
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, Some(AddressHashMode::SerializeP2PKH) ),
-                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, Some(AddressHashMode::SerializeP2PKH) ),
+                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
+                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
                     ],
 
                     burn_fee: 24690,
