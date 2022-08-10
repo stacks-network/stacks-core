@@ -1156,7 +1156,7 @@ pub mod test {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
             .and_then(|mut addrs| {
-                addrs.sort_by_key(|k| k.0.to_burnchain_repr());
+                addrs.sort_by_key(|k| k.0.bytes());
                 Ok(addrs)
             })
     }
@@ -1773,7 +1773,7 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 1);
                     assert_eq!(
                         (reward_addrs[0].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
@@ -2028,7 +2028,7 @@ pub mod test {
 
                         assert_eq!(
                             (reward_addrs[0].0).version(),
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            AddressHashMode::SerializeP2PKH as u8
                         );
                         assert!(all_addrbytes.contains(&key_to_stacks_addr(&key).bytes));
                         all_addrbytes.remove(&key_to_stacks_addr(&key).bytes);
@@ -2257,7 +2257,7 @@ pub mod test {
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
                             (reward_addrs[0].0).version(),
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            AddressHashMode::SerializeP2PKH as u8
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
@@ -2511,7 +2511,7 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
                         (reward_addrs[1].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
@@ -2521,7 +2521,7 @@ pub mod test {
 
                     assert_eq!(
                         (reward_addrs[0].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
@@ -2919,7 +2919,7 @@ pub mod test {
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
                             (reward_addrs[0].0).version(),
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            AddressHashMode::SerializeP2PKH as u8
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
@@ -3253,7 +3253,7 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
                         (reward_addrs[1].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
@@ -3263,7 +3263,7 @@ pub mod test {
 
                     assert_eq!(
                         (reward_addrs[0].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
@@ -3381,7 +3381,7 @@ pub mod test {
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
                         (reward_addrs[1].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[1].0).hash160(),
@@ -3391,7 +3391,7 @@ pub mod test {
 
                     assert_eq!(
                         (reward_addrs[0].0).version(),
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
                         (reward_addrs[0].0).hash160(),
@@ -3713,23 +3713,23 @@ pub mod test {
 
             let expected_pox_addrs: Vec<(u8, Hash160)> = vec![
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&alice).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&bob).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&charlie).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&danielle).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2SH.to_version_testnet(),
+                    AddressHashMode::SerializeP2SH as u8,
                     key_to_stacks_addr(&alice).bytes,
                 ),
             ];
@@ -4188,7 +4188,7 @@ pub mod test {
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
                             (reward_addrs[0].0).version(),
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            AddressHashMode::SerializeP2PKH as u8
                         );
                         assert_eq!(
                             (reward_addrs[0].0).hash160(),
