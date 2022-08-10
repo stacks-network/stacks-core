@@ -1,29 +1,24 @@
 # Stacks 2.0
 
-Reference implementation of the [Stacks blockchain](https://github.com/blockstack/stacks) in Rust.
+Reference implementation of the [Stacks blockchain](https://github.com/stacks-network/stacks) in Rust.
 
-Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and enables decentralized apps and predictable smart contracts. Stacks 2.0 implements [Proof of Transfer (PoX)](https://blockstack.org/pox.pdf) mining that anchors to Bitcoin security. Leader election happens at the Bitcoin blockchain and Stacks (STX) miners write new blocks on the separate Stacks blockchain. With PoX there is no need to modify Bitcoin to enable smart contracts and apps around it. See [this page](https://github.com/blockstack/stacks) for more details and resources.
+Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and enables decentralized apps and predictable smart contracts. Stacks 2.0 implements [Proof of Transfer (PoX)](https://community.stacks.org/pox) mining that anchors to Bitcoin security. Leader election happens at the Bitcoin blockchain and Stacks (STX) miners write new blocks on the separate Stacks blockchain. With PoX there is no need to modify Bitcoin to enable smart contracts and apps around it. See [this page](https://github.com/stacks-network/stacks) for more details and resources.
 
-[![CircleCI](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/blockstack/stacks-blockchain/tree/master)
+[![CircleCI](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master)
 
 ## Repository
 
-| Blockstack Topic/Tech      | Where to learn more more                                                          |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
-| Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
-| Use the package            | [our core docs](https://docs.blockstack.org/core/naming/introduction.html)        |
-| Develop a Blockstack App   | [our developer docs](https://docs.stacks.co/build-apps/overview)                  |
-| Use a Blockstack App       | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack PBC the company | [our website](https://blockstack.org)                                             |
+| Stacks Topic/Tech    | Where to learn more more                                                             |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Stacks 2.0           | [master branch](https://github.com/stacks-network/stacks-blockchain/tree/master)     |
+| Stacks 1.0           | [legacy branch](https://github.com/stacks-network/stacks-blockchain/tree/stacks-1.0) |
+| Learn Stacks         | [our core docs](https://docs.stacks.co)                                              |
+| Develop a Stacks App | [our developer docs](https://docs.stacks.co/docs/build-apps/)                        |
+| Stacks main website  | [our website](https://www.stacks.co/)                                                |
 
 ## Release Schedule and Hotfixes
 
-Normal releases in this repository that add features such as improved RPC endpoints, improved boot-up time, new event
-observer fields or event types, etc., are released on a monthly schedule. The currently staged changes for such releases
-are in the [develop branch](https://github.com/blockstack/stacks-blockchain/tree/develop). It is generally safe to run
-a `stacks-node` from that branch, though it has received less rigorous testing than release tags. If bugs are found in
-the `develop` branch, please do report them as issues on this repository.
+Normal releases in this repository that add features such as improved RPC endpoints, improved boot-up time, new event observer fields or event types, etc., are released on a monthly schedule. The currently staged changes for such releases are in the [develop branch](https://github.com/stacks-network/stacks-blockchain/tree/develop). It is generally safe to run a `stacks-node` from that branch, though it has received less rigorous testing than release tags. If bugs are found in the `develop` branch, please do report them as issues on this repository.
 
 For fixes that impact the correct functioning or liveness of the network, _hotfixes_ may be issued. These are patches
 to the main branch which are backported to the develop branch after merging. These hotfixes are categorized by priority
@@ -60,6 +55,9 @@ to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` w
 - [x] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
 - [x] [SIP 007: Stacking Consensus](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md)
 - [x] [SIP 008: Clarity Parsing and Analysis Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-008/sip-008-analysis-cost-assessment.md)
+- [x] [SIP 009: Standard Trait Definition for Non-Fungible Tokens](https://github.com/stacksgov/sips/blob/main/sips/sip-009/sip-009-nft-standard.md)
+- [x] [SIP 010: Standard Trait Definition for Fungible Tokens](https://github.com/stacksgov/sips/blob/main/sips/sip-010/sip-010-fungible-token-standard.md)
+- [x] [SIP 012: Burn Height Selection for a Network Upgrade to Introduce New Cost-Limits](https://github.com/stacksgov/sips/blob/main/sips/sip-012/sip-012-cost-limits-network-upgrade.md)
 
 Stacks improvement proposals (SIPs) are aimed at describing the implementation of the Stacks blockchain, as well as proposing improvements. They should contain concise technical specifications of features or standards and the rationale behind it. SIPs are intended to be the primary medium for proposing new features, for collecting community input on a system-wide issue, and for documenting design decisions.
 
@@ -69,11 +67,11 @@ The SIPs are now located in the [stacksgov/sips](https://github.com/stacksgov/si
 
 ### Testnet versions
 
-- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on using regtest.
+- [x] **Krypton** is a Stacks 2 testnet with a fixed, two-minute block time, called `regtest`. Regtest is generally unstable for regular use, and is reset often. See the [regtest documentation](https://docs.stacks.co/docs/understand-stacks/testnet) for more information on using regtest.
 
-- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/understand-stacks/testnet) for more information on the public testnet.
+- [x] **Xenon** is the Stacks 2 public testnet, which runs PoX against the Bitcoin testnet. It is the full implementation of the Stacks 2 blockchain, and should be considered a stable testnet for developing Clarity smart contracts. See the [testnet documentation](https://docs.stacks.co/docs/understand-stacks/testnet) for more information on the public testnet.
 
-- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/understand-stacks/overview) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
+- [x] **Mainnet** is the fully functional Stacks 2 blockchain, see the [Stacks overview](https://docs.stacks.co/docs/understand-stacks/) for information on running a Stacks node, mining, stacking, and writing Clarity smart contracts.
 
 ## Getting started
 
@@ -90,7 +88,7 @@ _For building on Windows, follow the rustup installer instructions at https://ru
 From there, you can clone this repository:
 
 ```bash
-git clone --depth=1 https://github.com/blockstack/stacks-blockchain.git
+git clone --depth=1 https://github.com/stacks-network/stacks-blockchain.git
 
 cd stacks-blockchain
 ```
@@ -143,10 +141,10 @@ We will interact with the following simple contract `kv-store`. In our examples,
 We want to publish this contract on chain, then issue some transactions that interact with it by setting some keys and getting some values, so we can observe read and writes.
 
 Our first step is to generate and sign, using your private key, the transaction that will publish the contract `kv-store`.
-To do that, we will use the subcommand:
+To do that, we will use the subcommand `blockstack-cli` that has the following usage:
 
 ```bash
-cargo run --bin blockstack-cli publish --help
+blockstack-cli (options) publish [publisher-secret-key-hex] [fee-rate] [nonce] [contract-name] [file-name.clar]
 ```
 
 With the following arguments:
@@ -155,10 +153,7 @@ With the following arguments:
 cargo run --bin blockstack-cli publish b8d99fd45da58038d630d9855d3ca2466e8e0f89d3894c4724f0efc9ff4b51f001 515 0 kv-store ./kv-store.clar --testnet
 ```
 
-The `515` is the transaction fee, denominated in microSTX. Right now, the
-testnet requires one microSTX per byte minimum, and this transaction should be
-less than 515 bytes.
-The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
+The `515` is the transaction fee, denominated in microSTX. Right now, the testnet requires one microSTX per byte minimum, and this transaction should be less than 515 bytes. The third argument `0` is a nonce, that must be increased monotonically with each new transaction.
 
 This command will output the **binary format** of the transaction. In our case, we want to pipe this output and dump it to a file that will be used later in this tutorial.
 
@@ -182,9 +177,7 @@ address = "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT"
 amount = 100000000
 ```
 
-The `address` field is the Stacks testnet address, and the `amount` field is the
-number of microSTX to grant to it in the genesis block. The addresses of the
-private keys used in the tutorial below are already added.
+The `address` field is the Stacks testnet address, and the `amount` field is the number of microSTX to grant to it in the genesis block. The addresses of the private keys used in the tutorial below are already added.
 
 ### Publish your contract
 
@@ -247,7 +240,7 @@ And submit this last transaction by moving it to the mempool path:
 curl -X POST -H "Content-Type: application/octet-stream" --data-binary @./tx4.bin http://localhost:20443/v2/transactions
 ```
 
-Congratulations, you can now [write your own smart contracts with Clarity](https://docs.blockstack.org/core/smart/overview.html).
+Congratulations, you can now [write your own smart contracts with Clarity](https://docs.stacks.co/docs/write-smart-contracts/).
 
 ## Platform support
 
@@ -259,24 +252,16 @@ For help cross-compiling on memory-constrained devices, please see the community
 
 ## Community
 
-Beyond this Github project,
-Blockstack maintains a public [forum](https://forum.stacks.org) and an
-opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project
-maintains a [mailing list](https://blockstack.org/signup) which sends out
-community announcements.
+Beyond this Github project, Stacks maintains a public [forum](https://forum.stacks.org) and an opened [Discord](https://discord.com/invite/XYdRyhf) channel. In addition, the project maintains a [mailing list](https://newsletter.stacks.org/) which sends out community announcements.
 
-The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/). The project's
-[YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
-videos from some of these meetups, as well as video tutorials to help new
-users get started and help developers wrap their heads around the system's
-design.
+The greater Stacks community regularly hosts in-person [meetups](https://www.meetup.com/topics/blockstack/). The project's
+[YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes videos from some of these meetups, as well as video tutorials to help new users get started and help developers wrap their heads around the system's design.
 
 ## Further Reading
 
-You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the documentation:
+You can learn more by visiting [the Stacks Website](https://stacks.co) and checking out the documentation:
 
-- [Blockstack docs](https://docs.blockstack.org/)
+- [Stacks docs](https://docs.stacks.co/)
 
 You can also read the technical papers:
 
@@ -289,11 +274,8 @@ If you have high-level questions about Blockstack, try [searching our forum](htt
 
 ### Tests and Coverage
 
-PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
-(which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
-If you add `#[ignore]` tests, you should add your branch to the filters for the `all_tests` job in our circle.yml
-(or if you are working on net code or marf code, your branch should be named such that it matches the existing
-filters there).
+PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel (which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
+If you add `#[ignore]` tests, you should add your branch to the filters for the `all_tests` job in our circle.yml (or if you are working on net code or marf code, your branch should be named such that it matches the existing filters there).
 
 A test should be marked `#[ignore]` if:
 
@@ -302,8 +284,7 @@ A test should be marked `#[ignore]` if:
 
 ### Formatting
 
-This repository uses the default rustfmt formatting style. PRs will be checked against `rustfmt` and will _fail_ if not
-properly formatted.
+This repository uses the default rustfmt formatting style. PRs will be checked against `rustfmt` and will _fail_ if not properly formatted.
 
 You can check the formatting locally via:
 
@@ -319,8 +300,7 @@ cargo fmt --all
 
 ## Mining
 
-Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner,
-you should make sure to add the following config fields to your config file:
+Stacks tokens (STX) are mined by transferring BTC via PoX.  To run as a miner you should make sure to add the following config fields to your config file:
 
 ```
 [node]
@@ -371,32 +351,20 @@ log_error = true
 enabled = true
 ```
 
-Fee and cost estimators observe transactions on the network and use the
-observed costs of those transactions to build estimates for viable fee rates
-and expected execution costs for transactions. Estimators and metrics can be
-selected using the configuration fields above, though the default values are
-the only options currently. `log_error` controls whether or not the INFO logger
-will display information about the cost estimator accuracy as new costs are
-observed. Setting `enabled = false` turns off the cost estimators. Cost estimators
-are **not** consensus-critical components, but rather can be used by miners to
-rank transactions in the mempool or client to determine appropriate fee rates
-for transactions before broadcasting them.
+Fee and cost estimators observe transactions on the network and use the observed costs of those transactions to build estimates for viable fee rates
+and expected execution costs for transactions.
+Estimators and metrics can be selected using the configuration fields above, though the default values are the only options currently. `log_error` controls whether or not the INFO logger will display information about the cost estimator accuracy as new costs are observed. Setting `enabled = false` turns off the cost estimators.
+Cost estimators are **not** consensus-critical components, but rather can be used by miners to rank transactions in the mempool or client to determine appropriate fee rates for transactions before broadcasting them.
 
-The `fuzzed_weighted_median_fee_rate` uses a
-median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
-Estimates are then randomly "fuzzed" using uniform random fuzz of size up to
-`fee_rate_fuzzer_fraction` of the base estimate.
+The `fuzzed_weighted_median_fee_rate` uses a median estimate from a window of the fees paid in the last `fee_rate_window_size` blocks.
+Estimates are then randomly "fuzzed" using uniform random fuzz of size up to `fee_rate_fuzzer_fraction` of the base estimate.
 
 ## Non-Consensus Breaking Release Process
 
 For non-consensus breaking releases, this project uses the following release process:
 
-1. The release must be timed so that it does not interfere with a *prepare
-phase*.  The timing of the next Stacking cycle can be found
-[here](https://stacking.club/cycles/next). A release to `mainnet` should happen
-at least 24 hours before the start of a new cycle, to avoid interfering
-with the prepare phase. So, start by being aware of when the release can
-happen.
+1. The release must be timed so that it does not interfere with a *prepare phase*.  The timing of the next Stacking cycle can be found [here](https://stacking.club/cycles/next).
+A release to `mainnet` should happen at least 24 hours before the start of a new cycle, to avoid interfering with the prepare phase. So, start by being aware of when the release can happen.
 
 1. Before creating the release, the release manager must determine the *version
 number* for this release.  The factors that determine the version number are
@@ -421,7 +389,7 @@ patch. Given the answers to these questions, the version number can be computed.
 1. The release manager must update the `CHANGELOG.md` file with summaries what
 was `Added`, `Changed`, and `Fixed`. The pull requests merged into `develop`
 can be found
-[here](https://github.com/blockstack/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
+[here](https://github.com/stacks-network/stacks-blockchain/pulls?q=is%3Apr+is%3Aclosed+base%3Adevelop+sort%3Aupdated-desc). Note, however, that GitHub apparently does not allow sorting by
 *merge time*, so, when sorting by some proxy criterion, some care should
 be used to understand which PR's were *merged* after the last `develop ->
 master` release PR.  This `CHANGELOG.md` should also be used as the description
@@ -429,8 +397,7 @@ of the `develop -> master` so that it acts as *release notes* when the branch
 is tagged.
 
 1. Once the blocker PRs have merged, the release manager will create a new tag
-   by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml)
-   against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
+   by manually triggering the [`stacks-blockchain` Github Actions workflow](https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml) against the `develop` branch, inputting the release candidate tag, `2.0.x.y.z-rc0`,
    in the Action's input textbox.
 
 1. Once the release candidate has been built, and docker images, etc. are available,
@@ -445,7 +412,7 @@ is tagged.
    Stacks Discord. For coordinating rollouts on specific infrastructure, the release
    manager should contact the above participants directly either through e-mail or
    Discord DM. The release manager should also confirm that the built release on the
-   [Github releases](https://github.com/blockstack/stacks-blockchain/releases/)
+   [Github releases](https://github.com/stacks-network/stacks-blockchain/releases/)
    page is marked as `Pre-Release`.
 
 1. The release manager will test that the release candidate successfully syncs with
@@ -468,7 +435,7 @@ is tagged.
    resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
-   via the [`stacks-blockchain` Github action]((https://github.com/blockstack/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
+   via the [`stacks-blockchain` Github action]((https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
    by clicking "Run workflow" and providing the release version as the tag (e.g.,
    `2.0.11.1.0`) This creates a release and release images. Once the release has been
    created, the release manager should update the Github release text with the
@@ -476,6 +443,6 @@ is tagged.
 
 ## Copyright and License
 
-The code and documentation copyright are attributed to blockstack.org for the year of 2020.
+The code and documentation copyright are attributed to stacks.co for the year of 2022.
 
 This code is released under [the GPL v3 license](https://www.gnu.org/licenses/quick-guide-gplv3.en.html), and the docs are released under [the Creative Commons license](https://creativecommons.org/).
