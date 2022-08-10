@@ -1680,7 +1680,6 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     where
         F: FnOnce(&mut TrieStorageTransaction<T>) -> R,
     {
-        let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let mut blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
         } else {
@@ -1717,7 +1716,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         let mut tmp_tx = TrieStorageTransaction(TrieStorageConnection {
             db_path: &db_path_str,
-            db: SqliteConnection::ConnRef(&db),
+            db: SqliteConnection::ConnRef(&self.db.deref()),
             blobs: blobs.as_mut(),
             cache: &mut cache,
             bench: &mut bench,
