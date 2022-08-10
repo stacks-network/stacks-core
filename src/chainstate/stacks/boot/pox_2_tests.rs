@@ -160,7 +160,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             assert_eq!(reward_addrs.len(), 1);
             assert_eq!(
                 (reward_addrs[0].0).version(),
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                AddressHashMode::SerializeP2PKH as u8
             );
             assert_eq!(
                 (reward_addrs[0].0).hash160(),
@@ -172,7 +172,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
             assert_eq!(reward_addrs.len(), 2);
             assert_eq!(
                 (reward_addrs[0].0).version(),
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                AddressHashMode::SerializeP2PKH as u8
             );
             assert_eq!(
                 (reward_addrs[0].0).hash160(),
@@ -182,7 +182,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
             assert_eq!(
                 (reward_addrs[1].0).version(),
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                AddressHashMode::SerializeP2PKH as u8
             );
             assert_eq!(
                 (reward_addrs[1].0).hash160(),
@@ -597,7 +597,7 @@ fn test_pox_extend_transition_pox_2() {
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
             (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            AddressHashMode::SerializeP2PKH as u8
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
@@ -633,7 +633,7 @@ fn test_pox_extend_transition_pox_2() {
         assert_eq!(reward_addrs.len(), 2);
         assert_eq!(
             (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            AddressHashMode::SerializeP2PKH as u8
         );
         assert_eq!(
             (reward_addrs[0].0).hash160(),
@@ -643,7 +643,7 @@ fn test_pox_extend_transition_pox_2() {
 
         assert_eq!(
             (reward_addrs[1].0).version(),
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            AddressHashMode::SerializeP2PKH as u8
         );
         assert_eq!(
             (reward_addrs[1].0).hash160(),
@@ -979,7 +979,7 @@ fn test_delegate_extend_transition_pox_2() {
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
             (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            AddressHashMode::SerializeP2PKH as u8
         );
         assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
         // 1 lockup was done between alice's first cycle and the start of v2 cycles
@@ -1013,7 +1013,7 @@ fn test_delegate_extend_transition_pox_2() {
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
             (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            AddressHashMode::SerializeP2PKH as u8
         );
         assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
         // 2 lockups were performed in v2 cycles
