@@ -394,6 +394,7 @@ struct AcceptedStacksBlockHeader {
     pub height: u64,                       // stacks block height
 }
 
+#[derive(Debug)]
 pub struct InitialMiningBonus {
     pub total_reward: u128,
     pub per_block: u128,
@@ -4350,6 +4351,7 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         if let Some(initialize_bonus) = initialize_bonus {
+            debug!("Add initial mining bonus: {:?}", &initialize_bonus);
             // first sortition with a winner, set the initial mining bonus fields
             keys.push(db_keys::initial_mining_bonus_per_block().into());
             values.push(initialize_bonus.per_block.to_string());
