@@ -21,7 +21,7 @@ We also have guides to setup your own [Stacks node or miners](https://docs.stack
 
 ## Contributing
 
-For more information on how to contribute to this repository please refer to [CONTRIBUTORS](CONTRIBUTORS).
+For more information on how to contribute to this repository please refer to [CONTRIBUTORS](CONTRIBUTORS.md).
 
 For more information on Stacks Improvement Proposals (SIPs) please refer to [SIPs documentation](https://docs.stacks.co/docs/governance/sips).
 
