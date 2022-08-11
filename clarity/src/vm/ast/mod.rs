@@ -17,7 +17,6 @@
 pub mod definition_sorter;
 pub mod expression_identifier;
 pub mod parser;
-pub mod parser_v2;
 pub mod traits_resolver;
 
 pub mod errors;
@@ -67,9 +66,9 @@ pub fn build_ast<T: CostTracker>(
         source_code.len() as u64,
     )?;
     let pre_expressions = if epoch >= StacksEpochId::Epoch21 {
-        parser_v2::parse(source_code)?
+        parser::v2::parse(source_code)?
     } else {
-        parser::parse(source_code)?
+        parser::v1::parse(source_code)?
     };
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     StackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
@@ -98,9 +97,9 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
     };
 
     let (pre_expressions, mut diagnostics, mut success) = if epoch >= StacksEpochId::Epoch21 {
-        parser_v2::parse_collect_diagnostics(source_code)
+        parser::v2::parse_collect_diagnostics(source_code)
     } else {
-        match parser::parse(source_code) {
+        match parser::v1::parse(source_code) {
             Ok(pre_expressions) => (pre_expressions, vec![], true),
             Err(error) => (vec![], vec![error.diagnostic], false),
         }

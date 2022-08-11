@@ -254,7 +254,7 @@ impl From<codec_error> for Error {
             codec_error::OverflowError(s) => Error::OverflowError(s),
             codec_error::ArrayTooLong => Error::ArrayTooLong,
             codec_error::SigningError(s) => Error::SigningError(s),
-            codec_error::GenericError(s) => Error::InvalidMessage,
+            codec_error::GenericError(_) => Error::InvalidMessage,
         }
     }
 }

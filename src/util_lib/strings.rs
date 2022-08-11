@@ -29,10 +29,10 @@ use url;
 use stacks_common::codec::Error as codec_error;
 
 use crate::codec::MAX_MESSAGE_LEN;
-use clarity::vm::ast::parser::{lex, LexItem, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
-    ClarityName, ContractName, SymbolicExpression, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
+    ClarityName, ContractName, SymbolicExpression, CONTRACT_MAX_NAME_LENGTH,
+    CONTRACT_MIN_NAME_LENGTH, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -218,19 +218,7 @@ impl StacksString {
     }
 
     pub fn is_clarity_variable(&self) -> bool {
-        // must parse to a single Clarity variable
-        match lex(&self.to_string()) {
-            Ok(lexed) => {
-                if lexed.len() != 1 {
-                    return false;
-                }
-                match lexed[0].0 {
-                    LexItem::Variable(_) => true,
-                    _ => false,
-                }
-            }
-            Err(_) => false,
-        }
+        ClarityName::try_from(self.to_string()).is_ok()
     }
 
     pub fn from_string(s: &String) -> Option<StacksString> {

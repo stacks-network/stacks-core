@@ -26,15 +26,33 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
-use super::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
-
+pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
+pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 pub const MAX_STRING_LEN: u8 = 128;
 
 lazy_static! {
+    pub static ref STANDARD_PRINCIPAL_REGEX_STRING: String =
+        "[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}".into();
+    pub static ref CONTRACT_NAME_REGEX_STRING: String = format!(
+        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+        CONTRACT_MIN_NAME_LENGTH - 1,
+        CONTRACT_MAX_NAME_LENGTH - 1
+    );
+    pub static ref CONTRACT_PRINCIPAL_REGEX_STRING: String = format!(
+        r#"{}(\.){}"#,
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_NAME_REGEX_STRING
+    );
+    pub static ref PRINCIPAL_DATA_REGEX_STRING: String = format!(
+        "({})|({})",
+        *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
+    );
+    pub static ref CLARITY_NAME_REGEX_STRING: String =
+        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
-        Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$").unwrap();
+        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap();
     pub static ref CONTRACT_NAME_REGEX: Regex =
-        Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$").unwrap();
+        Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
+            .unwrap();
 }
 
 guarded_string!(
