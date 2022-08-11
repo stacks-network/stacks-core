@@ -1004,10 +1004,12 @@ mod test {
         "hello\\\"world"
         "#;
 
-        assert!(match ast::parser::v1::parse(&split_tokens).unwrap_err().err {
-            ParseErrors::SeparatorExpected(_) => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(&split_tokens).unwrap_err().err {
+                ParseErrors::SeparatorExpected(_) => true,
+                _ => false,
+            }
+        );
 
         assert!(
             match ast::parser::v1::parse(&too_much_closure).unwrap_err().err {
@@ -1023,20 +1025,24 @@ mod test {
             }
         );
 
-        assert!(match ast::parser::v1::parse(&middle_hash).unwrap_err().err {
-            ParseErrors::FailedParsingRemainder(_) => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(&middle_hash).unwrap_err().err {
+                ParseErrors::FailedParsingRemainder(_) => true,
+                _ => false,
+            }
+        );
 
         assert!(match ast::parser::v1::parse(&unicode).unwrap_err().err {
             ParseErrors::FailedParsingRemainder(_) => true,
             _ => false,
         });
 
-        assert!(match ast::parser::v1::parse(&name_with_dot).unwrap_err().err {
-            ParseErrors::SeparatorExpected(_) => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(&name_with_dot).unwrap_err().err {
+                ParseErrors::SeparatorExpected(_) => true,
+                _ => false,
+            }
+        );
 
         assert!(match ast::parser::v1::parse(&wrong_tuple_literal_close)
             .unwrap_err()
@@ -1071,12 +1077,13 @@ mod test {
         // { a: b,c: 3 } is legal
         ast::parser::v1::parse(&tuple_comma_no_space).unwrap();
 
-        assert!(
-            match ast::parser::v1::parse(&tuple_colon_no_space).unwrap_err().err {
-                ParseErrors::SeparatorExpectedAfterColon(_) => true,
-                _ => false,
-            }
-        );
+        assert!(match ast::parser::v1::parse(&tuple_colon_no_space)
+            .unwrap_err()
+            .err
+        {
+            ParseErrors::SeparatorExpectedAfterColon(_) => true,
+            _ => false,
+        });
 
         assert!(
             match ast::parser::v1::parse(&shorthand_tuple).unwrap_err().err {
@@ -1085,13 +1092,15 @@ mod test {
             }
         );
 
-        assert!(match ast::parser::v1::parse(&shorthand_tuple_dangling_comma)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::TupleItemExpected(_) => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(&shorthand_tuple_dangling_comma)
+                .unwrap_err()
+                .err
+            {
+                ParseErrors::TupleItemExpected(_) => true,
+                _ => false,
+            }
+        );
 
         assert!(match ast::parser::v1::parse(&decorative_colon_on_value)
             .unwrap_err()
@@ -1104,16 +1113,18 @@ mod test {
             }
         });
 
-        assert!(match ast::parser::v1::parse(&tuple_literal_colon_after_comma)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::TupleItemExpected(_) => true,
-            e => {
-                eprintln!("{:?}", e);
-                false
+        assert!(
+            match ast::parser::v1::parse(&tuple_literal_colon_after_comma)
+                .unwrap_err()
+                .err
+            {
+                ParseErrors::TupleItemExpected(_) => true,
+                e => {
+                    eprintln!("{:?}", e);
+                    false
+                }
             }
-        });
+        );
 
         assert!(match ast::parser::v1::parse(&empty_tuple_literal_comma)
             .unwrap_err()
@@ -1180,13 +1191,15 @@ mod test {
             _ => false,
         });
 
-        assert!(match ast::parser::v1::parse(&ascii_string_with_unicode_escape)
-            .unwrap_err()
-            .err
-        {
-            ParseErrors::InvalidEscaping => true,
-            _ => false,
-        });
+        assert!(
+            match ast::parser::v1::parse(&ascii_string_with_unicode_escape)
+                .unwrap_err()
+                .err
+            {
+                ParseErrors::InvalidEscaping => true,
+                _ => false,
+            }
+        );
 
         assert!(
             match ast::parser::v1::parse(&string_with_valid_escape).unwrap()[0].pre_expr {
