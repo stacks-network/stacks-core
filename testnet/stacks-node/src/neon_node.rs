@@ -20,6 +20,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
@@ -72,7 +73,6 @@ use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 use clarity::vm::types::PrincipalData;
-use clarity::vm::PoxAddress;
 
 use crate::operations::BurnchainOpSigner;
 

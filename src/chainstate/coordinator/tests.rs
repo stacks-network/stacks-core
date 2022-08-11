@@ -33,6 +33,7 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -58,7 +59,6 @@ use crate::{types, util};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::ClarityVersion;
-use clarity::vm::PoxAddress;
 use rand::RngCore;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksBlockId;

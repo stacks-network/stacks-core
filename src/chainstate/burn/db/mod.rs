@@ -25,6 +25,7 @@ use serde_json::Error as serde_error;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db;
@@ -36,8 +37,6 @@ use stacks_common::util::vrf::*;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::types::chainstate::StacksAddress;
-
-use clarity::vm::PoxAddress;
 
 pub mod processing;
 pub mod sortdb;

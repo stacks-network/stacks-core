@@ -67,195 +67,6 @@ pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
-/// A PoX address as seen by the .pox and .pox-2 contracts.
-/// Used by the sortition DB and chains coordinator to extract addresses from the PoX contract to
-/// build the reward set and to validate block-commits.
-#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
-pub enum PoxAddress {
-    /// represents { version: (buff u1), hashbytes: (buff 20) }.
-    /// The address hash mode is optional because if we decode a legacy bitcoin address, we won't
-    /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
-    Standard(StacksAddress, Option<AddressHashMode>),
-}
-
-impl std::fmt::Display for PoxAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_db_string())
-    }
-}
-
-impl PoxAddress {
-    pub fn hashmode(&self) -> Option<AddressHashMode> {
-        match *self {
-            PoxAddress::Standard(_, hm) => hm.clone(),
-        }
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn version(&self) -> u8 {
-        self.hashmode()
-            .expect("FATAL: tried to load the hashmode of a PoxAddress which has none known")
-            as u8
-    }
-
-    pub fn bytes(&self) -> Vec<u8> {
-        match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes.0.to_vec(),
-        }
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn hash160(&self) -> Hash160 {
-        match *self {
-            PoxAddress::Standard(addr, _) => addr.bytes.clone(),
-        }
-    }
-
-    /// Try to convert a Clarity value representation of the PoX address into a PoxAddress.
-    /// `value` must be `{ version: (buff 1), hashbytes: (buff 20) }`
-    pub fn try_from_pox_tuple(mainnet: bool, value: &Value) -> Option<PoxAddress> {
-        let tuple_data = match value {
-            Value::Tuple(data) => data.clone(),
-            _ => {
-                return None;
-            }
-        };
-
-        let hashmode_value = tuple_data.get("version").ok()?.to_owned();
-
-        let hashmode_u8 = match hashmode_value {
-            Value::Sequence(SequenceData::Buffer(data)) => {
-                if data.data.len() == 1 {
-                    data.data[0]
-                } else {
-                    return None;
-                }
-            }
-            _ => {
-                return None;
-            }
-        };
-
-        let hashbytes_value = tuple_data.get("hashbytes").ok()?.to_owned();
-
-        let hashbytes_vec = match hashbytes_value {
-            Value::Sequence(SequenceData::Buffer(data)) => {
-                if data.data.len() == 20 {
-                    data.data
-                } else {
-                    return None;
-                }
-            }
-            _ => {
-                return None;
-            }
-        };
-
-        let hashmode: AddressHashMode = hashmode_u8.try_into().ok()?;
-
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
-        let bytes = Hash160(hashbytes_20);
-
-        let version = if mainnet {
-            hashmode.to_version_mainnet()
-        } else {
-            hashmode.to_version_testnet()
-        };
-
-        Some(PoxAddress::Standard(
-            StacksAddress { version, bytes },
-            Some(hashmode),
-        ))
-    }
-
-    /// Serialize this structure to a string that we can store in the sortition DB
-    pub fn to_db_string(&self) -> String {
-        serde_json::to_string(self).expect("FATAL: failed to serialize JSON value")
-    }
-
-    /// Decode a db string back into a PoxAddress
-    pub fn from_db_string(db_string: &str) -> Option<PoxAddress> {
-        serde_json::from_str(db_string).ok()?
-    }
-
-    /// Is this a burn address?
-    pub fn is_burn(&self) -> bool {
-        match *self {
-            PoxAddress::Standard(ref addr, _) => addr.is_burn(),
-        }
-    }
-
-    /// What is the burnchain representation of this address?
-    /// Used for comparing addresses from block-commits, where certain information (e.g. the hash
-    /// mode) can't be used since it's not stored there.  The resulting string encodes all of the
-    /// information that is present on the burnchain, and it does so in a _stable_ way.
-    pub fn to_burnchain_repr(&self) -> String {
-        match *self {
-            PoxAddress::Standard(ref addr, _) => {
-                format!("{:02x}-{}", &addr.version, &addr.bytes)
-            }
-        }
-    }
-
-    /// Make a standard burn address
-    pub fn standard_burn_address(mainnet: bool) -> PoxAddress {
-        PoxAddress::Standard(
-            StacksAddress::burn_address(mainnet),
-            Some(AddressHashMode::SerializeP2PKH),
-        )
-    }
-
-    /// Convert this PoxAddress into a Clarity value.
-    /// Returns None if the address hash mode is not known (i.e. this only works for PoxAddresses
-    /// constructed from a PoX tuple in the PoX contract).
-    pub fn as_clarity_tuple(&self) -> Option<TupleData> {
-        match *self {
-            PoxAddress::Standard(ref addr, ref hm) => {
-                let hm = match hm {
-                    Some(hm) => hm,
-                    None => {
-                        return None;
-                    }
-                };
-                let version = Value::buff_from_byte(*hm as u8);
-                let hashbytes = Value::buff_from(Vec::from(addr.bytes.0.clone()))
-                    .expect("FATAL: hash160 does not fit into a Clarity value");
-
-                let tuple_data = TupleData::from_data(vec![
-                    ("version".into(), version),
-                    ("hashbytes".into(), hashbytes),
-                ])
-                .expect("BUG: StacksAddress byte representation does not fit in Clarity Value");
-
-                Some(tuple_data)
-            }
-        }
-    }
-
-    /// Coerce a hash mode for this address if it is standard.
-    ///
-    /// WARNING
-    /// The hash mode may not reflect the true nature of the address, since segwit-p2sh and p2sh
-    /// are indistinguishable.  Use with caution.
-    pub fn coerce_hash_mode(self) -> PoxAddress {
-        match self {
-            PoxAddress::Standard(addr, _) => {
-                let hm = AddressHashMode::from_version(addr.version);
-                PoxAddress::Standard(addr, Some(hm))
-            }
-        }
-    }
-
-    /// Try to convert this into a standard StacksAddress.
-    /// With Bitcoin, this means a legacy address
-    pub fn try_into_stacks_address(self) -> Option<StacksAddress> {
-        match self {
-            PoxAddress::Standard(addr, _) => Some(addr),
-        }
-    }
-}
-
 #[repr(u8)]
 pub enum StoreType {
     DataMap = 0x00,
@@ -339,7 +150,7 @@ pub trait BurnStateDB {
         &self,
         height: u32,
         sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)>;
+    ) -> Option<(Vec<TupleData>, u128)>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -428,7 +239,7 @@ impl BurnStateDB for &dyn BurnStateDB {
         &self,
         height: u32,
         sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         (*self).get_pox_payout_addrs(height, sortition_id)
     }
 }
@@ -563,7 +374,7 @@ impl BurnStateDB for NullBurnStateDB {
         &self,
         _height: u32,
         _sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         None
     }
 }
@@ -1030,7 +841,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_pox_payout_addrs_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         let sortition_id = self.get_sortition_id_for_stacks_tip()?;
         self.burn_state_db
             .get_pox_payout_addrs(burnchain_block_height, &sortition_id)

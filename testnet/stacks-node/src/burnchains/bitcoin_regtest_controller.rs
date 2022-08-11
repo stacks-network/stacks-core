@@ -41,7 +41,7 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::address::PoxAddressExtensions;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::util::hash::{hex_bytes, Hash160};
@@ -58,7 +58,6 @@ use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
 
-use clarity::vm::PoxAddress;
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
 use stacks::types::chainstate::BurnchainHeaderHash;

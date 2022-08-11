@@ -34,6 +34,7 @@ use rusqlite::{Error as sqlite_error, OptionalExtension};
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
@@ -74,7 +75,6 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use clarity::vm::PoxAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;

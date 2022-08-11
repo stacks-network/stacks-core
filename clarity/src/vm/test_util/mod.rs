@@ -4,8 +4,7 @@ use crate::vm::execute as vm_execute;
 use crate::vm::execute_on_network as vm_execute_on_network;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::StandardPrincipalData;
-use crate::vm::types::{PrincipalData, ResponseData, Value};
-use crate::vm::PoxAddress;
+use crate::vm::types::{PrincipalData, ResponseData, TupleData, Value};
 use crate::vm::StacksEpoch;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
@@ -230,7 +229,14 @@ impl BurnStateDB for UnitTestBurnStateDB {
         &self,
         _height: u32,
         _sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
-        Some((vec![PoxAddress::standard_burn_address(false)], 123))
+    ) -> Option<(Vec<TupleData>, u128)> {
+        Some((
+            vec![TupleData::from_data(vec![
+                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+            ])
+            .unwrap()],
+            123,
+        ))
     }
 }

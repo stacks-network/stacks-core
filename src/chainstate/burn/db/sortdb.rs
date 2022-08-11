@@ -50,6 +50,7 @@ use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHa
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::marf::MarfConnection;
@@ -74,7 +75,6 @@ use crate::util_lib::db::{
 };
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::Value;
-use clarity::vm::PoxAddress;
 
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::get_epoch_time_secs;

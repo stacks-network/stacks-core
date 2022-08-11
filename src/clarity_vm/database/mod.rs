@@ -29,7 +29,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use clarity::vm::database::SpecialCaseHandler;
-use clarity::vm::PoxAddress;
+use clarity::vm::types::TupleData;
 use stacks_common::types::chainstate::ConsensusHash;
 
 pub mod marf;
@@ -293,7 +293,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         &self,
         height: u32,
         sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         let get_from = match get_ancestor_sort_id_tx(self, height.into(), sortition_id)
             .expect("FATAL: failed to query sortition DB")
         {
@@ -303,10 +303,19 @@ impl BurnStateDB for SortitionHandleTx<'_> {
             }
         };
 
-        let addrs_and_payout = self
+        let (pox_addrs, payout) = self
             .get_reward_set_payouts_at(&get_from)
             .expect("FATAL: failed to query payouts");
-        Some(addrs_and_payout)
+
+        let addrs = pox_addrs
+            .into_iter()
+            .map(|addr| {
+                addr.as_clarity_tuple()
+                    .expect("FATAL: sortition DB did not store hash mode for PoX address")
+            })
+            .collect();
+
+        Some((addrs, payout))
     }
 }
 
@@ -384,7 +393,7 @@ impl BurnStateDB for SortitionDBConn<'_> {
         &self,
         height: u32,
         sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         let get_from = match get_ancestor_sort_id(self, height.into(), sortition_id)
             .expect("FATAL: failed to query sortition DB")
         {
@@ -394,10 +403,19 @@ impl BurnStateDB for SortitionDBConn<'_> {
             }
         };
 
-        let addrs_and_payout = self
+        let (pox_addrs, payout) = self
             .get_reward_set_payouts_at(&get_from)
             .expect("FATAL: failed to query payouts");
-        Some(addrs_and_payout)
+
+        let addrs = pox_addrs
+            .into_iter()
+            .map(|addr| {
+                addr.as_clarity_tuple()
+                    .expect("FATAL: sortition DB did not store hash mode for PoX address")
+            })
+            .collect();
+
+        Some((addrs, payout))
     }
 }
 

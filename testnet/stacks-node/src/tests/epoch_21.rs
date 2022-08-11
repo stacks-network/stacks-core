@@ -28,6 +28,8 @@ use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::operations::PreStxOp;
 use stacks::chainstate::burn::operations::TransferStxOp;
 
+use stacks::chainstate::stacks::address::PoxAddress;
+
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
@@ -47,7 +49,6 @@ use stacks::clarity_cli::vm_execute as execute;
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ClarityVersion;
-use clarity::vm::PoxAddress;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;

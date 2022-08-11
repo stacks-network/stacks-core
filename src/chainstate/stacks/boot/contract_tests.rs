@@ -4,6 +4,7 @@ use std::convert::TryInto;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_TESTNET_CODE,
@@ -420,7 +421,7 @@ impl BurnStateDB for TestSimBurnStateDB {
         &self,
         height: u32,
         sortition_id: &SortitionId,
-    ) -> Option<(Vec<PoxAddress>, u128)> {
+    ) -> Option<(Vec<TupleData>, u128)> {
         if let Some(_) = self.get_burn_header_hash(height, sortition_id) {
             let first_block = self.get_burn_start_height();
             let prepare_len = self.get_pox_prepare_length();
@@ -431,12 +432,21 @@ impl BurnStateDB for TestSimBurnStateDB {
                 prepare_len.into(),
                 height.into(),
             ) {
-                Some((vec![PoxAddress::standard_burn_address(false)], 123))
+                Some((
+                    vec![PoxAddress::standard_burn_address(false)
+                        .as_clarity_tuple()
+                        .unwrap()],
+                    123,
+                ))
             } else {
                 Some((
                     vec![
-                        PoxAddress::standard_burn_address(false),
-                        PoxAddress::standard_burn_address(false),
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
                     ],
                     123,
                 ))

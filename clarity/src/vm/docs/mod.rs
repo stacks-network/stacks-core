@@ -2260,9 +2260,10 @@ mod test {
         database::{BurnStateDB, HeadersDB, STXBalance},
         eval_all, execute,
         types::PrincipalData,
-        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker, PoxAddress,
+        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
+    use stacks_common::hash::hex_bytes;
     use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
 
     use super::make_all_api_reference;
@@ -2404,19 +2405,19 @@ mod test {
             &self,
             height: u32,
             sortition_id: &SortitionId,
-        ) -> Option<(Vec<PoxAddress>, u128)> {
+        ) -> Option<(Vec<TupleData>, u128)> {
+            // (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
+
             Some((
                 vec![
-                    PoxAddress::Standard(
-                        StacksAddress::from_string("SPWNYDJ3STG7XH7ERWXMV6MQ7Q6EATWVY5Q1QMP8")
-                            .unwrap(),
-                        Some(AddressHashMode::SerializeP2PKH),
-                    ),
-                    PoxAddress::Standard(
-                        StacksAddress::from_string("SM1Y6EXF21RZ9739DFTEQKB1H044BMM0XVCM4A4NY")
-                            .unwrap(),
-                        Some(AddressHashMode::SerializeP2SH),
-                    ),
+                    TupleData::from_data(vec![
+                        "version": Value::buff_from(vec![0u8]).unwrap(),
+                        "hashbytes": Value::buff_from(hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap(),
+                    ]).unwrap(),
+                    Tupledata::from_data(vec![
+                        "version": Value::buff_from(vec![1u8]).unwrap(),
+                        "hashbytes": Value::buff_from(hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap()).unwrap(),
+                    ]).unwrap()
                 ],
                 123,
             ))

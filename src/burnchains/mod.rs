@@ -29,6 +29,7 @@ use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
@@ -57,8 +58,6 @@ use self::bitcoin::{
 };
 
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
-
-use clarity::vm::PoxAddress;
 
 /// This module contains drivers and types for all burn chains we support.
 pub mod bitcoin;

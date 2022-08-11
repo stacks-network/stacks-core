@@ -404,8 +404,8 @@ mod tests {
     use crate::burnchains::PoxConstants;
     use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::*;
-    use clarity::vm::PoxAddress;
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;

@@ -54,6 +54,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::StacksEpoch;
 use crate::core::MINING_COMMITMENT_WINDOW;
@@ -84,8 +85,6 @@ use crate::core::STACKS_2_0_LAST_BLOCK_TO_PROCESS;
 use crate::types::chainstate::{BurnchainHeaderHash, PoxId};
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
-
-use clarity::vm::PoxAddress;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {

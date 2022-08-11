@@ -29,6 +29,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
@@ -42,8 +43,6 @@ use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use crate::types::chainstate::VRFSeed;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
-
-use clarity::vm::PoxAddress;
 
 // return type from parse_data below
 struct ParsedData {
@@ -326,6 +325,7 @@ mod tests {
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use stacks_common::address::AddressHashMode;
@@ -337,8 +337,6 @@ mod tests {
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
-
-    use clarity::vm::PoxAddress;
 
     use super::*;
 

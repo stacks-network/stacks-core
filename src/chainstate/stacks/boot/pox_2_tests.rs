@@ -5,6 +5,7 @@ use std::convert::TryInto;
 use crate::address::AddressHashMode;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };

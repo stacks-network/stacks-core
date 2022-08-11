@@ -860,29 +860,23 @@ pub fn special_get_burn_block_info(
                 .get_pox_payout_addrs_for_burnchain_height(height_value);
 
             match pox_addrs_and_payout {
-                Some((pox_addrs, payout)) => {
-                    // extract to { version: ..., hashbytes: ... }, just as we have in .pox-2
-                    let mut addrs = vec![];
-                    for pox_addr in pox_addrs {
-                        let addr_tuple = pox_addr
-                            .as_clarity_tuple()
-                            .expect("FATAL: no address hash mode set");
-                        let addr = Value::Tuple(addr_tuple);
-                        addrs.push(addr);
-                    }
-                    Ok(Value::some(Value::Tuple(
-                        TupleData::from_data(vec![
-                            (
-                                "addrs".into(),
-                                Value::list_from(addrs)
-                                    .expect("FATAL: could not convert address list to Value"),
-                            ),
-                            ("payout".into(), Value::UInt(payout)),
-                        ])
-                        .expect("FATAL: failed to build pox addrs and payout tuple"),
-                    ))
-                    .expect("FATAL: could not build Some(..)"))
-                }
+                Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
+                    TupleData::from_data(vec![
+                        (
+                            "addrs".into(),
+                            Value::list_from(
+                                addrs
+                                    .into_iter()
+                                    .map(|addr_tuple| Value::Tuple(addr_tuple))
+                                    .collect(),
+                            )
+                            .expect("FATAL: could not convert address list to Value"),
+                        ),
+                        ("payout".into(), Value::UInt(payout)),
+                    ])
+                    .expect("FATAL: failed to build pox addrs and payout tuple"),
+                ))
+                .expect("FATAL: could not build Some(..)")),
                 None => Ok(Value::none()),
             }
         }

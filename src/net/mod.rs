@@ -2071,6 +2071,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
@@ -2097,7 +2098,6 @@ pub mod test {
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
-    use clarity::vm::PoxAddress;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;

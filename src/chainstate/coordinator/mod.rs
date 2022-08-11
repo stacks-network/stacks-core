@@ -32,6 +32,7 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     db::{
@@ -58,7 +59,6 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::PoxAddress;
 
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 
