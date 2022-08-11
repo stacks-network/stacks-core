@@ -89,15 +89,18 @@ use self::diagnostic::Diagnostic;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
+#[derive(Debug, Clone)]
+pub struct ParsedContract {
+    pub contract_identifier: String,
+    pub code: String,
+    pub function_args: BTreeMap<String, Vec<String>>,
+    pub ast: ContractAST,
+    pub analysis: ContractAnalysis,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct ExecutionResult {
-    pub contract: Option<(
-        String,
-        String,
-        BTreeMap<String, Vec<String>>,
-        ContractAST,
-        ContractAnalysis,
-    )>,
+    pub contract: Option<ParsedContract>,
     pub result: Option<Value>,
     pub events: Vec<serde_json::Value>,
     pub cost: Option<CostSynthesis>,
