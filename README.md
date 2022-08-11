@@ -4,8 +4,6 @@ Reference implementation of the [Stacks blockchain](https://github.com/stacks-ne
 
 Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and enables decentralized apps and predictable smart contracts. Stacks 2.0 implements [Proof of Transfer (PoX)](https://community.stacks.org/pox) mining that anchors to Bitcoin security. Leader election happens at the Bitcoin blockchain and Stacks (STX) miners write new blocks on the separate Stacks blockchain. With PoX there is no need to modify Bitcoin to enable smart contracts and apps around it. See [this page](https://github.com/stacks-network/stacks) for more details and resources.
 
-[![CircleCI](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master)
-
 ### Platform support
 
 Officially supported platforms: `Linux 64-bit`, `MacOS 64-bit`, `Windows 64-bit`.
