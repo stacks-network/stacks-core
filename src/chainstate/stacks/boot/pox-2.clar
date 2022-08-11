@@ -73,7 +73,9 @@
         ;; how long the uSTX are locked, in reward cycles.
         lock-period: uint,
         ;; reward cycle when rewards begin
-        first-reward-cycle: uint
+        first-reward-cycle: uint,
+        ;; indexes in each reward-set associated with this user
+        reward-set-indexes: (list 12 uint)
     }
 )
 
@@ -109,7 +111,8 @@
     { reward-cycle: uint, index: uint }
     {
         pox-addr: { version: (buff 1), hashbytes: (buff 20) },
-        total-ustx: uint
+        total-ustx: uint,
+        stacker: (optional principal)
     }
 )
 
@@ -234,20 +237,19 @@
 ;; Add a single PoX address to a single reward cycle.
 ;; Used to build up a set of per-reward-cycle PoX addresses.
 ;; No checking will be done -- don't call if this PoX address is already registered in this reward cycle!
+;; Returns the index into the reward cycle that the PoX address is stored to
 (define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                               (reward-cycle uint)
-                                              (amount-ustx uint))
-    (let (
-        (sz (get-reward-set-size reward-cycle))
-    )
-    (map-set reward-cycle-pox-address-list
-        { reward-cycle: reward-cycle, index: sz }
-        { pox-addr: pox-addr, total-ustx: amount-ustx })
-    (map-set reward-cycle-pox-address-list-len
-        { reward-cycle: reward-cycle }
-        { len: (+ u1 sz) })
-    (+ u1 sz))
-)
+                                              (amount-ustx uint)
+                                              (stacker (optional principal)))
+    (let ((sz (get-reward-set-size reward-cycle)))
+        (map-set reward-cycle-pox-address-list
+            { reward-cycle: reward-cycle, index: sz }
+            { pox-addr: pox-addr, total-ustx: amount-ustx, stacker: stacker })
+        (map-set reward-cycle-pox-address-list-len
+            { reward-cycle: reward-cycle }
+            { len: (+ u1 sz) })
+    sz))
 
 ;; How many uSTX are stacked?
 (define-read-only (get-total-ustx-stacked (reward-cycle uint))
@@ -269,34 +271,42 @@
 ;;  the pox-addr was added to the given cycle. 
 (define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
                                                             (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                            (reward-set-indexes (list 12 uint))
                                                             (first-reward-cycle uint)
                                                             (num-cycles uint)
+                                                            (stacker (optional principal))
                                                             (amount-ustx uint)
                                                             (i uint))))
     (let ((reward-cycle (+ (get first-reward-cycle params) (get i params)))
           (num-cycles (get num-cycles params))
-          (i (get i params)))
+          (i (get i params))
+          (reward-set-index (if (< i num-cycles)
+            (let ((total-ustx (get-total-ustx-stacked reward-cycle))
+                  (reward-index
+                      ;; record how many uSTX this pox-addr will stack for in the given reward cycle
+                      (append-reward-cycle-pox-addr
+                        (get pox-addr params)
+                        reward-cycle
+                        (get amount-ustx params)
+                        (get stacker params)
+                        )))
+                  ;; update running total
+                  (map-set reward-cycle-total-stacked
+                     { reward-cycle: reward-cycle }
+                     { total-ustx: (+ (get amount-ustx params) total-ustx) })
+                  (some reward-index))
+            none))
+          (next-i (if (< i num-cycles) (+ i u1) (+ i u0))))
     {
         pox-addr: (get pox-addr params),
         first-reward-cycle: (get first-reward-cycle params),
         num-cycles: num-cycles,
         amount-ustx: (get amount-ustx params),
-        i: (if (< i num-cycles)
-            (let ((total-ustx (get-total-ustx-stacked reward-cycle)))
-              ;; record how many uSTX this pox-addr will stack for in the given reward cycle
-              (append-reward-cycle-pox-addr
-                (get pox-addr params)
-                reward-cycle
-                (get amount-ustx params))
-
-              ;; update running total
-              (map-set reward-cycle-total-stacked
-                 { reward-cycle: reward-cycle }
-                 { total-ustx: (+ (get amount-ustx params) total-ustx) })
-
-              ;; updated _this_ reward cycle
-              (+ i u1))
-            (+ i u0))
+        stacker: (get stacker params),
+        reward-set-indexes: (match 
+            reward-set-index new (unwrap-panic (as-max-len? (append (get reward-set-indexes params) new) u12))
+            (get reward-set-indexes params)),
+        i: next-i
     }))
 
 ;; Add a PoX address to a given sequence of reward cycle lists.
@@ -305,16 +315,17 @@
 (define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                (first-reward-cycle uint)
                                                (num-cycles uint)
-                                               (amount-ustx uint))
-  (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11)))
+                                               (amount-ustx uint)
+                                               (stacker principal))
+  (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
+        (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
+                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, 
+                           reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) })))
     ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
     ;; It _should_ be equal to num-cycles.
-    (asserts! 
-     (is-eq num-cycles 
-                 (get i (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
-                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx, i: u0 })))
-     (err ERR_STACKING_UNREACHABLE))
-    (ok true)))
+    (asserts! (is-eq num-cycles (get i results)) (err ERR_STACKING_UNREACHABLE))
+    (asserts! (is-eq num-cycles (len (get reward-set-indexes results))) (err ERR_STACKING_UNREACHABLE))
+    (ok (get reward-set-indexes results))))
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
                  (cycle-index uint)
@@ -479,19 +490,18 @@
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
       ;; register the PoX address with the amount stacked
-      (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx))
+      (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender))))
+          ;; add stacker record
+         (map-set stacking-state
+           { stacker: tx-sender }
+           { amount-ustx: amount-ustx,
+             pox-addr: pox-addr,
+             reward-set-indexes: reward-set-indexes,
+             first-reward-cycle: first-reward-cycle,
+             lock-period: lock-period })
 
-      ;; add stacker record
-      (map-set stacking-state
-        { stacker: tx-sender }
-        { amount-ustx: amount-ustx,
-          pox-addr: pox-addr,
-          first-reward-cycle: first-reward-cycle,
-          lock-period: lock-period })
-
-      ;; return the lock-up information, so the node can actually carry out the lock. 
-      (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))
-)
+          ;; return the lock-up information, so the node can actually carry out the lock. 
+          (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
 
 (define-public (revoke-delegate-stx)
   (begin
@@ -557,6 +567,8 @@
        { pox-addr: pox-addr,
          first-reward-cycle: reward-cycle,
          num-cycles: u1,
+         reward-set-indexes: (list),
+         stacker: none,
          amount-ustx: amount-ustx,
          i: u0 })
       ;; don't update the stacking-state map,
@@ -628,6 +640,7 @@
         { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
           first-reward-cycle: first-reward-cycle,
+          reward-set-indexes: (list),
           lock-period: lock-period })
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
@@ -728,18 +741,18 @@
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
-      (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx))
+      (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender))))
+          ;; update stacker record
+          (map-set stacking-state
+            { stacker: tx-sender }
+            { amount-ustx: amount-ustx,
+              pox-addr: pox-addr,
+              reward-set-indexes: reward-set-indexes,
+              first-reward-cycle: cur-cycle,
+              lock-period: lock-period })
 
-      ;; update stacker record
-      (map-set stacking-state
-        { stacker: tx-sender }
-        { amount-ustx: amount-ustx,
-          pox-addr: pox-addr,
-          first-reward-cycle: first-extend-cycle,
-          lock-period: lock-period })
-
-      ;; return lock-up information
-      (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht }))))
+        ;; return lock-up information
+        (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
 
 ;; As a delegator, extend an active stacking lock, issuing a "partial commitment" for the
 ;;   extended-to cycles.
@@ -817,6 +830,7 @@
         { stacker: stacker }
         { amount-ustx: amount-ustx,
           pox-addr: pox-addr,
+          reward-set-indexes: (list),
           first-reward-cycle: first-extend-cycle,
           lock-period: lock-period })
 
