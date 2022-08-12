@@ -32,6 +32,10 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
+[[bin]]
+name = "stacks-events"
+path = "src/stacks_events_main.rs"
+
 [[bench]]
 name = "marf_bench"
 harness = false

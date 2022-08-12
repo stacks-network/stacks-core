@@ -656,10 +656,9 @@ impl Config {
                         .map(|e| EventKeyType::from_string(e).unwrap())
                         .collect();
 
-                    let endpoint = format!("{}", observer.endpoint);
-
                     observers.push(EventObserverConfig {
-                        endpoint,
+                        endpoint: observer.endpoint,
+                        archive: observer.archive,
                         events_keys,
                     });
                 }
@@ -671,7 +670,8 @@ impl Config {
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
             Ok(val) => events_observers.push(EventObserverConfig {
-                endpoint: val,
+                endpoint: Some(val),
+                archive: None,
                 events_keys: vec![EventKeyType::AnyEvent],
             }),
             _ => (),
@@ -1628,13 +1628,15 @@ pub struct MinerConfigFile {
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct EventObserverConfigFile {
-    pub endpoint: String,
+    pub endpoint: Option<String>,
+    pub archive: Option<String>,
     pub events_keys: Vec<String>,
 }
 
 #[derive(Clone, Default, Debug)]
 pub struct EventObserverConfig {
-    pub endpoint: String,
+    pub endpoint: Option<String>,
+    pub archive: Option<String>,
     pub events_keys: Vec<EventKeyType>,
 }
 
