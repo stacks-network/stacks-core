@@ -16,6 +16,30 @@
       "cwd": "${workspaceFolder}"
     },
     {
+        "type": "lldb",
+        "request": "launch",
+        "name": "executable 'stacks-inspect tip-mine'",
+        "cargo": {
+            "args": [
+                "build",
+                "--no-default-features",
+                "--bin=stacks-inspect",
+                "--package=blockstack-core"
+            ],
+            "filter": {
+                "name": "stacks-inspect",
+                "kind": "bin"
+            },
+        },
+        "args": [
+            "tip-mine",
+            "/Users/igor/w/stacks-work/",
+            "60000",
+        ],
+        "cwd": "${workspaceFolder}",
+        "externalConsole": false,
+    },
+    {
       "type": "lldb",
       "request": "launch",
       "name": "executable 'clarity-cli'",
