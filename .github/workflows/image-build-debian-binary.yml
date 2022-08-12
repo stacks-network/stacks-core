@@ -1,7 +1,11 @@
+##
+## Build the Docker Debian image from the pre-built downloaded binary asset
+##
+
 name: Build Linux Binary Image
 
-env:
-  REPO_OWNER: stacks-network
+# Only run when:
+#   - manually triggered via the ci.yml workflow
 
 on:
   workflow_call:
@@ -32,6 +36,7 @@ on:
 
 jobs:
   image:
+    # Only run if a tag is provided manually
     if: ${{ inputs.tag != '' }}
     name: Build Image
     runs-on: ubuntu-latest
@@ -58,7 +63,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ env.REPO_OWNER }}/${{ github.event.repository.name }}
+            ${{ github.repository }}
           tags: |
             type=raw,value=latest-${{ inputs.linux_version }},enable=${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) )}}
             type=raw,value=${{ inputs.tag }}-${{ inputs.linux_version }},enable=${{ inputs.tag != '' }}
@@ -83,5 +88,4 @@ jobs:
             STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-            BUILDKIT_PROGRESS=plain
           push: true

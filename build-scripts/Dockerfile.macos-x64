@@ -12,9 +12,11 @@ COPY . .
 
 RUN apt-get update && apt-get install -y clang zstd
 
+# Retrieve and install osxcross 
 RUN wget -nc -O /tmp/osxcross.tar.zst ${OSXCROSS} \
     && mkdir -p /opt/osxcross && tar -xaf /tmp/osxcross.tar.zst -C /opt/osxcross
 
+# Run all the build steps in ramdisk in an attempt to speed things up
 RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cd ${BUILD_DIR} \
     && rustup target add ${TARGET} \

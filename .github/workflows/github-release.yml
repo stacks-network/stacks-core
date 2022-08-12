@@ -33,6 +33,7 @@ jobs:
         with:
           name: artifact
           path: release
+      # Generate a checksums file to be added to the release page
       - name: Generate Checksums
         id: generate_checksum
         uses: jmgilman/actions-generate-checksum@v1
@@ -40,10 +41,7 @@ jobs:
           output: CHECKSUMS.txt
           patterns: |
             release/*.zip
-      - name: Display artifact files
-        id: list_artifacts
-        run: ls -R
-        working-directory: release
+      # Upload the release archives with the checksums file
       - name: Upload Release
         id: upload_release
         uses: softprops/action-gh-release@v1

@@ -12,6 +12,7 @@ ARG REPO=stacks-network/stacks-blockchain
 RUN case ${TARGETARCH} in \
     "amd64")  BIN_ARCH=linux-musl-x64  ;; \
     "arm64")  BIN_ARCH=linux-musl-arm64  ;; \
+    "*") exit 1 ;; \
     esac \
     && echo "wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
     && wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \

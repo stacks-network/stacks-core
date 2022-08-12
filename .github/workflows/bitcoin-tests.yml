@@ -9,8 +9,6 @@ name: Bitcoin Integration Tests
 
 on:
   pull_request:
-    branches:
-      - master
     types:
       - opened
       - reopened

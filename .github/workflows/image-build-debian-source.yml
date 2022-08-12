@@ -4,9 +4,6 @@
 
 name: Build Linux Source Image
 
-env:
-  REPO_OWNER: stacks-network
-
 # Only run when:
 #   - workflow is manually triggered
 #   - manually triggered via the ci.yml workflow
@@ -68,7 +65,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ env.REPO_OWNER }}/${{ github.event.repository.name }}
+            ${{ github.repository }}
           tags: |
             type=raw,value=${{ env.BRANCH_NAME }}-${{ inputs.linux_version }}
             type=ref,event=pr

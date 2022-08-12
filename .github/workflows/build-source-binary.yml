@@ -30,9 +30,9 @@ jobs:
     name: Create Artifacts
     runs-on: ubuntu-latest
     strategy:
-      max-parallel: ${{ inputs.parallel_jobs}}
+      max-parallel: ${{ inputs.parallel_jobs }}
       matrix:
-        platform: ${{fromJson(inputs.arch)}}
+        platform: ${{ fromJson(inputs.arch) }}
     steps:
       - name: Checkout the latest code
         id: git_checkout
