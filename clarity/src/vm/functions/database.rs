@@ -990,11 +990,15 @@ pub fn special_get_burn_block_info(
 
             match burnchain_header_hash_opt {
                 Some(burnchain_header_hash) => {
+                    println!("some case");
                     Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
                     })))
                 }
-                None => Ok(Value::none()),
+                None => {
+                    println!("none");
+                    Ok(Value::none())
+                }
             }
         }
         BurnBlockInfoProperty::PoxAddrs => {
