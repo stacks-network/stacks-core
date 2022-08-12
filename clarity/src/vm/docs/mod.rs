@@ -2263,8 +2263,8 @@ mod test {
         ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
-    use stacks_common::hash::hex_bytes;
     use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::util::hash::hex_bytes;
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
@@ -2272,6 +2272,7 @@ mod test {
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::Address;
     use crate::vm::analysis::type_check;
+    use crate::vm::types::TupleData;
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
     use crate::{
         types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash},
@@ -2411,13 +2412,27 @@ mod test {
             Some((
                 vec![
                     TupleData::from_data(vec![
-                        "version": Value::buff_from(vec![0u8]).unwrap(),
-                        "hashbytes": Value::buff_from(hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap(),
-                    ]).unwrap(),
-                    Tupledata::from_data(vec![
-                        "version": Value::buff_from(vec![1u8]).unwrap(),
-                        "hashbytes": Value::buff_from(hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap()).unwrap(),
-                    ]).unwrap()
+                        ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                        (
+                            "hashbytes".into(),
+                            Value::buff_from(
+                                hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                    ])
+                    .unwrap(),
+                    TupleData::from_data(vec![
+                        ("version".into(), Value::buff_from(vec![1u8]).unwrap()),
+                        (
+                            "hashbytes".into(),
+                            Value::buff_from(
+                                hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                    ])
+                    .unwrap(),
                 ],
                 123,
             ))
