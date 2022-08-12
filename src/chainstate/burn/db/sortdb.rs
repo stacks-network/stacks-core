@@ -476,6 +476,9 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         accumulated_coinbase_ustx TEXT NOT NULL,
 
+        -- JSON-serialized total PoX payouts
+        pox_payouts TEXT NOT NULL,
+
         PRIMARY KEY(sortition_id)
     );"#,
     r#"
@@ -717,7 +720,7 @@ pub fn get_ancestor_sort_id<C: SortitionContext>(
 }
 
 pub fn get_ancestor_sort_id_tx<C: SortitionContext>(
-    ic: &IndexDBTx<'_, C, SortitionId>,
+    ic: &mut IndexDBTx<'_, C, SortitionId>,
     block_height: u64,
     tip_block_hash: &SortitionId,
 ) -> Result<Option<SortitionId>, db_error> {
@@ -1272,11 +1275,16 @@ impl<'a> SortitionHandleTx<'a> {
         &self,
         sortition_id: &SortitionId,
     ) -> Result<(Vec<PoxAddress>, u128), db_error> {
-        self.get_indexed(sortition_id, &db_keys::pox_reward_set_payouts_key())
-            .map(|x| db_keys::pox_reward_set_payouts_decode(&x.unwrap()))
+        let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
+
+        let pox_addrs: (Vec<PoxAddress>, u128) =
+            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        Ok(pox_addrs)
     }
 
-    pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
+    pub fn get_reward_set_size_at(&mut self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
                 db_keys::reward_set_size_from_string(
@@ -1286,7 +1294,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     pub fn get_reward_set_entry_at(
-        &self,
+        &mut self,
         sortition_id: &SortitionId,
         entry_ix: u16,
     ) -> Result<PoxAddress, db_error> {
@@ -1299,11 +1307,11 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(PoxAddress::from_db_string(&entry_str).expect("FATAL: could not decode PoX address"))
     }
 
-    fn get_reward_set_entry(&self, entry_ix: u16) -> Result<PoxAddress, db_error> {
+    fn get_reward_set_entry(&mut self, entry_ix: u16) -> Result<PoxAddress, db_error> {
         self.get_reward_set_entry_at(&self.context.chain_tip.clone(), entry_ix)
     }
 
-    fn get_reward_set_size(&self) -> Result<u16, db_error> {
+    fn get_reward_set_size(&mut self) -> Result<u16, db_error> {
         self.get_reward_set_size_at(&self.context.chain_tip.clone())
     }
 
@@ -2377,11 +2385,11 @@ impl SortitionDB {
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
-        let index_root =
+        let (index_root, pox_payout) =
             db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
-        db_tx.insert_block_snapshot(&first_snapshot)?;
+        db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
         db_tx.store_transition_ops(
             &first_snapshot.sortition_id,
             &BurnchainStateTransition::noop(),
@@ -2457,11 +2465,11 @@ impl SortitionDB {
 
         let mut first_sn = first_snapshot.clone();
         first_sn.sortition_id = SortitionId::sentinel();
-        let index_root =
+        let (index_root, pox_payout) =
             db_tx.index_add_fork_info(&mut first_sn, &first_snapshot, &vec![], None, None, None)?;
         first_snapshot.index_root = index_root;
 
-        db_tx.insert_block_snapshot(&first_snapshot)?;
+        db_tx.insert_block_snapshot(&first_snapshot, pox_payout)?;
         db_tx.store_transition_ops(
             &first_snapshot.sortition_id,
             &BurnchainStateTransition::noop(),
@@ -2792,7 +2800,7 @@ impl<'a> SortitionDBConn<'a> {
         Ok(ancestor_opt)
     }
 
-    pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
+    pub fn get_reward_set_size_at(&mut self, sortition_id: &SortitionId) -> Result<u16, db_error> {
         self.get_indexed(sortition_id, &db_keys::pox_reward_set_size())
             .map(|x| {
                 db_keys::reward_set_size_from_string(
@@ -2802,7 +2810,7 @@ impl<'a> SortitionDBConn<'a> {
     }
 
     pub fn get_reward_set_entry_at(
-        &self,
+        &mut self,
         sortition_id: &SortitionId,
         entry_ix: u16,
     ) -> Result<PoxAddress, db_error> {
@@ -2819,8 +2827,14 @@ impl<'a> SortitionDBConn<'a> {
         &self,
         sortition_id: &SortitionId,
     ) -> Result<(Vec<PoxAddress>, u128), db_error> {
-        self.get_indexed(sortition_id, &db_keys::pox_reward_set_payouts_key())
-            .map(|x| db_keys::pox_reward_set_payouts_decode(&x.unwrap()))
+        let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
+        let args: &[&dyn ToSql] = &[sortition_id];
+        let pox_addrs_json: String =
+            query_row(self.conn(), sql, args)?.ok_or(db_error::NotFoundError)?;
+
+        let pox_addrs: (Vec<PoxAddress>, u128) =
+            serde_json::from_str(&pox_addrs_json).expect("FATAL: failed to decode pox payout JSON");
+        Ok(pox_addrs)
     }
 }
 
@@ -3853,7 +3867,7 @@ impl<'a> SortitionHandleTx<'a> {
         }
 
         let mut parent_sn = parent_snapshot.clone();
-        let root_hash = self.index_add_fork_info(
+        let (root_hash, pox_payout) = self.index_add_fork_info(
             &mut parent_sn,
             snapshot,
             block_ops,
@@ -3870,7 +3884,7 @@ impl<'a> SortitionHandleTx<'a> {
         sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
         sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
 
-        self.insert_block_snapshot(&sn)?;
+        self.insert_block_snapshot(&sn, pox_payout)?;
 
         for block_op in block_ops {
             self.store_burnchain_transaction(block_op, &sn.sortition_id)?;
@@ -4215,9 +4229,16 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Insert a snapshots row from a block's-worth of operations.
     /// Do not call directly -- use append_chain_tip_snapshot to preserve the fork table structure.
-    fn insert_block_snapshot(&self, snapshot: &BlockSnapshot) -> Result<(), db_error> {
+    fn insert_block_snapshot(
+        &self,
+        snapshot: &BlockSnapshot,
+        total_pox_payouts: (Vec<PoxAddress>, u128),
+    ) -> Result<(), db_error> {
         assert!(snapshot.block_height < BLOCK_HEIGHT_MAX);
         assert!(snapshot.num_sortitions < BLOCK_HEIGHT_MAX);
+
+        let pox_payouts_json = serde_json::to_string(&total_pox_payouts)
+            .expect("FATAL: could not encode `total_pox_payouts` as JSON");
 
         test_debug!(
             "Insert block snapshot state {} for block {} ({},{}) {}",
@@ -4252,17 +4273,25 @@ impl<'a> SortitionHandleTx<'a> {
             &snapshot.parent_sortition_id,
             &snapshot.pox_valid,
             &snapshot.accumulated_coinbase_ustx.to_string(),
+            &pox_payouts_json,
         ];
 
         self.execute("INSERT INTO snapshots \
                       (block_height, burn_header_hash, burn_header_timestamp, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root, num_sortitions, \
-                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)", args)
+                      stacks_block_accepted, stacks_block_height, arrival_index, canonical_stacks_tip_height, canonical_stacks_tip_hash, canonical_stacks_tip_consensus_hash, sortition_id, parent_sortition_id, pox_valid, accumulated_coinbase_ustx, \
+                      pox_payouts) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)", args)
             .map_err(db_error::SqliteError)?;
 
         Ok(())
     }
 
+    /// Given all of a snapshot's block ops, calculate how many burnchain tokens were sent to each
+    /// PoX payout.  Note that this value is *per payout*:
+    /// * in a reward phase, multiply this by OUTPUTS_PER_COMMIT to get the total amount of tokens
+    /// sent across all miners.
+    /// * in a prepare phase, where there is only one output, this value is the total amount of
+    /// tokens sent across all miners.
     fn get_pox_payout_per_output(&self, block_ops: &[BlockstackOperationType]) -> u128 {
         let mut total = 0u128;
         for block_op in block_ops.iter() {
@@ -4312,7 +4341,7 @@ impl<'a> SortitionHandleTx<'a> {
         next_pox_info: Option<RewardCycleInfo>,
         recipient_info: Option<&RewardSetInfo>,
         initialize_bonus: Option<InitialMiningBonus>,
-    ) -> Result<TrieHash, db_error> {
+    ) -> Result<(TrieHash, (Vec<PoxAddress>, u128)), db_error> {
         if !snapshot.is_initial() {
             assert_eq!(
                 snapshot.parent_burn_header_hash,
@@ -4325,10 +4354,8 @@ impl<'a> SortitionHandleTx<'a> {
         let mut keys = vec![];
         let mut values = vec![];
 
-        let pox_payout = self.get_pox_payout_per_output(block_ops);
-
         // record each new VRF key, and each consumed VRF key
-        for block_op in block_ops {
+        for block_op in block_ops.iter() {
             if let BlockstackOperationType::LeaderKeyRegister(ref data) = block_op {
                 keys.push(db_keys::vrf_key_status(&data.public_key));
                 values.push("1".to_string()); // the value is no longer used, but the key needs to exist to figure whether a key was registered
@@ -4378,10 +4405,13 @@ impl<'a> SortitionHandleTx<'a> {
             }
         }
 
-        // if this is the start of a reward cycle, store the new PoX keys
-        if !snapshot.is_initial() {
+        // if this is the start of a reward cycle, store the new PoX keys.
+        // Get the PoX payouts while doing so.
+        let pox_payout = self.get_pox_payout_per_output(block_ops);
+        let pox_payout_addrs = if !snapshot.is_initial() {
             if let Some(reward_info) = next_pox_info {
                 let mut pox_id = self.get_pox_id()?;
+                let pox_payout_addrs;
 
                 // update the PoX bit vector with whether or not
                 //  this reward cycle is aware of its anchor (if one wasn't selected,
@@ -4424,12 +4454,10 @@ impl<'a> SortitionHandleTx<'a> {
                             assert_eq!(reward_set.remove(*ix as usize).to_burnchain_repr(), addr.to_burnchain_repr(),
                                        "BUG: Attempted to remove used address from reward set, but failed to do so safely");
                         }
-                        keys.push(db_keys::pox_reward_set_payouts_key());
-                        values.push(db_keys::pox_reward_set_payouts_value(addrs, pox_payout));
+                        pox_payout_addrs = addrs;
                     } else {
                         // no payouts
-                        keys.push(db_keys::pox_reward_set_payouts_key());
-                        values.push(db_keys::pox_reward_set_payouts_value(vec![], pox_payout));
+                        pox_payout_addrs = vec![];
                     }
 
                     keys.push(db_keys::pox_reward_set_size().to_string());
@@ -4447,13 +4475,14 @@ impl<'a> SortitionHandleTx<'a> {
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(0));
 
-                    keys.push(db_keys::pox_reward_set_payouts_key());
-                    values.push(db_keys::pox_reward_set_payouts_value(vec![], pox_payout));
+                    pox_payout_addrs = vec![];
                 }
 
                 // in all cases, write the new PoX bit vector
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());
+
+                pox_payout_addrs
             } else {
                 // if this snapshot consumed some reward set entries AND
                 //  this isn't the start of a new reward cycle,
@@ -4512,16 +4541,11 @@ impl<'a> SortitionHandleTx<'a> {
                         values.push(replace_with.to_db_string());
                     }
 
-                    // store payouts
-                    keys.push(db_keys::pox_reward_set_payouts_key());
-                    values.push(db_keys::pox_reward_set_payouts_value(
-                        payout_addrs,
-                        pox_payout,
-                    ));
+                    // reward-phase PoX payout addresses
+                    payout_addrs
                 } else {
                     // in prepare phase (no recipient info), so no payouts
-                    keys.push(db_keys::pox_reward_set_payouts_key());
-                    values.push(db_keys::pox_reward_set_payouts_value(vec![], pox_payout));
+                    vec![]
                 }
             }
         } else {
@@ -4533,9 +4557,10 @@ impl<'a> SortitionHandleTx<'a> {
             values.push(db_keys::reward_set_size_to_string(0));
             keys.push(db_keys::pox_last_anchor().to_string());
             values.push("".to_string());
-            keys.push(db_keys::pox_reward_set_payouts_key());
-            values.push(db_keys::pox_reward_set_payouts_value(vec![], 0));
-        }
+
+            // no payouts
+            vec![]
+        };
 
         // commit to all newly-arrived blocks
         let (mut block_arrival_keys, mut block_arrival_values) =
@@ -4550,8 +4575,9 @@ impl<'a> SortitionHandleTx<'a> {
             &keys,
             &values,
         )?;
+
         self.context.chain_tip = snapshot.sortition_id.clone();
-        Ok(root_hash)
+        Ok((root_hash, (pox_payout_addrs, pox_payout)))
     }
 
     /// Find all stacks blocks that were processed since parent_tip had been processed, and generate MARF
