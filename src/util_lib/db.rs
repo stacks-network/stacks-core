@@ -194,6 +194,13 @@ impl FromRow<u64> for u64 {
     }
 }
 
+impl FromRow<String> for String {
+    fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
+        let x: String = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
         let x: i64 = row.get_unwrap(column_name);
@@ -593,10 +600,9 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
-    /// Get a value from the fork index.
-    /// N.B. This will search uncommitted state, if there is any.
+    /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        let mut ro_index = self.index.reopen_uncommitted_readonly()?;
+        let mut ro_index = self.index.reopen_readonly()?;
         get_indexed(&mut ro_index, header_hash, key)
     }
 
@@ -692,7 +698,7 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
     tip_block_hash: &T,
 ) -> Result<Option<T>, Error> {
     assert!(block_height < u32::MAX as u64);
-    let mut read_only = index.reopen_uncommitted_readonly()?;
+    let mut read_only = index.reopen_readonly()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
     Ok(bh)
 }
@@ -703,7 +709,7 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
     ancestor_block_hash: &T,
     tip_block_hash: &T,
 ) -> Result<Option<u64>, Error> {
-    let mut read_only = index.reopen_uncommitted_readonly()?;
+    let mut read_only = index.reopen_readonly()?;
     let height_opt = read_only
         .get_block_height(ancestor_block_hash, tip_block_hash)?
         .map(|height| height as u64);
@@ -812,20 +818,16 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
 
     /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
     pub fn get_ancestor_block_hash(
-        &self,
+        &mut self,
         block_height: u64,
         tip_block_hash: &T,
     ) -> Result<Option<T>, Error> {
-        self.index()
-            .storage_tx()
-            .with_uncommitted_readonly(|ref mut ro_index| {
-                ro_index
-                    .get_block_at_height(
-                        block_height.try_into().expect("Height > u32::max()"),
-                        tip_block_hash,
-                    )
-                    .map_err(Error::from)
-            })?
+        self.index_mut()
+            .get_block_at_height(
+                block_height.try_into().expect("Height > u32::max()"),
+                tip_block_hash,
+            )
+            .map_err(Error::from)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
@@ -851,12 +853,9 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         Ok(marf_value)
     }
 
-    /// Get a value from the fork index.
-    /// N.B. This searches uncommitted state, if there is any.
-    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
-        self.index()
-            .storage_tx()
-            .with_uncommitted_readonly(|ref mut ro_index| get_indexed(ro_index, header_hash, key))?
+    /// Get a value from the fork index
+    pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+        get_indexed(self.index_mut(), header_hash, key)
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.

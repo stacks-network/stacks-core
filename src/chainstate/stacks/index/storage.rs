@@ -46,7 +46,6 @@ use crate::chainstate::stacks::index::cache::*;
 use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::file::TrieFileNodeHashReader;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
@@ -178,18 +177,6 @@ impl<'a, T: MarfTrieId> BlockMap for TrieStorageTransaction<'a, T> {
 
     fn get_block_id_caching(&mut self, block_hash: &T) -> Result<u32, Error> {
         self.deref_mut().get_block_id_caching(block_hash)
-    }
-}
-
-impl<'a, T: MarfTrieId> MarfConnection<T> for &mut TrieStorageTransaction<'a, T> {
-    fn with_conn<F, R>(&mut self, exec: F) -> R
-    where
-        F: FnOnce(&mut TrieStorageConnection<T>) -> R,
-    {
-        exec(&mut self.0)
-    }
-    fn sqlite_conn(&self) -> &Connection {
-        &self.0.db.deref()
     }
 }
 
@@ -1542,13 +1529,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         self.data.unconfirmed
     }
 
-    /// Returns a new TrieFileStorage in read-only mode.  A disposable copy of all of the transient
-    /// data will be made.  No benchmark or cache data will be preserved.
-    ///
-    /// All uncommitted state will be available in the resulting TrieFileStorage.
+    /// Returns a new TrieFileStorage in read-only mode.
     ///
     /// Returns Err if the underlying SQLite database connection cannot be created.
-    pub fn reopen_uncommitted_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
@@ -1611,11 +1595,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 }
 
 impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
-    /// Reopen this transaction as a read-only marf, showing only the committed state.
-    /// This _does not_ preserve the cur_block/open tip (and this is *consensus-critical*
-    /// behavior).  That is, no transient or uncommitted data will be preserved (and no cache data
-    /// or benchmark data will be copied over either).
-    pub fn reopen_committed_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+    /// reopen this transaction as a read-only marf.
+    ///  _does not_ preserve the cur_block/open tip
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
@@ -1666,74 +1648,6 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         };
 
         Ok(ret)
-    }
-
-    /// Do something in this transaction but read-only, against all state (including uncommitted
-    /// state).  Any attempts to write will be treated as runtime errors.
-    ///
-    /// `todo` will run against a disposable copy of the internal transient data.  This is
-    /// *different* from `reopen_committed_readonly()`, in which the returned storage instance does _not_
-    /// contain any transient or uncommitted data.  Node and trie ancestor hash caches will be
-    /// cloned and placed into the transient data, but any updates to these caches will not
-    /// propagate back to the `TrieStorageConnection` that spawned them.
-    pub fn with_uncommitted_readonly<F, R>(&self, todo: F) -> Result<R, Error>
-    where
-        F: FnOnce(&mut TrieStorageTransaction<T>) -> R,
-    {
-        let mut blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true)?)
-        } else {
-            None
-        };
-
-        // make stand-alone state
-        let db_path_str = self.db_path.to_string();
-        let mut cache = self.cache.clone();
-        let mut bench = TrieBenchmark::new();
-        let ancestor_hash_cache = self.data.trie_ancestor_hash_bytes_cache.clone();
-        let mut storage_data = TrieStorageTransientData {
-            uncommitted_writes: self.data.uncommitted_writes.clone(),
-            cur_block: self.data.cur_block.clone(),
-            cur_block_id: self.data.cur_block_id.clone(),
-
-            read_count: 0,
-            read_backptr_count: 0,
-            read_node_count: 0,
-            read_leaf_count: 0,
-
-            write_count: 0,
-            write_node_count: 0,
-            write_leaf_count: 0,
-
-            trie_ancestor_hash_bytes_cache: ancestor_hash_cache,
-
-            readonly: true,
-            unconfirmed: self.unconfirmed(),
-        };
-
-        #[cfg(test)]
-        let mut test_genesis_block = self.test_genesis_block.clone();
-
-        let mut tmp_tx = TrieStorageTransaction(TrieStorageConnection {
-            db_path: &db_path_str,
-            db: SqliteConnection::ConnRef(&self.db.deref()),
-            blobs: blobs.as_mut(),
-            cache: &mut cache,
-            bench: &mut bench,
-            hash_calculation_mode: self.hash_calculation_mode,
-
-            data: &mut storage_data,
-            unconfirmed_block_id: self.unconfirmed_block_id.clone(),
-
-            // used in testing in order to short-circuit block-height lookups
-            //   when the trie struct is tested outside of marf.rs usage
-            #[cfg(test)]
-            test_genesis_block: &mut test_genesis_block,
-        });
-
-        let res = todo(&mut tmp_tx);
-
-        Ok(res)
     }
 
     /// Run `cls` with a mutable reference to the inner trie blobs opt.

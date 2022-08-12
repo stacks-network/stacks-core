@@ -314,14 +314,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.storage.sqlite_tx_mut()
     }
 
-    pub fn storage_tx(&self) -> &TrieStorageTransaction<'a, T> {
-        &self.storage
-    }
-
     /// Reopen this MARF transaction with readonly storage.
     ///   NOTE: any pending operations in the SQLite transaction _will not_
     ///         have materialized in the reopened view.
-    pub fn reopen_committed_readonly(&self) -> Result<MARF<T>, Error> {
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
         if self.open_chain_tip.is_some() {
             error!(
                 "MARF at {} is already in the process of writing",
@@ -330,7 +326,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Err(Error::InProgressError);
         }
 
-        let ro_storage = self.storage.reopen_committed_readonly()?;
+        let ro_storage = self.storage.reopen_readonly()?;
         Ok(MARF {
             storage: ro_storage,
             open_chain_tip: None,
@@ -1519,13 +1515,17 @@ impl<T: MarfTrieId> MARF<T> {
         self.storage.sqlite_tx()
     }
 
-    /// Reopen this MARF with readonly storage.  The resulting MARF will have
-    /// access to all uncommitted state.
+    /// Reopen storage read-only
+    pub fn reopen_storage_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+        self.storage.reopen_readonly()
+    }
+
+    /// Reopen this MARF with readonly storage.
     ///
     /// Returns Err if:
     ///   1) This class is already in the process of writing.
     ///   2) A new underlying SQLite database connection cannot be established.
-    pub fn reopen_uncommitted_readonly(&self) -> Result<MARF<T>, Error> {
+    pub fn reopen_readonly(&self) -> Result<MARF<T>, Error> {
         if self.open_chain_tip.is_some() {
             error!(
                 "MARF at {} is already in the process of writing",
@@ -1534,7 +1534,7 @@ impl<T: MarfTrieId> MARF<T> {
             return Err(Error::InProgressError);
         }
 
-        let ro_storage = self.storage.reopen_uncommitted_readonly()?;
+        let ro_storage = self.storage.reopen_readonly()?;
         Ok(MARF {
             storage: ro_storage,
             open_chain_tip: None,
