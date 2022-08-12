@@ -668,15 +668,56 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     Ok(tx)
 }
 
-use std::sync::Mutex;
+// use std::sync::Mutex;
 use std::time::Duration;
-lazy_static! {
-    static ref MUTEX: Mutex<i32> = Mutex::new(0);
+use std::mem;
+use std::ffi::CStr;
+use rusqlite::ffi;
+use std::os::raw::{c_char, c_int, c_void};
+use std::panic::catch_unwind;
+use std::ptr;
+
+// lazy_static! {
+//     static ref MUTEX: Mutex<i32> = Mutex::new(0);
+// }
+fn trace_profile(s: &str, d: Duration) {
+    // MUTEX.lock();
+    let obj = json!({"d":d.as_nanos(),"s":s});
+    println!("{}", serde_json::to_string(&obj).unwrap());
 }
-fn profiler(s: &str, d: Duration) {
-    MUTEX.lock();
-    let obj = json!({"duration":d.as_nanos(),"sql":s});
-}
+
+// pub fn sqlite3_trace_v2(db: &mut Connection, profile_fn: Option<fn(&str, Duration)>) {
+//     unsafe extern "C" fn profile_callback(
+//         u_event: u32,
+//         p_arg: *mut c_void,
+//         z_sql: *mut c_void,
+//         nanoseconds: *mut c_void,
+//         // z_sql: *const c_char,
+//         // nanoseconds: u64,
+//     ) ->i32 {
+//         let profile_fn: fn(&str, Duration) = mem::transmute(p_arg);
+//         let stmt = ffi::
+//         let c_slice = CStr::from_ptr(z_sql.cast::<c_char>()).to_bytes();
+//         let s = String::from_utf8_lossy(c_slice);
+//         const NANOS_PER_SEC: u64 = 1_000_000_000;
+
+//         let duration = Duration::new(
+//             *nanoseconds.cast::<u64>() / NANOS_PER_SEC,
+//             (*nanoseconds.cast::<u64>() % NANOS_PER_SEC) as u32,
+//         );
+//         drop(catch_unwind(|| profile_fn(&s, duration)));
+//         return 0;
+//     }
+//     unsafe {
+//         let c = db.handle();
+//         match profile_fn {
+//             Some(f) => unsafe {
+//                 ffi::sqlite3_trace_v2(c, 0x02, Some(profile_callback), f as *mut c_void)
+//             },
+//             None => unsafe { ffi::sqlite3_trace_v2(c, 0x00, None, ptr::null_mut()) },
+//         };
+//     }
+// }
 
 /// Open a database connection and set some typically-used pragmas
 pub fn sqlite_open<P: AsRef<Path>>(
@@ -685,7 +726,8 @@ pub fn sqlite_open<P: AsRef<Path>>(
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
     let mut db = Connection::open_with_flags(path, flags)?;
-    db.profile(Some(profiler));
+    // sqlite3_trace_v2(&mut db, Some(trace_profile));
+    // db.profile(Some(trace_profile));
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
