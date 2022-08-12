@@ -240,7 +240,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     ) -> Option<BurnchainHeaderHash> {
         let readonly_marf = self
             .index()
-            .reopen_committed_readonly()
+            .reopen_readonly()
             .expect("BUG: failure trying to get a read-only interface into the sortition db.");
         let mut context = self.context.clone();
         context.chain_tip = sortition_id.clone();
@@ -294,7 +294,15 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         height: u32,
         sortition_id: &SortitionId,
     ) -> Option<(Vec<TupleData>, u128)> {
-        let get_from = match get_ancestor_sort_id_tx(self, height.into(), sortition_id)
+        let readonly_marf = self
+            .index()
+            .reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let db_handle = SortitionHandleConn::new(&readonly_marf, context);
+
+        let get_from = match get_ancestor_sort_id(&db_handle, height.into(), sortition_id)
             .expect("FATAL: failed to query sortition DB")
         {
             Some(sort_id) => sort_id,
