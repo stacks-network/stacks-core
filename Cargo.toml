@@ -76,6 +76,10 @@ clarity = { package = "clarity", path = "./clarity/." }
 stacks_common = { package = "stacks-common", path = "./stacks-common/." }
 siphasher = "0.3.7"
 
+[target.x86_64-unknown-linux-gnu]
+linker = "/usr/bin/clang"
+rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
 
