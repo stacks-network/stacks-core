@@ -98,10 +98,26 @@ pub struct ParsedContract {
     pub analysis: ContractAnalysis,
 }
 
-#[derive(Default, Debug, Clone)]
-pub struct ExecutionResult {
-    pub contract: Option<ParsedContract>,
+#[derive(Debug, Clone)]
+pub struct ContractEvaluationResult {
     pub result: Option<Value>,
+    pub contract: ParsedContract,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnippetEvaluationResult {
+    pub result: Value,
+}
+
+#[derive(Debug, Clone)]
+pub enum EvaluationResult {
+    Contract(ContractEvaluationResult),
+    Snippet(SnippetEvaluationResult),
+}
+
+#[derive(Debug, Clone)]
+pub struct ExecutionResult {
+    pub result: EvaluationResult,
     pub events: Vec<serde_json::Value>,
     pub cost: Option<CostSynthesis>,
     pub diagnostics: Vec<Diagnostic>,
