@@ -4286,6 +4286,21 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
+    /// Get the expected number of PoX payouts per output
+    fn get_num_pox_payouts(&self, burn_block_height: u64) -> usize {
+        let op_num_outputs = if Burnchain::static_is_in_prepare_phase(
+            self.context.first_block_height,
+            self.context.pox_constants.reward_cycle_length as u64,
+            self.context.pox_constants.prepare_length.into(),
+            burn_block_height,
+        ) {
+            1
+        } else {
+            OUTPUTS_PER_COMMIT
+        };
+        op_num_outputs
+    }
+
     /// Given all of a snapshot's block ops, calculate how many burnchain tokens were sent to each
     /// PoX payout.  Note that this value is *per payout*:
     /// * in a reward phase, multiply this by OUTPUTS_PER_COMMIT to get the total amount of tokens
@@ -4298,18 +4313,8 @@ impl<'a> SortitionHandleTx<'a> {
             if let BlockstackOperationType::LeaderBlockCommit(ref op) = block_op {
                 // burn_fee = pox_fee * OUTPUTS_PER_COMMIT
                 // we're finding sum(pox_fee)
-                let num_outputs = if Burnchain::static_is_in_prepare_phase(
-                    self.context.first_block_height,
-                    self.context.pox_constants.reward_cycle_length as u64,
-                    self.context.pox_constants.prepare_length.into(),
-                    op.block_height,
-                ) {
-                    1
-                } else {
-                    2
-                };
-
-                total += (op.burn_fee as u128) / num_outputs
+                let num_outputs = self.get_num_pox_payouts(op.block_height);
+                total += (op.burn_fee as u128) / (num_outputs as u128);
             }
         }
 
@@ -4408,7 +4413,7 @@ impl<'a> SortitionHandleTx<'a> {
         // if this is the start of a reward cycle, store the new PoX keys.
         // Get the PoX payouts while doing so.
         let pox_payout = self.get_pox_payout_per_output(block_ops);
-        let pox_payout_addrs = if !snapshot.is_initial() {
+        let mut pox_payout_addrs = if !snapshot.is_initial() {
             if let Some(reward_info) = next_pox_info {
                 let mut pox_id = self.get_pox_id()?;
                 let pox_payout_addrs;
@@ -4575,6 +4580,15 @@ impl<'a> SortitionHandleTx<'a> {
             &keys,
             &values,
         )?;
+
+        // pox payout addrs must include burn addresses
+        let num_pox_payouts = self.get_num_pox_payouts(snapshot.block_height);
+        while pox_payout_addrs.len() < num_pox_payouts {
+            // NOTE: while this coerces mainnet, it's totally fine in practice because the address
+            // version is not exposed to Clarity.  Clarity only sees a PoX-specific version and the
+            // hash.
+            pox_payout_addrs.push(PoxAddress::standard_burn_address(true));
+        }
 
         self.context.chain_tip = snapshot.sortition_id.clone();
         Ok((root_hash, (pox_payout_addrs, pox_payout)))
