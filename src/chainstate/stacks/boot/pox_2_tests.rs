@@ -1978,21 +1978,18 @@ fn test_get_pox_addrs() {
 
             if burnchain.is_in_prepare_phase(burn_height - 1) {
                 assert_eq!(payout, 1000);
+                assert_eq!(addrs.len(), 1);
+                let pox_addr = PoxAddress::try_from_pox_tuple(false, &addrs[0]).unwrap();
+                assert!(pox_addr.is_burn());
             } else {
                 assert_eq!(payout, 500);
-            }
-
-            if burn_height - 1 >= burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 1)
-                && burn_height - 1
-                    < burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2)
-                        - (burnchain.pox_constants.prepare_length as u64)
-            {
                 assert_eq!(addrs.len(), 2);
                 for addr in addrs.into_iter() {
-                    paid_out.insert(PoxAddress::try_from_pox_tuple(false, &addr).unwrap());
+                    let pox_addr = PoxAddress::try_from_pox_tuple(false, &addr).unwrap();
+                    if !pox_addr.is_burn() {
+                        paid_out.insert(pox_addr);
+                    }
                 }
-            } else {
-                assert_eq!(addrs.len(), 0);
             }
         }
     }
