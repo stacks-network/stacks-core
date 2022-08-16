@@ -1213,6 +1213,7 @@ fn transition_adds_get_pox_addr_recipients() {
                                 // in prepare phase
                                 eprintln!("{} in prepare phase", burn_block_height);
                                 assert_eq!(payout, conf.burnchain.burn_fee_cap as u128);
+                                assert_eq!(pox_addr_tuples.len(), 1);
                             } else {
                                 // in reward phase
                                 eprintln!("{} in reward phase", burn_block_height);
@@ -1221,6 +1222,7 @@ fn transition_adds_get_pox_addr_recipients() {
                                     (conf.burnchain.burn_fee_cap / (OUTPUTS_PER_COMMIT as u64))
                                         as u128
                                 );
+                                assert_eq!(pox_addr_tuples.len(), 2);
                             }
 
                             for pox_addr_value in pox_addr_tuples.into_iter() {
@@ -1229,7 +1231,9 @@ fn transition_adds_get_pox_addr_recipients() {
                                         &format!("FATAL: invalid PoX tuple {:?}", &pox_addr_value),
                                     );
                                 eprintln!("at {}: {:?}", burn_block_height, &pox_addr);
-                                found_pox_addrs.insert(pox_addr);
+                                if !pox_addr.is_burn() {
+                                    found_pox_addrs.insert(pox_addr);
+                                }
                             }
                         }
                     }
