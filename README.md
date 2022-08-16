@@ -1,3 +1,4 @@
+[![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
 # Stacks 2.0
 
 Reference implementation of the [Stacks blockchain](https://github.com/stacks-network/stacks) in Rust.
@@ -42,9 +43,3 @@ Technical papers:
 
 - ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
 - ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
-
-## License and Copyright
-
-This code is released under [the GPL v3 license](https://www.gnu.org/licenses/quick-guide-gplv3.en.html), and the docs are released under [the Creative Commons license](https://creativecommons.org/).
-
-The code and documentation copyright are attributed to stacks.co for the year of 2022.
