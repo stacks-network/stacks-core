@@ -1513,8 +1513,10 @@ burnchain height `block-height`.
 
 * The `pox-addrs` property returns a tuple with two items: a list of up to two PoX addresses that received a PoX payout at that block height, and the amount of burnchain
 tokens paid to each address (note that per the blockchain consensus rules, each PoX payout will be the same for each address in the block-commit transaction).
-Burn addresses will not be reported; an empty list will be returned if there were only burns.  But in all cases, the per-burn payout will still be reported
-(even if it was burnt).  The `addrs` list contains the same PoX address values passed into the PoX smart contract:
+The list will include burn addresses -- that is, the unspendable addresses that miners pay to when there are no PoX addresses left to be paid.  During the prepare phase,
+there will be exactly one burn address reported. During the reward phase, up to two burn addresses may be reported in the event that some PoX reward slots are not claimed.
+
+The `addrs` list contains the same PoX address values passed into the PoX smart contract:
    * They each have type signature `(tuple (hashbytes (buff 20)) (version (buff 1)))`
    * The `version` field can be any of the following:
       * `0x00` means this is a p2pkh address, and `hashbytes` is the hash160 of a single public key
