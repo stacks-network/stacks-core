@@ -1912,7 +1912,7 @@ const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
-This function returns the STX balance, in microstacks (1 STX = 1000000 microstacks), of the
+This function returns the STX balance, in microstacks (1 STX = 1,000,000 microstacks), of the
 `owner` principal. In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
@@ -1980,7 +1980,7 @@ const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-burn? amount sender)",
     description: "`stx-burn?` decreases the `sender` principal's STX holdings by `amount`,
-specified in microstacks, destroying the STX. The `sender` principal _must_ be equal to the current
+specified in microstacks, by destroying the STX. The `sender` principal _must_ be equal to the current
 context's `tx-sender`.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
