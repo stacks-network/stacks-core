@@ -58,6 +58,9 @@ jobs:
       - name: Extract branch name
         id: extract_branch
         run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      # tag image with:
+      #   branch name: `latest-<linux version>`
+      #   input tag: `<input tag>-<linux version>`
       - name: Docker Metadata
         id: docker_metadata
         uses: docker/metadata-action@v4
@@ -67,8 +70,6 @@ jobs:
           tags: |
             type=raw,value=latest-${{ inputs.linux_version }},enable=${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) )}}
             type=raw,value=${{ inputs.tag }}-${{ inputs.linux_version }},enable=${{ inputs.tag != '' }}
-            type=raw,value=${{ env.BRANCH_NAME }}-${{ inputs.linux_version }}
-            type=ref,event=pr
       - name: Login to DockerHub
         id: docker_login
         uses: docker/login-action@v2
