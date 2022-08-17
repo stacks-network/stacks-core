@@ -150,8 +150,7 @@ pub trait EvalHook {
         _env: &mut Environment,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
-    ) {
-    }
+    );
 
     // Called after the expression is evaluated
     fn did_finish_eval(
@@ -160,11 +159,10 @@ pub trait EvalHook {
         _context: &LocalContext,
         _expr: &SymbolicExpression,
         _res: &core::result::Result<Value, crate::vm::errors::Error>,
-    ) {
-    }
+    );
 
     // Called upon completion of the execution
-    fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>) {}
+    fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
