@@ -21,6 +21,7 @@ on:
 
 jobs:
   security_audit:
+    if: ${{ false }}
     name: Crate Vulnerability Check
     runs-on: ubuntu-latest
     steps:
