@@ -4,6 +4,7 @@ use rusqlite::{Connection, OptionalExtension};
 use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -237,8 +238,22 @@ pub trait SortitionDBRef: BurnStateDB {
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
 }
 
-pub struct PoxStartCycleInfo {
-    pub missed_reward_slots: Vec<(PrincipalData, u128)>,
+fn get_pox_start_cycle_info(
+    handle: &mut SortitionHandleConn,
+    parent_stacks_block_burn_ht: u64,
+    cycle_index: u64,
+) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
+    let descended_from_last_pox_anchor = match handle.get_last_anchor_block_hash()? {
+        Some(pox_anchor) => handle.descended_from(parent_stacks_block_burn_ht, &pox_anchor)?,
+        None => return Ok(None),
+    };
+
+    if !descended_from_last_pox_anchor {
+        return Ok(None);
+    }
+
+    let start_info = handle.get_reward_cycle_unlocks(cycle_index)?;
+    Ok(start_info)
 }
 
 impl SortitionDBRef for SortitionHandleTx<'_> {
@@ -256,18 +271,7 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
         context.chain_tip = sortition_id.clone();
         let mut handle = SortitionHandleConn::new(&readonly_marf, context);
 
-        let descended_from_last_pox_anchor = match handle.get_last_anchor_block_hash()? {
-            Some(pox_anchor) => handle.descended_from(parent_stacks_block_burn_ht, &pox_anchor)?,
-            None => return Ok(None),
-        };
-
-        if !descended_from_last_pox_anchor {
-            return Ok(None);
-        }
-
-        Ok(Some(PoxStartCycleInfo {
-            missed_reward_slots: vec![],
-        }))
+        get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
 }
 
@@ -279,15 +283,7 @@ impl SortitionDBRef for SortitionDBConn<'_> {
         cycle_index: u64,
     ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
         let mut handle = self.as_handle(sortition_id);
-
-        let descended_from_last_pox_anchor = match handle.get_last_anchor_block_hash()? {
-            Some(pox_anchor) => handle.descended_from(parent_stacks_block_burn_ht, &pox_anchor)?,
-            None => return Ok(None),
-        };
-
-        Ok(Some(PoxStartCycleInfo {
-            missed_reward_slots: vec![],
-        }))
+        get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
 }
 

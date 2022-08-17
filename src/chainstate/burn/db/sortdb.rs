@@ -50,6 +50,7 @@ use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHa
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::marf::MarfConnection;
@@ -748,6 +749,10 @@ impl db_keys {
         "sortition_db::last_anchor_block"
     }
 
+    pub fn pox_reward_cycle_unlocks(cycle: u64) -> String {
+        format!("sortition_db::reward_set_unlocks::{}", cycle)
+    }
+
     pub fn pox_reward_set_size() -> &'static str {
         "sortition_db::reward_set::size"
     }
@@ -1182,9 +1187,9 @@ impl<'a> SortitionHandleTx<'a> {
                 test_debug!(
                     "Pick recipients for anchor block {} -- {} reward recipient(s)",
                     anchor_block,
-                    reward_set.len()
+                    reward_set.rewarded_addresses.len()
                 );
-                if reward_set.len() == 0 {
+                if reward_set.rewarded_addresses.len() == 0 {
                     return Ok(None);
                 }
 
@@ -1194,6 +1199,7 @@ impl<'a> SortitionHandleTx<'a> {
 
                 let chosen_recipients = reward_set_vrf_seed.choose_two(
                     reward_set
+                        .rewarded_addresses
                         .len()
                         .try_into()
                         .expect("BUG: u32 overflow in PoX outputs per commit"),
@@ -1204,7 +1210,7 @@ impl<'a> SortitionHandleTx<'a> {
                     recipients: chosen_recipients
                         .into_iter()
                         .map(|ix| {
-                            let recipient = reward_set[ix as usize].clone();
+                            let recipient = reward_set.rewarded_addresses[ix as usize].clone();
                             info!("PoX recipient chosen";
                                    "recipient" => recipient.clone().to_b58(),
                                    "block_height" => block_height);
@@ -1511,6 +1517,19 @@ impl<'a> SortitionHandleConn<'a> {
             self.get_indexed(&self.context.chain_tip, &db_keys::pox_last_anchor())?,
         );
         Ok(anchor_block_hash)
+    }
+
+    pub fn get_reward_cycle_unlocks(
+        &mut self,
+        cycle: u64,
+    ) -> Result<Option<PoxStartCycleInfo>, db_error> {
+        let start_info = self
+            .get_tip_indexed(&db_keys::pox_reward_cycle_unlocks(cycle))?
+            .map(|x| {
+                PoxStartCycleInfo::deserialize(&x)
+                    .expect("CORRUPTION: Failed to deserialize PoxStartCycleInfo from database")
+            });
+        Ok(start_info)
     }
 
     fn get_reward_set_size(&self) -> Result<u16, db_error> {
@@ -4366,7 +4385,7 @@ impl<'a> SortitionHandleTx<'a> {
                 // if we've selected an anchor _and_ know of the anchor,
                 //  write the reward set information
                 if let Some(mut reward_set) = reward_info.known_selected_anchor_block_owned() {
-                    if reward_set.len() > 0 {
+                    if reward_set.rewarded_addresses.len() > 0 {
                         // if we have a reward set, then we must also have produced a recipient
                         //   info for this block
                         let mut recipients_to_remove: Vec<_> = recipient_info
@@ -4378,16 +4397,30 @@ impl<'a> SortitionHandleTx<'a> {
                         recipients_to_remove.sort_unstable_by(|(_, a), (_, b)| b.cmp(a));
                         // remove from the reward set any consumed addresses in this first reward block
                         for (addr, ix) in recipients_to_remove.iter() {
-                            assert_eq!(&reward_set.remove(*ix as usize), addr,
+                            assert_eq!(&reward_set.rewarded_addresses.remove(*ix as usize), addr,
                                        "BUG: Attempted to remove used address from reward set, but failed to do so safely");
                         }
                     }
 
                     keys.push(db_keys::pox_reward_set_size().to_string());
-                    values.push(db_keys::reward_set_size_to_string(reward_set.len()));
-                    for (ix, address) in reward_set.iter().enumerate() {
+                    values.push(db_keys::reward_set_size_to_string(
+                        reward_set.rewarded_addresses.len(),
+                    ));
+                    for (ix, address) in reward_set.rewarded_addresses.iter().enumerate() {
                         keys.push(db_keys::pox_reward_set_entry(ix as u16));
                         values.push(address.to_string());
+                    }
+                    // if there are qualifying auto-unlocks, record them
+                    if !reward_set.start_cycle_state.is_empty() {
+                        let cycle_number = Burnchain::static_block_height_to_reward_cycle(
+                            snapshot.block_height,
+                            self.context.first_block_height,
+                            self.context.pox_constants.reward_cycle_length.into(),
+                        )
+                        .expect("FATAL: PoX reward cycle started before first block height");
+
+                        keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
+                        values.push(reward_set.start_cycle_state.serialize());
                     }
                 } else {
                     keys.push(db_keys::pox_reward_set_size().to_string());

@@ -28,8 +28,8 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
-use crate::clarity_vm::database::PoxStartCycleInfo;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use crate::util_lib::strings::VecDisplay;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
@@ -159,7 +159,44 @@ pub struct RawRewardSetEntry {
     pub stacker: Option<PrincipalData>,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct PoxStartCycleInfo {
+    pub missed_reward_slots: Vec<(PrincipalData, u128)>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct RewardSet {
+    pub rewarded_addresses: Vec<StacksAddress>,
+    pub start_cycle_state: PoxStartCycleInfo,
+}
+
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
+
+impl PoxStartCycleInfo {
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self).expect("FATAL: failure to serialize internal struct")
+    }
+
+    pub fn deserialize(from: &str) -> Option<PoxStartCycleInfo> {
+        serde_json::from_str(from).ok()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.missed_reward_slots.is_empty()
+    }
+}
+
+impl RewardSet {
+    /// Create an empty reward set where no one gets an early unlock
+    pub fn empty() -> RewardSet {
+        RewardSet {
+            rewarded_addresses: vec![],
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+        }
+    }
+}
 
 impl StacksChainState {
     /// Return the MARF key used to store whether or not a given PoX
@@ -184,6 +221,8 @@ impl StacksChainState {
         db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
     }
 
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     pub fn handle_pox_cycle_start(
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
@@ -563,25 +602,32 @@ impl StacksChainState {
     ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
-    pub fn make_reward_set(
-        threshold: u128,
-        mut addresses: Vec<RawRewardSetEntry>,
-    ) -> Vec<StacksAddress> {
+    pub fn make_reward_set(threshold: u128, mut addresses: Vec<RawRewardSetEntry>) -> RewardSet {
         let mut reward_set = vec![];
+        let mut missed_slots = vec![];
         // the way that we sum addresses relies on sorting.
         addresses.sort_by_key(|k| k.reward_address.bytes.0);
         while let Some(RawRewardSetEntry {
             reward_address: address,
             amount_stacked: mut stacked_amt,
-            ..
+            stacker,
         }) = addresses.pop()
         {
+            let mut contributed_stackers = vec![];
+            if let Some(stacker) = stacker.as_ref() {
+                contributed_stackers.push((stacker.clone(), stacked_amt));
+            }
             // peak at the next address in the set, and see if we need to sum
             while addresses.last().map(|x| &x.reward_address) == Some(&address) {
-                let additional_amt = addresses
+                let next_contrib = addresses
                     .pop()
-                    .expect("BUG: first() returned some, but pop() is none.")
-                    .amount_stacked;
+                    .expect("BUG: first() returned some, but pop() is none.");
+                let additional_amt = next_contrib.amount_stacked;
+
+                if let Some(stacker) = next_contrib.stacker {
+                    contributed_stackers.push((stacker.clone(), additional_amt));
+                }
+
                 stacked_amt = stacked_amt
                     .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
@@ -599,9 +645,28 @@ impl StacksChainState {
                 test_debug!("Add to PoX reward set: {:?}", &address);
                 reward_set.push(address.clone());
             }
+            // if stacker did not qualify for a slot *and* they have a stacker
+            //   pointer set by the PoX contract, then add them to auto-unlock list
+            if slots_taken == 0 && !contributed_stackers.is_empty() {
+                debug!(
+                                    "Stacker missed reward slot, added to unlock list";
+                //                    "stackers" => %VecDisplay(&contributed_stackers),
+                                    "reward_address" => %address.clone().to_b58(),
+                                    "threshold" => threshold,
+                                    "stacked_amount" => stacked_amt
+                                );
+                for (contributor, amt) in contributed_stackers {
+                    missed_slots.push((contributor, amt));
+                }
+            }
         }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
-        reward_set
+        RewardSet {
+            rewarded_addresses: reward_set,
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: missed_slots,
+            },
+        }
     }
 
     pub fn get_threshold_from_participation(
