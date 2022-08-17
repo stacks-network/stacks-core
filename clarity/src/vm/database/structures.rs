@@ -474,6 +474,39 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
+    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
+    ///  because this method is only invoked as a result of PoX2 interactions
+    pub fn accelerate_unlock(&mut self) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        let new_unlock_height = self.burn_block_height + 1;
+        self.balance = match self.balance {
+            STXBalance::Unlocked { amount } => STXBalance::Unlocked { amount },
+            STXBalance::LockedPoxOne {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxOne {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
+            STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
+        };
+    }
+
     /// Unlock any tokens that are unlockable at the current
     ///  burn block height, and return the amount newly unlocked
     fn unlock_available_tokens_if_any(&mut self) -> u128 {

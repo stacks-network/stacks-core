@@ -45,6 +45,7 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use crate::clarity_vm::database::SortitionDBRef;
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::codec::{read_next, write_next};
 use crate::core::mempool::MemPoolDB;
@@ -5064,6 +5065,7 @@ impl StacksChainState {
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'b dyn BurnStateDB,
+        sortition_dbconn: &'b dyn SortitionDBRef,
         conn: &Connection, // connection to the sortition DB
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
@@ -5074,8 +5076,10 @@ impl StacksChainState {
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
-        let parent_index_hash =
-            StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
+        let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_sortition_id = burn_dbconn
+            .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
+            .expect("Failed to get parent SortitionID from ConsensusHash");
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
@@ -5136,6 +5140,27 @@ impl StacksChainState {
 
         let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
+
+        if evaluated_epoch >= StacksEpochId::Epoch21 {
+            let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+                burn_tip_height.into(),
+                burn_dbconn.get_burn_start_height().into(),
+                burn_dbconn.get_pox_reward_cycle_length().into(),
+            ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
+            let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
+            });
+            if !handled {
+                let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
+                    &parent_sortition_id,
+                    chain_tip.burn_header_height.into(),
+                    pox_reward_cycle,
+                )?;
+                clarity_tx.block.as_transaction(|clarity_tx| {
+                    Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
+                })?;
+            }
+        }
 
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
@@ -5427,6 +5452,7 @@ impl StacksChainState {
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
+            burn_dbconn,
             burn_dbconn,
             &burn_dbconn.tx(),
             &parent_chain_tip,

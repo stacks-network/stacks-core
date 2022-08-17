@@ -27,13 +27,17 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::clarity_vm::database::PoxStartCycleInfo;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use clarity::types::chainstate::BlockHeaderHash;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
 };
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::InterpreterError;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
@@ -50,6 +54,7 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::ClarityVersion;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
@@ -154,7 +159,286 @@ pub struct RawRewardSetEntry {
     pub stacker: Option<PrincipalData>,
 }
 
+const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
+
 impl StacksChainState {
+    /// Return the MARF key used to store whether or not a given PoX
+    ///  cycle's "start" has been handled by the Stacks fork yet. This
+    ///  is used in Stacks 2.1 to help process unlocks.
+    fn handled_pox_cycle_start_key(cycle_number: u64) -> String {
+        format!("chainstate_pox::handled_cycle_start::{}", cycle_number)
+    }
+
+    /// Returns whether or not the `cycle_number` PoX cycle has been handled by the
+    ///  Stacks fork in the opened `clarity_db`.
+    pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
+        let db_key = Self::handled_pox_cycle_start_key(cycle_number);
+        match clarity_db.get::<String>(&db_key) {
+            Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
+            None => false,
+        }
+    }
+
+    fn mark_pox_cycle_handled(db: &mut ClarityDatabase, cycle_number: u64) {
+        let db_key = Self::handled_pox_cycle_start_key(cycle_number);
+        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
+    }
+
+    pub fn handle_pox_cycle_start(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<(), Error> {
+        let cycle_info = match cycle_info {
+            Some(x) => x,
+            None => {
+                return clarity
+                    .with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))
+                    .map_err(Error::from)
+            }
+        };
+
+        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+
+        for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
+            // we have to do several things for each principal
+            // 1. lookup their Stacks account and accelerate their unlock
+            // 2. remove the user's entries from every `reward-cycle-pox-address-list` they were in
+            //     (a) this can be done by moving the last entry to the now vacated spot,
+            //         and, if necessary, updating the associated `stacking-state` entry's pointer
+            //     (b) or, if they were the only entry in the list, then just deleting them from the list
+            // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
+            // 4. delete the user's stacking-state entry.
+            clarity.with_clarity_db(|db| {
+                // lookup the Stacks account and alter their unlock height to next block
+                let mut balance = db.get_stx_balance_snapshot(&principal);
+                if balance.canonical_balance_repr().amount_locked() < *amount_locked {
+                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected");
+                }
+
+                balance.accelerate_unlock();
+                balance.save();
+
+                // get the user's stacking-state entry so that we can update the reward-cycle entries
+                let lookup_tuple = Value::Tuple(TupleData::from_data_static(vec![("stacker".into(), principal.clone().into())]));
+                let stacking_state_entry = db
+                    .expect_fetch_entry(
+                        &pox_contract,
+                        "stacking-state",
+                        &lookup_tuple
+                    )?
+                    .expect_tuple();
+
+                let first_reward_cycle_locked = stacking_state_entry
+                    .get("first-reward-cycle")
+                    .expect("Malformed return tuple from stacking-state")
+                    .clone()
+                    .expect_u128();
+                if (cycle_number as u128) < first_reward_cycle_locked {
+                    panic!("Unlocking for a cycle before this stacker has stacked");
+                }
+
+                let skip_reward_cycle_resets = (cycle_number as u128) - first_reward_cycle_locked;
+
+                let reward_set_indexes = stacking_state_entry.get("reward-set-indexes")
+                    .expect("Malformed return tuple from stacking-state")
+                    .clone()
+                    .expect_list();
+                for (reward_set_offset, reward_set_index) in reward_set_indexes.into_iter().enumerate() {
+                    if (reward_set_offset as u128) < skip_reward_cycle_resets {
+                        continue
+                    }
+                    // zero out `reward-cycle-pox-address-list` entries and update `reward-cycle-total-stacked`
+                    let reward_cycle_to_update = (reward_set_offset as u128) + (cycle_number as u128);
+                    // this is the index of the entry we want to remove from the list
+                    let target_entry_index = reward_set_index.expect_u128();
+
+                    let target_key: Value = TupleData::from_data_static(vec![
+                        ("reward-cycle".into(), Value::UInt(reward_cycle_to_update)),
+                        ("index".into(), Value::UInt(target_entry_index))
+                    ]).into();
+
+                    let reward_cycle_entry = db.expect_fetch_entry(
+                        &pox_contract,
+                        "reward-cycle-pox-address-list",
+                        &target_key
+                    )?.expect_tuple();
+
+                    let reward_cycle_entry_principal = reward_cycle_entry
+                        .get("stacker")
+                        .expect("Malformed tuple returned by PoX contract")
+                        .clone()
+                        .expect_optional()
+                        .expect("Reward set entry for auto-unlock should have associated stacker")
+                        .expect_principal();
+
+                    assert_eq!(&reward_cycle_entry_principal, principal);
+
+                    let reward_cycle_entry_total_ustx = reward_cycle_entry
+                        .get("total-ustx")
+                        .expect("Malformed tuple returned by PoX contract")
+                        .clone()
+                        .expect_u128();
+
+                    //    compress the list:
+                    //     (a) move the last entry in `reward-cycle-pox-address-list` to this index
+                    let reward_cycle_len_key = TupleData::from_data_static(vec![("reward-cycle".into(), Value::UInt(reward_cycle_to_update))]).into();
+                    let last_cycle_entry_index = db
+                        .expect_fetch_entry(
+                            &pox_contract,
+                            "reward-cycle-pox-address-list-len",
+                            &reward_cycle_len_key,
+                        )?
+                        .expect_tuple()
+                        .get("len")
+                        .expect("Malformed tuple returned by PoX contract")
+                        .clone()
+                        .expect_u128()
+                        .checked_sub(1)
+                        .expect("Reward set size was 0 even though we unlocked an existing entry");
+
+                    let move_reward_cycle_map_key: Value = TupleData::from_data_static(vec![
+                        ("reward-cycle".into(), Value::UInt(reward_cycle_to_update)),
+                        ("index".into(), Value::UInt(last_cycle_entry_index))
+                    ]).into();
+                    // only need to move if the entry we want to remove is not the last entry
+                    if last_cycle_entry_index != target_entry_index {
+                        let move_reward_cycle_entry = db.expect_fetch_entry(
+                            &pox_contract,
+                            "reward-cycle-pox-address-list",
+                            &move_reward_cycle_map_key
+                        )?.expect_tuple();
+
+                        let stacker = move_reward_cycle_entry
+                            .get("stacker")
+                            .expect("Malformed tuple return by PoX contract")
+                            .clone()
+                            .expect_optional();
+
+                        // overwrite the targeted entry with the last entry in the list
+                        db.set_entry_unknown_descriptor(
+                            &pox_contract,
+                            "reward-cycle-pox-address-list",
+                            target_key,
+                            move_reward_cycle_entry.into()
+                        )?;
+
+                        // if the last entry in `reward-cycle-pox-address-list` had an associated stacker,
+                        //   we must also update that stacker's `stacking-state`
+                        if let Some(stacker_val) = stacker {
+                            let moved_stacker = stacker_val.expect_principal();
+                            // load the `stacking-state`
+                            let moved_state_key = TupleData::from_data_static(vec![("stacker".into(), moved_stacker.clone().into())]).into();
+                            let mut moved_state_entry = db
+                                .expect_fetch_entry(
+                                    &pox_contract,
+                                    "stacking-state",
+                                    &moved_state_key,
+                                )?
+                                .expect_tuple();
+                            // calculate the index into the reward-set-indexes list that
+                            //  this reward cycle is at
+                            let moved_cycle_index: usize = reward_cycle_to_update
+                                .checked_sub(
+                                    moved_state_entry
+                                        .get("first-reward-cycle")
+                                        .expect("Malformed tuple return by PoX contract")
+                                        .clone()
+                                        .expect_u128()
+                                )
+                                .expect("FATAL: Moved a reward set entry for a stacker whose first-reward-cycle was after the current cycle")
+                                .try_into()
+                                .expect("FATAL: list size is greater than usize");
+
+                            // update the list of reward set indexes
+                            let mut moved_reward_indexes = moved_state_entry
+                                .get("reward-set-indexes")
+                                .expect("Malformed tuple return by PoX contract")
+                                .clone()
+                                .expect_list();
+                            assert!(moved_reward_indexes.len() > moved_cycle_index, "FATAL: Calculated bad move index");
+
+                            moved_reward_indexes[moved_cycle_index] = Value::UInt(last_cycle_entry_index);
+
+                            moved_state_entry.data_map.insert("reward-set-indexes".into(),
+                                                              Value::list_from(moved_reward_indexes)
+                                                                .expect("Failed to reconstruct Clarity list"));
+                            // store the new state back into the stacking-state map
+                            db.set_entry_unknown_descriptor(
+                                &pox_contract,
+                                "stacking-state",
+                                moved_state_key,
+                                moved_state_entry.into()
+                            )?;
+                        }
+                    }
+
+                    // always delete the last entry and decrement the list length
+
+                    db.delete_entry_unknown_descriptor(
+                        &pox_contract,
+                        "reward-cycle-pox-address-list",
+                        &move_reward_cycle_map_key,
+                    )?;
+
+                    db.set_entry_unknown_descriptor(
+                        &pox_contract, "reward-cycle-pox-address-list-len", reward_cycle_len_key,
+                        TupleData::from_data_static(vec![("len".into(), Value::UInt(last_cycle_entry_index))]).into()
+                    )?;
+
+                    // Finally, update `reward-cycle-total-stacked`
+                    let total_stacked_key = TupleData::from_data_static(vec![("reward-cycle".into(), Value::UInt(reward_cycle_to_update))])
+                        .into();
+                    let next_total_stacked_amount = db
+                        .expect_fetch_entry(
+                            &pox_contract,
+                            "reward-cycle-pox-address-list",
+                            &total_stacked_key,
+                        )?
+                        .expect_tuple()
+                        .get_owned("total-ustx")
+                        .expect("Malformed tuple returned by PoX contract")
+                        .expect_u128()
+                        .checked_sub(reward_cycle_entry_total_ustx)
+                        .expect("FATAL: Unlocked more STX in a cycle than were stacked in that cycle");
+                    db.set_entry_unknown_descriptor(
+                        &pox_contract,
+                        "reward-cycle-pox-address-list",
+                        total_stacked_key,
+                        TupleData::from_data_static(vec![("total-ustx".into(), Value::UInt(next_total_stacked_amount))]).into(),
+                    )?;
+                }
+
+                // Now that we've cleaned up all the reward set entries for the user, lets delete the user's stacking-state
+                db.delete_entry_unknown_descriptor(
+                    &pox_contract,
+                    "stacking-state",
+                    &lookup_tuple
+                )?;
+
+                Ok(())
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// After Stacks 2.1, invoke to process any Stacks chainstate operations required
+    ///  at the start of a reward cycle (i.e., qualifying unlocks)
+    pub fn process_pox_cycle_start_2_1(last_anchor_block: Option<BlockHeaderHash>) {
+        // Step 1: determine if a PoX anchor block was chosen for this cycle
+        //  *and* that this Stacks block descends from that block
+        match last_anchor_block {
+            Some(_) => {}
+            None => {
+                debug!(
+                    "No anchor block chosen in this PoX cycle, so no need to process cycle start"
+                );
+                return;
+            }
+        }
+    }
+
     fn eval_boot_code_read_only(
         &mut self,
         sortdb: &SortitionDB,

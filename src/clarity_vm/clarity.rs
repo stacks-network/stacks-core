@@ -1148,6 +1148,10 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         .and_then(|(value, ..)| Ok(value))
     }
 
+    pub fn is_mainnet(&self) -> bool {
+        return self.mainnet;
+    }
+
     /// Commit the changes from the edit log.
     /// panics if there is more than one open savepoint
     pub fn commit(mut self) {

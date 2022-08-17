@@ -1166,6 +1166,23 @@ impl<'a> ClarityDatabase<'a> {
         )
     }
 
+    /// Like fetch_entry_unknown_descriptor, except that it expects
+    ///  to receive a value (i.e., it expects the state to exist)
+    /// This should only ever be invoked outside of Clarity, e.g. by the VM
+    ///  when loading state from a known-contract
+    pub fn expect_fetch_entry(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        map_name: &str,
+        key_value: &Value,
+    ) -> Result<Value> {
+        self.fetch_entry_unknown_descriptor(contract_identifier, map_name, key_value)
+            .map(|v| {
+                v.expect_optional()
+                    .expect("Expected fetch_entry to return a value")
+            })
+    }
+
     pub fn fetch_entry_unknown_descriptor(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1176,6 +1193,7 @@ impl<'a> ClarityDatabase<'a> {
         self.fetch_entry(contract_identifier, map_name, key_value, &descriptor)
     }
 
+    /// Returns a Clarity optional type wrapping a found or not found result
     pub fn fetch_entry(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1358,6 +1376,16 @@ impl<'a> ClarityDatabase<'a> {
                 .checked_add(placed_size)
                 .expect("Overflowed Clarity key/value size"),
         })
+    }
+
+    pub fn delete_entry_unknown_descriptor(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        map_name: &str,
+        key_value: &Value,
+    ) -> Result<ValueResult> {
+        let descriptor = self.load_map(contract_identifier, map_name)?;
+        self.delete_entry(contract_identifier, map_name, key_value, &descriptor)
     }
 
     pub fn delete_entry(
