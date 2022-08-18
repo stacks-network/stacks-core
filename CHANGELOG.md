@@ -19,7 +19,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Updates to the logging of transaction events (#3139).
 - Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
-- Optimized mempool walk to speed up miner loop 6x (#3229)
 
 ### Fixed
 
