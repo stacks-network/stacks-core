@@ -1378,6 +1378,7 @@ pub mod test {
     use rand::Rng;
 
     use crate::burnchains::Address;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
@@ -8037,6 +8038,13 @@ pub mod test {
                     StacksEpochId::Epoch21 => self.get_stacks_epoch(2),
                 }
             }
+            fn get_pox_payout_addrs(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                None
+            }
         }
 
         let mut chainstate =
@@ -8218,6 +8226,13 @@ pub mod test {
                     }),
                     _ => self.get_stacks_epoch(0),
                 }
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                None
             }
         }
 

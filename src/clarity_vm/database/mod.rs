@@ -2,7 +2,8 @@ use clarity::vm::types::PrincipalData;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::chainstate::burn::db::sortdb::{
-    SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn,
+    SortitionHandleConn, SortitionHandleTx,
 };
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
@@ -31,6 +32,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use clarity::vm::database::SpecialCaseHandler;
+use clarity::vm::types::TupleData;
 use stacks_common::types::chainstate::ConsensusHash;
 
 pub mod marf;
@@ -352,6 +354,42 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
     }
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        let readonly_marf = self
+            .index()
+            .reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let db_handle = SortitionHandleConn::new(&readonly_marf, context);
+
+        let get_from = match get_ancestor_sort_id(&db_handle, height.into(), sortition_id)
+            .expect("FATAL: failed to query sortition DB")
+        {
+            Some(sort_id) => sort_id,
+            None => {
+                return None;
+            }
+        };
+
+        let (pox_addrs, payout) = self
+            .get_reward_set_payouts_at(&get_from)
+            .expect("FATAL: failed to query payouts");
+
+        let addrs = pox_addrs
+            .into_iter()
+            .map(|addr| {
+                addr.as_clarity_tuple()
+                    .expect("FATAL: sortition DB did not store hash mode for PoX address")
+            })
+            .collect();
+
+        Some((addrs, payout))
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -423,6 +461,34 @@ impl BurnStateDB for SortitionDBConn<'_> {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        let get_from = match get_ancestor_sort_id(self, height.into(), sortition_id)
+            .expect("FATAL: failed to query sortition DB")
+        {
+            Some(sort_id) => sort_id,
+            None => {
+                return None;
+            }
+        };
+
+        let (pox_addrs, payout) = self
+            .get_reward_set_payouts_at(&get_from)
+            .expect("FATAL: failed to query payouts");
+
+        let addrs = pox_addrs
+            .into_iter()
+            .map(|addr| {
+                addr.as_clarity_tuple()
+                    .expect("FATAL: sortition DB did not store hash mode for PoX address")
+            })
+            .collect();
+
+        Some((addrs, payout))
     }
 }
 

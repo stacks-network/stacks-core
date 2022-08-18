@@ -1,10 +1,11 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use crate::address::AddressHashMode;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
@@ -52,6 +53,10 @@ use stacks_common::types::chainstate::{
 
 use super::test::*;
 use crate::clarity_vm::clarity::Error as ClarityError;
+
+use crate::chainstate::burn::operations::*;
+use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::costs::LimitedCostTracker;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -155,26 +160,35 @@ fn test_simple_pox_lockup_transition_pox_2() {
             // either way, there's a single reward address
             assert_eq!(reward_addrs.len(), 1);
             assert_eq!(
-                (reward_addrs[0].0).version,
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
             );
-            assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&alice).bytes
+            );
             assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
         } else {
             // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
             assert_eq!(reward_addrs.len(), 2);
             assert_eq!(
-                (reward_addrs[0].0).version,
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
             );
-            assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&bob).bytes);
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&bob).bytes
+            );
             assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
 
             assert_eq!(
-                (reward_addrs[1].0).version,
-                AddressHashMode::SerializeP2PKH.to_version_testnet()
+                (reward_addrs[1].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
             );
-            assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+            assert_eq!(
+                (reward_addrs[1].0).hash160(),
+                key_to_stacks_addr(&alice).bytes
+            );
             assert_eq!(reward_addrs[1].1, 512 * POX_THRESHOLD_STEPS_USTX);
         }
     };
@@ -583,10 +597,13 @@ fn test_pox_extend_transition_pox_2() {
         // either way, there's a single reward address
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
-            (reward_addrs[0].0).version,
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+        assert_eq!(
+            (reward_addrs[0].0).hash160(),
+            key_to_stacks_addr(&alice).bytes
+        );
         assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
     };
 
@@ -616,17 +633,23 @@ fn test_pox_extend_transition_pox_2() {
         // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
         assert_eq!(reward_addrs.len(), 2);
         assert_eq!(
-            (reward_addrs[0].0).version,
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&bob).bytes);
+        assert_eq!(
+            (reward_addrs[0].0).hash160(),
+            key_to_stacks_addr(&bob).bytes
+        );
         assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
         assert_eq!(
-            (reward_addrs[1].0).version,
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            (reward_addrs[1].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+        assert_eq!(
+            (reward_addrs[1].0).hash160(),
+            key_to_stacks_addr(&alice).bytes
+        );
         assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
     };
 
@@ -956,10 +979,10 @@ fn test_delegate_extend_transition_pox_2() {
         // either way, there's a single reward address
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
-            (reward_addrs[0].0).version,
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!(&(reward_addrs[0].0).bytes, &charlie_address.bytes);
+        assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
         // 1 lockup was done between alice's first cycle and the start of v2 cycles
         assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
     };
@@ -990,10 +1013,10 @@ fn test_delegate_extend_transition_pox_2() {
         // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is just Charlie, but 2048*threshold
         assert_eq!(reward_addrs.len(), 1);
         assert_eq!(
-            (reward_addrs[0].0).version,
-            AddressHashMode::SerializeP2PKH.to_version_testnet()
+            (reward_addrs[0].0).version(),
+            AddressHashMode::SerializeP2PKH as u8
         );
-        assert_eq!(&(reward_addrs[0].0).bytes, &charlie_address.bytes);
+        assert_eq!(&(reward_addrs[0].0).hash160(), &charlie_address.bytes);
         // 2 lockups were performed in v2 cycles
         assert_eq!(reward_addrs[0].1, 2 * LOCKUP_AMT);
     };
@@ -1710,4 +1733,271 @@ fn test_pox_2_getters() {
         .unwrap()
         .expect_u128();
     assert_eq!(rejected, 0);
+}
+
+#[test]
+fn test_get_pox_addrs() {
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = 4;
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 4);
+
+    let epochs = StacksEpoch::all(1, 2, 3);
+
+    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test-get-pox-addrs",
+        6102,
+        Some(epochs.clone()),
+        None,
+    );
+    let num_blocks = 20;
+
+    let mut lockup_reward_cycle = 0;
+    let mut prepared = false;
+    let mut rewarded = false;
+    let mut paid_out = HashSet::new();
+    let mut all_reward_addrs = vec![];
+
+    for tenure_id in 0..num_blocks {
+        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_pubkeyhash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u128;
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![coinbase_tx];
+
+                if tenure_id == 1 {
+                    // all peers lock at the same time
+                    for (key, hash_mode) in keys.iter().zip(
+                        [
+                            AddressHashMode::SerializeP2PKH,
+                            AddressHashMode::SerializeP2SH,
+                            AddressHashMode::SerializeP2WPKH,
+                            AddressHashMode::SerializeP2WSH,
+                        ]
+                        .iter(),
+                    ) {
+                        let lockup = make_pox_2_lockup(
+                            key,
+                            0,
+                            1024 * POX_THRESHOLD_STEPS_USTX,
+                            *hash_mode,
+                            key_to_stacks_addr(key).bytes,
+                            2,
+                            tip.block_height,
+                        );
+                        block_txs.push(lockup);
+                    }
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(
+                    false,
+                    &parent_tip,
+                    vrf_proof,
+                    tip.total_burn,
+                    microblock_pubkeyhash,
+                )
+                .unwrap();
+                let (anchored_block, _size, _cost) =
+                    StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        block_txs,
+                    )
+                    .unwrap();
+                (anchored_block, vec![])
+            },
+        );
+
+        let (burn_height, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        if burnchain.is_in_prepare_phase(burn_height)
+            || burn_height >= burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2)
+        {
+            // make sure we burn!
+            for op in burn_ops.iter() {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
+                    eprintln!("prepare phase || no PoX {}: {:?}", burn_height, opdata);
+                    assert!(opdata.all_outputs_burn());
+                    assert!(opdata.burn_fee > 0);
+
+                    if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle.into() {
+                        prepared = true;
+                    }
+                }
+            }
+        } else {
+            // no burns -- 100% commitment
+            for op in burn_ops.iter() {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
+                    eprintln!("reward phase {}: {:?}", burn_height, opdata);
+                    if tenure_id > 1 && cur_reward_cycle == (lockup_reward_cycle + 1).into() {
+                        assert!(!opdata.all_outputs_burn());
+                        rewarded = true;
+                    } else {
+                        // lockup hasn't happened yet
+                        assert!(opdata.all_outputs_burn());
+                    }
+
+                    assert!(opdata.burn_fee > 0);
+                }
+            }
+        }
+
+        let total_liquid_ustx = get_liquid_ustx(&mut peer);
+        let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
+
+        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip_burn_block_height)
+            .unwrap() as u128;
+
+        if tenure_id <= 1 {
+            // record the first reward cycle when tokens get stacked
+            lockup_reward_cycle = 1
+                + (burnchain
+                    .block_height_to_reward_cycle(tip_burn_block_height)
+                    .unwrap()) as u64;
+            eprintln!(
+                "\nlockup reward cycle: {}\ncur reward cycle: {}\n",
+                lockup_reward_cycle, cur_reward_cycle
+            );
+        }
+        if tenure_id > 1 {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                chainstate.get_stacking_minimum(sortdb, &tip_index_block)
+            })
+            .unwrap();
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
+            })
+            .unwrap();
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+            })
+            .unwrap();
+
+            // all keys locked up STX no matter what if we're in the lock period
+            if burn_height < burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2) {
+                for key in keys.iter() {
+                    let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
+                    assert_eq!(balance, 0);
+                }
+            } else {
+                for key in keys.iter() {
+                    let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
+                    assert!(balance > 0);
+                }
+                assert_eq!(reward_addrs.len(), 0);
+            }
+
+            eprintln!("\ntenure: {}\nreward cycle: {}\nlockup_reward_cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, lockup_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+
+            if cur_reward_cycle == lockup_reward_cycle.into() {
+                assert_eq!(reward_addrs.len(), 4);
+                all_reward_addrs = reward_addrs;
+            }
+
+            // let's see who got paid
+            let addrs_and_payout = with_sortdb(&mut peer, |ref mut chainstate, ref mut sortdb| {
+                let addrs = chainstate
+                    .maybe_read_only_clarity_tx(
+                        &sortdb.index_conn(),
+                        &tip_index_block,
+                        |clarity_tx| {
+                            clarity_tx
+                                .with_readonly_clarity_env(
+                                    false,
+                                    0x80000000,
+                                    ClarityVersion::Clarity2,
+                                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                                    None,
+                                    LimitedCostTracker::new_free(),
+                                    |env| {
+                                        env.eval_read_only(
+                                            &boot_code_id("pox-2", false),
+                                            &format!(
+                                                "(get-burn-block-info? pox-addrs u{})",
+                                                &(burn_height - 1)
+                                            ),
+                                        )
+                                    },
+                                )
+                                .unwrap()
+                        },
+                    )
+                    .unwrap();
+                addrs
+            })
+            .unwrap()
+            .expect_optional()
+            .expect("FATAL: expected list")
+            .expect_tuple();
+
+            eprintln!(
+                "At block height {}: {:?}",
+                burn_height - 1,
+                &addrs_and_payout
+            );
+
+            let addrs = addrs_and_payout
+                .get("addrs")
+                .unwrap()
+                .to_owned()
+                .expect_list();
+
+            let payout = addrs_and_payout
+                .get("payout")
+                .unwrap()
+                .to_owned()
+                .expect_u128();
+
+            // there's always some burnchain tokens spent.
+            assert!(payout > 0);
+
+            if burnchain.is_in_prepare_phase(burn_height - 1) {
+                assert_eq!(payout, 1000);
+                assert_eq!(addrs.len(), 1);
+                let pox_addr = PoxAddress::try_from_pox_tuple(false, &addrs[0]).unwrap();
+                assert!(pox_addr.is_burn());
+            } else {
+                assert_eq!(payout, 500);
+                assert_eq!(addrs.len(), 2);
+                for addr in addrs.into_iter() {
+                    let pox_addr = PoxAddress::try_from_pox_tuple(false, &addr).unwrap();
+                    if !pox_addr.is_burn() {
+                        paid_out.insert(pox_addr);
+                    }
+                }
+            }
+        }
+    }
+    assert!(prepared);
+    assert!(rewarded);
+
+    assert_eq!(paid_out.len(), 4);
+    for (rw_addr, _) in all_reward_addrs.into_iter() {
+        assert!(paid_out.contains(&rw_addr));
+    }
 }

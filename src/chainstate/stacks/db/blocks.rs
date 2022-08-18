@@ -34,6 +34,7 @@ use rusqlite::{Error as sqlite_error, OptionalExtension};
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
@@ -206,9 +207,9 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         &self,
         _burn_block: &BurnchainHeaderHash,
         _burn_block_height: u64,
-        _rewards: Vec<(StacksAddress, u64)>,
+        _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
-        _slot_holders: Vec<StacksAddress>,
+        _slot_holders: Vec<PoxAddress>,
     ) {
         assert!(
             false,
@@ -4630,7 +4631,12 @@ impl StacksChainState {
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
-                        reward_addr.as_clarity_tuple().into(),
+                        // this .expect() should be unreachable since we coerce the hash mode when
+                        // we parse the StackStxOp from a burnchain transaction
+                        reward_addr
+                            .as_clarity_tuple()
+                            .expect("FATAL: stack-stx operation has no hash mode")
+                            .into(),
                         Value::UInt(u128::from(block_height)),
                         Value::UInt(u128::from(num_cycles)),
                     ],

@@ -96,7 +96,7 @@ impl error::Error for Error {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq, Copy, Serialize, Deserialize)]
 pub enum AddressHashMode {
     // serialization modes for public keys to addresses.
     // We support four different modes due to legacy compatibility with Stacks v1 addresses:
@@ -121,6 +121,7 @@ impl AddressHashMode {
         }
     }
 
+    /// WARNING: this does not support segwit-p2sh!
     pub fn from_version(version: u8) -> AddressHashMode {
         match version {
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG | C32_ADDRESS_VERSION_MAINNET_SINGLESIG => {

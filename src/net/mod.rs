@@ -2071,6 +2071,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
@@ -2363,9 +2364,9 @@ pub mod test {
             &self,
             _burn_block: &BurnchainHeaderHash,
             _burn_block_height: u64,
-            _rewards: Vec<(StacksAddress, u64)>,
+            _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
-            _reward_recipients: Vec<StacksAddress>,
+            _reward_recipients: Vec<PoxAddress>,
         ) {
             // pass
         }
@@ -3498,13 +3499,26 @@ pub mod test {
                                 .recipients
                                 .into_iter()
                                 .map(|x| x.0)
-                                .collect::<Vec<StacksAddress>>();
+                                .collect::<Vec<PoxAddress>>();
                             if recipients.len() == 1 {
-                                recipients.push(StacksAddress::burn_address(false));
+                                recipients.push(PoxAddress::standard_burn_address(false));
                             }
                             recipients
                         }
-                        None => vec![],
+                        None => {
+                            if self
+                                .config
+                                .burnchain
+                                .is_in_prepare_phase(burn_block.block_height)
+                            {
+                                vec![PoxAddress::standard_burn_address(false)]
+                            } else {
+                                vec![
+                                    PoxAddress::standard_burn_address(false),
+                                    PoxAddress::standard_burn_address(false),
+                                ]
+                            }
+                        }
                     };
                     test_debug!(
                         "Block commit at height {} has {} recipients: {:?}",

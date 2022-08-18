@@ -25,6 +25,7 @@ use serde_json::Error as serde_error;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Txid};
 use crate::chainstate::burn::{ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::types::chainstate::TrieHash;
 use crate::util_lib::db;
@@ -69,6 +70,16 @@ impl FromColumn<StacksAddress> for StacksAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
         let address_str: String = row.get_unwrap(column_name);
         match Self::from_string(&address_str) {
+            Some(a) => Ok(a),
+            None => Err(db_error::ParseError),
+        }
+    }
+}
+
+impl FromColumn<PoxAddress> for PoxAddress {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
+        let address_str: String = row.get_unwrap(column_name);
+        match Self::from_db_string(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }
