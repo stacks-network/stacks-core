@@ -1,12 +1,10 @@
 use std::collections::hash_map::Entry;
 use std::thread::sleep;
 use std::time::Duration;
-use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, Mutex}};
-use std::cell::RefCell;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::rc::Rc;
-use chrono::{DateTime, Local, SecondsFormat, Utc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Mutex},
+};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -43,8 +41,7 @@ use stacks::chainstate::stacks::miner::TransactionEvent;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
-    endpoint: Option<String>,
-    archive: Option<Arc<Mutex<String>>>,
+    endpoint: String,
 }
 
 struct ReceiptPayloadInfo<'a> {
@@ -99,79 +96,57 @@ impl EventObserver {
             }
         };
 
-        if let Some(archive) = &self.archive {
-            let a = Arc::clone(archive);
-            let p = a.lock().unwrap();
-
-            let mut f = OpenOptions::new()
-                .append(true)
-                .create(true) // Optionally create the file if it doesn't already exist
-                .open(&*p)
-                .expect("Unable to open file");
-
-            let ts = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-            let data = format!("{} {} {} ",
-                               ts,
-                               path,
-                               body.len(),
-            );
-            f.write_all(data.as_bytes()).expect("Unable to write data");
-            f.write_all(&body.to_vec()).unwrap();
-        }
-
-        if let Some(endpoint) = &self.endpoint {
-            let url = {
-                let joined_components = match path.starts_with("/") {
-                    true => format!("{}{}", endpoint, path),
-                    false => format!("{}/{}", endpoint, path),
-                };
-                let url = format!("http://{}", joined_components);
-                Url::parse(&url).expect(&format!(
-                    "Event dispatcher: unable to parse {} as a URL",
-                    url
-                ))
+        let url = {
+            let joined_components = match path.starts_with("/") {
+                true => format!("{}{}", &self.endpoint, path),
+                false => format!("{}/{}", &self.endpoint, path),
             };
+            let url = format!("http://{}", joined_components);
+            Url::parse(&url).expect(&format!(
+                "Event dispatcher: unable to parse {} as a URL",
+                url
+            ))
+        };
 
-            let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
+        let backoff = Duration::from_millis((1.0 * 1_000.0) as u64);
 
-            loop {
-                let body = body.clone();
-                let mut req = Request::new(Method::Post, url.clone());
-                req.append_header("Content-Type", "application/json");
-                req.set_body(body);
+        loop {
+            let body = body.clone();
+            let mut req = Request::new(Method::Post, url.clone());
+            req.append_header("Content-Type", "application/json");
+            req.set_body(body);
 
-                let response = async_std::task::block_on(async {
-                    let stream = match TcpStream::connect(endpoint.clone()).await {
-                        Ok(stream) => stream,
-                        Err(err) => {
-                            warn!("Event dispatcher: connection failed  - {:?}", err);
-                            return None;
-                        }
-                    };
-
-                    match client::connect(stream, req).await {
-                        Ok(response) => Some(response),
-                        Err(err) => {
-                            warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
-                            return None;
-                        }
+            let response = async_std::task::block_on(async {
+                let stream = match TcpStream::connect(self.endpoint.clone()).await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        warn!("Event dispatcher: connection failed  - {:?}", err);
+                        return None;
                     }
-                });
+                };
 
-                if let Some(response) = response {
-                    if response.status().is_success() {
-                        debug!(
-                        "Event dispatcher: Successful POST"; "url" => %url
-                    );
-                        break;
-                    } else {
-                        error!(
-                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
-                    );
+                match client::connect(stream, req).await {
+                    Ok(response) => Some(response),
+                    Err(err) => {
+                        warn!("Event dispatcher: rpc invocation failed  - {:?}", err);
+                        return None;
                     }
                 }
-                sleep(backoff);
+            });
+
+            if let Some(response) = response {
+                if response.status().is_success() {
+                    debug!(
+                        "Event dispatcher: Successful POST"; "url" => %url
+                    );
+                    break;
+                } else {
+                    error!(
+                        "Event dispatcher: Failed POST"; "url" => %url, "err" => ?response
+                    );
+                }
             }
+            sleep(backoff);
         }
     }
 
@@ -603,7 +578,7 @@ impl EventDispatcher {
                 match event {
                     StacksTransactionEvent::SmartContractEvent(event_data) => {
                         if let Some(observer_indexes) =
-                        self.contract_events_observers_lookup.get(&event_data.key)
+                            self.contract_events_observers_lookup.get(&event_data.key)
                         {
                             for o_i in observer_indexes {
                                 dispatch_matrix[*o_i as usize].insert(i);
@@ -619,8 +594,8 @@ impl EventDispatcher {
                         }
                     }
                     StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(
-                                                         event_data,
-                                                     )) => {
+                        event_data,
+                    )) => {
                         self.update_dispatch_matrix_if_observer_subscribed(
                             &event_data.asset_identifier,
                             i,
@@ -868,7 +843,7 @@ impl EventDispatcher {
             confirmed_microblocks_cost: confirmed_microblock_cost.clone(),
             tx_events,
         })
-            .unwrap();
+        .unwrap();
 
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_block(&payload);
@@ -902,7 +877,7 @@ impl EventDispatcher {
             anchor_block_consensus_hash,
             anchor_block,
         })
-            .unwrap();
+        .unwrap();
 
         for (_, observer) in interested_observers.iter() {
             observer.send_mined_microblock(&payload);
@@ -974,49 +949,9 @@ impl EventDispatcher {
     }
 
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {
-        if let Some(endpoint) = &conf.endpoint {
-            info!("Registering event observer at: {}", endpoint);
-        }
-        if let Some(archive) = &conf.archive {
-            info!("Registering event observer for: {}", archive);
-        }
-
-        // let archive_db : Option<Connection> = match &conf.archive {
-        //     None => None,
-        //     Some(path) => {
-        //         let mut create_flag = false;
-        //         let open_flags = if fs::metadata(&path).is_err() {
-        //             // need to create
-        //             create_flag = true;
-        //             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-        //         } else {
-        //             // can just open
-        //             OpenFlags::SQLITE_OPEN_READ_WRITE
-        //         };
-        //
-        //         let mut db = sqlite_open(&path, open_flags, true).unwrap();
-        //         if create_flag {
-        //             let mut tx = tx_begin_immediate(&mut db).unwrap();
-        //             let cmd = r"
-        //         CREATE TABLE archive(
-        //             timestamp INTEGER NOT NULL,
-        //             event TEXT NOT NULL,
-        //             payload TEXT NOT NULL
-        //         );
-        //         ";
-        //             tx.execute_batch(cmd).unwrap();// .map_err(db_error::SqliteError).unwrap();
-        //             tx.commit().unwrap(); //.map_err(db_error::SqliteError).unwrap();
-        //         }
-        //         Some(db)
-        //     }
-        // };
-
+        info!("Registering event observer at: {}", conf.endpoint);
         let event_observer = EventObserver {
             endpoint: conf.endpoint.clone(),
-            archive: match &conf.archive {
-                None => None,
-                Some(archive) => Some(Arc::new(Mutex::new(archive.to_owned()))),
-            },
         };
 
         let observer_index = self.registered_observers.len() as u16;

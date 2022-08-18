@@ -1,2 +1,6 @@
 [alias]
 stacks-node = "run --package stacks-node --"
+
+[target.x86_64-unknown-linux-gnu]
+linker = "/usr/bin/clang"
+rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
