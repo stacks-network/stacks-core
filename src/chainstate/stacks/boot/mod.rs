@@ -995,7 +995,9 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses).len(),
+            StacksChainState::make_reward_set(threshold, addresses)
+                .rewarded_addresses
+                .len(),
             3
         );
     }

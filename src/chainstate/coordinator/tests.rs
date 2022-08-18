@@ -33,6 +33,7 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -359,8 +360,13 @@ impl RewardSetProvider for StubbedRewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<StacksAddress>, chainstate::coordinator::Error> {
-        Ok(self.0.clone())
+    ) -> Result<RewardSet, chainstate::coordinator::Error> {
+        Ok(RewardSet {
+            rewarded_addresses: self.0.clone(),
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+        })
     }
 }
 
