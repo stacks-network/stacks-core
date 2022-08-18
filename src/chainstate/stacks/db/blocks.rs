@@ -5147,24 +5147,42 @@ impl StacksChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
 
+        info!("Evaluated epoch = {}", evaluated_epoch);
         if evaluated_epoch >= StacksEpochId::Epoch21 {
-            let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+            let mut pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
                 burn_tip_height.into(),
                 burn_dbconn.get_burn_start_height().into(),
                 burn_dbconn.get_pox_reward_cycle_length().into(),
             ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
-            let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
-            });
-            if !handled {
-                let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
-                    &parent_sortition_id,
-                    chain_tip.burn_header_height.into(),
-                    pox_reward_cycle,
-                )?;
-                clarity_tx.block.as_transaction(|clarity_tx| {
-                    Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
-                })?;
+            // Do not try to handle auto-unlocks on pox_reward_cycle 0
+            // This cannot even occur in the mainchain, because 2.1 starts much
+            //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
+            if pox_reward_cycle > 1 {
+                if Burnchain::is_pre_reward_cycle_start(
+                    burn_dbconn.get_burn_start_height().into(),
+                    burn_tip_height.into(),
+                    burn_dbconn.get_pox_reward_cycle_length().into(),
+                ) {
+                    pox_reward_cycle -= 1;
+                }
+                let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
+                });
+                info!("Check handled"; "pox_cycle" => pox_reward_cycle, "handled" => handled);
+                if !handled {
+                    let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
+                        &parent_sortition_id,
+                        chain_tip.burn_header_height.into(),
+                        pox_reward_cycle,
+                    )?;
+                    clarity_tx.block.as_transaction(|clarity_tx| {
+                        Self::handle_pox_cycle_start(
+                            clarity_tx,
+                            pox_reward_cycle,
+                            pox_start_cycle_info,
+                        )
+                    })?;
+                }
             }
         }
 

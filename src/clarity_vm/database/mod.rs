@@ -255,6 +255,10 @@ fn get_pox_start_cycle_info(
     }
 
     let start_info = handle.get_reward_cycle_unlocks(cycle_index)?;
+    info!(
+        "get_pox_start_cycle_info";
+        "start_info" => ?start_info,
+    );
     Ok(start_info)
 }
 

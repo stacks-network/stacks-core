@@ -491,6 +491,18 @@ impl Burnchain {
         )
     }
 
+    /// Is this block the block in a reward cycle right before the reward phase
+    ///  starts? This is the mod 0 block.
+    pub fn is_pre_reward_cycle_start(
+        first_block_ht: u64,
+        burn_ht: u64,
+        reward_cycle_length: u64,
+    ) -> bool {
+        let effective_height = burn_ht - first_block_ht;
+        // first block of the new reward cycle
+        (effective_height % reward_cycle_length) <= 1
+    }
+
     pub fn static_is_in_prepare_phase(
         first_block_height: u64,
         reward_cycle_length: u64,

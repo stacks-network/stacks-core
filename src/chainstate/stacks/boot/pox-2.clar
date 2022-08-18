@@ -393,7 +393,7 @@
                                   (num-cycles uint))
   (begin
     ;; minimum uSTX must be met
-    (asserts! (<= (print (get-stacking-minimum)) amount-ustx)
+    (asserts! (<= (get-stacking-minimum) amount-ustx)
               (err ERR_STACKING_THRESHOLD_NOT_MET))
 
     (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle num-cycles)))

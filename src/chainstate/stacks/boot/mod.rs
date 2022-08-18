@@ -229,13 +229,11 @@ impl StacksChainState {
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<(), Error> {
+        clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
+
         let cycle_info = match cycle_info {
             Some(x) => x,
-            None => {
-                return clarity
-                    .with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))
-                    .map_err(Error::from)
-            }
+            None => return Ok(()),
         };
 
         let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
@@ -253,7 +251,7 @@ impl StacksChainState {
                 // lookup the Stacks account and alter their unlock height to next block
                 let mut balance = db.get_stx_balance_snapshot(&principal);
                 if balance.canonical_balance_repr().amount_locked() < *amount_locked {
-                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected");
+                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", balance.canonical_balance_repr().amount_locked(), *amount_locked);
                 }
 
                 balance.accelerate_unlock();
@@ -266,7 +264,7 @@ impl StacksChainState {
                         &pox_contract,
                         "stacking-state",
                         &lookup_tuple
-                    )?
+                    ).unwrap()
                     .expect_tuple();
 
                 let first_reward_cycle_locked = stacking_state_entry
@@ -302,7 +300,7 @@ impl StacksChainState {
                         &pox_contract,
                         "reward-cycle-pox-address-list",
                         &target_key
-                    )?.expect_tuple();
+                    ).unwrap().expect_tuple();
 
                     let reward_cycle_entry_principal = reward_cycle_entry
                         .get("stacker")
@@ -328,7 +326,7 @@ impl StacksChainState {
                             &pox_contract,
                             "reward-cycle-pox-address-list-len",
                             &reward_cycle_len_key,
-                        )?
+                        ).unwrap()
                         .expect_tuple()
                         .get("len")
                         .expect("Malformed tuple returned by PoX contract")
@@ -347,7 +345,7 @@ impl StacksChainState {
                             &pox_contract,
                             "reward-cycle-pox-address-list",
                             &move_reward_cycle_map_key
-                        )?.expect_tuple();
+                        ).unwrap().expect_tuple();
 
                         let stacker = move_reward_cycle_entry
                             .get("stacker")
@@ -361,7 +359,7 @@ impl StacksChainState {
                             "reward-cycle-pox-address-list",
                             target_key,
                             move_reward_cycle_entry.into()
-                        )?;
+                        ).unwrap();
 
                         // if the last entry in `reward-cycle-pox-address-list` had an associated stacker,
                         //   we must also update that stacker's `stacking-state`
@@ -374,7 +372,7 @@ impl StacksChainState {
                                     &pox_contract,
                                     "stacking-state",
                                     &moved_state_key,
-                                )?
+                                ).unwrap()
                                 .expect_tuple();
                             // calculate the index into the reward-set-indexes list that
                             //  this reward cycle is at
@@ -397,8 +395,8 @@ impl StacksChainState {
                                 .clone()
                                 .expect_list();
                             assert!(moved_reward_indexes.len() > moved_cycle_index, "FATAL: Calculated bad move index");
-
-                            moved_reward_indexes[moved_cycle_index] = Value::UInt(last_cycle_entry_index);
+                            // we moved the entry to the "target" location
+                            moved_reward_indexes[moved_cycle_index] = Value::UInt(target_entry_index);
 
                             moved_state_entry.data_map.insert("reward-set-indexes".into(),
                                                               Value::list_from(moved_reward_indexes)
@@ -409,7 +407,7 @@ impl StacksChainState {
                                 "stacking-state",
                                 moved_state_key,
                                 moved_state_entry.into()
-                            )?;
+                            ).unwrap();
                         }
                     }
 
@@ -419,12 +417,12 @@ impl StacksChainState {
                         &pox_contract,
                         "reward-cycle-pox-address-list",
                         &move_reward_cycle_map_key,
-                    )?;
+                    ).unwrap();
 
                     db.set_entry_unknown_descriptor(
                         &pox_contract, "reward-cycle-pox-address-list-len", reward_cycle_len_key,
                         TupleData::from_data_static(vec![("len".into(), Value::UInt(last_cycle_entry_index))]).into()
-                    )?;
+                    ).unwrap();
 
                     // Finally, update `reward-cycle-total-stacked`
                     let total_stacked_key = TupleData::from_data_static(vec![("reward-cycle".into(), Value::UInt(reward_cycle_to_update))])
@@ -432,9 +430,9 @@ impl StacksChainState {
                     let next_total_stacked_amount = db
                         .expect_fetch_entry(
                             &pox_contract,
-                            "reward-cycle-pox-address-list",
+                            "reward-cycle-total-stacked",
                             &total_stacked_key,
-                        )?
+                        ).unwrap()
                         .expect_tuple()
                         .get_owned("total-ustx")
                         .expect("Malformed tuple returned by PoX contract")
@@ -443,18 +441,18 @@ impl StacksChainState {
                         .expect("FATAL: Unlocked more STX in a cycle than were stacked in that cycle");
                     db.set_entry_unknown_descriptor(
                         &pox_contract,
-                        "reward-cycle-pox-address-list",
+                        "reward-cycle-total-stacked",
                         total_stacked_key,
                         TupleData::from_data_static(vec![("total-ustx".into(), Value::UInt(next_total_stacked_amount))]).into(),
-                    )?;
+                    ).unwrap();
                 }
 
-                // Now that we've cleaned up all the reward set entries for the user, lets delete the user's stacking-state
+                // Now that we've cleaned up all the reward set entries for the user, delete the user's stacking-state
                 db.delete_entry_unknown_descriptor(
                     &pox_contract,
                     "stacking-state",
                     &lookup_tuple
-                )?;
+                ).unwrap();
 
                 Ok(())
             })?;
@@ -636,11 +634,11 @@ impl StacksChainState {
             let slots_taken = u32::try_from(stacked_amt / threshold)
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
             info!(
-                "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
-                &address.clone(),
-                slots_taken,
-                stacked_amt,
-                threshold
+                "Reward slots taken";
+                "reward_address" => %address,
+                "slots_taken" => slots_taken,
+                "stacked_amt" => stacked_amt,
+                "pox_threshold" => threshold,
             );
             for _i in 0..slots_taken {
                 test_debug!("Add to PoX reward set: {:?}", &address);
@@ -649,13 +647,14 @@ impl StacksChainState {
             // if stacker did not qualify for a slot *and* they have a stacker
             //   pointer set by the PoX contract, then add them to auto-unlock list
             if slots_taken == 0 && !contributed_stackers.is_empty() {
-                debug!(
-                                    "Stacker missed reward slot, added to unlock list";
-                //                    "stackers" => %VecDisplay(&contributed_stackers),
-                                    "reward_address" => %address.clone().to_b58(),
-                                    "threshold" => threshold,
-                                    "stacked_amount" => stacked_amt
-                                );
+                info!(
+                    "Stacker missed reward slot, added to unlock list";
+                    //                    "stackers" => %VecDisplay(&contributed_stackers),
+                    "reward_address" => %address.clone().to_b58(),
+                    "threshold" => threshold,
+                    "stacked_amount" => stacked_amt
+                );
+                // todo: we need to consolidate these stackers
                 for (contributor, amt) in contributed_stackers {
                     missed_slots.push((contributor, amt));
                 }
@@ -870,8 +869,10 @@ impl StacksChainState {
                 .map(|value| value.expect_principal());
 
             debug!(
-                "PoX reward address (for {} ustx): {}",
-                total_ustx, &reward_address,
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
             );
             ret.push(RawRewardSetEntry {
                 reward_address,
@@ -902,8 +903,6 @@ impl StacksChainState {
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
-
-        debug!("Using pox_contract = {}", pox_contract_name);
 
         match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
@@ -1677,14 +1676,28 @@ pub mod test {
         block_id: &StacksBlockId,
     ) -> Result<Vec<(PoxAddress, u128)>, Error> {
         let burn_block_height = get_par_burn_block_height(state, block_id);
+        get_reward_set_entries_at_block(state, burnchain, sortdb, block_id, burn_block_height).map(
+            |addrs| {
+                addrs
+                    .into_iter()
+                    .map(|x| (x.reward_address, x.amount_stacked))
+                    .collect()
+            },
+        )
+    }
+
+    pub fn get_reward_set_entries_at_block(
+        state: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        burn_block_height: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
             .and_then(|mut addrs| {
                 addrs.sort_by_key(|k| k.reward_address.bytes());
-                Ok(addrs
-                    .into_iter()
-                    .map(|x| (x.reward_address, x.amount_stacked))
-                    .collect())
+                Ok(addrs)
             })
     }
 

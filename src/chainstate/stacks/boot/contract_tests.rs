@@ -1443,7 +1443,7 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0.to_string(), "(err 21)".to_string(),
             "Delegate cannot stack-extend for User0 for 10 cycles",
-);
+        );
 
         assert_eq!(
             env.execute_transaction(
