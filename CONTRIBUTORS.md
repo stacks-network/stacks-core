@@ -481,8 +481,7 @@ is tagged.
    resolved. 
 
 1. Once reviewed and approved, the release manager merges the PR, and tags the release
-   via the [`stacks-blockchain` Github action]((https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml))
-   by clicking "Run workflow" and providing the release version as the tag (e.g.,
+   via the [`stacks-blockchain` Github action](https://github.com/stacks-network/stacks-blockchain/actions/workflows/stacks-blockchain.yml) by clicking "Run workflow" and providing the release version as the tag (e.g.,
    `2.0.11.1.0`) This creates a release and release images. Once the release has been
    created, the release manager should update the Github release text with the
    `CHANGELOG.md` "top-matter" for the release.

@@ -30,16 +30,18 @@ For more information on Stacks Improvement Proposals (SIPs) please refer to [SIP
 
 ## Community and Further reading
 
-For further reading and to get in contact with the Stacks community:
-
-* [Stacks official documentation](https://docs.stacks.co/)
-* [Forum](https://forum.stacks.org)
-* [Discord](https://discord.com/invite/XYdRyhf)
-* [Mailing list](https://newsletter.stacks.org/)
-* [Meetups](https://www.meetup.com/topics/blockstack/)
-* [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
+For more information please refer to the [Stacks official documentation](https://docs.stacks.co/).
 
 Technical papers:
 
 - ["PoX: Proof of Transfer Mining with Bitcoin"](https://community.stacks.org/pox), May 2020
 - ["Stacks 2.0: Apps and Smart Contracts for Bitcoin"](https://stacks.org/stacks), Dec 2020
+
+You can get in contact with the Stacks Community on:
+
+* [Forum](https://forum.stacks.org)
+* [Discord](https://discord.com/invite/XYdRyhf)
+* [Mailing list](https://newsletter.stacks.org/)
+* [Meetups](https://www.meetup.com/topics/blockstack/)
+* [Stacks YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
+* [Stacks Community Youtube channel](https://www.youtube.com/channel/UCp7D42MyHXk4-J2TtF5I0Kg)
