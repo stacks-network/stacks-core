@@ -721,7 +721,6 @@ impl<'a> ClarityDatabase<'a> {
     ///
     /// Fails if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_index_block_header_hash(&mut self, block_height: u32) -> StacksBlockId {
-        println!("height in getter: {}", block_height);
         self.store
             .get_block_header_hash(block_height)
             // the caller is responsible for ensuring that the block_height given
