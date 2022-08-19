@@ -138,6 +138,7 @@ jobs:
 
   call-docker-platforms-workflow:
     uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
+    secrets: inherit
     with:
       tag: ${{ github.event.inputs.tag }}
     secrets:
