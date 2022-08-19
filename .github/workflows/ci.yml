@@ -137,13 +137,12 @@ jobs:
           path: ${{ matrix.platform }}.zip
 
   call-docker-platforms-workflow:
-    if: ${{ false }}
     uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
     with:
       tag: ${{ github.event.inputs.tag }}
     secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
+      QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}
 
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
@@ -151,7 +150,6 @@ jobs:
   #   - a tag was pushed up
   #   - this workflow was invoked against a non-master branch (a Docker image tag with the name of the branch will be published)
   build-publish:
-    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -172,11 +170,12 @@ jobs:
             type=ref,event=pr
             ${{ github.event.inputs.tag }}
 
-      - name: Login to DockerHub
+      - name: Login to Quay
         uses: docker/login-action@v1
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build/Tag/Push Image
         uses: docker/build-push-action@v2
@@ -197,7 +196,6 @@ jobs:
   #   - a tag was pushed up
   #   - this workflow was invoked against a non-master branch (a Docker image tag with the name of the branch will be published)
   build-publish-stretch:
-    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -234,11 +232,12 @@ jobs:
             type=ref,event=pr
             ${{ env.STRETCH_TAG }}
 
-      - name: Login to DockerHub
+      - name: Login to Quay
         uses: docker/login-action@v1
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
 
       - name: Build/Tag/Push Image
         uses: docker/build-push-action@v2
