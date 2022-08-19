@@ -19,7 +19,7 @@ on:
   push:
     branches: [master]
 
-jobs:      
+jobs:
   dist:
     runs-on: ubuntu-latest
     env:
@@ -27,73 +27,73 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Build docs
-        env:
-          DOCKER_BUILDKIT: 1
-        run: rm -rf docs-output && docker build -o docs-output -f ./.github/actions/docsgen/Dockerfile.docsgen .
+      # - name: Build docs
+      #   env:
+      #     DOCKER_BUILDKIT: 1
+      #   run: rm -rf docs-output && docker build -o docs-output -f ./.github/actions/docsgen/Dockerfile.docsgen .
 
-      - name: Checkout latest docs
-        uses: actions/checkout@v2
-        with:
-          token: ${{ secrets.DOCS_GITHUB_TOKEN }}
-          repository: ${{ env.TARGET_REPOSITORY }}
-          path: docs.blockstack
+      # - name: Checkout latest docs
+      #   uses: actions/checkout@v2
+      #   with:
+      #     token: ${{ secrets.DOCS_GITHUB_TOKEN }}
+      #     repository: ${{ env.TARGET_REPOSITORY }}
+      #     path: docs.blockstack
 
-      - name: Branch and commit
-        id: push
-        run: |
-          cd docs.blockstack
-          git config user.email "kantai+robot@gmail.com"
-          git config user.name "PR Robot"
-          git fetch --unshallow
-          git checkout -b $ROBOT_BRANCH
-          cp ../docs-output/clarity-reference.json ./src/_data/clarity-reference.json
-          cp ../docs-output/boot-contracts-reference.json ./src/_data/boot-contracts-reference.json
-          git add src/_data/clarity-reference.json
-          git add src/_data/boot-contracts-reference.json
-          if $(git diff --staged --quiet --exit-code); then
-            echo "No reference.json changes, stopping"
-            echo "::set-output name=open_pr::0"
-          else
-            git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
-            git commit -m "auto: update Clarity references JSONs from stacks-blockchain@${GITHUB_SHA}"
-            git push robot $ROBOT_BRANCH
-            echo "::set-output name=open_pr::1"
-          fi
-      - name: Open PR
-        if: ${{ steps.push.outputs.open_pr == '1' }}
-        uses: actions/github-script@v2
-        with:
-          github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
-          script: |
-            // get env vars
-            const process = require("process");
-            const robot_owner = process.env.ROBOT_OWNER;
-            const robot_branch = process.env.ROBOT_BRANCH;
-            const head = `${robot_owner}:${robot_branch}`;
-            const owner = process.env.TARGET_OWNER;
-            const repo = process.env.TARGET_REPO;
+      # - name: Branch and commit
+      #   id: push
+      #   run: |
+      #     cd docs.blockstack
+      #     git config user.email "kantai+robot@gmail.com"
+      #     git config user.name "PR Robot"
+      #     git fetch --unshallow
+      #     git checkout -b $ROBOT_BRANCH
+      #     cp ../docs-output/clarity-reference.json ./src/_data/clarity-reference.json
+      #     cp ../docs-output/boot-contracts-reference.json ./src/_data/boot-contracts-reference.json
+      #     git add src/_data/clarity-reference.json
+      #     git add src/_data/boot-contracts-reference.json
+      #     if $(git diff --staged --quiet --exit-code); then
+      #       echo "No reference.json changes, stopping"
+      #       echo "::set-output name=open_pr::0"
+      #     else
+      #       git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
+      #       git commit -m "auto: update Clarity references JSONs from stacks-blockchain@${GITHUB_SHA}"
+      #       git push robot $ROBOT_BRANCH
+      #       echo "::set-output name=open_pr::1"
+      #     fi
+      # - name: Open PR
+      #   if: ${{ steps.push.outputs.open_pr == '1' }}
+      #   uses: actions/github-script@v2
+      #   with:
+      #     github-token: ${{ secrets.DOCS_GITHUB_TOKEN }}
+      #     script: |
+      #       // get env vars
+      #       const process = require("process");
+      #       const robot_owner = process.env.ROBOT_OWNER;
+      #       const robot_branch = process.env.ROBOT_BRANCH;
+      #       const head = `${robot_owner}:${robot_branch}`;
+      #       const owner = process.env.TARGET_OWNER;
+      #       const repo = process.env.TARGET_REPO;
 
-            console.log(`Checking PR with params: head= ${head} owner= ${owner} repo= ${repo}`);
+      #       console.log(`Checking PR with params: head= ${head} owner= ${owner} repo= ${repo}`);
 
-            // check if a pull exists
-            const existingPulls = await github.pulls.list({
-              owner, repo, state: "open" });
-            const myPulls = existingPulls.data.filter( pull => pull.user.login == robot_owner );
-            console.log(myPulls);
+      #       // check if a pull exists
+      #       const existingPulls = await github.pulls.list({
+      #         owner, repo, state: "open" });
+      #       const myPulls = existingPulls.data.filter( pull => pull.user.login == robot_owner );
+      #       console.log(myPulls);
 
-            for (myPull of myPulls) {
-              // close any open PRs
-              const pull_number = myPull.number;
-              console.log(`Closing PR: ${ pull_number }`);
-              await github.pulls.update({ owner, repo, pull_number, state: "closed" });
-            }
+      #       for (myPull of myPulls) {
+      #         // close any open PRs
+      #         const pull_number = myPull.number;
+      #         console.log(`Closing PR: ${ pull_number }`);
+      #         await github.pulls.update({ owner, repo, pull_number, state: "closed" });
+      #       }
 
-            // Open PR if one doesn't exist
-            console.log("Opening the new PR.");
-            let result = await github.pulls.create({
-                owner, repo, head,
-                base: "master",
-                title: "Auto: Update API documentation from stacks-blockchain",
-                body: "Update API documentation from the latest in `stacks-blockchain`",
-            });
+      #       // Open PR if one doesn't exist
+      #       console.log("Opening the new PR.");
+      #       let result = await github.pulls.create({
+      #           owner, repo, head,
+      #           base: "master",
+      #           title: "Auto: Update API documentation from stacks-blockchain",
+      #           body: "Update API documentation from the latest in `stacks-blockchain`",
+      #       });
