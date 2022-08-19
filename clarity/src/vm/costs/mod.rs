@@ -865,7 +865,10 @@ fn compute_cost(
 
 fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
     s.total.add(&cost)?;
-    if false && s.total.exceeds(&s.limit) {
+    if cfg(feature = "disable-costs") {
+        return Ok(());
+    }
+    if s.total.exceeds(&s.limit) {
         Err(CostErrors::CostBalanceExceeded(
             s.total.clone(),
             s.limit.clone(),
