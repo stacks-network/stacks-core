@@ -1,4 +1,4 @@
-[![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
+Code: [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/) Docs: [![License: CC0-1.0](https://licensebuttons.net/l/zero/1.0/80x15.png)](https://creativecommons.org/publicdomain/zero/1.0/)
 # Stacks 2.0
 
 Reference implementation of the [Stacks blockchain](https://github.com/stacks-network/stacks) in Rust.
