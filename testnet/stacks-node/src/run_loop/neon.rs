@@ -1,3 +1,4 @@
+use std::cell::{Cell, RefCell};
 use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -6,7 +7,7 @@ use std::sync::atomic::AtomicU64;
 
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -41,6 +42,8 @@ use crate::{
 
 use super::RunLoopCallbacks;
 use libc;
+use crate::config::DynamicConfig;
+
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
@@ -125,6 +128,7 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
+    dynamic_config: DynamicConfig,
     pub callbacks: RunLoopCallbacks,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -166,8 +170,10 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
+        let dynamic_config = DynamicConfig::new(&config);
         Self {
             config,
+            dynamic_config,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
@@ -210,6 +216,10 @@ impl RunLoop {
 
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn dynamic_config(&self) -> &DynamicConfig {
+        &self.dynamic_config
     }
 
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
@@ -321,6 +331,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
+            self.dynamic_config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
             Some(self.should_keep_running.clone()),

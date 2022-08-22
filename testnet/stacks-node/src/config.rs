@@ -360,6 +360,27 @@ pub struct Config {
     pub estimation: FeeEstimationConfig,
 }
 
+#[derive(Clone, Debug)]
+pub struct DynamicConfig {
+    config: std::sync::Arc<std::sync::Mutex<std::cell::RefCell<Config>>>
+}
+
+impl DynamicConfig {
+    pub fn new(config: &Config) -> Self {
+        DynamicConfig {
+            config: std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(config.clone())))
+        }
+    }
+
+    pub fn replace(&self, config: &Config) {
+        self.config.lock().unwrap().replace(config.clone());
+    }
+
+    pub fn get(&self) -> Config {
+        self.config.lock().unwrap().borrow().clone()
+    }
+}
+
 lazy_static! {
     static ref HELIUM_DEFAULT_CONNECTION_OPTIONS: ConnectionOptions = ConnectionOptions {
         inbox_maxlen: 100,

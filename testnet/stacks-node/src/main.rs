@@ -45,7 +45,7 @@ pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 
 use pico_args::Arguments;
-use std::env;
+use std::{env, thread};
 
 use std::convert::TryInto;
 use std::panic;
@@ -78,6 +78,7 @@ fn main() {
 
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
+    let mut start_config_path : Option<String> = None;
 
     info!("{}", version());
 
@@ -133,6 +134,7 @@ fn main() {
         }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
+            start_config_path = Some(config_path.clone());
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
             match ConfigFile::from_path(&config_path) {
@@ -184,7 +186,7 @@ fn main() {
     let conf = match Config::from_config_file(config_file) {
         Ok(conf) => conf,
         Err(e) => {
-            warn!("Invalid config: {}", e);
+            error!("Invalid config: {}", e);
             process::exit(1);
         }
     };
@@ -206,6 +208,32 @@ fn main() {
         || conf.burnchain.mode == "mainnet"
     {
         let mut run_loop = neon::RunLoop::new(conf);
+
+        if let Some(config_path) = start_config_path {
+            let dynamic_config = run_loop.dynamic_config().clone();
+            let mut signals = signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGUSR1]).unwrap();
+            thread::Builder::new().name("config-loader".to_string()).spawn(move || {
+                for sig in signals.forever() {
+                    match ConfigFile::from_path(&config_path) {
+                        Err(e) => {
+                            error!("Failed to load config file: {}", e);
+                        },
+                        Ok(config_file) => {
+                            match Config::from_config_file(config_file) {
+                                Err(e) => {
+                                    error!("Failed to load config: {}", e);
+                                },
+                                Ok(config) => {
+                                    dynamic_config.replace(&config);
+                                    info!("Loaded config at {}", config_path);
+                                }
+                            }
+                        },
+                    }
+                }
+            }).unwrap();
+        }
+
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);

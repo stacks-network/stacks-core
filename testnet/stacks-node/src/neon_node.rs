@@ -11,6 +11,8 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
+use std::borrow::Borrow;
+use std::ops::Deref;
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -1019,6 +1021,7 @@ fn spawn_miner_relayer(
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let config = runloop.config().clone();
+    let dynamic_config = runloop.dynamic_config().clone();
     let event_dispatcher = runloop.get_event_dispatcher();
     let counters = runloop.get_counters();
     let sync_comms = runloop.get_pox_sync_comms();
@@ -1049,9 +1052,8 @@ fn spawn_miner_relayer(
         BurnchainHeaderHash,
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
-    let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone(), dynamic_config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1277,6 +1279,7 @@ fn spawn_miner_relayer(
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
 
+                    let burn_fee_cap = dynamic_config.get().burnchain.burn_fee_cap;
                     let last_mined_block_opt = StacksNode::relayer_run_tenure(
                         &config,
                         registered_key,
@@ -1385,7 +1388,7 @@ impl StacksNode {
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
-        let miner = runloop.is_miner();
+        let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         let mut keychain = Keychain::default(config.node.seed.clone());
@@ -1625,7 +1628,7 @@ impl StacksNode {
         info!("Start HTTP server on: {}", &config.node.rpc_bind);
         info!("Start P2P server on: {}", &config.node.p2p_bind);
 
-        let is_miner = miner;
+        let is_miner = is_miner;
 
         StacksNode {
             config,
