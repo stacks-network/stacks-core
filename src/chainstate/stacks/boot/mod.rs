@@ -31,7 +31,9 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::strings::VecDisplay;
+use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
+use clarity::util::hash::to_hex;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
@@ -654,9 +656,22 @@ impl StacksChainState {
                     "threshold" => threshold,
                     "stacked_amount" => stacked_amt
                 );
-                // todo: we need to consolidate these stackers
-                for (contributor, amt) in contributed_stackers {
-                    missed_slots.push((contributor, amt));
+                contributed_stackers
+                    .sort_by_cached_key(|(stacker, ..)| to_hex(&stacker.serialize_to_vec()));
+                while let Some((contributor, amt)) = contributed_stackers.pop() {
+                    let mut total_amount = amt;
+                    while contributed_stackers.last().map(|(stacker, ..)| stacker)
+                        == Some(&contributor)
+                    {
+                        let (add_stacker, additional) = contributed_stackers
+                            .pop()
+                            .expect("BUG: last() returned some, but pop() is none.");
+                        assert_eq!(&add_stacker, &contributor);
+                        total_amount = total_amount
+                            .checked_add(additional)
+                            .expect("CORRUPTION: Stacked stacked > u128 max amount");
+                    }
+                    missed_slots.push((contributor, total_amount));
                 }
             }
         }
