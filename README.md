@@ -39,9 +39,11 @@ Technical papers:
 
 You can get in contact with the Stacks Community on:
 
-* [Forum](https://forum.stacks.org)
-* [Discord](https://discord.com/invite/XYdRyhf)
+
+* [![Forum](https://img.shields.io/discourse/users?label=Discourse%20forum&server=https%3A%2F%2Fforum.stacks.org)](https://forum.stacks.org)
+* [![Discord Badge](https://img.shields.io/discord/621759717756370964?label=Discord%20chat)](https://discord.com/invite/XYdRyhf)
+* [![Youtube badge](https://img.shields.io/youtube/channel/subscribers/UC3J2iHnyt2JtOvtGVf_jpHQ?label=Stacks&style=social)](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
+* [![Youtube badge](https://img.shields.io/youtube/channel/subscribers/UCp7D42MyHXk4-J2TtF5I0Kg?label=Stacks%20Community&style=social)](https://www.youtube.com/channel/UCp7D42MyHXk4-J2TtF5I0Kg)
+* [![Twitter](https://img.shields.io/twitter/follow/Stacks?style=social)](https://twitter.com/Stacks)
 * [Mailing list](https://newsletter.stacks.org/)
 * [Meetups](https://www.meetup.com/topics/blockstack/)
-* [Stacks YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
-* [Stacks Community Youtube channel](https://www.youtube.com/channel/UCp7D42MyHXk4-J2TtF5I0Kg)
