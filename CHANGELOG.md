@@ -5,18 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Upcoming
+## [2.05.0.3.0]
 
 ### Added
+
 - Added prometheus output for "transactions in last block" (#3138).
 - Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
-  stacks-node uses for logging.
+  stacks-node uses for logging. (#3219)
   Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
+- Added mock-miner sample config (#3225)
 
 ### Changed
+
 - Updates to the logging of transaction events (#3139).
+- Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
 
 ### Fixed
+
 - Make it so that a new peer private key in the config file will propagate to
   the peer database (#3165).
 - Fixed default miner behavior regarding block assembly
@@ -30,6 +35,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   from sockets, but instead propagate them to the outer caller. This would lead
   to a node crash in nodes connected to event observers, which expect the P2P
   state machine to only report fatal errors (#3228)
+- Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
+- Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+
 
 ## [2.05.0.2.1]
 
