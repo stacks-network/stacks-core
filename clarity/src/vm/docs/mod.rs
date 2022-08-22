@@ -1499,7 +1499,7 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
-    output_type: "(optional buff)",
+    output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 20)) (version (buff 1))))) (payout uint)))",
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
@@ -1510,9 +1510,23 @@ The following `BlockInfoPropertyName` values are defined:
 
 * The `header-hash` property returns a 32-byte buffer representing the header hash of the burnchain block at
 burnchain height `block-height`.
+
+* The `pox-addrs` property returns a tuple with two items: a list of up to two PoX addresses that received a PoX payout at that block height, and the amount of burnchain
+tokens paid to each address (note that per the blockchain consensus rules, each PoX payout will be the same for each address in the block-commit transaction).
+The list will include burn addresses -- that is, the unspendable addresses that miners pay to when there are no PoX addresses left to be paid.  During the prepare phase,
+there will be exactly one burn address reported. During the reward phase, up to two burn addresses may be reported in the event that some PoX reward slots are not claimed.
+
+The `addrs` list contains the same PoX address values passed into the PoX smart contract:
+   * They each have type signature `(tuple (hashbytes (buff 20)) (version (buff 1)))`
+   * The `version` field can be any of the following:
+      * `0x00` means this is a p2pkh address, and `hashbytes` is the hash160 of a single public key
+      * `0x01` means this is a p2sh address, and `hashbytes` is the hash160 of a redeemScript script
+      * `0x02` means this is a p2wpkh-p2sh address, and `hashbytes` is the hash160 of a p2wpkh witness script
+      * `0x03` means this is a p2wsh-p2sh address, and `hashbytes` is the hash160 of a p2wsh witness script
 ",
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
+(get-burn-block-info? pox-addrs u677050) ;; Returns (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
 "
 };
 
@@ -2254,11 +2268,15 @@ mod test {
         QualifiedContractIdentifier, Value,
     };
     use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::util::hash::hex_bytes;
 
     use super::make_all_api_reference;
     use super::make_json_api_reference;
+    use crate::address::AddressHashMode;
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
+    use crate::types::Address;
     use crate::vm::analysis::type_check;
+    use crate::vm::types::TupleData;
     use crate::{types::chainstate::VRFSeed, vm::StacksEpoch};
     use crate::{
         types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash},
@@ -2387,6 +2405,41 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+        fn get_pox_payout_addrs(
+            &self,
+            height: u32,
+            sortition_id: &SortitionId,
+        ) -> Option<(Vec<TupleData>, u128)> {
+            // (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
+
+            Some((
+                vec![
+                    TupleData::from_data(vec![
+                        ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                        (
+                            "hashbytes".into(),
+                            Value::buff_from(
+                                hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                    ])
+                    .unwrap(),
+                    TupleData::from_data(vec![
+                        ("version".into(), Value::buff_from(vec![1u8]).unwrap()),
+                        (
+                            "hashbytes".into(),
+                            Value::buff_from(
+                                hex_bytes("7c6775e20e3e938d2d7e9d79ac310108ba501ddb").unwrap(),
+                            )
+                            .unwrap(),
+                        ),
+                    ])
+                    .unwrap(),
+                ],
+                123,
+            ))
         }
     }
 

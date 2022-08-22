@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::env;
 use std::thread;
 
@@ -22,24 +23,32 @@ use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::distribution::BurnSamplePoint;
+use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::operations::PreStxOp;
 use stacks::chainstate::burn::operations::TransferStxOp;
+
+use stacks::chainstate::stacks::address::PoxAddress;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
 
+use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
-use crate::stacks_common::util::hash::hex_bytes;
+use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 
+use stacks::clarity_cli::vm_execute as execute;
+
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::ClarityVersion;
 use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
@@ -50,6 +59,7 @@ use crate::Keychain;
 fn advance_to_2_1(
     mut initial_balances: Vec<InitialBalance>,
     block_reward_recipient: Option<PrincipalData>,
+    pox_constants: Option<PoxConstants>,
 ) -> (
     Config,
     BitcoinCoreController,
@@ -64,6 +74,7 @@ fn advance_to_2_1(
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
+    conf.burnchain.peer_host = "localhost".to_string();
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
 
@@ -84,14 +95,14 @@ fn advance_to_2_1(
 
     let reward_cycle_len = 2000;
     let prepare_phase_len = 100;
-    let pox_constants = PoxConstants::new(
+    let pox_constants = pox_constants.unwrap_or(PoxConstants::new(
         reward_cycle_len,
         prepare_phase_len,
         4 * prepare_phase_len / 5,
         5,
         15,
         u32::max_value(),
-    );
+    ));
     burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -244,7 +255,7 @@ fn transition_fixes_utxo_chaining() {
     // transition.  Really tests that the block-commits are well-formed before and after the epoch
     // transition.
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], None);
+        advance_to_2_1(vec![], None, None);
 
     // post epoch 2.1 -- UTXO chaining should be fixed
     for i in 0..10 {
@@ -303,6 +314,7 @@ fn transition_adds_burn_block_height() {
                 address: spender_addr.clone(),
                 amount: 200_000_000,
             }],
+            None,
             None,
         );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -489,6 +501,7 @@ fn transition_adds_pay_to_alt_recipient_contract() {
         advance_to_2_1(
             vec![],
             Some(PrincipalData::Contract(target_contract_address.clone())),
+            None,
         );
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -517,7 +530,7 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     let target_principal_address =
         PrincipalData::parse("ST34CV1214XJF9S8WPT09TJNYJTM8GM4W6N7ZGKDF").unwrap();
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], Some(target_principal_address.clone()));
+        advance_to_2_1(vec![], Some(target_principal_address.clone()), None);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let alt_account_before = get_account(&http_origin, &target_principal_address);
@@ -980,4 +993,255 @@ fn transition_fixes_bitcoin_rigidity() {
 
     test_observer::clear();
     channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn transition_adds_get_pox_addr_recipients() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // very simple test to verify that when STX are stacked, the PoX address is recoverable from
+    // `get-burn-block-info?`
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 4;
+    let v1_unlock_height = 220;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        1,
+        1,
+        v1_unlock_height,
+    );
+
+    let mut spender_sks = vec![];
+    let mut spender_addrs = vec![];
+    let mut initial_balances = vec![];
+
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    for i in 0..4 {
+        let spender_sk = StacksPrivateKey::new();
+        let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+
+        spender_sks.push(spender_sk);
+        spender_addrs.push(spender_addr.clone());
+        initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: stacked + 100_000,
+        });
+    }
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let (conf, btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()));
+
+    let mut sort_height = coord_channel.get_sortitions_processed();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let stack_sort_height = sort_height;
+
+    // stack some STX to each PoX address variant
+    for (i, addr_variant) in [
+        AddressHashMode::SerializeP2PKH,
+        AddressHashMode::SerializeP2SH,
+        AddressHashMode::SerializeP2WPKH,
+        AddressHashMode::SerializeP2WSH,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let spender_sk = spender_sks[i].clone();
+        let tx = make_contract_call(
+            &spender_sk,
+            0,
+            300,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "pox-2",
+            "stack-stx",
+            &[
+                Value::UInt(stacked.into()),
+                execute(
+                    &format!(
+                        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
+                        pox_pubkey_hash,
+                        &(*addr_variant as u8)
+                    ),
+                    ClarityVersion::Clarity2,
+                )
+                .unwrap()
+                .unwrap(),
+                Value::UInt(sort_height as u128),
+                Value::UInt(2),
+            ],
+        );
+
+        submit_tx(&http_origin, &tx);
+    }
+
+    let contract = "
+    (define-private (get-pox-addrs-at (idx uint) (base uint))
+        (let (
+            (burn-height (+ base idx))
+        )
+            (print { burn-height: burn-height, pox-addrs: (get-burn-block-info? pox-addrs burn-height) })
+            base
+        )
+    )
+    (define-public (test-get-pox-addrs (start-burn-height uint))
+        (ok (fold get-pox-addrs-at
+            (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24)
+            start-burn-height
+        ))
+    )
+    ";
+
+    let spender_addr_c32 = StacksAddress::from(to_addr(&spender_sks[0]));
+    let contract_tx = make_contract_publish(
+        &spender_sks[0],
+        1,
+        (2 * contract.len()) as u64,
+        "test-get-pox-addrs",
+        contract,
+    );
+
+    submit_tx(&http_origin, &contract_tx);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    eprintln!("Sort height: {}", sort_height);
+    test_observer::clear();
+
+    // mine through two reward cycles
+    // now let's mine until the next reward cycle starts ...
+    while sort_height
+        < (stack_sort_height as u64) + (((2 * pox_constants.reward_cycle_length) + 1) as u64)
+    {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = coord_channel.get_sortitions_processed();
+        eprintln!("Sort height: {}", sort_height);
+    }
+
+    let cc_tx = make_contract_call(
+        &spender_sks[0],
+        2,
+        (2 * contract.len()) as u64,
+        &spender_addr_c32,
+        "test-get-pox-addrs",
+        "test-get-pox-addrs",
+        &[Value::UInt((stack_sort_height).into())],
+    );
+    let cc_txid = StacksTransaction::consensus_deserialize(&mut &cc_tx[..])
+        .unwrap()
+        .txid();
+
+    submit_tx(&http_origin, &cc_tx);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // check result of test-get-pox-addrs
+    let blocks = test_observer::get_blocks();
+    let mut found_pox_addrs = HashSet::new();
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        let events = block.get("events").unwrap().as_array().unwrap();
+
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if parsed.txid() == cc_txid {
+                // check events for this block
+                for (i, event) in events.iter().enumerate() {
+                    if let Some(cev) = event.get("contract_event") {
+                        // strip leading `0x`
+                        let clarity_serialized_value = hex_bytes(
+                            &String::from_utf8(
+                                cev.get("raw_value").unwrap().as_str().unwrap().as_bytes()[2..]
+                                    .to_vec(),
+                            )
+                            .unwrap(),
+                        )
+                        .unwrap();
+                        let clarity_value =
+                            Value::deserialize_read(&mut &clarity_serialized_value[..], None)
+                                .unwrap();
+                        let pair = clarity_value.expect_tuple();
+                        let burn_block_height =
+                            pair.get("burn-height").unwrap().clone().expect_u128() as u64;
+                        let pox_addr_tuples_opt =
+                            pair.get("pox-addrs").unwrap().clone().expect_optional();
+
+                        if let Some(pox_addr_tuples_list) = pox_addr_tuples_opt {
+                            let pox_addrs_and_payout_tuple = pox_addr_tuples_list.expect_tuple();
+                            let pox_addr_tuples = pox_addrs_and_payout_tuple
+                                .get("addrs")
+                                .unwrap()
+                                .to_owned()
+                                .expect_list();
+
+                            let payout = pox_addrs_and_payout_tuple
+                                .get("payout")
+                                .unwrap()
+                                .to_owned()
+                                .expect_u128();
+
+                            // NOTE: there's an even number of payouts here, so this works
+                            eprintln!("payout at {} = {}", burn_block_height, &payout);
+
+                            if Burnchain::static_is_in_prepare_phase(
+                                0,
+                                pox_constants.reward_cycle_length as u64,
+                                pox_constants.prepare_length.into(),
+                                burn_block_height,
+                            ) {
+                                // in prepare phase
+                                eprintln!("{} in prepare phase", burn_block_height);
+                                assert_eq!(payout, conf.burnchain.burn_fee_cap as u128);
+                                assert_eq!(pox_addr_tuples.len(), 1);
+                            } else {
+                                // in reward phase
+                                eprintln!("{} in reward phase", burn_block_height);
+                                assert_eq!(
+                                    payout,
+                                    (conf.burnchain.burn_fee_cap / (OUTPUTS_PER_COMMIT as u64))
+                                        as u128
+                                );
+                                assert_eq!(pox_addr_tuples.len(), 2);
+                            }
+
+                            for pox_addr_value in pox_addr_tuples.into_iter() {
+                                let pox_addr =
+                                    PoxAddress::try_from_pox_tuple(false, &pox_addr_value).expect(
+                                        &format!("FATAL: invalid PoX tuple {:?}", &pox_addr_value),
+                                    );
+                                eprintln!("at {}: {:?}", burn_block_height, &pox_addr);
+                                if !pox_addr.is_burn() {
+                                    found_pox_addrs.insert(pox_addr);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    eprintln!("found pox addrs: {:?}", &found_pox_addrs);
+    assert_eq!(found_pox_addrs.len(), 4);
 }

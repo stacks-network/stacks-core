@@ -19,6 +19,7 @@ use std::error;
 use std::fmt;
 use std::thread;
 
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
@@ -70,7 +71,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
     TypeSignature, Value,
 };
 use clarity::vm::ClarityVersion;
@@ -1200,6 +1201,8 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
+    use crate::chainstate::stacks::address::PoxAddress;
+
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::types::{StandardPrincipalData, Value};
@@ -2044,6 +2047,13 @@ mod tests {
             }
             fn get_burn_start_height(&self) -> u32 {
                 0
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                _height: u32,
+                _sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                return None;
             }
         }
 

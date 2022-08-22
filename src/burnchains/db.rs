@@ -404,7 +404,9 @@ mod tests {
     use crate::burnchains::PoxConstants;
     use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::*;
+    use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::util::hash::*;
@@ -736,11 +738,14 @@ mod tests {
             bytes: Hash160([1; 20]),
         });
 
-        let expected_reward_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
-            addrtype: BitcoinAddressType::PublicKeyHash,
-            network_id: BitcoinNetworkType::Mainnet,
-            bytes: Hash160([2; 20]),
-        });
+        let expected_reward_addr = PoxAddress::Standard(
+            StacksAddress::from_bitcoin_address(&BitcoinAddress {
+                addrtype: BitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([2; 20]),
+            }),
+            Some(AddressHashMode::SerializeP2PKH),
+        );
 
         if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {
             assert_eq!(&op.output, &expected_pre_stack_addr);

@@ -20,6 +20,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
@@ -412,7 +413,7 @@ fn inner_generate_block_commit_op(
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    commit_outs: Vec<StacksAddress>,
+    commit_outs: Vec<PoxAddress>,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -2168,7 +2169,7 @@ impl StacksNode {
         let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1) {
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(config.is_mainnet())]
+            vec![PoxAddress::standard_burn_address(config.is_mainnet())]
         };
 
         // let's commit

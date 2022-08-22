@@ -41,7 +41,7 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::address::StacksAddressExtensions;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::util::hash::{hex_bytes, Hash160};
@@ -843,8 +843,10 @@ impl BitcoinRegtestController {
         };
 
         tx.output = vec![consensus_output];
-        tx.output
-            .push(payload.recipient.to_bitcoin_tx_out(DUST_UTXO_LIMIT));
+        tx.output.push(
+            PoxAddress::Standard(payload.recipient.clone(), None)
+                .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
+        );
 
         self.finalize_tx(
             &mut tx,
@@ -903,7 +905,8 @@ impl BitcoinRegtestController {
         };
 
         tx.output = vec![consensus_output];
-        tx.output.push(payload.output.to_bitcoin_tx_out(output_amt));
+        tx.output
+            .push(PoxAddress::Standard(payload.output.clone(), None).to_bitcoin_tx_out(output_amt));
 
         self.finalize_tx(
             &mut tx,

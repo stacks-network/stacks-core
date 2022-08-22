@@ -13,7 +13,7 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::address::StacksAddressExtensions;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
@@ -25,9 +25,7 @@ use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
-};
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks::util::hash::bytes_to_hex;
 use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
 use stacks::vm::costs::ExecutionCost;
@@ -164,15 +162,15 @@ impl EventObserver {
     fn make_new_burn_block_payload(
         burn_block: &BurnchainHeaderHash,
         burn_block_height: u64,
-        rewards: Vec<(StacksAddress, u64)>,
+        rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
-        slot_holders: Vec<StacksAddress>,
+        slot_holders: Vec<PoxAddress>,
     ) -> serde_json::Value {
         let reward_recipients = rewards
             .into_iter()
-            .map(|(stx_addr, amt)| {
+            .map(|(pox_addr, amt)| {
                 json!({
-                    "recipient": stx_addr.to_b58(),
+                    "recipient": pox_addr.to_b58(),
                     "amt": amt,
                 })
             })
@@ -180,7 +178,7 @@ impl EventObserver {
 
         let reward_slot_holders = slot_holders
             .into_iter()
-            .map(|stx_addr| json!(stx_addr.to_b58()))
+            .map(|pox_addr| json!(pox_addr.to_b58()))
             .collect();
 
         json!({
@@ -480,9 +478,9 @@ impl BlockEventDispatcher for EventDispatcher {
         &self,
         burn_block: &BurnchainHeaderHash,
         burn_block_height: u64,
-        rewards: Vec<(StacksAddress, u64)>,
+        rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
-        recipient_info: Vec<StacksAddress>,
+        recipient_info: Vec<PoxAddress>,
     ) {
         self.process_burn_block(
             burn_block,
@@ -519,9 +517,9 @@ impl EventDispatcher {
         &self,
         burn_block: &BurnchainHeaderHash,
         burn_block_height: u64,
-        rewards: Vec<(StacksAddress, u64)>,
+        rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
-        recipient_info: Vec<StacksAddress>,
+        recipient_info: Vec<PoxAddress>,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
