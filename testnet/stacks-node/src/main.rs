@@ -210,7 +210,7 @@ fn main() {
         let mut run_loop = neon::RunLoop::new(conf);
 
         if let Some(config_path) = start_config_path {
-            let dynamic_config = run_loop.dynamic_config().clone();
+            let dyn_config = run_loop.dyn_config().clone();
             let mut signals = signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGUSR1]).unwrap();
             thread::Builder::new().name("config-loader".to_string()).spawn(move || {
                 for sig in signals.forever() {
@@ -224,7 +224,7 @@ fn main() {
                                     error!("Failed to load config: {}", e);
                                 },
                                 Ok(config) => {
-                                    dynamic_config.replace(&config);
+                                    dyn_config.replace(&config);
                                     info!("Loaded config at {}", config_path);
                                 }
                             }

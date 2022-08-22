@@ -73,6 +73,7 @@ use crate::ChainTip;
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
+use crate::config::DynConfig;
 
 use clarity::vm::ast::ASTRules;
 
@@ -559,6 +560,7 @@ fn mine_one_microblock(
 
 fn try_mine_microblock(
     config: &Config,
+    dyn_config: &DynConfig,
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
@@ -589,7 +591,7 @@ fn try_mine_microblock(
                     parent_consensus_hash: ch.clone(),
                     parent_block_hash: bhh.clone(),
                     miner_key: microblock_privkey.clone(),
-                    frequency: config.node.microblock_frequency,
+                    frequency: dyn_config.get().node.microblock_frequency,
                     last_mined: 0,
                     quantity: 0,
                     cost_so_far: cost_so_far,
@@ -659,6 +661,7 @@ fn try_mine_microblock(
 
 fn run_microblock_tenure(
     config: &Config,
+    dyn_config: &DynConfig,
     microblock_miner_state: &mut Option<MicroblockMinerState>,
     chainstate: &mut StacksChainState,
     sortdb: &mut SortitionDB,
@@ -681,6 +684,7 @@ fn run_microblock_tenure(
     // Mine microblocks, if we're active
     let next_microblock_opt = match try_mine_microblock(
         &config,
+        &dyn_config,
         microblock_miner_state,
         chainstate,
         sortdb,
@@ -783,6 +787,7 @@ fn spawn_peer(
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let config = runloop.config().clone();
+    let dyn_config = runloop.dyn_config().clone();
     let mut sync_comms = runloop.get_pox_sync_comms();
     let event_dispatcher = runloop.get_event_dispatcher();
     let should_keep_running = runloop.get_termination_switch();
@@ -864,7 +869,7 @@ fn spawn_peer(
                     );
                     1
                 } else {
-                    cmp::min(poll_timeout, config.node.microblock_frequency)
+                    cmp::min(poll_timeout, dyn_config.get().node.microblock_frequency)
                 };
 
                 let mut expected_attachments = match attachments_rx.try_recv() {
@@ -925,7 +930,7 @@ fn spawn_peer(
                                 get_epoch_time_ms(),
                             ));
                             mblock_deadline =
-                                get_epoch_time_ms() + (config.node.microblock_frequency as u128);
+                                get_epoch_time_ms() + (dyn_config.get().node.microblock_frequency as u128);
                         }
                     }
                     Err(e) => {
@@ -1021,7 +1026,7 @@ fn spawn_miner_relayer(
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
 ) -> Result<JoinHandle<()>, NetError> {
     let config = runloop.config().clone();
-    let dynamic_config = runloop.dynamic_config().clone();
+    let dyn_config = runloop.dyn_config().clone();
     let event_dispatcher = runloop.get_event_dispatcher();
     let counters = runloop.get_counters();
     let sync_comms = runloop.get_pox_sync_comms();
@@ -1053,7 +1058,7 @@ fn spawn_miner_relayer(
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone(), dynamic_config.clone());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone(), dyn_config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1248,7 +1253,7 @@ fn spawn_miner_relayer(
                     if burn_chain_tip == burn_header_hash {
                         // no burnchain change, so only re-run block tenure every so often in order
                         // to give microblocks a chance to collect
-                        if issue_timestamp_ms < last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128) {
+                        if issue_timestamp_ms < last_tenure_issue_time + (dyn_config.get().node.wait_time_for_microblocks as u128) {
                             debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
                                     issue_timestamp_ms / 1000, last_tenure_issue_time / 1000, config.node.wait_time_for_microblocks / 1000, (last_tenure_issue_time + (config.node.wait_time_for_microblocks as u128)) / 1000);
                             continue;
@@ -1279,7 +1284,7 @@ fn spawn_miner_relayer(
                         .remove(&burn_header_hash)
                         .unwrap_or_default();
 
-                    let burn_fee_cap = dynamic_config.get().burnchain.burn_fee_cap;
+                    let burn_fee_cap = dyn_config.get().burnchain.burn_fee_cap;
                     let last_mined_block_opt = StacksNode::relayer_run_tenure(
                         &config,
                         registered_key,
@@ -1345,6 +1350,7 @@ fn spawn_miner_relayer(
 
                         run_microblock_tenure(
                             &config,
+                            &dyn_config,
                             &mut microblock_miner_state,
                             &mut chainstate,
                             &mut sortdb,

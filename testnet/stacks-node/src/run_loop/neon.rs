@@ -42,7 +42,7 @@ use crate::{
 
 use super::RunLoopCallbacks;
 use libc;
-use crate::config::DynamicConfig;
+use crate::config::DynConfig;
 
 pub const STDERR: i32 = 2;
 
@@ -128,7 +128,7 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
-    dynamic_config: DynamicConfig,
+    dyn_config: DynConfig,
     pub callbacks: RunLoopCallbacks,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -170,10 +170,10 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
-        let dynamic_config = DynamicConfig::new(&config);
+        let dyn_config = DynConfig::new(&config);
         Self {
             config,
-            dynamic_config,
+            dyn_config,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
@@ -218,8 +218,8 @@ impl RunLoop {
         &self.config
     }
 
-    pub fn dynamic_config(&self) -> &DynamicConfig {
-        &self.dynamic_config
+    pub fn dyn_config(&self) -> &DynConfig {
+        &self.dyn_config
     }
 
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
@@ -331,7 +331,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
-            self.dynamic_config.clone(),
+            self.dyn_config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
             Some(self.should_keep_running.clone()),

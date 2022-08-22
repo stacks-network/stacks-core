@@ -361,13 +361,13 @@ pub struct Config {
 }
 
 #[derive(Clone, Debug)]
-pub struct DynamicConfig {
+pub struct DynConfig {
     config: std::sync::Arc<std::sync::Mutex<std::cell::RefCell<Config>>>
 }
 
-impl DynamicConfig {
-    pub fn new(config: &Config) -> Self {
-        DynamicConfig {
+impl DynConfig {
+    pub fn new(config: &Config) -> DynConfig {
+        DynConfig {
             config: std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(config.clone())))
         }
     }

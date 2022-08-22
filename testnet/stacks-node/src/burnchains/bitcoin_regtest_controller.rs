@@ -59,7 +59,7 @@ use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_op
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
 use stacks::types::chainstate::BurnchainHeaderHash;
-use crate::config::DynamicConfig;
+use crate::config::DynConfig;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -69,7 +69,7 @@ const DUST_UTXO_LIMIT: u64 = 5500;
 
 pub struct BitcoinRegtestController {
     config: Config,
-    dynamic_config: DynamicConfig,
+    dyn_config: DynConfig,
     indexer: BitcoinIndexer,
     db: Option<SortitionDB>,
     burnchain_db: Option<BurnchainDB>,
@@ -110,12 +110,12 @@ impl LeaderBlockCommitFees {
         &self,
         payload: &LeaderBlockCommitOp,
         config: &Config,
-        dynamic_config: &DynamicConfig,
+        dyn_config: &DynConfig,
     ) -> LeaderBlockCommitFees {
-        let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config, dynamic_config);
+        let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config, dyn_config);
         fees.spent_in_attempts = cmp::max(1, self.spent_in_attempts);
         fees.final_size = self.final_size;
-        fees.fee_rate = self.fee_rate + dynamic_config.get().burnchain.rbf_fee_increment;
+        fees.fee_rate = self.fee_rate + dyn_config.get().burnchain.rbf_fee_increment;
         fees.is_rbf_enabled = true;
         fees
     }
@@ -123,7 +123,7 @@ impl LeaderBlockCommitFees {
     pub fn estimated_fees_from_payload(
         payload: &LeaderBlockCommitOp,
         config: &Config,
-        dynamic_config: &DynamicConfig,
+        dyn_config: &DynConfig,
     ) -> LeaderBlockCommitFees {
         let sunset_fee = if payload.sunset_burn > 0 {
             cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
@@ -135,7 +135,7 @@ impl LeaderBlockCommitFees {
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         let sortition_fee = value_per_transfer * number_of_transfers;
         let spent_in_attempts = 0;
-        let fee_rate = dynamic_config.get().burnchain.satoshis_per_byte;
+        let fee_rate = dyn_config.get().burnchain.satoshis_per_byte;
         let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
 
         LeaderBlockCommitFees {
@@ -196,13 +196,13 @@ impl LeaderBlockCommitFees {
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
-        let dynamic_config = DynamicConfig::new(&config);
-        BitcoinRegtestController::with_burnchain(config, dynamic_config, coordinator_channel, None, None)
+        let dyn_config = DynConfig::new(&config);
+        BitcoinRegtestController::with_burnchain(config, dyn_config, coordinator_channel, None, None)
     }
 
     pub fn with_burnchain(
         config: Config,
-        dynamic_config: DynamicConfig,
+        dyn_config: DynConfig,
         coordinator_channel: Option<CoordinatorChannels>,
         burnchain_config: Option<Burnchain>,
         should_keep_running: Option<Arc<AtomicBool>>,
@@ -259,7 +259,7 @@ impl BitcoinRegtestController {
         Self {
             use_coordinator: coordinator_channel,
             config,
-            dynamic_config,
+            dyn_config,
             indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
@@ -272,7 +272,7 @@ impl BitcoinRegtestController {
 
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
-    pub fn new_dummy(config: Config, dynamic_config: DynamicConfig) -> Self {
+    pub fn new_dummy(config: Config, dyn_config: DynConfig) -> Self {
         let (network, _) = config.burnchain.get_bitcoin_network();
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
@@ -304,7 +304,7 @@ impl BitcoinRegtestController {
         Self {
             use_coordinator: None,
             config,
-            dynamic_config,
+            dyn_config,
             indexer: burnchain_indexer,
             db: None,
             burnchain_db: None,
@@ -707,7 +707,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
 
         let btc_miner_fee = self.config.burnchain.leader_key_tx_estimated_size
-            * self.dynamic_config.get().burnchain.satoshis_per_byte;
+            * self.dyn_config.get().burnchain.satoshis_per_byte;
         let budget_for_outputs = DUST_UTXO_LIMIT;
         let total_required = btc_miner_fee + budget_for_outputs;
 
@@ -739,7 +739,7 @@ impl BitcoinRegtestController {
 
         tx.output.push(identifier_output);
 
-        let fee_rate = self.dynamic_config.get().burnchain.satoshis_per_byte;
+        let fee_rate = self.dyn_config.get().burnchain.satoshis_per_byte;
 
         self.finalize_tx(
             &mut tx,
@@ -834,7 +834,7 @@ impl BitcoinRegtestController {
         } else {
             self.prepare_tx(
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * self.dynamic_config.get().burnchain.satoshis_per_byte,
+                DUST_UTXO_LIMIT + max_tx_size * self.dyn_config.get().burnchain.satoshis_per_byte,
                 None,
                 None,
                 0,
@@ -865,7 +865,7 @@ impl BitcoinRegtestController {
             DUST_UTXO_LIMIT,
             0,
             max_tx_size,
-            self.dynamic_config.get().burnchain.satoshis_per_byte,
+            self.dyn_config.get().burnchain.satoshis_per_byte,
             &mut utxos,
             signer,
         )?;
@@ -898,7 +898,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
         let max_tx_size = 280;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.dynamic_config.get().burnchain.satoshis_per_byte;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.dyn_config.get().burnchain.satoshis_per_byte;
         let (mut tx, mut utxos) = self.prepare_tx(&public_key, output_amt, None, None, 0)?;
 
         // Serialize the payload
@@ -924,7 +924,7 @@ impl BitcoinRegtestController {
             output_amt,
             0,
             max_tx_size,
-            self.dynamic_config.get().burnchain.satoshis_per_byte,
+            self.dyn_config.get().burnchain.satoshis_per_byte,
             &mut utxos,
             signer,
         )?;
@@ -949,8 +949,8 @@ impl BitcoinRegtestController {
         previous_txids: &Vec<Txid>,
     ) -> Option<Transaction> {
         let mut estimated_fees = match previous_fees {
-            Some(fees) => fees.fees_from_previous_tx(&payload, &self.config, &self.dynamic_config),
-            None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config, &self.dynamic_config),
+            Some(fees) => fees.fees_from_previous_tx(&payload, &self.config, &self.dyn_config),
+            None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config, &self.dyn_config),
         };
 
         let public_key = signer.get_public_key();
@@ -1092,11 +1092,11 @@ impl BitcoinRegtestController {
 
         // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
         if ongoing_op.fees.fee_rate
-            > (self.dynamic_config.get().burnchain.satoshis_per_byte * self.dynamic_config.get().burnchain.max_rbf / 100)
+            > (self.dyn_config.get().burnchain.satoshis_per_byte * self.dyn_config.get().burnchain.max_rbf / 100)
         {
             warn!(
                 "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",
-                self.dynamic_config.get().burnchain.max_rbf
+                self.dyn_config.get().burnchain.max_rbf
             );
             self.ongoing_block_commit = Some(ongoing_op);
             return None;
