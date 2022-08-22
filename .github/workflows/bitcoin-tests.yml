@@ -77,6 +77,7 @@ jobs:
           - tests::epoch_21::transition_adds_burn_block_height
           - tests::epoch_21::transition_fixes_bitcoin_rigidity
           - tests::epoch_21::transition_adds_pay_to_contract
+          - tests::epoch_21::transition_adds_get_pox_addr_recipients
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

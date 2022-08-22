@@ -35,8 +35,8 @@ use crate::vm::errors::{
 use crate::vm::representations::ClarityName;
 use crate::vm::types::{
     serialization::NONE_SERIALIZATION_LEN, OptionalData, PrincipalData,
-    QualifiedContractIdentifier, StandardPrincipalData, TupleData, TupleTypeSignature,
-    TypeSignature, Value, NONE,
+    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
+    TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
@@ -53,10 +53,15 @@ use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
 };
+
+use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::Address;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
+
+use serde_json;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -139,6 +144,13 @@ pub trait BurnStateDB {
     /// the epoch enclosing `height`.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
+
+    /// Get the PoX payout addresses for a given burnchain block
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)>;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -222,6 +234,13 @@ impl BurnStateDB for &dyn BurnStateDB {
     }
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        (*self).get_pox_payout_addrs(height, sortition_id)
     }
 }
 
@@ -350,6 +369,13 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_pox_rejection_fraction(&self) -> u64 {
         panic!("NullBurnStateDB should not return PoX info");
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        None
     }
 }
 
@@ -756,25 +782,12 @@ impl<'a> ClarityDatabase<'a> {
             .expect("Failed to get block data.")
     }
 
-    /// Fetch the burnchain block header hash for a given burnchain height.
-    /// Because the burnchain can fork, we need to resolve the burnchain hash from the
-    /// currently-evaluated Stacks chain tip as follows:
-    ///
     /// 1. Get the current Stacks tip height (which is in the process of being evaluated)
     /// 2. Get the parent block's StacksBlockId, which is SHA512-256(consensus_hash, block_hash).
     ///    This is the highest Stacks block in this fork whose consensus hash is known.
     /// 3. Resolve the parent StacksBlockId to its consensus hash
     /// 4. Resolve the consensus hash to the associated SortitionId
-    /// 5. Resolve the SortitionID at `burnchain_block_height` from the SortitionID obtained in
-    ///    (4).
-    ///
-    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
-    /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
-    /// fork).
-    pub fn get_burnchain_block_header_hash_for_burnchain_height(
-        &mut self,
-        burnchain_block_height: u32,
-    ) -> Option<BurnchainHeaderHash> {
+    fn get_sortition_id_for_stacks_tip(&mut self) -> Option<SortitionId> {
         let current_stacks_height = self.get_current_block_height();
 
         if current_stacks_height < 1 {
@@ -804,8 +817,34 @@ impl<'a> ClarityDatabase<'a> {
                 &consensus_hash
             ));
 
+        Some(sortition_id)
+    }
+
+    /// Fetch the burnchain block header hash for a given burnchain height.
+    /// Because the burnchain can fork, we need to resolve the burnchain hash from the
+    /// currently-evaluated Stacks chain tip.
+    ///
+    /// This way, the `BurnchainHeaderHash` returned is guaranteed to be on the burnchain fork
+    /// that holds the currently-evaluated Stacks fork (even if it's not the canonical burnchain
+    /// fork).
+    pub fn get_burnchain_block_header_hash_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> Option<BurnchainHeaderHash> {
+        let sortition_id = self.get_sortition_id_for_stacks_tip()?;
         self.burn_state_db
             .get_burn_header_hash(burnchain_block_height, &sortition_id)
+    }
+
+    /// Get the PoX reward addresses and per-address payout for a given burnchain height.  Because the burnchain can fork,
+    /// we need to resolve the PoX addresses from the currently-evaluated Stacks chain tip.
+    pub fn get_pox_payout_addrs_for_burnchain_height(
+        &mut self,
+        burnchain_block_height: u32,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        let sortition_id = self.get_sortition_id_for_stacks_tip()?;
+        self.burn_state_db
+            .get_pox_payout_addrs(burnchain_block_height, &sortition_id)
     }
 
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {

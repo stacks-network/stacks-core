@@ -2,7 +2,9 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_TESTNET_CODE,
@@ -414,6 +416,44 @@ impl BurnStateDB for TestSimBurnStateDB {
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        height: u32,
+        sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        if let Some(_) = self.get_burn_header_hash(height, sortition_id) {
+            let first_block = self.get_burn_start_height();
+            let prepare_len = self.get_pox_prepare_length();
+            let rc_len = self.get_pox_reward_cycle_length();
+            if Burnchain::static_is_in_prepare_phase(
+                first_block.into(),
+                rc_len.into(),
+                prepare_len.into(),
+                height.into(),
+            ) {
+                Some((
+                    vec![PoxAddress::standard_burn_address(false)
+                        .as_clarity_tuple()
+                        .unwrap()],
+                    123,
+                ))
+            } else {
+                Some((
+                    vec![
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
+                        PoxAddress::standard_burn_address(false)
+                            .as_clarity_tuple()
+                            .unwrap(),
+                    ],
+                    123,
+                ))
+            }
+        } else {
+            None
+        }
     }
 }
 

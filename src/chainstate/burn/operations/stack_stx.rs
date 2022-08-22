@@ -29,6 +29,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
@@ -104,8 +105,17 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         };
 
+        let output = outputs[0]
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         Ok(PreStxOp {
-            output: outputs[0].address,
+            output: output,
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -118,7 +128,7 @@ impl StackStxOp {
     #[cfg(test)]
     pub fn new(
         sender: &StacksAddress,
-        reward_addr: &StacksAddress,
+        reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
     ) -> StackStxOp {
@@ -236,9 +246,13 @@ impl StackStxOp {
             op_error::ParseError
         })?;
 
+        // coerce a hash mode for this address if need be, since we'll need it when we feed this
+        // address into the .pox contract
+        let reward_addr = outputs[0].address.clone().coerce_hash_mode();
+
         Ok(StackStxOp {
             sender: sender.clone(),
-            reward_addr: outputs[0].address,
+            reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
             txid: tx.txid(),
@@ -311,6 +325,7 @@ mod tests {
     use crate::chainstate::burn::operations::*;
     use crate::chainstate::burn::ConsensusHash;
     use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::StacksPublicKey;
     use stacks_common::address::AddressHashMode;
@@ -458,7 +473,10 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(
             &op.reward_addr,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &PoxAddress::Standard(
+                StacksAddress::from_bitcoin_address(&tx.outputs[0].address),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);

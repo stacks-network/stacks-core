@@ -44,6 +44,7 @@ use stacks::core;
 
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::types::chainstate::VRFSeed;
 use stacks::vm::costs::ExecutionCost;
 
@@ -590,11 +591,11 @@ fn transition_empty_blocks() {
 
             let commit_outs = if !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1) {
                 vec![
-                    StacksAddress::burn_address(conf.is_mainnet()),
-                    StacksAddress::burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
                 ]
             } else {
-                vec![StacksAddress::burn_address(conf.is_mainnet())]
+                vec![PoxAddress::standard_burn_address(conf.is_mainnet())]
             };
 
             // let's commit
