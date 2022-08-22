@@ -211,7 +211,8 @@ fn main() {
         || config.burnchain.mode == "krypton"
         || config.burnchain.mode == "mainnet"
     {
-        let mut run_loop = neon::RunLoop::new(config.clone());
+        let mut run_loop = neon::RunLoop::new(config);
+        run_loop.start(None, mine_start.unwrap_or(0));
 
         if let Some(config_path) = start_config_path {
             let dyn_config = run_loop.dyn_config().clone();
@@ -246,7 +247,6 @@ fn main() {
             }).unwrap();
         }
 
-        run_loop.start(None, mine_start.unwrap_or(0));
     } else {
         println!("Burnchain mode '{}' not supported", config.burnchain.mode);
     }

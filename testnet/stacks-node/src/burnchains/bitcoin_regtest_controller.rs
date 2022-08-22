@@ -196,7 +196,7 @@ impl LeaderBlockCommitFees {
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
-        let dyn_config = DynConfig::new(&config);
+        let dyn_config = DynConfig::new(config.clone());
         BitcoinRegtestController::with_burnchain(config, dyn_config, coordinator_channel, None, None)
     }
 

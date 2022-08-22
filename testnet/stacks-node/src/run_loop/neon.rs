@@ -170,7 +170,7 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
-        let dyn_config = DynConfig::new(&config);
+        let dyn_config = DynConfig::new(config.clone());
         Self {
             config,
             dyn_config,

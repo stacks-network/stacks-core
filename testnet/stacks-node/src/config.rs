@@ -371,9 +371,9 @@ pub struct DynConfig {
 }
 
 impl DynConfig {
-    pub fn new(config: &Config) -> DynConfig {
+    pub fn new(config: Config) -> DynConfig {
         DynConfig {
-            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config.clone())))
+            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config)))
         }
     }
 
