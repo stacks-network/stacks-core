@@ -1,3 +1,4 @@
+use std::cell::{Cell, Ref, RefCell};
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -169,23 +170,27 @@ mod tests {
 }
 
 impl ConfigFile {
-    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
-        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
-        Self::from_str(&content)
+    pub fn read_content(path: &str) -> Result<String, String> {
+        fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
-        let mut config: ConfigFile =
-            toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
-        let legacy_config: LegacyMstxConfigFile = toml::from_str(content).unwrap();
+        let mut config_file: ConfigFile = toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
+        let legacy_config: LegacyMstxConfigFile = toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
         if let Some(mstx_balance) = legacy_config.mstx_balance {
             warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
-            config.ustx_balance = match config.ustx_balance {
+            config_file.ustx_balance = match config_file.ustx_balance {
                 Some(balance) => Some([balance, mstx_balance].concat()),
                 None => Some(mstx_balance),
             };
         }
-        Ok(config)
+        Ok(config_file)
+    }
+
+    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
+        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
+        let config_file = Self::from_str(&content)?;
+        Ok(config_file)
     }
 
     pub fn xenon() -> ConfigFile {
@@ -362,13 +367,13 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct DynConfig {
-    config: std::sync::Arc<std::sync::Mutex<std::cell::RefCell<Config>>>
+    config: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>
 }
 
 impl DynConfig {
     pub fn new(config: &Config) -> DynConfig {
         DynConfig {
-            config: std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(config.clone())))
+            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config.clone())))
         }
     }
 

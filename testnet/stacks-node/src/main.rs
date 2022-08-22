@@ -78,7 +78,6 @@ fn main() {
 
     let mut args = Arguments::from_env();
     let subcommand = args.subcommand().unwrap().unwrap_or_default();
-    let mut start_config_path : Option<String> = None;
 
     info!("{}", version());
 
@@ -92,6 +91,8 @@ fn main() {
             mine_start
         );
     }
+
+    let mut start_config_path: Option<String> = None;
 
     let config_file = match subcommand.as_str() {
         "mocknet" => {
@@ -138,7 +139,9 @@ fn main() {
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
             match ConfigFile::from_path(&config_path) {
-                Ok(config_file) => config_file,
+                Ok(config_file) => {
+                    config_file
+                },
                 Err(e) => {
                     warn!("Invalid config file: {}", e);
                     process::exit(1);
@@ -183,49 +186,58 @@ fn main() {
         }
     };
 
-    let conf = match Config::from_config_file(config_file) {
-        Ok(conf) => conf,
+    let config = match Config::from_config_file(config_file.clone()) {
+        Ok(config) => config,
         Err(e) => {
             error!("Invalid config: {}", e);
             process::exit(1);
         }
     };
-    debug!("node configuration {:?}", &conf.node);
-    debug!("burnchain configuration {:?}", &conf.burnchain);
-    debug!("connection configuration {:?}", &conf.connection_options);
+
+    debug!("node configuration {:?}", &config.node);
+    debug!("burnchain configuration {:?}", &config.burnchain);
+    debug!("connection configuration {:?}", &config.connection_options);
 
     let num_round: u64 = 0; // Infinite number of rounds
 
-    if conf.burnchain.mode == "helium" || conf.burnchain.mode == "mocknet" {
-        let mut run_loop = helium::RunLoop::new(conf);
+    if config.burnchain.mode == "helium" || config.burnchain.mode == "mocknet" {
+        let mut run_loop = helium::RunLoop::new(config);
         if let Err(e) = run_loop.start(num_round) {
             warn!("Helium runloop exited: {}", e);
             return;
         }
-    } else if conf.burnchain.mode == "neon"
-        || conf.burnchain.mode == "xenon"
-        || conf.burnchain.mode == "krypton"
-        || conf.burnchain.mode == "mainnet"
+    } else if config.burnchain.mode == "neon"
+        || config.burnchain.mode == "xenon"
+        || config.burnchain.mode == "krypton"
+        || config.burnchain.mode == "mainnet"
     {
-        let mut run_loop = neon::RunLoop::new(conf);
+        let mut run_loop = neon::RunLoop::new(config.clone());
 
         if let Some(config_path) = start_config_path {
             let dyn_config = run_loop.dyn_config().clone();
             let mut signals = signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGUSR1]).unwrap();
             thread::Builder::new().name("config-loader".to_string()).spawn(move || {
                 for sig in signals.forever() {
-                    match ConfigFile::from_path(&config_path) {
+                    let config_file = ConfigFile::from_path(&config_path);
+                    match config_file {
                         Err(e) => {
                             error!("Failed to load config file: {}", e);
                         },
                         Ok(config_file) => {
-                            match Config::from_config_file(config_file) {
+                            match Config::from_config_file(config_file.clone()) {
                                 Err(e) => {
                                     error!("Failed to load config: {}", e);
                                 },
                                 Ok(config) => {
-                                    dyn_config.replace(&config);
                                     info!("Loaded config at {}", config_path);
+                                    let prior_config = dyn_config.get();
+                                    visit_diff(&prior_config, &config,|s| &s.burnchain.burn_fee_cap, "burnchain.burn_fee_cap");
+                                    visit_diff(&prior_config, &config,|s| &s.burnchain.satoshis_per_byte, "burnchain.satoshis_per_byte");
+                                    visit_diff(&prior_config, &config,|s| &s.burnchain.rbf_fee_increment, "burnchain.rbf_fee_increment");
+                                    visit_diff(&prior_config, &config,|s| &s.burnchain.max_rbf, "burnchain.max_rbf");
+                                    visit_diff(&prior_config, &config,|s| &s.node.microblock_frequency, "node.microblock_frequency");
+                                    visit_diff(&prior_config, &config,|s| &s.node.wait_time_for_microblocks, "node.wait_time_for_microblocks");
+                                    dyn_config.replace(&config);
                                 }
                             }
                         },
@@ -236,7 +248,15 @@ fn main() {
 
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {
-        println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
+        println!("Burnchain mode '{}' not supported", config.burnchain.mode);
+    }
+}
+
+fn visit_diff<Struct,Field: PartialEq + std::fmt::Display>(struct1: &Struct, struct2: &Struct, extractor: fn(&Struct) -> &Field, field_name: &str){
+    let field1 = extractor(struct1);
+    let field2 = extractor(struct2);
+    if field1 != field2 {
+        info!("{} changed from {} to {}", field_name, field1, field2)
     }
 }
 
