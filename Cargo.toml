@@ -34,7 +34,7 @@ path = "src/blockstack_cli.rs"
 
 [[bin]]
 name = "stacks-events"
-path = "src/stacks_events_main.rs"
+path = "src/stacks_events.rs"
 
 [[bench]]
 name = "marf_bench"
