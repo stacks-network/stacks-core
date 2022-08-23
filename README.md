@@ -45,5 +45,6 @@ You can get in contact with the Stacks Community on:
 * [![Youtube badge](https://img.shields.io/youtube/channel/subscribers/UC3J2iHnyt2JtOvtGVf_jpHQ?label=Stacks&style=social)](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ)
 * [![Youtube badge](https://img.shields.io/youtube/channel/subscribers/UCp7D42MyHXk4-J2TtF5I0Kg?label=Stacks%20Community&style=social)](https://www.youtube.com/channel/UCp7D42MyHXk4-J2TtF5I0Kg)
 * [![Twitter](https://img.shields.io/twitter/follow/Stacks?style=social)](https://twitter.com/Stacks)
-* [Mailing list](https://newsletter.stacks.org/)
+* [Stacks Newsletter](https://newsletter.stacks.org/)
+* [Blockchain Announce Mailing List](https://groups.google.com/a/stacks.org/g/announce)
 * [Meetups](https://www.meetup.com/topics/blockstack/)
