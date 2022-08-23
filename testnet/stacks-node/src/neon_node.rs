@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
@@ -7,12 +8,11 @@ use std::fs;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::ops::Deref;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
-use std::borrow::Borrow;
-use std::ops::Deref;
 
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -71,9 +71,9 @@ use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use crate::config::DynConfig;
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
-use crate::config::DynConfig;
 
 use clarity::vm::ast::ASTRules;
 
@@ -929,8 +929,8 @@ fn spawn_peer(
                                 this.burnchain_tip.clone(),
                                 get_epoch_time_ms(),
                             ));
-                            mblock_deadline =
-                                get_epoch_time_ms() + (dyn_config.get().node.microblock_frequency as u128);
+                            mblock_deadline = get_epoch_time_ms()
+                                + (dyn_config.get().node.microblock_frequency as u128);
                         }
                     }
                     Err(e) => {
@@ -1058,7 +1058,8 @@ fn spawn_miner_relayer(
         Vec<(AssembledAnchorBlock, Secp256k1PrivateKey)>,
     > = HashMap::new();
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone(), dyn_config.clone());
+    let mut bitcoin_controller =
+        BitcoinRegtestController::new_dummy(config.clone(), dyn_config.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;

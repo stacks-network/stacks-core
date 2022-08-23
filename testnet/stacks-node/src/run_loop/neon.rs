@@ -41,8 +41,8 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
-use libc;
 use crate::config::DynConfig;
+use libc;
 
 pub const STDERR: i32 = 2;
 

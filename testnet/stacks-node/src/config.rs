@@ -175,8 +175,10 @@ impl ConfigFile {
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
-        let mut config_file: ConfigFile = toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
-        let legacy_config: LegacyMstxConfigFile = toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
+        let mut config_file: ConfigFile =
+            toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
+        let legacy_config: LegacyMstxConfigFile =
+            toml::from_str(&content).map_err(|e| format!("Invalid toml: {}", e))?;
         if let Some(mstx_balance) = legacy_config.mstx_balance {
             warn!("'mstx_balance' inside toml config is deprecated, replace with 'ustx_balance'");
             config_file.ustx_balance = match config_file.ustx_balance {
@@ -367,13 +369,13 @@ pub struct Config {
 
 #[derive(Clone, Debug)]
 pub struct DynConfig {
-    config: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>
+    config: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>,
 }
 
 impl DynConfig {
     pub fn new(config: Config) -> DynConfig {
         DynConfig {
-            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config)))
+            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config))),
         }
     }
 
