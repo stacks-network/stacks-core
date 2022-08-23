@@ -662,7 +662,7 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
 
 #[cfg(feature = "profile-sqlite")]
 fn trace_profile(query: &str, duration: Duration) {
-    let obj = json!({"nanos":d.as_nanos(),"query":query});
+    let obj = json!({"millis":duration.as_millis(), "query":query});
     debug!("sqlite trace profile {}", serde_json::to_string(&obj).unwrap());
 }
 
@@ -673,9 +673,8 @@ pub fn sqlite_open<P: AsRef<Path>>(
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
     let mut db = Connection::open_with_flags(path, flags)?;
-    if cfg(feature = "profile-sqlite") {
-        db.profile(Some(trace_profile));
-    }
+    #[cfg(feature = "profile-sqlite")]
+    db.profile(Some(trace_profile));
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
