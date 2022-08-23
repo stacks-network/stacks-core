@@ -924,9 +924,10 @@ Clarinet.test({
         // The data used for this can be seen in the test `test_verify_withdrawal_merkle_tree` in `withdrawal.rs`
 
         let root_hash = fromHex("b02609e344ebb6525c83cd6c2bd3d2a1c73daa2c9344119f036d615b110aad15");
-        
+
         let ft_leaf_hash = fromHex("be7bcffde781f217150cfc63c88fc2e78bca424b318f5421abdfe96842321e79");
         let stx_leaf_hash = fromHex("bde3658bbc38952599ef925ea3075a2fbfc5619cebf48cce140994c8b328fe35");
+        let nft_leaf_hash = fromHex("6456c2cdb1c1016fddf2e9b7eb88cd677741f0420614a824ac8b774a24285a35");
 
         let ft_level_one_sib_hash = stx_leaf_hash;
         let ft_level_two_sib_hash = fromHex("8bec7ac5a0ec8eed899374f25fa8c0aa67e852b0c5a99ff6595e589a8d123ea0");
@@ -934,7 +935,6 @@ Clarinet.test({
         let stx_level_one_sib_hash = ft_leaf_hash;
         let stx_level_two_sib_hash = ft_level_two_sib_hash;
 
-        let nft_leaf_hash = fromHex("6456c2cdb1c1016fddf2e9b7eb88cd677741f0420614a824ac8b774a24285a35");
         let nft_level_one_sib_hash = nft_leaf_hash;
         let nft_level_two_sib_hash = fromHex("a00db116739a78d6547e18399924b8ec0201079149369b43422e816587f97ede");
 

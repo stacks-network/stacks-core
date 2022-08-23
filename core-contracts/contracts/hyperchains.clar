@@ -244,6 +244,7 @@
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
+        ;; check that the withdrawal request data matches the supplied leaf hash
         (asserts! (is-eq withdrawal-leaf-hash
                          (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))
@@ -299,6 +300,7 @@
     (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
+        ;; check that the withdrawal request data matches the supplied leaf hash
         (asserts! (is-eq withdrawal-leaf-hash
                          (leaf-hash-withdraw-nft (contract-of nft-contract) id recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))
@@ -411,6 +413,7 @@
     (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
 
+        ;; check that the withdrawal request data matches the supplied leaf hash
         (asserts! (is-eq withdrawal-leaf-hash
                          (leaf-hash-withdraw-ft (contract-of ft-contract) amount recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))
@@ -534,6 +537,7 @@
     (let ((hashes-are-valid (check-withdrawal-hashes withdrawal-root withdrawal-leaf-hash sibling-hashes)))
 
         (asserts! (try! hashes-are-valid) (err ERR_VALIDATION_FAILED))
+        ;; check that the withdrawal request data matches the supplied leaf hash
         (asserts! (is-eq withdrawal-leaf-hash
                          (leaf-hash-withdraw-stx amount recipient withdrawal-id height))
                   (err ERR_VALIDATION_LEAF_FAILED))

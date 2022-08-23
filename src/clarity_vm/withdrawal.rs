@@ -356,7 +356,6 @@ mod test {
 
         let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 1, 0).unwrap();
         let ft_withdrawal_key_bytes = convert_withdrawal_key_to_bytes(&ft_withdrawal_key);
-        eprintln!("BYTES: {}", to_hex(&ft_withdrawal_key_bytes));
         let ft_withdrawal_leaf_hash =
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice());
         assert_eq!(

@@ -24,6 +24,9 @@ function buffFromHex(input: string) {
     return types.buff(fromHex(input));
 }
 
+// Once Clarinet supports deno import maps, uncomment this and remove the other
+// sign function so that the tests do not need to hardcode a signature map.
+//
 // function sign(messageHash: string, signer: string) {
 //     const result = secp.signSync(messageHash, signer.slice(0, -2), { der: false, recovered: true });
 //     return `0x${toHex(result[0])}0${result[1]}`

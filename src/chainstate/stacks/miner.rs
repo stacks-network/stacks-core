@@ -64,6 +64,11 @@ use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use clarity::vm::clarity::TransactionConnection;
 
+/// This is the prefix used for hashing app-specific data
+/// according to SIP18
+pub const SIP18_DATA_PREFIX_HEX: &'static str =
+    "53495030313881c24181e24119f609a28023c4943d3a41592656eb90560c15ee02b8e1ce19b8";
+
 #[derive(Debug, Clone)]
 pub struct BlockBuilderSettings {
     pub max_miner_time_ms: u64,
@@ -2316,9 +2321,7 @@ impl Proposal {
         );
 
         let data_hash = Sha256Sum::from_data(&data_tuple.serialize_to_vec());
-        let sip18_data_prefix =
-            "53495030313881c24181e24119f609a28023c4943d3a41592656eb90560c15ee02b8e1ce19b8";
-        let mut hash_input = hex_bytes(sip18_data_prefix).expect("Bad SIP18 data prefix");
+        let mut hash_input = hex_bytes(SIP18_DATA_PREFIX_HEX).expect("Bad SIP18 data prefix");
         hash_input.extend_from_slice(&data_hash.0);
         let structured_hash = Sha256Sum::from_data(&hash_input);
 
