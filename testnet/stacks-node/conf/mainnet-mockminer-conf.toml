@@ -1,0 +1,50 @@
+# RUST_BACKTRACE=1 RUSTFLAGS=-Awarnings
+
+# Setup mock mining node
+# wget https://storage.googleapis.com/blockstack-publish/archiver-main/follower/mainnet-follower-latest.tar.gz
+# cargo run -r -p stacks-node --bin stacks-node start --config=/Users/igor/w/stacks-work/mainnet-mockminer-conf.toml
+# curl -s 127.0.0.1:20443/v2/info | jq .stacks_tip_height
+# curl -s seed-0.mainnet.stacks.co:20443/v2/info | jq .stacks_tip_height
+
+# Record events
+# cargo run -r --bin stacks-events
+# cargo run -r --bin stacks-events | tee /Users/igor/w/stacks-work/events.log
+
+# Discover first recorded block height
+# cat /Users/igor/w/stacks-work/events.log | egrep new_block | jq .payload.block_height
+
+# Discover lower bound number of recorded transactions
+# Each line is a list of transactions.
+# cat /Users/igor/w/stacks-work/events.log | egrep new_mempool_tx | wc -l
+
+# Make a snapshot of the working directory
+# cp -r ../stacks-work/working_dir ../stacks-work/working_dir_snapshot
+# rm -rf ../stacks-work/working_dir_snapshot && cp -r ../stacks-work/working_dir ../stacks-work/working_dir_snapshot
+
+# Run the tip-mine benchmark
+# cargo run -r --bin stacks-inspect tip-mine /Users/igor/w/stacks-work/working_dir_snapshot /Users/igor/w/stacks-work/events.log 71294 0 2>&1 | egrep -v "Contract-call successfully processed|Tx successfully processed|Include tx"
+
+[node]
+working_dir = "/Users/igor/w/stacks-work/working_dir"
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+miner = true
+mock_mining = true
+bootstrap_node = "02da7a464ac770ae8337a343670778b93410f2f3fef6bea98dd1c3e9224459d36b@seed-0.mainnet.stacks.co:20444,02afeae522aab5f8c99a00ddf75fbcb4a641e052dd48836408d9cf437344b63516@seed-1.mainnet.stacks.co:20444,03652212ea76be0ed4cd83a25c06e57819993029a7b9999f7d63c36340b34a4e62@seed-2.mainnet.stacks.co:20444"
+
+[burnchain]
+chain = "bitcoin"
+mode = "mainnet"
+peer_host = "bitcoind.stacks.co"
+username = "blockstack"
+password = "blockstacksystem"
+rpc_port = 8332
+peer_port = 8333
+burn_fee_cap = 1
+
+# Used for sending events to a local stacks-blockchain-api service
+[[events_observer]]
+endpoint = "localhost:3700"
+# retry_count = 255
+# archive = "/Users/igor/w/stacks-work/events.log"
+events_keys = ["*"]

@@ -114,7 +114,10 @@ fn main() {
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
             let config_file = match ConfigFile::from_path(&config_path) {
-                Ok(config_file) => config_file,
+                Ok(config_file) => {
+                    debug!("Loaded config file: {:?}", config_file);
+                    config_file
+                },
                 Err(e) => {
                     warn!("Invalid config file: {}", e);
                     process::exit(1);
@@ -122,7 +125,7 @@ fn main() {
             };
             let conf = match Config::from_config_file(config_file) {
                 Ok(conf) => {
-                    info!("Loaded config!");
+                    info!("Valid config!");
                     process::exit(0);
                 }
                 Err(e) => {
