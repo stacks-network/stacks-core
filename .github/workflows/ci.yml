@@ -1,9 +1,9 @@
 name: CI
 
-# Only run when:
-#   - manually triggered
-#   - PR's are (re)opened
-#   - push to master
+## Only run when:
+##   - manually triggered
+##   - PR's are (re)opened
+##   - push to master (i.e. merge develop -> master)
 
 on:
   push:
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Run rustfmt on every run
+  ## rust format: Execute on every run
   rustfmt:
     name: Rust Format
     runs-on: ubuntu-latest
@@ -42,68 +42,72 @@ jobs:
         id: rustfmt
         run: cargo fmt --all -- --check
 
-  # Checked for leaked credentials
-  # Only run if:
-  #    - tag is provided -AND- this is a build of the default branch
+  ## Release tests: Execute on every run
+  release-tests:
+    name: Release Tests
+    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
+
+  ## Checked for leaked credentials: Execute on every run
   leaked-cred-test:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Leaked Credential Test
     runs-on: ubuntu-latest
     steps:
+      - name: Extract branch name
+        id: extract_branch
+        if: ${{ github.event_name != 'pull_request' }}
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_ENV
+      - name: Extract branch name
+        id: extract_branch_pr
+        if: ${{ github.event_name == 'pull_request' }}
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
+      - name: Branch name
+        run: echo running on branch ${{ env.BRANCH_NAME }}
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: TruffleHog Scan
         id: trufflehog_check
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
+          base: ${{ env.BRANCH_NAME }}
           head: HEAD
 
   ###############################################
   ## Build Tagged Release
   ###############################################
-  # Release Tests
-  #   Only run if (a tag was passed in) -AND- (we're building the main branch which isn't a PR)
-  # Release Tests
-  # Only run if:
-  #    - tag is provided
-  #    - AND
-  #        - this is the default branch
-  #        - AND Not a PR
-  release-tests:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
-    name: Release Tests
-    uses: stacks-network/stacks-blockchain/.github/workflows/stacks-blockchain-tests.yml@master
-
-  # Build source binaries
-  # Only run if:
-  #    - tag is provided
-  #    - AND
-  #        - this is the default branch
-  #        - AND Not a PR
+  ## Build source binaries
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
   build-source:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Build Binaries
     uses: stacks-network/stacks-blockchain/.github/workflows/build-source-binary.yml@master
     needs:
-      - release-tests
       - rustfmt
+      - release-tests
+      - leaked-cred-test
     with:
       tag: ${{ inputs.tag }}
       parallel_jobs: 4
       arch: >-
         ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-musl-arm64", "macos-x64", "macos-arm64", "windows-x64"]
 
-  # Create github release with binary archives
-  # Only run if:
-  #    - tag is provided
-  #    - AND
-  #        - this is the default branch
-  #        - AND Not a PR
+  ## Create github release with binary archives
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
   github-release:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Github Release
     uses: stacks-network/stacks-blockchain/.github/workflows/github-release.yml@master
     needs: build-source
@@ -114,14 +118,15 @@ jobs:
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Create docker alpine images
-  # Only run if:
-  #    - tag is provided
-  #    - AND
-  #        - this is the default branch
-  #        - AND Not a PR
+  ## Create docker alpine images
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##      - Not the default branch
+  ##      - AND
+  ##      - Not a PR
   docker-alpine:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Alpine (Binary)
     uses: stacks-network/stacks-blockchain/.github/workflows/image-build-alpine-binary.yml@master
     needs: github-release
@@ -132,14 +137,15 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  # Create docker debian images
-  # Only run if:
-  #    - tag is provided
-  #    - AND
-  #        - this is the default branch
-  #        - AND Not a PR
+  ## Create docker debian images
+  ## Only run if:
+  ##    - Tag is provided
+  ##    - OR
+  ##        - Not the default branch
+  ##        - AND
+  ##        - Not a PR
   docker-debian:
-    if: ${{ inputs.tag != '' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    if: ${{ inputs.tag != '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
     name: Docker Debian (Binary)
     uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-binary.yml@master
     needs: github-release
@@ -155,19 +161,16 @@ jobs:
   ###############################################
   ## Build Branch/PR
   ###############################################
-  # Create docker debian images
-  #   Only run if (a tag was NOT passed in) or (we're building a non-master branch which isn't a PR) or (this is a PR with no input tag)
-  # Only run if:
-  #    - tag is not provided
-  #    - OR
-  #        - non-default branch
-  #        - AND Not a PR
+  ## Create docker debian images
+  ## Only run if:
+  ##   - Tag is *not* provided
   build-branch:
-    if: ${{ inputs.tag == '' || (github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && !contains(github.ref, 'refs/pull')) }}
+    if: ${{ inputs.tag == '' }}
     name: Docker Debian (Source)
     uses: stacks-network/stacks-blockchain/.github/workflows/image-build-debian-source.yml@master
     needs:
       - rustfmt
+      - leaked-cred-test
     with:
       docker_platforms: linux/amd64
       linux_version: debian

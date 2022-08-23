@@ -60,9 +60,6 @@ jobs:
         id: extract_branch_pr
         if: ${{ github.event_name == 'pull_request' }}
         run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
-      # tag image with:
-      #   branch name: `feat-fix-11234`
-      #   pr: `pr-1234`
       - name: Docker Metadata
         id: docker_metadata
         uses: docker/metadata-action@v4
