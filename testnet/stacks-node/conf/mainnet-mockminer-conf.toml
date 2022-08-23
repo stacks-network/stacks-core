@@ -1,31 +1,5 @@
-# RUST_BACKTRACE=1 RUSTFLAGS=-Awarnings
-
-# Setup mock mining node
-# wget https://storage.googleapis.com/blockstack-publish/archiver-main/follower/mainnet-follower-latest.tar.gz
-# cargo run -r -p stacks-node --bin stacks-node start --config=/Users/igor/w/stacks-work/mainnet-mockminer-conf.toml
-# curl -s 127.0.0.1:20443/v2/info | jq .stacks_tip_height
-# curl -s seed-0.mainnet.stacks.co:20443/v2/info | jq .stacks_tip_height
-
-# Record events
-# cargo run -r --bin stacks-events
-# cargo run -r --bin stacks-events | tee /Users/igor/w/stacks-work/events.log
-
-# Discover first recorded block height
-# cat /Users/igor/w/stacks-work/events.log | egrep new_block | jq .payload.block_height
-
-# Discover lower bound number of recorded transactions
-# Each line is a list of transactions.
-# cat /Users/igor/w/stacks-work/events.log | egrep new_mempool_tx | wc -l
-
-# Make a snapshot of the working directory
-# cp -r ../stacks-work/working_dir ../stacks-work/working_dir_snapshot
-# rm -rf ../stacks-work/working_dir_snapshot && cp -r ../stacks-work/working_dir ../stacks-work/working_dir_snapshot
-
-# Run the tip-mine benchmark
-# cargo run -r --bin stacks-inspect tip-mine /Users/igor/w/stacks-work/working_dir_snapshot /Users/igor/w/stacks-work/events.log 71294 0 2>&1 | egrep -v "Contract-call successfully processed|Tx successfully processed|Include tx"
-
 [node]
-working_dir = "/Users/igor/w/stacks-work/working_dir"
+# working_dir = "/dir/to/save/chainstate"
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 miner = true
@@ -41,10 +15,3 @@ password = "blockstacksystem"
 rpc_port = 8332
 peer_port = 8333
 burn_fee_cap = 1
-
-# Used for sending events to a local stacks-blockchain-api service
-[[events_observer]]
-endpoint = "localhost:3700"
-# retry_count = 255
-# archive = "/Users/igor/w/stacks-work/events.log"
-events_keys = ["*"]

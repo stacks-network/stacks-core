@@ -1424,9 +1424,6 @@ simulating a miner.
                     info!("Found target block height {}", block_height);
                 }
                 info!("Found new_block height {} parsed_tx_count {} submit_tx_count {}", block_height, parsed_tx_count, submit_tx_count);
-                // let block_hash_str_with_0x = payload["block_hash"].as_str().unwrap();
-                // let block_hash_str = &block_hash_str_with_0x[2..];
-                // let block_hash = BlockHeaderHash::from_hex(block_hash_str).unwrap();
             }
             "new_mempool_tx" => {
                 let payload = payload.as_array().unwrap();

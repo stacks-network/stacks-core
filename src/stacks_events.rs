@@ -1,5 +1,3 @@
-// #![deny(warnings)]
-
 use std::{env, io};
 use std::fs::File;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
