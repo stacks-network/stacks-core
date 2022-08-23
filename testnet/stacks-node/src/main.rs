@@ -117,7 +117,7 @@ fn main() {
                 Ok(config_file) => {
                     debug!("Loaded config file: {:?}", config_file);
                     config_file
-                },
+                }
                 Err(e) => {
                     warn!("Invalid config file: {}", e);
                     process::exit(1);

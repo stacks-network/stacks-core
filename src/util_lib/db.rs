@@ -26,20 +26,18 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
-use rand::thread_rng;
+use rusqlite::types::{FromSql, ToSql};
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
-use rusqlite::NO_PARAMS;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
-use rusqlite::types::{
-    FromSql, ToSql,
-};
+use rusqlite::NO_PARAMS;
 use serde_json::Error as serde_error;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -50,12 +48,12 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
-use crate::chainstate::stacks::index::Error as MARFError;
-use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MarfTransaction;
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::Error as MARFError;
 use crate::chainstate::stacks::index::MARFValue;
+use crate::chainstate::stacks::index::MarfTrieId;
 use crate::types::chainstate::TrieHash;
 
 pub type DBConn = rusqlite::Connection;
@@ -663,7 +661,10 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
 #[cfg(feature = "profile-sqlite")]
 fn trace_profile(query: &str, duration: Duration) {
     let obj = json!({"millis":duration.as_millis(), "query":query});
-    debug!("sqlite trace profile {}", serde_json::to_string(&obj).unwrap());
+    debug!(
+        "sqlite trace profile {}",
+        serde_json::to_string(&obj).unwrap()
+    );
 }
 
 /// Open a database connection and set some typically-used pragmas

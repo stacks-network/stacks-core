@@ -1,17 +1,17 @@
-use std::{env, io};
-use std::fs::File;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde_json::{json, Value};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::util::hash::hex_bytes;
+use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::time::SystemTime;
-use serde_json::{json, Value};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::util::hash::hex_bytes;
+use std::{env, io};
 
 fn main() {
     serve_for_events();
@@ -64,7 +64,7 @@ fn handle_connection(mut stream: TcpStream) {
         }
     }
 
-    let payload_json : Value = serde_json::from_str(&payload.unwrap()).unwrap();
+    let payload_json: Value = serde_json::from_str(&payload.unwrap()).unwrap();
     let record = json!({
         "ts": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         "path": path.unwrap(),

@@ -1369,7 +1369,8 @@ simulating a miner.
         .expect(&format!("Failed to open {}", &sort_db_path));
     let chain_id = CHAIN_ID_MAINNET;
     let mut chain_state = StacksChainState::open(true, chain_id, &chain_state_path, None)
-        .expect("Failed to open stacks chain state").0;
+        .expect("Failed to open stacks chain state")
+        .0;
     let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
         .expect("Failed to get sortition chain tip");
 
@@ -1402,28 +1403,40 @@ simulating a miner.
         }
         stacks_block = stacks_parent_block;
     }
-    info!("Found stacks_chain_tip with height {}", stacks_chain_tip.height);
-    info!("Mining off parent block with height {}", stacks_block.height);
+    info!(
+        "Found stacks_chain_tip with height {}",
+        stacks_chain_tip.height
+    );
+    info!(
+        "Mining off parent block with height {}",
+        stacks_block.height
+    );
 
-    info!("Submitting up to {} transactions to the mempool", mine_max_txns);
+    info!(
+        "Submitting up to {} transactions to the mempool",
+        mine_max_txns
+    );
     let mut found_block_height = false;
     let mut parsed_tx_count = 0;
     let mut submit_tx_count = 0;
     let events_file = File::open(events_file).expect("Unable to open file");
     let mut events_reader = BufReader::new(events_file);
     'outer: for line in events_reader.lines() {
-        let line_json : Value = serde_json::from_str(&line.unwrap()).unwrap();
+        let line_json: Value = serde_json::from_str(&line.unwrap()).unwrap();
         let path = line_json["path"].as_str().unwrap();
         let payload = &line_json["payload"];
         match path {
             "new_block" => {
                 let payload = payload.as_object().unwrap();
                 let block_height = payload["block_height"].as_u64().unwrap();
-                if !found_block_height &&  block_height >= mine_tip_height {
+                if !found_block_height && block_height >= mine_tip_height {
                     found_block_height = true;
                     info!("Found target block height {}", block_height);
                 }
-                info!("Found new_block height {} parsed_tx_count {} submit_tx_count {}", block_height, parsed_tx_count, submit_tx_count);
+                info!(
+                    "Found new_block height {} parsed_tx_count {} submit_tx_count {}",
+                    block_height, parsed_tx_count, submit_tx_count
+                );
             }
             "new_mempool_tx" => {
                 let payload = payload.as_array().unwrap();
@@ -1431,8 +1444,7 @@ simulating a miner.
                     let raw_tx_hex = item.as_str().unwrap();
                     let raw_tx_bytes = hex_bytes(&raw_tx_hex[2..]).unwrap();
                     let mut cursor = io::Cursor::new(&raw_tx_bytes);
-                    let raw_tx =
-                        StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
+                    let raw_tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
                     if found_block_height {
                         if submit_tx_count >= mine_max_txns {
                             info!("Reached mine_max_txns {}", submit_tx_count);
@@ -1458,7 +1470,10 @@ simulating a miner.
         };
     }
     info!("Parsed {} transactions", parsed_tx_count);
-    info!("Submitted {} transactions into the mempool", submit_tx_count);
+    info!(
+        "Submitted {} transactions into the mempool",
+        submit_tx_count
+    );
 
     info!("Mining a block");
 
@@ -1469,8 +1484,8 @@ simulating a miner.
         &stacks_block.consensus_hash,
         &stacks_block.anchored_block_hash,
     )
-        .expect("Failed to load chain tip header info")
-        .expect("Failed to load chain tip header info");
+    .expect("Failed to load chain tip header info")
+    .expect("Failed to load chain tip header info");
 
     let sk = StacksPrivateKey::new();
     let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
