@@ -39,6 +39,8 @@ pub mod analysis;
 pub mod docs;
 pub mod version;
 
+pub mod coverage;
+
 pub mod events;
 
 #[cfg(any(test, feature = "testing"))]

@@ -840,6 +840,15 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
     }
+
+    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+        if let Some(mut hooks) = self.context.eval_hooks.take() {
+            hooks.push(hook);
+            self.context.eval_hooks = Some(hooks);
+        } else {
+            self.context.eval_hooks = Some(vec![hook]);
+        }
+    }
 }
 
 impl CostTracker for Environment<'_, '_, '_> {

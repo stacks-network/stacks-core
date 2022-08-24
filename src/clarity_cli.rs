@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clarity::util::get_epoch_time_ms;
+use clarity::vm::coverage::CoverageReporter;
 use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
@@ -412,6 +413,7 @@ fn with_env_costs<F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
     marf: &mut WritableMarfStore,
+    coverage: Option<&mut CoverageReporter>,
     f: F,
 ) -> (R, ExecutionCost)
 where
@@ -437,6 +439,9 @@ where
         cost_track,
         DEFAULT_CLI_EPOCH,
     );
+    if let Some(coverage) = coverage {
+        vm_env.add_eval_hook(coverage);
+    }
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -467,6 +472,27 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
         .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
+}
+
+fn save_coverage(
+    coverage_folder: Option<String>,
+    coverage: Option<CoverageReporter>,
+    prefix: &str,
+) {
+    match (coverage_folder, coverage) {
+        (Some(coverage_folder), Some(coverage)) => {
+            let mut coverage_file = PathBuf::from(coverage_folder);
+            coverage_file.push(&format!("{}_{}", prefix, get_epoch_time_ms()));
+            coverage_file.set_extension("clarcov");
+
+            coverage
+                .to_file(&coverage_file)
+                .expect("Coverage reference file generation failure");
+        }
+        (None, None) => (),
+        (None, Some(_)) => (),
+        (Some(_), None) => (),
+    }
 }
 
 struct CLIHeadersDB {
@@ -1300,11 +1326,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                    });
                 (header_db, marf, result_and_cost)
             });
 
@@ -1342,6 +1369,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             } else {
                 false
             };
+            let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
+                covarg
+            } else {
+                None
+            };
 
             let evalInput = get_eval_input(invoked_by, &argv);
             let vm_filename = if argv.len() == 3 { &argv[2] } else { &argv[3] };
@@ -1357,12 +1389,23 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
-                });
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                    },
+                );
                 let (result, cost) = result_and_cost;
 
                 (marf, (result, cost))
@@ -1370,6 +1413,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             match result_and_cost {
                 (Ok(result), cost) => {
+                    save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "output": serde_json::to_value(&result).unwrap(),
                         "success": true,
@@ -1381,6 +1425,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     (0, Some(result_json))
                 }
                 (Err(error), cost) => {
+                    save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "error": {
                             "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
@@ -1437,11 +1482,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 ClarityVersion::Clarity2,
             );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_read_only(&contract_identifier, &content)
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only(&contract_identifier, &content)
+                    });
                 (marf, result_and_cost)
             });
 
@@ -1473,6 +1519,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "launch" => {
             let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
+                covarg
+            } else {
+                None
+            };
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
             } else {
@@ -1515,6 +1566,19 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to parse program.",
             );
 
+            if let Some(ref coverage_folder) = coverage_folder {
+                let mut coverage_file = PathBuf::from(coverage_folder);
+                coverage_file.push(&format!("launch_{}", get_epoch_time_ms()));
+                coverage_file.set_extension("clarcovref");
+                CoverageReporter::register_src_file(
+                    &contract_identifier,
+                    contract_src_file,
+                    &ast,
+                    &coverage_file,
+                )
+                .expect("Coverage reference file generation failure");
+            }
+
             // let header_db = CLIHeadersDB::new(vm_filename, false);
 
             let header_db =
@@ -1525,6 +1589,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
@@ -1532,15 +1601,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
-                            let result_and_cost =
-                                with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
+                            let result_and_cost = with_env_costs(
+                                mainnet,
+                                &header_db,
+                                &mut marf,
+                                coverage.as_mut(),
+                                |vm_env| {
                                     vm_env.initialize_versioned_contract(
                                         contract_identifier,
                                         ClarityVersion::Clarity2,
                                         &contract_content,
                                         None,
                                     )
-                                });
+                                },
+                            );
                             let (result, cost) = result_and_cost;
                             (header_db, marf, Ok((analysis, (result, cost))))
                         }
@@ -1555,6 +1629,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                     add_costs(&mut result, costs, cost);
                     add_assets(&mut result, assets, asset_map);
+
+                    save_coverage(coverage_folder, coverage, "launch");
 
                     if output_analysis {
                         result["analysis"] =
@@ -1592,6 +1668,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "execute" => {
             let mut argv: Vec<String> = args.into_iter().map(|x| x.clone()).collect();
+            let coverage_folder = if let Ok(covarg) = consume_arg(&mut argv, &["--c"], true) {
+                covarg
+            } else {
+                None
+            };
 
             let costs = if let Ok(Some(_)) = consume_arg(&mut argv, &["--costs"], false) {
                 true
@@ -1650,16 +1731,27 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 })
                 .collect();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env.execute_transaction(
-                        sender,
-                        None,
-                        contract_identifier,
-                        &tx_name,
-                        &arguments,
-                    )
-                });
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
+                        vm_env.execute_transaction(
+                            sender,
+                            None,
+                            contract_identifier,
+                            &tx_name,
+                            &arguments,
+                        )
+                    },
+                );
                 let (result, cost) = result_and_cost;
                 (header_db, marf, (result, cost))
             });
@@ -1667,6 +1759,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             match result_and_cost {
                 (Ok((x, asset_map, events)), cost) => {
                     if let Value::Response(data) = x {
+                        save_coverage(coverage_folder, coverage, "execute");
                         if data.committed {
                             let mut result = json!({
                                 "message": "Transaction executed and committed.",
@@ -1720,6 +1813,29 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     (1, Some(result))
                 }
             }
+        }
+        "make_lcov" => {
+            let mut register_files = vec![];
+            let mut coverage_files = vec![];
+            let coverage_folder = &args[1];
+            let lcov_output_file = &args[2];
+            for folder_entry in
+                fs::read_dir(coverage_folder).expect("Failed to read the coverage folder")
+            {
+                let folder_entry =
+                    folder_entry.expect("Failed to read entry in the coverage folder");
+                let entry_path = folder_entry.path();
+                if entry_path.is_file() {
+                    if entry_path.extension() == Some(OsStr::new("clarcovref")) {
+                        register_files.push(entry_path)
+                    } else if entry_path.extension() == Some(OsStr::new("clarcov")) {
+                        coverage_files.push(entry_path)
+                    }
+                }
+            }
+            CoverageReporter::produce_lcov(lcov_output_file, &register_files, &coverage_files)
+                .expect("Failed to produce an lcov output");
+            (0, None)
         }
         _ => {
             print_usage(invoked_by);
