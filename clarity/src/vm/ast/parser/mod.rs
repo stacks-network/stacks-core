@@ -124,14 +124,8 @@ lazy_static! {
     );
     pub static ref CLARITY_NAME_REGEX: String =
         format!(r#"([[:word:]]|[-!?+<>=/*]){{1,{}}}"#, MAX_STRING_LEN);
-}
 
-pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
-    // Aaron: I'd like these to be static, but that'd require using
-    //    lazy_static (or just hand implementing that), and I'm not convinced
-    //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
-
-    let lex_matchers: &[LexMatcher] = &[
+    static ref lex_matchers: Vec<LexMatcher> = vec![
         LexMatcher::new(
             r##"u"(?P<value>((\\")|([[ -~]&&[^"]]))*)""##,
             TokenType::StringUTF8Literal,
@@ -187,7 +181,9 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
             TokenType::Variable,
         ),
     ];
+}
 
+pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let mut context = LexContext::ExpectNothing;
 
     let mut line_indices = get_lines_at(input);
