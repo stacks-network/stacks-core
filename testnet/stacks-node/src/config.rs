@@ -367,6 +367,7 @@ pub struct Config {
     pub estimation: FeeEstimationConfig,
 }
 
+/// Dynamic configuration struct to enable reloading configuration settings.
 #[derive(Clone, Debug)]
 pub struct DynConfig {
     config: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>,

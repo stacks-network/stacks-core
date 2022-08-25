@@ -1635,8 +1635,6 @@ impl StacksNode {
         info!("Start HTTP server on: {}", &config.node.rpc_bind);
         info!("Start P2P server on: {}", &config.node.p2p_bind);
 
-        let is_miner = is_miner;
-
         StacksNode {
             config,
             relay_channel: relay_send,
