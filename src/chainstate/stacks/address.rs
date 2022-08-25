@@ -57,6 +57,7 @@ pub trait StacksAddressExtensions {
 /// A PoX address as seen by the .pox and .pox-2 contracts.
 /// Used by the sortition DB and chains coordinator to extract addresses from the PoX contract to
 /// build the reward set and to validate block-commits.
+/// Note that this comprises a larger set of possible addresses than StacksAddress
 #[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
 pub enum PoxAddress {
     /// represents { version: (buff u1), hashbytes: (buff 20) }.
@@ -72,12 +73,16 @@ impl std::fmt::Display for PoxAddress {
 }
 
 impl PoxAddress {
+    /// Obtain the address hash mode used for the PoX address, if applicable.  This identifies the
+    /// address as p2pkh, p2sh, p2wpkh-p2sh, or p2wsh-p2sh
     pub fn hashmode(&self) -> Option<AddressHashMode> {
         match *self {
             PoxAddress::Standard(_, hm) => hm.clone(),
         }
     }
 
+    /// Get the version byte representation of the hash mode.  Used only in testing, where the test
+    /// knows that it will only use Bitcoin legacy addresses (i.e. so this method is infallable).
     #[cfg(any(test, feature = "testing"))]
     pub fn version(&self) -> u8 {
         self.hashmode()
@@ -85,12 +90,15 @@ impl PoxAddress {
             as u8
     }
 
+    /// Get the data portion of this address.  This does not include the address or witness
+    /// version.
     pub fn bytes(&self) -> Vec<u8> {
         match *self {
             PoxAddress::Standard(addr, _) => addr.bytes.0.to_vec(),
         }
     }
 
+    /// Get the Hash160 portion of this address.  Only applies to legacy Bitcoin addresses.
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
         match *self {
@@ -185,7 +193,7 @@ impl PoxAddress {
         }
     }
 
-    /// Make a standard burn address
+    /// Make a standard burn address, i.e. as a legacy p2pkh address comprised of all 0's.
     pub fn standard_burn_address(mainnet: bool) -> PoxAddress {
         PoxAddress::Standard(
             StacksAddress::burn_address(mainnet),
@@ -248,15 +256,6 @@ impl PoxAddress {
             PoxAddress::Standard(addr, _) => addr.to_b58(),
         }
     }
-
-    /*
-    /// Is this PoxAddress a boot code address?
-    pub fn is_boot_code_addr(&self) -> bool {
-        match *self {
-            PoxAddress::Standard(ref addr, _) => addr.is_boot_code_addr(),
-        }
-    }
-    */
 
     /// Convert this PoxAddress into a Bitcoin tx output
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
