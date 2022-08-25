@@ -13,12 +13,26 @@ use std::net::TcpStream;
 use std::time::SystemTime;
 use std::{env, io};
 
+const DEFAULT_ADDR: &str = "127.0.0.1:3700";
+
 fn main() {
-    serve_for_events();
+    let mut args = std::fmt::Arguments::from_env();
+    let addr = args.opt_value_from_str("--addr").unwrap_or(DEFAULT_ADDR);
+    let help = args.opt_value_from_str("--help").unwrap_or(false);
+
+    if help {
+        println!("Usage: stacks-events [--addr=<addr>]");
+        println!(
+            "  --addr=<addr>  Address to listen on (default: {})",
+            DEFAULT_ADDR
+        );
+        return;
+    }
+
+    serve_for_events(addr);
 }
 
-fn serve_for_events() {
-    let addr = "127.0.0.1:3700";
+fn serve_for_events(addr: &str) {
     let listener = TcpListener::bind(addr).unwrap();
     eprintln!("Listening on {}", addr);
     for stream in listener.incoming() {
@@ -51,14 +65,12 @@ fn handle_connection(mut stream: TcpStream) {
             if let Some(caps) = caps {
                 content_length = Some(caps.get(1).unwrap().as_str().parse::<u64>().unwrap());
             }
-        } else if buf.len() == 2 {
+        } else if buf == "\r\n" {
             buf.clear();
-            unsafe {
-                reader
-                    .take(content_length.unwrap())
-                    .read_to_end(buf.as_mut_vec())
-                    .unwrap();
-            }
+            reader
+                .take(content_length.unwrap())
+                .read_to_string(&mut buf)
+                .unwrap();
             payload = Some(buf.to_owned());
             break;
         }

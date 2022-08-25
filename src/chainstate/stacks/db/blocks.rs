@@ -6047,7 +6047,8 @@ impl StacksChainState {
         query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
-    pub fn get_stacks_chain_parent(
+    /// Get the parent block of `staging_block`.
+    pub fn get_stacks_block_parent(
         &self,
         sortdb: &SortitionDB,
         staging_block: &StagingBlock,
