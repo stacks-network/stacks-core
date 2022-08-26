@@ -842,6 +842,81 @@ impl db_keys {
     }
 }
 
+/// Trait for structs that provide a chaintip-indexed handle into the
+///  SortitionDB (i.e., a MARF view from a particular SortitionId)
+pub trait SortitionHandle {
+    /// Returns a connection to the SQLite db. If this handle is wrapping
+    ///  a transaction, this should point to the open transaction.
+    fn sqlite(&self) -> &Connection;
+
+    /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
+    /// Returns None if there is no block at this height.
+    fn get_block_snapshot_by_height(
+        &mut self,
+        block_height: u64,
+    ) -> Result<Option<BlockSnapshot>, db_error>;
+
+    /// is the given block a descendant of `potential_ancestor`?
+    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
+    ///  * potential_ancestor: the stacks block hash of the potential ancestor
+    fn descended_from(
+        &mut self,
+        block_at_burn_height: u64,
+        potential_ancestor: &BlockHeaderHash,
+    ) -> Result<bool, db_error> {
+        let earliest_block_height = self.sqlite().query_row(
+            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
+            &[potential_ancestor],
+            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
+
+        let mut sn = self
+            .get_block_snapshot_by_height(block_at_burn_height)?
+            .ok_or_else(|| {
+                test_debug!("No snapshot at height {}", block_at_burn_height);
+                db_error::NotFoundError
+            })?;
+
+        while sn.block_height >= earliest_block_height {
+            if !sn.sortition {
+                return Ok(false);
+            }
+            if &sn.winning_stacks_block_hash == potential_ancestor {
+                return Ok(true);
+            }
+
+            // step back to the parent
+            match SortitionDB::get_block_commit_parent_sortition_id(
+                self.sqlite(),
+                &sn.winning_block_txid,
+                &sn.sortition_id,
+            )? {
+                Some(parent_sortition_id) => {
+                    // we have the block_commit parent memoization data
+                    test_debug!(
+                        "Parent sortition of {} memoized as {}",
+                        &sn.winning_block_txid,
+                        &parent_sortition_id
+                    );
+                    sn = SortitionDB::get_block_snapshot(self.sqlite(), &parent_sortition_id)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+                None => {
+                    // we do not have the block_commit parent memoization data
+                    // step back to the parent
+                    test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
+                    let block_commit =
+                        get_block_commit_by_txid(&self.sqlite(), &sn.winning_block_txid)?
+                            .expect("CORRUPTION: winning block commit for snapshot not found");
+                    sn = self
+                        .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
+                        .ok_or_else(|| db_error::NotFoundError)?;
+                }
+            }
+        }
+        return Ok(false);
+    }
+}
+
 impl<'a> SortitionHandleTx<'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
@@ -1152,6 +1227,34 @@ impl<'a> SortitionHandleTx<'a> {
     }
 }
 
+impl SortitionHandle for SortitionHandleTx<'_> {
+    fn get_block_snapshot_by_height(
+        &mut self,
+        block_height: u64,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        assert!(block_height < BLOCK_HEIGHT_MAX);
+        let chain_tip = self.context.chain_tip.clone();
+        SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
+    }
+
+    fn sqlite(&self) -> &Connection {
+        self.tx()
+    }
+}
+
+impl SortitionHandle for SortitionHandleConn<'_> {
+    fn get_block_snapshot_by_height(
+        &mut self,
+        block_height: u64,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        SortitionHandleConn::get_block_snapshot_by_height(self, block_height)
+    }
+
+    fn sqlite(&self) -> &Connection {
+        self.conn()
+    }
+}
+
 impl<'a> SortitionHandleTx<'a> {
     pub fn set_stacks_block_accepted(
         &mut self,
@@ -1319,75 +1422,6 @@ impl<'a> SortitionHandleTx<'a> {
 
     fn get_reward_set_size(&mut self) -> Result<u16, db_error> {
         self.get_reward_set_size_at(&self.context.chain_tip.clone())
-    }
-
-    /// is the given block a descendant of `potential_ancestor`?
-    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
-    ///  * potential_ancestor: the stacks block hash of the potential ancestor
-    pub fn descended_from(
-        &mut self,
-        block_at_burn_height: u64,
-        potential_ancestor: &BlockHeaderHash,
-    ) -> Result<bool, db_error> {
-        let earliest_block_height = self.tx().query_row(
-            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
-            &[potential_ancestor],
-            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
-
-        let mut sn = self
-            .get_block_snapshot_by_height(block_at_burn_height)?
-            .ok_or_else(|| {
-                test_debug!("No snapshot at height {}", block_at_burn_height);
-                db_error::NotFoundError
-            })?;
-
-        while sn.block_height >= earliest_block_height {
-            if !sn.sortition {
-                return Ok(false);
-            }
-            if &sn.winning_stacks_block_hash == potential_ancestor {
-                return Ok(true);
-            }
-
-            // step back to the parent
-            match SortitionDB::get_block_commit_parent_sortition_id(
-                self.tx(),
-                &sn.winning_block_txid,
-                &sn.sortition_id,
-            )? {
-                Some(parent_sortition_id) => {
-                    // we have the block_commit parent memoization data
-                    test_debug!(
-                        "Parent sortition of {} memoized as {}",
-                        &sn.winning_block_txid,
-                        &parent_sortition_id
-                    );
-                    sn = SortitionDB::get_block_snapshot(self.tx(), &parent_sortition_id)?
-                        .ok_or_else(|| db_error::NotFoundError)?;
-                }
-                None => {
-                    // we do not have the block_commit parent memoization data
-                    // step back to the parent
-                    test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
-                    let block_commit =
-                        get_block_commit_by_txid(&self.tx(), &sn.winning_block_txid)?
-                            .expect("CORRUPTION: winning block commit for snapshot not found");
-                    sn = self
-                        .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
-                        .ok_or_else(|| db_error::NotFoundError)?;
-                }
-            }
-        }
-        return Ok(false);
-    }
-
-    pub fn get_block_snapshot_by_height(
-        &mut self,
-        block_height: u64,
-    ) -> Result<Option<BlockSnapshot>, db_error> {
-        assert!(block_height < BLOCK_HEIGHT_MAX);
-        let chain_tip = self.context.chain_tip.clone();
-        SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
     }
 
     pub fn get_last_anchor_block_hash(&mut self) -> Result<Option<BlockHeaderHash>, db_error> {
@@ -1713,9 +1747,6 @@ impl<'a> SortitionHandleConn<'a> {
         }
     }
 
-    /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
-    ///
-    /// Returns None if there is no block at this height.
     pub fn get_block_snapshot_by_height(
         &self,
         block_height: u64,

@@ -46,6 +46,7 @@ use crate::burnchains::{
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
     Error as burnchain_error, PoxConstants,
 };
+use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
