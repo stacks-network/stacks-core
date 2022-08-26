@@ -5147,7 +5147,7 @@ impl StacksChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
 
-        info!("Evaluated epoch = {}", evaluated_epoch);
+        debug!("Evaluating block with epoch = {}", evaluated_epoch);
         if evaluated_epoch >= StacksEpochId::Epoch21 {
             let mut pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
                 burn_tip_height.into(),
@@ -5168,7 +5168,7 @@ impl StacksChainState {
                 let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
                 });
-                info!("Check handled"; "pox_cycle" => pox_reward_cycle, "handled" => handled);
+
                 if !handled {
                     let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
                         &parent_sortition_id,

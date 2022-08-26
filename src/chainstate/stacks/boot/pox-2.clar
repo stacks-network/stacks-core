@@ -296,7 +296,7 @@
                      { total-ustx: (+ (get amount-ustx params) total-ustx) })
                   (some reward-index))
             none))
-          (next-i (if (< i num-cycles) (+ i u1) (+ i u0))))
+          (next-i (if (< i num-cycles) (+ i u1) i)))
     {
         pox-addr: (get pox-addr params),
         first-reward-cycle: (get first-reward-cycle params),

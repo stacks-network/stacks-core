@@ -474,9 +474,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
-    /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
-    /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
-    ///  because this method is only invoked as a result of PoX2 interactions
+    /// If this snapshot is locked, then alter the lock height to be
+    /// the next burn block (i.e., `self.burn_block_height + 1`)
     pub fn accelerate_unlock(&mut self) {
         let unlocked = self.unlock_available_tokens_if_any();
         if unlocked > 0 {

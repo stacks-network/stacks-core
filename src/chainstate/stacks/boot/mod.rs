@@ -233,6 +233,8 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
 
+        debug!("Handling PoX reward cycle start"; "reward_cycle" => cycle_number, "cycle_active" => cycle_info.is_some());
+
         let cycle_info = match cycle_info {
             Some(x) => x,
             None => return Ok(()),
@@ -461,22 +463,6 @@ impl StacksChainState {
         }
 
         Ok(())
-    }
-
-    /// After Stacks 2.1, invoke to process any Stacks chainstate operations required
-    ///  at the start of a reward cycle (i.e., qualifying unlocks)
-    pub fn process_pox_cycle_start_2_1(last_anchor_block: Option<BlockHeaderHash>) {
-        // Step 1: determine if a PoX anchor block was chosen for this cycle
-        //  *and* that this Stacks block descends from that block
-        match last_anchor_block {
-            Some(_) => {}
-            None => {
-                debug!(
-                    "No anchor block chosen in this PoX cycle, so no need to process cycle start"
-                );
-                return;
-            }
-        }
     }
 
     fn eval_boot_code_read_only(
