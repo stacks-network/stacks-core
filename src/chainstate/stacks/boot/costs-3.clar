@@ -600,10 +600,22 @@
     (runtime u181))
 
 (define-read-only (cost_burn_block_info (n uint))
-    (runtime u105877))
+    {
+        runtime: u102965,
+        write_length: u0,
+        write_count: u0,
+        read_count: u1,
+        read_length: u1
+    })
 
 (define-read-only (cost_stx_account (n uint))
-    (runtime u10028))
+    {
+        runtime: u10028,
+        write_length: u0,
+        write_count: u0,
+        read_count: u1,
+        read_length: u1
+    })
 
 (define-read-only (cost_slice (n uint))
     (runtime u523))
@@ -615,4 +627,10 @@
     (runtime (nlogn n u3 u185)))
 
 (define-read-only (cost_stx_transfer_memo (n uint))
-    (runtime u11281))
+    {
+        runtime: u11281,
+        write_length: u1,
+        write_count: u1,
+        read_count: u1,
+        read_length: u1
+    })
