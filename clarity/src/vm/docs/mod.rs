@@ -2048,8 +2048,8 @@ const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
-This function returns the STX balance of the `owner` principal. In the event that the `owner`
-principal isn't materialized, it returns 0.
+This function returns the STX balance, in microstacks (1 STX = 1,000,000 microstacks), of the
+`owner` principal. In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
@@ -2065,7 +2065,7 @@ const STX_GET_ACCOUNT: SimpleFunctionAPI = SimpleFunctionAPI {
 
 This function returns a tuple with the canonical account representation for an STX account.
 This includes the current amount of unlocked STX, the current amount of locked STX, and the
-unlock height for any locked STX.
+unlock height for any locked STX, all denominated in microstacks.
 ",
     example: r#"
 (stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u0))
@@ -2079,7 +2079,8 @@ const STX_TRANSFER: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(stx-transfer? amount sender recipient)",
     description: "`stx-transfer?` is used to increase the STX balance for the `recipient` principal
-by debiting the `sender` principal. The `sender` principal _must_ be equal to the current context's `tx-sender`.
+by debiting the `sender` principal by `amount`, specified in microstacks. The `sender` principal
+ _must_ be equal to the current context's `tx-sender`.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -2118,8 +2119,9 @@ const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "stx-burn? ${1:amount} ${2:sender}",
     signature: "(stx-burn? amount sender)",
-    description: "`stx-burn?` decreases the `sender` principal's STX holdings by `amount`, destroying
-the STX. The `sender` principal _must_ be equal to the current context's `tx-sender`.
+    description: "`stx-burn?` decreases the `sender` principal's STX holdings by `amount`,
+specified in microstacks, by destroying the STX. The `sender` principal _must_ be equal to the current
+context's `tx-sender`.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
