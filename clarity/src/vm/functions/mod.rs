@@ -279,42 +279,42 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BuffToIntLe => NativeFunction(
                 "native_buff_to_int_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
-                ClarityCostFunction::BuffToIntLe,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToUIntLe => NativeFunction(
                 "native_buff_to_uint_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
-                ClarityCostFunction::BuffToUIntLe,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToIntBe => NativeFunction(
                 "native_buff_to_int_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
-                ClarityCostFunction::BuffToIntBe,
+                ClarityCostFunction::Unimplemented,
             ),
             BuffToUIntBe => NativeFunction(
                 "native_buff_to_uint_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
-                ClarityCostFunction::BuffToUIntBe,
+                ClarityCostFunction::Unimplemented,
             ),
             StringToInt => NativeFunction(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
-                ClarityCostFunction::StringToInt,
+                ClarityCostFunction::Unimplemented,
             ),
             StringToUInt => NativeFunction(
                 "native_string_to_uint",
                 NativeHandle::SingleArg(&conversions::native_string_to_uint),
-                ClarityCostFunction::StringToUInt,
+                ClarityCostFunction::Unimplemented,
             ),
             IntToAscii => NativeFunction(
                 "native_int_to_ascii",
                 NativeHandle::SingleArg(&conversions::native_int_to_ascii),
-                ClarityCostFunction::IntToAscii,
+                ClarityCostFunction::Unimplemented,
             ),
             IntToUtf8 => NativeFunction(
                 "native_int_to_utf8",
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
-                ClarityCostFunction::IntToUtf8,
+                ClarityCostFunction::Unimplemented,
             ),
             IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             PrincipalDestruct => SpecialFunction(
@@ -510,7 +510,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ToConsensusBuff => NativeFunction205(
                 "to_consensus_buff",
                 NativeHandle::SingleArg(&conversions::to_consensus_buff),
-                ClarityCostFunction::ToConsensusBuff,
+                ClarityCostFunction::Unimplemented,
                 &cost_input_sized_vararg,
             ),
             FromConsensusBuff => {

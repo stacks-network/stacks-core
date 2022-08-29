@@ -251,11 +251,7 @@ pub fn from_consensus_buff(
         ))
     }?;
 
-    runtime_cost(
-        ClarityCostFunction::FromConsensusBuff,
-        env,
-        input_bytes.len(),
-    )?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, input_bytes.len())?;
 
     // Perform the deserialization and check that it deserialized to the expected
     // type. A type mismatch at this point is an error that should be surfaced in

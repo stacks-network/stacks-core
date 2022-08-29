@@ -58,7 +58,7 @@ pub fn special_is_standard(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
     let owner = eval(&args[0], env, context)?;
 
     let version = match owner {
@@ -153,7 +153,7 @@ pub fn special_principal_destruct(
     context: &LocalContext,
 ) -> Result<Value> {
     check_argument_count(1, args)?;
-    runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let principal = eval(&args[0], env, context)?;
 
@@ -187,7 +187,7 @@ pub fn special_principal_construct(
 ) -> Result<Value> {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
-    runtime_cost(ClarityCostFunction::PrincipalConstruct, env, 0)?;
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 
     let version = eval(&args[0], env, context)?;
     let hash_bytes = eval(&args[1], env, context)?;
