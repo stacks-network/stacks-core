@@ -31,7 +31,7 @@ use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::vm::types::{
     BufferLength, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
     SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length,
-    TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
+    TraitData, TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
@@ -171,6 +171,7 @@ impl From<&Value> for TypePrefix {
             Sequence(List(_)) => TypePrefix::List,
             Sequence(String(CharType::ASCII(_))) => TypePrefix::StringASCII,
             Sequence(String(CharType::UTF8(_))) => TypePrefix::StringUTF8,
+            Trait(_) => TypePrefix::PrincipalContract,
         }
     }
 }
@@ -728,7 +729,11 @@ impl Value {
             Int(value) => w.write_all(&value.to_be_bytes())?,
             UInt(value) => w.write_all(&value.to_be_bytes())?,
             Principal(Standard(data)) => data.serialize_write(w)?,
-            Principal(Contract(contract_identifier)) => {
+            Principal(Contract(contract_identifier))
+            | Trait(TraitData {
+                contract_identifier,
+                trait_identifier: _,
+            }) => {
                 contract_identifier.issuer.serialize_write(w)?;
                 contract_identifier.name.serialize_write(w)?;
             }

@@ -77,7 +77,7 @@ pub fn check_special_map(
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
     for arg in args[1..].iter() {
-        let argument_type = checker.type_check(&arg, context)?;
+        let argument_type = checker.type_check(&arg, None, context)?;
         let entry_type = match argument_type {
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
@@ -125,7 +125,7 @@ pub fn check_special_filter(
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let argument_type = checker.type_check(&args[1], context)?;
+    let argument_type = checker.type_check(&args[1], None, context)?;
 
     {
         let input_type = match argument_type {
@@ -159,14 +159,14 @@ pub fn check_special_fold(
     let function_type = get_simple_native_or_user_define(function_name, checker)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let argument_type = checker.type_check(&args[1], context)?;
+    let argument_type = checker.type_check(&args[1], None, context)?;
 
     let input_type = match argument_type {
         TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
         _ => Err(CheckErrors::ExpectedSequence(argument_type)),
     }?;
 
-    let initial_value_type = checker.type_check(&args[2], context)?;
+    let initial_value_type = checker.type_check(&args[2], None, context)?;
 
     // fold: f(A, B) -> A
     //     where A = initial_value_type
@@ -193,8 +193,8 @@ pub fn check_special_concat(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let lhs_type = checker.type_check(&args[0], context)?;
-    let rhs_type = checker.type_check(&args[1], context)?;
+    let lhs_type = checker.type_check(&args[0], None, context)?;
+    let rhs_type = checker.type_check(&args[1], None, context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
@@ -254,10 +254,10 @@ pub fn check_special_append(
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
-    let lhs_type = checker.type_check(&args[0], context)?;
+    let lhs_type = checker.type_check(&args[0], None, context)?;
     match lhs_type {
         TypeSignature::SequenceType(ListType(lhs_list)) => {
-            let rhs_type = checker.type_check(&args[1], context)?;
+            let rhs_type = checker.type_check(&args[1], None, context)?;
             let (lhs_entry_type, lhs_max_len) = lhs_list.destruct();
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
@@ -283,7 +283,7 @@ pub fn check_special_as_max_len(
     let expected_len = match args[1].expr {
         SymbolicExpressionType::LiteralValue(Value::UInt(expected_len)) => expected_len,
         _ => {
-            let expected_len_type = checker.type_check(&args[1], context)?;
+            let expected_len_type = checker.type_check(&args[1], None, context)?;
             return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into());
         }
     };
@@ -298,7 +298,7 @@ pub fn check_special_as_max_len(
 
     let expected_len = u32::try_from(expected_len).map_err(|_e| CheckErrors::MaxLengthOverflow)?;
 
-    let sequence = checker.type_check(&args[0], context)?;
+    let sequence = checker.type_check(&args[0], None, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match sequence {
@@ -333,7 +333,7 @@ pub fn check_special_len(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let collection_type = checker.type_check(&args[0], context)?;
+    let collection_type = checker.type_check(&args[0], None, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match collection_type {
@@ -353,7 +353,7 @@ pub fn check_special_element_at(
 
     let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
-    let collection_type = checker.type_check(&args[0], context)?;
+    let collection_type = checker.type_check(&args[0], None, context)?;
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
 
     match collection_type {
@@ -386,7 +386,7 @@ pub fn check_special_index_of(
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
-    let list_type = checker.type_check(&args[0], context)?;
+    let list_type = checker.type_check(&args[0], None, context)?;
 
     let expected_input_type = match list_type {
         TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
@@ -408,7 +408,7 @@ pub fn check_special_slice(
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     // Check sequence
-    let seq_type = checker.type_check(&args[0], context)?;
+    let seq_type = checker.type_check(&args[0], None, context)?;
     let seq = match seq_type {
         TypeSignature::SequenceType(seq) => {
             TypeSignature::new_option(TypeSignature::SequenceType(seq))?

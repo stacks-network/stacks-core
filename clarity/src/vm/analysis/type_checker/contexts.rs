@@ -16,7 +16,7 @@
 
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::vm::contexts::MAX_CONTEXT_DEPTH;
@@ -37,6 +37,7 @@ pub struct TypingContext<'a> {
 }
 
 pub struct ContractContext {
+    contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<ClarityName, TypeSignature>,
     private_function_types: HashMap<ClarityName, FunctionType>,
@@ -74,8 +75,9 @@ impl TypeMap {
 }
 
 impl ContractContext {
-    pub fn new() -> ContractContext {
+    pub fn new(contract_identifier: QualifiedContractIdentifier) -> ContractContext {
         ContractContext {
+            contract_identifier,
             variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
             public_function_types: HashMap::new(),
@@ -87,6 +89,10 @@ impl ContractContext {
             traits: HashMap::new(),
             implemented_traits: HashSet::new(),
         }
+    }
+
+    pub fn is_contract(&self, other: &QualifiedContractIdentifier) -> bool {
+        &self.contract_identifier == other
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {

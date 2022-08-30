@@ -31,6 +31,7 @@ use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
+use crate::vm::Value::Trait;
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
@@ -685,6 +686,9 @@ fn special_let(
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            if let Trait(trait_data) = &binding_value {
+                inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
+            }
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())
         })?;
@@ -739,13 +743,15 @@ fn special_contract_of(
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
-        Some((ref contract_identifier, _trait_identifier)) => {
+        Some(trait_data) => {
             env.global_context
                 .database
-                .get_contract(contract_identifier)
-                .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                .get_contract(&trait_data.contract_identifier)
+                .map_err(|_e| {
+                    CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                })?;
 
-            contract_identifier
+            &trait_data.contract_identifier
         }
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
     };

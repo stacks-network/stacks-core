@@ -22,7 +22,8 @@ use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
-use crate::vm::types::{OptionalData, ResponseData, TypeSignature, Value};
+use crate::vm::types::{OptionalData, ResponseData, TraitData, TypeSignature, Value};
+use crate::vm::Value::Trait;
 use crate::vm::{ClarityName, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
@@ -124,6 +125,15 @@ fn eval_with_new_binding(
     let memory_use = bind_value.get_memory_use();
     env.add_memory(memory_use)?;
 
+    if let Trait(trait_data) = &bind_value {
+        inner_context.callable_contracts.insert(
+            bind_name.clone(),
+            TraitData {
+                contract_identifier: trait_data.contract_identifier.clone(),
+                trait_identifier: trait_data.trait_identifier.clone(),
+            },
+        );
+    }
     inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, env, &inner_context);
 

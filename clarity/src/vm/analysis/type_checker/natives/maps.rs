@@ -37,7 +37,7 @@ pub fn check_special_fetch_entry(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
+    let key_type = checker.type_check(&args[1], None, context)?;
 
     let (expected_key_type, value_type) = checker
         .contract_context
@@ -77,7 +77,7 @@ pub fn check_special_delete_entry(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
+    let key_type = checker.type_check(&args[1], None, context)?;
 
     let (expected_key_type, _) = checker
         .contract_context
@@ -110,8 +110,8 @@ fn check_set_or_insert_entry(
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
-    let key_type = checker.type_check(&args[1], context)?;
-    let value_type = checker.type_check(&args[2], context)?;
+    let key_type = checker.type_check(&args[1], None, context)?;
+    let value_type = checker.type_check(&args[2], None, context)?;
 
     let (expected_key_type, expected_value_type) = checker
         .contract_context

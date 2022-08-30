@@ -17,7 +17,7 @@
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{TupleTypeSignature, TypeSignature, Value};
+use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 use std::error;
 use std::fmt;
 
@@ -171,6 +171,7 @@ pub enum CheckErrors {
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
+    IncompatibleTrait(TraitIdentifier, TraitIdentifier),
 
     // strings
     InvalidCharactersDetected,
@@ -420,6 +421,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{}' is not a compatible with expected trait, '{}'", actual_trait, expected_trait),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),

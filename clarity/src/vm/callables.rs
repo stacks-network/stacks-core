@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
@@ -28,7 +28,9 @@ use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
-    FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
+    FunctionType, ListData, ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, SequenceSubtype, TraitData, TraitIdentifier, TupleData,
+    TupleTypeSignature, TypeSignature,
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
@@ -168,29 +170,44 @@ impl DefinedFunction {
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
 
-            match (type_sig, value) {
+            // Arguments containing principals can be implicitly cast to traits
+            // to match parameter types.
+            // e.g. `(optional principal)` to `(optional <trait>`)
+            // and traits can be implicitly cast to sub-traits
+            // e.g. `<foo-and-bar>` to `<foo>`
+            let cast_value = implicit_cast(type_sig, value)?;
+
+            match (&type_sig, &cast_value) {
+                // FIXME(brice): This first case should be removed after verifying that it doesn't get hit.
                 (
-                    TypeSignature::TraitReferenceType(trait_identifier),
-                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    TypeSignature::TraitReferenceType(_),
+                    Value::Principal(PrincipalData::Contract(_)),
+                ) => unreachable!("This principal should've been mapped to a Trait"),
+                (
+                    _,
+                    Value::Trait(TraitData {
+                        contract_identifier,
+                        trait_identifier,
+                    }),
                 ) => {
-                    // Argument is a trait reference, probably leading to a dynamic contract call
+                    // Argument is a trait reference, probably leading to a dynamic contract call.
                     // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                    // The code fetching and checking the trait is implemented in the contract_call eval function.
+                    // The trait compatibility has been checked by the type-checker.
                     context.callable_contracts.insert(
                         name.clone(),
-                        (callee_contract_id.clone(), trait_identifier.clone()),
+                        TraitData {
+                            contract_identifier: contract_identifier.clone(),
+                            trait_identifier: trait_identifier.clone(),
+                        },
                     );
                 }
-                _ => {
-                    if !type_sig.admits(value) {
-                        return Err(
-                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
-                        );
-                    }
-                    if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
-                        return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
-                    }
-                }
+                _ => (),
+            }
+            if !type_sig.admits(&cast_value) {
+                return Err(CheckErrors::TypeValueError(type_sig.clone(), cast_value).into());
+            }
+            if let Some(_) = context.variables.insert(name.clone(), cast_value) {
+                return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
             }
         }
 
@@ -285,5 +302,201 @@ impl FunctionIdentifier {
         FunctionIdentifier {
             identifier: identifier,
         }
+    }
+}
+
+// Implicitly cast principals to traits and traits to other traits as needed,
+// recursing into compound types. This function does not check for legality of
+// these casts, as that is done in the type-checker. Note: depth of recursion
+// should be capped by earlier checks on the types/values.
+fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
+    Ok(match (type_sig, value) {
+        (
+            TypeSignature::OptionalType(inner_type),
+            Value::Optional(OptionalData {
+                data: Some(inner_value),
+            }),
+        ) => Value::Optional(OptionalData {
+            data: Some(Box::new(implicit_cast(inner_type, inner_value)?)),
+        }),
+        (
+            TypeSignature::ResponseType(inner_types),
+            Value::Response(ResponseData { committed, data }),
+        ) => Value::Response(ResponseData {
+            committed: *committed,
+            data: Box::new(implicit_cast(
+                if *committed {
+                    &inner_types.0
+                } else {
+                    &inner_types.1
+                },
+                data,
+            )?),
+        }),
+        (
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)),
+            Value::Sequence(SequenceData::List(ListData {
+                data,
+                type_signature,
+            })),
+        ) => {
+            let mut values = Vec::new();
+            for elem in data {
+                values.push(implicit_cast(list_type.get_list_item_type(), elem)?);
+            }
+            Value::Sequence(SequenceData::List(ListData {
+                data: values,
+                type_signature: type_signature.clone(),
+            }))
+        }
+        (
+            TypeSignature::TupleType(tuple_type),
+            Value::Tuple(TupleData {
+                type_signature: _,
+                data_map,
+            }),
+        ) => {
+            let mut cast_data_map = BTreeMap::new();
+            for (name, field_value) in data_map {
+                let to_type = match tuple_type.get_type_map().get(name) {
+                    Some(ty) => ty,
+                    None => {
+                        return Err(
+                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
+                        )
+                    }
+                };
+                cast_data_map.insert(name.clone(), implicit_cast(to_type, field_value)?);
+            }
+            Value::Tuple(TupleData {
+                type_signature: tuple_type.clone(),
+                data_map: cast_data_map,
+            })
+        }
+        (
+            TypeSignature::TraitReferenceType(trait_identifier),
+            Value::Principal(PrincipalData::Contract(contract_identifier)),
+        ) => Value::Trait(TraitData {
+            contract_identifier: contract_identifier.clone(),
+            trait_identifier: trait_identifier.clone(),
+        }),
+        _ => value.clone(),
+    })
+}
+
+#[test]
+fn test_implicit_cast() {
+    // principal -> <trait>
+    let trait_identifier = TraitIdentifier::parse_fully_qualified(
+        "SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-trait.nft-trait",
+    )
+    .unwrap();
+    let trait_ty = TypeSignature::TraitReferenceType(trait_identifier.clone());
+    let contract_identifier =
+        QualifiedContractIdentifier::parse("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract")
+            .unwrap();
+    let contract = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
+    let cast_contract = implicit_cast(&trait_ty, &contract).unwrap();
+    let cast_trait = cast_contract.expect_trait();
+    assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+
+    // (optional principal) -> (optional <trait>)
+    let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
+    let optional_contract = Value::some(contract.clone()).unwrap();
+    let cast_optional = implicit_cast(&optional_ty, &optional_contract).unwrap();
+    match &cast_optional.expect_optional().unwrap() {
+        Value::Trait(TraitData {
+            contract_identifier: contract_id,
+            trait_identifier: trait_id,
+        }) => {
+            assert_eq!(contract_id, &contract_identifier);
+            assert_eq!(trait_id, &trait_identifier);
+        }
+        other => panic!("expected Value::Trait, got {:?}", other),
+    }
+
+    // (ok principal) -> (ok <trait>)
+    let response_ty =
+        TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
+    let response_contract = Value::okay(contract.clone()).unwrap();
+    let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
+    let cast_trait = cast_response.expect_result_ok().expect_trait();
+    assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+
+    // (err principal) -> (err <trait>)
+    let response_ty =
+        TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
+    let response_contract = Value::error(contract.clone()).unwrap();
+    let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
+    let cast_trait = cast_response.expect_result_err().expect_trait();
+    assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+
+    // (list principal) -> (list <trait>)
+    let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
+    let list_contract = Value::list_with_type(
+        vec![contract.clone(), contract.clone()],
+        ListTypeData::new_list(TypeSignature::PrincipalType, 4).unwrap(),
+    )
+    .unwrap();
+    let cast_list = implicit_cast(&list_ty, &list_contract).unwrap();
+    let items = cast_list.expect_list();
+    for item in items {
+        let cast_trait = item.expect_trait();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+    }
+
+    // {a: principal} -> {a: <trait>}
+    let a_name = ClarityName::from("a");
+    let tuple_ty = TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty.clone())]).unwrap(),
+    );
+    let contract_tuple_ty = TypeSignature::TupleType(
+        TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)]).unwrap(),
+    );
+    let mut data_map = BTreeMap::new();
+    data_map.insert(a_name.clone(), contract.clone());
+    let tuple_contract = Value::Tuple(TupleData {
+        type_signature: TupleTypeSignature::try_from(vec![(
+            a_name.clone(),
+            TypeSignature::PrincipalType,
+        )])
+        .unwrap(),
+        data_map,
+    });
+    let cast_tuple = implicit_cast(&tuple_ty, &tuple_contract).unwrap();
+    let cast_trait = cast_tuple
+        .expect_tuple()
+        .get(&a_name)
+        .unwrap()
+        .clone()
+        .expect_trait();
+    assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+
+    // (list (optional principal)) -> (list (optional <trait>))
+    let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
+    let list_opt_contract = Value::list_with_type(
+        vec![
+            Value::some(contract.clone()).unwrap(),
+            Value::some(contract.clone()).unwrap(),
+        ],
+        ListTypeData::new_list(
+            TypeSignature::new_option(TypeSignature::PrincipalType).unwrap(),
+            4,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let cast_list = implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
+    let items = cast_list.expect_list();
+    for item in items {
+        let cast_opt = item.expect_optional().unwrap();
+        let cast_trait = cast_opt.expect_trait();
+        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
+        assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
     }
 }

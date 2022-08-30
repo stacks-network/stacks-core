@@ -155,6 +155,12 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraitData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub trait_identifier: TraitIdentifier,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TraitIdentifier {
     pub name: ClarityName,
@@ -233,6 +239,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+    Trait(TraitData),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -1032,6 +1039,15 @@ impl Value {
         }
     }
 
+    pub fn expect_trait(self) -> TraitData {
+        if let Value::Trait(t) = self {
+            t
+        } else {
+            error!("Value '{:?}' is not a trait", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_result(self) -> std::result::Result<Value, Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
@@ -1183,6 +1199,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            Value::Trait(trait_data) => write!(f, "{}", trait_data),
         }
     }
 }
@@ -1262,6 +1279,16 @@ impl fmt::Display for PrincipalData {
                 contract_identifier.name.to_string()
             ),
         }
+    }
+}
+
+impl fmt::Display for TraitData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "({} as <{}>)",
+            self.contract_identifier, self.trait_identifier,
+        )
     }
 }
 

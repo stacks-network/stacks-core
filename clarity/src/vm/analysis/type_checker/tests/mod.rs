@@ -27,12 +27,12 @@ use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::execute_v2;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TraitIdentifier, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
+use crate::vm::{execute_v2, ClarityName};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::MemoryBackingStore;
@@ -3037,5 +3037,135 @@ fn test_principal_construct() {
 
     for (bad_test, expected) in bad_pairs.iter() {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_trait_args() {
+    let good = [
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-outer (f <trait-foo>))
+            (begin
+                (call-foo f)
+            )
+        )",
+        "(define-trait trait-foobar
+            (
+                (foo () (response uint uint))
+                (bar () (response uint uint))
+            )
+        )
+        (define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-foobar (f <trait-foobar>))
+            (begin
+                (call-foo f)
+            )
+        )",
+    ];
+
+    let bad = ["(define-trait trait-bar
+            (
+                (bar () (response uint uint))
+            )
+        )
+        (define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-foobar (f <trait-bar>))
+            (begin
+                (call-foo f)
+            )
+        )"];
+
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    let bad_expected = [CheckErrors::IncompatibleTrait(
+        TraitIdentifier {
+            name: ClarityName::from("trait-foo"),
+            contract_identifier: contract_identifier.clone(),
+        },
+        TraitIdentifier {
+            name: ClarityName::from("trait-bar"),
+            contract_identifier: contract_identifier.clone(),
+        },
+    )];
+
+    for good_test in good.iter() {
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &mem_type_check(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_wrapped_trait() {
+    let good = [
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo-if (opt (optional <trait-foo>)))
+            (match opt
+                f (contract-call? f foo)
+                (ok u1)
+            )
+        )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (unwrap! (contract-call? f foo) u2)
+        )
+        (define-public (call-foo-list (l (list 5 <trait-foo>)))
+            (ok (map call-foo l))
+        )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (return-f (f <trait-foo>))
+            (if true (ok f) (err u1))
+        )
+        (define-public (call-foo (f <trait-foo>))
+            (match (return-f f)
+                f-prime (contract-call? f-prime foo)
+                e (err u1)
+            )
+        )",
+    ];
+
+    for good_test in good.iter() {
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+}
+
+#[test]
+fn test_let_bind_trait() {
+    let good = ["(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo (f <trait-foo>))
+            (let ((g f))
+                (contract-call? g foo)
+            )
+        )"];
+
+    for good_test in good.iter() {
+        println!("{:?}", mem_type_check(&good_test));
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+}
+
+#[test]
+fn test_trait_same_contract() {
+    let good = ["(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo (f <trait-foo>))
+            (let ((g f))
+                (contract-call? g foo)
+            )
+        )
+        (define-public (trigger (f <trait-foo>)) (call-foo f))"];
+
+    for good_test in good.iter() {
+        println!("result: {:?}", mem_type_check(&good_test));
+        assert!(mem_type_check(&good_test).is_ok());
     }
 }

@@ -630,3 +630,100 @@ fn test_expects() {
         _ => false,
     });
 }
+
+#[test]
+fn test_traits() {
+    {
+        let embedded_trait = "(define-trait trait-12 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-opt-get-1 (contract <trait-12>))
+            (internal-get-1 (some contract)))
+        (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+            (match opt-contract
+                contract (contract-call? contract get-1 u1)
+                (err u1)
+            )
+        )";
+
+        let embedded_trait_compatible = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-trait trait-12 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-opt-get-1 (contract <trait-12>))
+            (internal-get-1 (some contract)))
+        (define-public (internal-get-1 (opt-contract (optional <trait-1>)))
+            (match opt-contract
+                contract (contract-call? contract get-1 u1)
+                (err u1)
+            )
+        )";
+
+        let bad_embedded_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-trait trait-12 (
+            (get-1 (uint) (response uint uint))
+            (get-2 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-opt-get-1 (contract <trait-1>))
+            ;; Passing (optional <trait-1>) as an (optional <trait-12>) should be an error
+            (wrapped-get-1 (some contract)))
+        (define-public (wrapped-get-1 (opt-contract (optional <trait-12>)))
+            (internal-get-1 opt-contract)
+        )
+        (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+            (match opt-contract
+                contract (contract-call? contract get-1 u1)
+                (err u1)
+            )
+        )";
+
+        let let_trait = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-public (let-echo (t <trait-1>))
+            (let ((t1 t))
+                (contract-call? t1 echo u42)
+            )
+        )";
+
+        let let3_trait = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-public (let-echo (t <trait-1>))
+            (let ((t1 t))
+                (let ((t2 t1))
+                    (let ((t3 t2))
+                        (contract-call? t3 echo u42)
+                    )
+                )
+            )
+        )";
+
+        mem_type_check(embedded_trait).unwrap();
+        mem_type_check(embedded_trait_compatible).unwrap();
+
+        let err = mem_type_check(bad_embedded_trait).unwrap_err();
+        eprintln!("pass invalid embedded trait to trait param: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(trait_super, trait_sub),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(trait_super.name.as_str(), "trait-12");
+                assert_eq!(trait_sub.name.as_str(), "trait-1");
+                true
+            }
+            _ => false,
+        });
+
+        mem_type_check(let_trait).unwrap();
+        mem_type_check(let3_trait).unwrap();
+    }
+}

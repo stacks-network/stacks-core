@@ -20,6 +20,7 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
+use crate::vm::analysis::type_checker::trait_check_trait_compliance;
 use crate::vm::ast::parser::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
@@ -488,6 +489,16 @@ impl TypeSignature {
                 }
             }
             NoType => panic!("NoType should never be asked to admit."),
+            TraitReferenceType(_) => {
+                match other {
+                    TraitReferenceType(_) | PrincipalType => {
+                        // The type-checker will have already verified that these
+                        // are compatible.
+                        true
+                    }
+                    _ => false,
+                }
+            }
             _ => other == self,
         }
     }
@@ -616,6 +627,11 @@ impl FunctionSignature {
                     TypeSignature::TraitReferenceType(candidate),
                 ) => {
                     if candidate != expected {
+                        // FIXME(brice): check how this is used... will this only be the
+                        // exact trait here (after implicit casting) or do we need to
+                        // handle compatible traits?
+                        // We may be able to just remove this case and use admits_type
+                        // in all cases.
                         return false;
                     }
                 }
@@ -851,6 +867,7 @@ impl TypeSignature {
             }
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature(),
+            Value::Trait(v) => TraitReferenceType(v.trait_identifier.clone()),
         }
     }
 

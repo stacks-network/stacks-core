@@ -105,11 +105,8 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             {
                 runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
                 Ok(value.clone())
-            } else if let Some(value) = context.lookup_callable_contract(name) {
-                let contract_identifier = &value.0;
-                Ok(Value::Principal(PrincipalData::Contract(
-                    contract_identifier.clone(),
-                )))
+            } else if let Some(trait_data) = context.lookup_callable_contract(name) {
+                Ok(Value::Trait(trait_data.clone()))
             } else {
                 Err(CheckErrors::UndefinedVariable(name.to_string()).into())
             }
