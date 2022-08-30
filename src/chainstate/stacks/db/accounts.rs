@@ -388,6 +388,59 @@ impl StacksChainState {
             .expect("FATAL: failed to set account nonce")
     }
 
+    /// Increase a STX lock up for PoX.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        if !snapshot.is_v2_locked() {
+            return Err(Error::PoxIncreaseOnV1);
+        }
+
+        let bal = snapshot.canonical_balance_repr();
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        snapshot.increase_lock_v2(new_total_locked);
+
+        let out_balance = snapshot.canonical_balance_repr();
+
+        debug!(
+            "PoX v2 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(out_balance)
+    }
+
     /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
     /// Returns Ok(lock_amount) when successful
     ///

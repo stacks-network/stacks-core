@@ -695,6 +695,71 @@
     })
 )
 
+(define-private (increase-reward-cycle-entry 
+                  (reward-cycle-index uint)
+                  (updates (optional { first-cycle: uint, reward-cycle: uint, stacker: principal, add-amount: uint })))
+    (let ((data (try! updates))
+          (first-cycle (get first-cycle data))
+          (reward-cycle (get reward-cycle data)))
+    (if (> first-cycle reward-cycle)
+        ;; not at first cycle to process yet
+        (some { first-cycle: first-cycle, reward-cycle: (+ u1 reward-cycle), stacker: (get stacker data), add-amount: (get add-amount data) })
+        (let ((existing-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })))
+              (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle }))))
+            ;; stacker must match
+            (asserts! (is-eq (get stacker existing-entry) (some (get stacker data))) none)
+            ;; update the pox-address list
+            (map-set reward-cycle-pox-address-list
+                     { reward-cycle: reward-cycle, index: reward-cycle-index }
+                     { pox-addr: (get pox-addr existing-entry),
+                       total-ustx: (+ (get total-ustx existing-entry)
+                                      (get add-amount data)),
+                       stacker: (some (get stacker data)) })
+            ;; update the total
+            (map-set reward-cycle-total-stacked 
+                     { reward-cycle: reward-cycle }
+                     { total-ustx: (+ (get total-ustx existing-total)
+                                      (get add-amount data)) })
+            (some { first-cycle: first-cycle,
+                    reward-cycle: (+ u1 reward-cycle),
+                    stacker: (get stacker data),
+                    add-amount: (get add-amount data) })))))
+
+(define-public (stack-increase (increase-by uint))
+   (let ((stacker-info (stx-account tx-sender))
+         (amount-stacked (get locked stacker-info))
+         (unlock-height (get unlock-height stacker-info))
+         (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+         (cur-cycle (current-pox-reward-cycle))
+         (first-increased-cycle (+ cur-cycle u1))
+         (stacker-state (unwrap! (map-get? stacking-state 
+                                          { stacker: tx-sender })
+                                          (err ERR_STACK_EXTEND_NOT_LOCKED))))
+      ;; stacker state sanity check                                         
+      (asserts! (is-eq amount-stacked (get amount-ustx stacker-state)) (err ERR_STACKING_UNREACHABLE))
+      (asserts! (> amount-stacked u0)
+                (err ERR_STACK_EXTEND_NOT_LOCKED))
+      (asserts! (>= increase-by u1)
+                (err ERR_STACKING_INVALID_AMOUNT))
+      (asserts! (>= (get unlocked stacker-info) increase-by)
+                (err ERR_STACKING_INSUFFICIENT_FUNDS))
+      (asserts! (check-caller-allowed)
+                (err ERR_STACKING_PERMISSION_DENIED))
+      ;; update reward cycle amounts
+      (asserts! (is-some (fold increase-reward-cycle-entry 
+            (get reward-set-indexes stacker-state)
+            (some { first-cycle: first-increased-cycle,
+                    reward-cycle: (get first-reward-cycle stacker-state),
+                    stacker: tx-sender,
+                    add-amount: increase-by })))
+            (err ERR_STACKING_UNREACHABLE))
+      (map-set
+          stacking-state
+          { stacker: tx-sender }
+          (merge stacker-state 
+                 { amount-ustx: (+ amount-stacked increase-by) }))
+      (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
+
 ;; Extend an active stacking lock.
 ;; *New in Stacks 2.1*
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
