@@ -23,6 +23,7 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -204,7 +205,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(contract_id.clone(), contract)
+            .initialize_contract(contract_id.clone(), contract, ASTRules::PrecheckSize)
             .unwrap();
 
         let cost_before = owned_env.get_cost_total();
@@ -830,13 +831,25 @@ fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> Ex
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(trait_contract_id.clone(), contract_trait)
+            .initialize_contract(
+                trait_contract_id.clone(),
+                contract_trait,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_contract(other_contract_id.clone(), contract_other)
+            .initialize_contract(
+                other_contract_id.clone(),
+                contract_other,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_contract(self_contract_id.clone(), &contract_self)
+            .initialize_contract(
+                self_contract_id.clone(),
+                &contract_self,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
 
         let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
@@ -969,7 +982,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool) {
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(contract_name, contract_src, ASTRules::PrecheckSize)
                     .unwrap();
                 tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
                     .unwrap();
@@ -1231,7 +1244,7 @@ fn test_cost_voting_integration(use_mainnet: bool) {
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, contract_src)
+                    .analyze_smart_contract(contract_name, contract_src, ASTRules::PrecheckSize)
                     .unwrap();
                 tx.initialize_smart_contract(contract_name, &ast, contract_src, |_, _| false)
                     .unwrap();

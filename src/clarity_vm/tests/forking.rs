@@ -17,6 +17,7 @@
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use clarity::vm::analysis::errors::CheckErrors;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
@@ -65,7 +66,9 @@ fn test_at_block_mutations() {
                  (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum)))))";
 
         eprintln!("Initializing contract...");
-        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+        owned_env
+            .initialize_contract(c.clone(), &contract, ASTRules::PrecheckSize)
+            .unwrap();
     }
 
     fn branch(
@@ -137,7 +140,9 @@ fn test_at_block_good() {
                  (ok (var-get datum))))";
 
         eprintln!("Initializing contract...");
-        owned_env.initialize_contract(c.clone(), &contract).unwrap();
+        owned_env
+            .initialize_contract(c.clone(), &contract, ASTRules::PrecheckSize)
+            .unwrap();
     }
 
     fn branch(
@@ -205,7 +210,7 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         owned_env
-            .initialize_contract(c_a.clone(), &contract)
+            .initialize_contract(c_a.clone(), &contract, ASTRules::PrecheckSize)
             .unwrap();
     }
 
@@ -220,7 +225,7 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         let e = owned_env
-            .initialize_contract(c_b.clone(), &contract)
+            .initialize_contract(c_b.clone(), &contract, ASTRules::PrecheckSize)
             .unwrap_err();
         e
     }
@@ -327,7 +332,7 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
     owned_env
-        .initialize_contract(contract_identifier, &contract)
+        .initialize_contract(contract_identifier, &contract, ASTRules::PrecheckSize)
         .unwrap();
 }
 

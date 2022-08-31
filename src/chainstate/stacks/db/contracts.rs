@@ -42,7 +42,6 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPri
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::types::{AssetIdentifier, Value};
 
 pub use clarity::vm::analysis::errors::CheckErrors;

@@ -1,9 +1,12 @@
 use std::cmp;
+use std::fs;
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{
     collections::HashMap,
+    collections::HashSet,
     sync::atomic::{AtomicU64, Ordering},
 };
 use std::{env, thread};
@@ -14,14 +17,19 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
-use stacks::core::{StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0};
+use stacks::core::{
+    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205, CHAIN_ID_TESTNET,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+};
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
-    PostTransactionRequestBody, RPCPeerInfoData,
+    PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
+    UnconfirmedTransactionResponse,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -57,7 +65,8 @@ use stacks::{
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
     config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
+    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
+    ConfigFile, Keychain,
 };
 
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
@@ -71,12 +80,15 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
+use crate::config::FeeEstimatorName;
 use crate::tests::SK_3;
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::MAX_CALL_STACK_DEPTH;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::miner::{
     TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
 };
-
-use crate::config::FeeEstimatorName;
 use stacks::net::RPCFeeEstimateResponse;
 use stacks::vm::ClarityName;
 use stacks::vm::ContractName;

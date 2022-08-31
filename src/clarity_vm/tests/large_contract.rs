@@ -16,13 +16,16 @@
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
+use crate::core::StacksEpochId;
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
-use clarity::vm::ast;
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::{self, ASTRules};
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::*;
@@ -30,6 +33,7 @@ use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TypeSignature, Value,
 };
+use clarity::vm::MAX_CALL_STACK_DEPTH;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -38,6 +42,11 @@ use clarity::vm::clarity::TransactionConnection;
 fn test_block_headers(n: u8) -> StacksBlockId {
     StacksBlockId([n as u8; 32])
 }
+
+pub const TEST_BURN_STATE_DB_AST_PRECHECK: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch20,
+    ast_rules: ast::ASTRules::PrecheckSize,
+};
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))
@@ -352,7 +361,7 @@ pub fn rollback_log_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -418,7 +427,7 @@ pub fn let_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -482,7 +491,7 @@ pub fn argument_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract)
+                .analyze_smart_contract(&contract_identifier, &contract, ASTRules::PrecheckSize)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -565,7 +574,7 @@ pub fn fcall_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_ok)
+                .analyze_smart_contract(&contract_identifier, &contract_ok, ASTRules::PrecheckSize)
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
@@ -584,7 +593,7 @@ pub fn fcall_memory_test() {
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, &contract_err)
+                .analyze_smart_contract(&contract_identifier, &contract_err, ASTRules::PrecheckSize)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -664,7 +673,11 @@ pub fn ccall_memory_test() {
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            &contract,
+                            ASTRules::PrecheckSize,
+                        )
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
@@ -679,7 +692,11 @@ pub fn ccall_memory_test() {
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            &contract,
+                            ASTRules::PrecheckSize,
+                        )
                         .unwrap();
                     assert!(format!(
                         "{:?}",

@@ -133,6 +133,7 @@ pub struct RunLoop {
     pox_watchdog: Option<PoxSyncWatchdog>, // can't be instantiated until .start() is called
     is_miner: Option<bool>,                // not known until .start() is called
     burnchain: Option<Burnchain>,          // not known until .start() is called
+    pox_watchdog_comms: PoxSyncWatchdogComms,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -158,6 +159,7 @@ impl RunLoop {
     pub fn new(config: Config) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
+        let pox_watchdog_comms = PoxSyncWatchdogComms::new(should_keep_running.clone());
 
         let mut event_dispatcher = EventDispatcher::new();
         for observer in config.events_observers.iter() {
@@ -174,6 +176,7 @@ impl RunLoop {
             pox_watchdog: None,
             is_miner: None,
             burnchain: None,
+            pox_watchdog_comms,
         }
     }
 
@@ -218,10 +221,7 @@ impl RunLoop {
     }
 
     pub fn get_pox_sync_comms(&self) -> PoxSyncWatchdogComms {
-        self.pox_watchdog
-            .as_ref()
-            .expect("FATAL: tried to get PoX watchdog before calling .start()")
-            .make_comms_handle()
+        self.pox_watchdog_comms.clone()
     }
 
     pub fn get_termination_switch(&self) -> Arc<AtomicBool> {
@@ -474,7 +474,7 @@ impl RunLoop {
 
     /// Instantiate the PoX watchdog
     fn instantiate_pox_watchdog(&mut self) {
-        let pox_watchdog = PoxSyncWatchdog::new(&self.config, self.should_keep_running.clone())
+        let pox_watchdog = PoxSyncWatchdog::new(&self.config, self.pox_watchdog_comms.clone())
             .expect("FATAL: failed to instantiate PoX sync watchdog");
         self.pox_watchdog = Some(pox_watchdog);
     }

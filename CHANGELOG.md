@@ -37,6 +37,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   state machine to only report fatal errors (#3228)
 - Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
 - Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+- Ignore blocks that include problematic transactions
 
 
 ## [2.05.0.2.1]
