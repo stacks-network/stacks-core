@@ -264,6 +264,13 @@
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
     (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: index }))
 
+(define-private (set-uint-at (in-list (list 12 uint)) (index uint) (value uint))
+    (unwrap-panic (as-max-len? 
+        (concat (append (default-to (list) (slice in-list u0 index))
+                    value)
+                (default-to (list) (slice in-list (+ u1 index) (len in-list))))
+        u12)))
+
 (define-private (fold-unlock-reward-cycle (set-index uint)
                                           (data-res (response { cycle: uint,
                                                       first-unlocked-cycle: uint,
@@ -275,7 +282,6 @@
          ;; if current-cycle hasn't reached first-unlocked-cycle, just continue to next iter
          (asserts! (>= cycle first-unlocked-cycle) (ok (merge data { cycle: (+ u1 cycle) })))
          (let ((cycle-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: cycle, index: set-index })))
-               ;; todo: assert eq
                (cycle-entry-u (get stacker cycle-entry))
                (cycle-entry-total-ustx (get total-ustx cycle-entry))
                (cycle-last-entry-ix (- (get len (unwrap-panic (map-get? reward-cycle-pox-address-list-len { reward-cycle: cycle }))) u1)))
@@ -293,10 +299,7 @@
                            (moved-cycle-index (- cycle (get first-reward-cycle moved-state)))
                            (moved-reward-list (get reward-set-indexes moved-state))
                            ;; reward-set-indexes[moved-cycle-index] = set-index via slice, append, concat.
-                           (update-list-inner (print (concat (append (default-to (list) (slice moved-reward-list u0 moved-cycle-index))
-                                                      set-index)
-                                                      (default-to (list) (slice moved-reward-list (+ moved-cycle-index u1) (len moved-reward-list))))))
-                           (update-list (unwrap-panic (as-max-len? update-list-inner u12))))
+                           (update-list (set-uint-at moved-reward-list moved-cycle-index set-index)))
                           (map-set stacking-state { stacker: moved-stacker }
                                    (merge moved-state { reward-set-indexes: update-list })))
                      ;; otherwise, we dont need to update stacking-state after move
@@ -312,6 +315,9 @@
                                  cycle-entry-total-ustx) })
             (ok (merge data { cycle: (+ u1 cycle)} )))))
 
+;; This method is called by the Stacks block processor directly in order to handle the contract state mutations
+;;  associated with an early unlock. This can only be invoked by the block processor: it is private, and no methods
+;;  from this contract invoke it.
 (define-private (handle-unlock (user principal) (amount-locked uint) (cycle-to-unlock uint))
     (let ((user-stacking-state (unwrap-panic (map-get? stacking-state { stacker: user })))
           (first-cycle-locked (get first-reward-cycle user-stacking-state))
@@ -379,12 +385,13 @@
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
         (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
                          { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, 
-                           reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) })))
+                           reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) }))
+        (reward-set-indexes (get reward-set-indexes results)))
     ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
     ;; It _should_ be equal to num-cycles.
     (asserts! (is-eq num-cycles (get i results)) (err ERR_STACKING_UNREACHABLE))
-    (asserts! (is-eq num-cycles (len (get reward-set-indexes results))) (err ERR_STACKING_UNREACHABLE))
-    (ok (get reward-set-indexes results))))
+    (asserts! (is-eq num-cycles (len reward-set-indexes)) (err ERR_STACKING_UNREACHABLE))
+    (ok reward-set-indexes)))
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
                  (cycle-index uint)

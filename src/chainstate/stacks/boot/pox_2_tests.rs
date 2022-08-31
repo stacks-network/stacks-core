@@ -795,6 +795,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let alice_address = key_to_stacks_addr(&alice);
     let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
     let blocks = observer.get_blocks();
 
     let mut alice_txs = HashMap::new();
@@ -813,7 +814,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
                     alice_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == bob_address {
                     bob_txs.insert(t.auth.get_origin_nonce(), r);
-                } else if addr == key_to_stacks_addr(&charlie) {
+                } else if addr == charlie_address {
                     assert!(
                         r.execution_cost != ExecutionCost::zero(),
                         "Execution cost is not zero!"

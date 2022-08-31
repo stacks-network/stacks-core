@@ -5074,7 +5074,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         chain_tip: &StacksHeaderInfo,
         parent_sortition_id: &SortitionId,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
         let mut pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
             burn_tip_height,
             burn_dbconn.get_burn_start_height().into(),
@@ -5084,7 +5084,7 @@ impl StacksChainState {
         // This cannot even occur in the mainchain, because 2.1 starts much
         //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
         if pox_reward_cycle > 1 {
-            if Burnchain::is_pre_reward_cycle_start(
+            if Burnchain::is_before_reward_cycle(
                 burn_dbconn.get_burn_start_height().into(),
                 burn_tip_height,
                 burn_dbconn.get_pox_reward_cycle_length().into(),
@@ -5101,13 +5101,14 @@ impl StacksChainState {
                     chain_tip.burn_header_height.into(),
                     pox_reward_cycle,
                 )?;
-                clarity_tx.block.as_transaction(|clarity_tx| {
+                let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
                     Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
                 })?;
+                return Ok(events);
             }
         }
 
-        Ok(())
+        Ok(vec![])
     }
 
     /// Called in both follower and miner block assembly paths.

@@ -42,6 +42,7 @@ use clarity::vm::costs::{
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::InterpreterError;
+use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
@@ -206,19 +207,20 @@ impl StacksChainState {
         clarity: &mut ClarityTransactionConnection,
         cycle_number: u64,
         cycle_info: Option<PoxStartCycleInfo>,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
         clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
 
         debug!("Handling PoX reward cycle start"; "reward_cycle" => cycle_number, "cycle_active" => cycle_info.is_some());
 
         let cycle_info = match cycle_info {
             Some(x) => x,
-            None => return Ok(()),
+            None => return Ok(vec![]),
         };
 
         let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
         let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
 
+        let mut total_events = vec![];
         for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
             // we have to do several things for each principal
             // 1. lookup their Stacks account and accelerate their unlock
@@ -240,7 +242,7 @@ impl StacksChainState {
                 Ok(())
             }).expect("FATAL: failed to accelerate PoX unlock");
 
-            let result = clarity
+            let (result, _, events, _) = clarity
                 .with_abort_callback(
                     |vm_env| {
                         vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
@@ -262,12 +264,12 @@ impl StacksChainState {
                 )
                 .expect("FATAL: failed to handle PoX unlock");
 
-            info!("Handled principal unlock";
-                  "principal" => %principal,
-                  "result" => %result.0);
+            result.expect_result_ok();
+
+            total_events.extend(events.into_iter());
         }
 
-        Ok(())
+        Ok(total_events)
     }
 
     fn eval_boot_code_read_only(
@@ -669,7 +671,10 @@ impl StacksChainState {
 
             let stacker = tuple
                 .get("stacker")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
                 .to_owned()
                 .expect_optional()
                 .map(|value| value.expect_principal());
