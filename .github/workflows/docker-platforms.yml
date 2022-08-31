@@ -10,9 +10,9 @@ on:
         required: true
         type: string
     secrets:
-      QUAY_USERNAME:
+      DOCKERHUB_USERNAME:
         required: true
-      QUAY_PASSWORD:
+      DOCKERHUB_PASSWORD:
         required: true
 
 env:
@@ -46,12 +46,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Login to QUAY
+      - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          registry: quay.io
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_PASSWORD }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build/Tag/Push Image
         uses: docker/build-push-action@v2
@@ -106,12 +105,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Login to quay
+      - name: Login to DockerHub
         uses: docker/login-action@v1
         with:
-          registry: quay.io
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_PASSWORD }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build/Tag/Push Image
         uses: docker/build-push-action@v2
