@@ -24,6 +24,7 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use clarity::vm::ast::ASTRules;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
@@ -63,7 +64,6 @@ use crate::util_lib::db::{
 use crate::util_lib::strings::StacksString;
 pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
@@ -82,7 +82,7 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::monitoring::set_last_execution_cost_observed;
+use crate::monitoring::{set_last_block_transaction_count, set_last_execution_cost_observed};
 use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -157,6 +157,7 @@ pub enum MemPoolRejection {
     TransferAmountMustBePositive,
     DBError(db_error),
     EstimatorError(EstimatorError),
+    TemporarilyBlacklisted,
     Other(String),
 }
 
@@ -304,6 +305,7 @@ impl MemPoolRejection {
                 "ServerFailureDatabase",
                 Some(json!({"message": e.to_string()})),
             ),
+            TemporarilyBlacklisted => ("TemporarilyBlacklisted", None),
             Other(s) => ("ServerFailureOther", Some(json!({ "message": s }))),
         };
         let mut result = json!({
@@ -2058,7 +2060,6 @@ impl StacksChainState {
     /// The query takes the consensus hash and block hash of a block that _produced_ this stream.
     /// Return Some(processed) if the microblock is queued up.
     /// Return None if the microblock is not queued up.
-    #[cfg(test)]
     pub fn get_microblock_status(
         &self,
         parent_consensus_hash: &ConsensusHash,
@@ -4471,6 +4472,7 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &Vec<StacksMicroblock>,
+        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
@@ -4479,7 +4481,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4678,13 +4680,14 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
         mut tx_index: u32,
+        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
@@ -4860,6 +4863,12 @@ impl StacksChainState {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
 
+        let parent_burn_height =
+            SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?
+                .expect("Failed to get snapshot for parent's sortition")
+                .block_height;
+        let microblock_ast_rules = SortitionDB::get_ast_rules(conn, parent_burn_height)?;
+
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
             let latest_miners = StacksChainState::get_scheduled_block_rewards(
@@ -4950,6 +4959,7 @@ impl StacksChainState {
             match StacksChainState::process_microblocks_transactions(
                 &mut clarity_tx,
                 &parent_microblocks,
+                microblock_ast_rules,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
                 Err((e, mblock_header_hash)) => {
@@ -5111,6 +5121,9 @@ impl StacksChainState {
             &block.block_hash().to_hex(),
             block.txs.len()
         );
+
+        let ast_rules =
+            SortitionDB::get_ast_rules(burn_dbconn.tx(), chain_tip_burn_header_height.into())?;
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
@@ -5302,6 +5315,7 @@ impl StacksChainState {
                     &mut clarity_tx,
                     &block,
                     microblock_txs_receipts.len() as u32,
+                    ast_rules,
                 ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
@@ -5463,6 +5477,7 @@ impl StacksChainState {
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
+        set_last_block_transaction_count(block.txs.len() as u64);
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {
@@ -6410,6 +6425,7 @@ pub mod test {
 
     use super::*;
 
+    use clarity::vm::ast::ASTRules;
     use clarity::vm::types::StacksAddressExtensions;
 
     use serde_json;
@@ -10465,6 +10481,7 @@ pub mod test {
                             &microblock_privkey,
                             &anchored_block.0.block_hash(),
                             microblocks.last().map(|mblock| &mblock.header),
+                            ASTRules::PrecheckSize,
                         )
                         .unwrap();
                         microblocks.push(microblock);

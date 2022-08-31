@@ -117,7 +117,7 @@ default = ["developer-mode"]
 developer-mode = []
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json"]
-
+testing = []
 
 [profile.dev.package.regex]
 opt-level = 2
@@ -133,5 +133,4 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node",
-    "testnet/puppet-chain"]
+    "testnet/stacks-node"]

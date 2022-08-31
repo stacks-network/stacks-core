@@ -30,11 +30,14 @@ use rand::Rng;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
+use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::MemPoolDB;
 use crate::core::mempool::*;
 use crate::net::chat::*;
@@ -47,7 +50,11 @@ use crate::net::rpc::*;
 use crate::net::Error as net_error;
 use crate::net::*;
 use crate::types::chainstate::StacksBlockId;
+use clarity::vm::ast::errors::{ParseError, ParseErrors};
+use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -488,7 +495,46 @@ impl Relayer {
         Ok(())
     }
 
-    /// Insert a staging block
+    /// Get the snapshot of the parent of a given Stacks block
+    pub fn get_parent_stacks_block_snapshot(
+        sort_handle: &SortitionHandleConn,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<BlockSnapshot, chainstate_error> {
+        let parent_block_snapshot = match sort_handle
+            .get_block_snapshot_of_parent_stacks_block(consensus_hash, block_hash)
+        {
+            Ok(Some((_, sn))) => {
+                debug!(
+                    "Parent of {}/{} is {}/{}",
+                    consensus_hash, block_hash, sn.consensus_hash, sn.winning_stacks_block_hash
+                );
+                sn
+            }
+            Ok(None) => {
+                debug!(
+                    "Received block with unknown parent snapshot: {}/{}",
+                    consensus_hash, block_hash
+                );
+                return Err(chainstate_error::NoSuchBlockError);
+            }
+            Err(db_error::InvalidPoxSortition) => {
+                warn!(
+                    "Received block {}/{} on a non-canonical PoX sortition",
+                    consensus_hash, block_hash
+                );
+                return Err(chainstate_error::DBError(db_error::InvalidPoxSortition));
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+        Ok(parent_block_snapshot)
+    }
+
+    /// Insert a staging block that got relayed to us somehow -- e.g. uploaded via http, downloaded
+    /// by us, or pushed via p2p.
+    /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_anchored_block(
         sort_ic: &SortitionDBConn,
         chainstate: &mut StacksChainState,
@@ -496,41 +542,44 @@ impl Relayer {
         block: &StacksBlock,
         download_time: u64,
     ) -> Result<bool, chainstate_error> {
+        debug!(
+            "Handle incoming block {}/{}",
+            consensus_hash,
+            &block.block_hash()
+        );
+
         // find the snapshot of the parent of this block
         let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
-        let parent_block_snapshot = match db_handle
-            .get_block_snapshot_of_parent_stacks_block(consensus_hash, &block.block_hash())
-        {
-            Ok(Some((_, sn))) => {
-                debug!(
-                    "Parent of {}/{} is {}/{}",
-                    consensus_hash,
-                    block.block_hash(),
-                    sn.consensus_hash,
-                    sn.winning_stacks_block_hash
-                );
-                sn
-            }
-            Ok(None) => {
-                debug!(
-                    "Received block with unknown parent snapshot: {}/{}",
-                    consensus_hash,
-                    &block.block_hash()
-                );
-                return Ok(false);
-            }
-            Err(db_error::InvalidPoxSortition) => {
-                warn!(
-                    "Received block {}/{} on a non-canonical PoX sortition",
-                    consensus_hash,
-                    &block.block_hash()
-                );
-                return Ok(false);
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        };
+        let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(
+            &db_handle,
+            consensus_hash,
+            &block.block_hash(),
+        )?;
+
+        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
+        // txs problematic).
+        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
+            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+        let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
+        debug!(
+            "Current AST rules for block {}/{} height {} sortitioned at {} is {:?}",
+            consensus_hash,
+            &block.block_hash(),
+            block.header.total_work.work,
+            &block_sn.block_height,
+            &ast_rules
+        );
+        if !Relayer::static_check_problematic_relayed_block(chainstate.mainnet, block, ast_rules) {
+            warn!(
+                "Block is problematic; will not store or relay";
+                "stacks_block_hash" => %block.block_hash(),
+                "consensus_hash" => %consensus_hash,
+                "burn_height" => block.header.total_work.work,
+                "sortition_height" => block_sn.block_height,
+                "ast_rules" => ?ast_rules,
+            );
+            return Ok(false);
+        }
 
         chainstate.preprocess_anchored_block(
             sort_ic,
@@ -629,6 +678,11 @@ impl Relayer {
         let mut new_blocks = HashMap::new();
 
         for (consensus_hash, block, download_time) in network_result.blocks.iter() {
+            debug!(
+                "Received downloaded block {}/{}",
+                consensus_hash,
+                &block.block_hash()
+            );
             match Relayer::process_new_anchored_block(
                 sort_ic,
                 chainstate,
@@ -638,7 +692,18 @@ impl Relayer {
             ) {
                 Ok(accepted) => {
                     if accepted {
+                        debug!(
+                            "Accepted downloaded block {}/{}",
+                            consensus_hash,
+                            &block.block_hash()
+                        );
                         new_blocks.insert((*consensus_hash).clone(), block.clone());
+                    } else {
+                        debug!(
+                            "Rejected downloaded block {}/{}",
+                            consensus_hash,
+                            &block.block_hash()
+                        );
                     }
                 }
                 Err(chainstate_error::InvalidStacksBlock(msg)) => {
@@ -727,6 +792,11 @@ impl Relayer {
                                     &consensus_hash, &bhh, &neighbor_key
                                 );
                                 new_blocks.insert(consensus_hash.clone(), block.clone());
+                            } else {
+                                debug!(
+                                    "Rejected block {}/{} from {}",
+                                    &consensus_hash, &bhh, &neighbor_key
+                                );
                             }
                         }
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
@@ -758,6 +828,7 @@ impl Relayer {
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
     fn preprocess_downloaded_microblocks(
+        sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
     ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
@@ -770,13 +841,54 @@ impl Relayer {
             }
             let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
 
+            let block_snapshot =
+                match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
+                    Ok(Some(sn)) => sn,
+                    Ok(None) => {
+                        warn!(
+                            "Failed to load parent anchored block snapshot for {}/{}",
+                            consensus_hash, &anchored_block_hash
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load parent stacks block snapshot: {:?}", &e);
+                        continue;
+                    }
+                };
+
+            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
+                Ok(rules) => rules,
+                Err(e) => {
+                    error!("Failed to load current AST rules: {:?}", &e);
+                    continue;
+                }
+            };
+
+            let mut stored = false;
             for mblock in microblock_stream.iter() {
+                debug!(
+                    "Preprocess downloaded microblock {}/{}-{}",
+                    consensus_hash,
+                    &anchored_block_hash,
+                    &mblock.block_hash()
+                );
+                if !Relayer::static_check_problematic_relayed_microblock(
+                    chainstate.mainnet,
+                    mblock,
+                    ast_rules,
+                ) {
+                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), consensus_hash, &anchored_block_hash);
+                    break;
+                }
                 match chainstate.preprocess_streamed_microblock(
                     consensus_hash,
                     &anchored_block_hash,
                     mblock,
                 ) {
-                    Ok(_) => {}
+                    Ok(s) => {
+                        stored = s;
+                    }
                     Err(e) => {
                         warn!(
                             "Invalid downloaded microblock {}/{}-{}: {:?}",
@@ -789,12 +901,15 @@ impl Relayer {
                 }
             }
 
-            let index_block_hash =
-                StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
-            ret.insert(
-                (*consensus_hash).clone(),
-                (index_block_hash, microblock_stream.clone()),
-            );
+            // if we did indeed store this microblock (i.e. we didn't have it), then we can relay it
+            if stored {
+                let index_block_hash =
+                    StacksBlockHeader::make_index_block_hash(consensus_hash, &anchored_block_hash);
+                ret.insert(
+                    (*consensus_hash).clone(),
+                    (index_block_hash, microblock_stream.clone()),
+                );
+            }
         }
         ret
     }
@@ -803,6 +918,7 @@ impl Relayer {
     /// Return the list of MicroblockData messages we need to broadcast to our neighbors, as well
     /// as the list of neighbors we need to ban because they sent us invalid microblocks.
     fn preprocess_pushed_microblocks(
+        sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
     ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
@@ -829,7 +945,27 @@ impl Relayer {
                         }
                     };
                 let index_block_hash = mblock_data.index_anchor_block.clone();
+
+                let block_snapshot =
+                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
+                        .ok_or(net_error::DBError(db_error::NotFoundError))?;
+                let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height)?;
+
                 for mblock in mblock_data.microblocks.iter() {
+                    debug!(
+                        "Preprocess downloaded microblock {}/{}-{}",
+                        &consensus_hash,
+                        &anchored_block_hash,
+                        &mblock.block_hash()
+                    );
+                    if !Relayer::static_check_problematic_relayed_microblock(
+                        chainstate.mainnet,
+                        mblock,
+                        ast_rules,
+                    ) {
+                        info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), &consensus_hash, &anchored_block_hash);
+                        continue;
+                    }
                     let need_relay = !chainstate.has_descendant_microblock_indexed(
                         &index_block_hash,
                         &mblock.block_hash(),
@@ -885,20 +1021,57 @@ impl Relayer {
             }
         }
 
-        // process uploaded microblocks.  We will have already stored them, so just reconstruct the
+        // process uploaded microblocks.  We may have already stored them, so just reconstruct the
         // data we need to forward them to neighbors.
         for uploaded_mblock in network_result.uploaded_microblocks.iter() {
             for mblock in uploaded_mblock.microblocks.iter() {
-                if let Some((_, mblocks_map)) =
-                    new_microblocks.get_mut(&uploaded_mblock.index_anchor_block)
+                // is this microblock actually stored? i.e. it wasn't problematic?
+                let (consensus_hash, block_hash) =
+                    match chainstate.get_block_header_hashes(&uploaded_mblock.index_anchor_block) {
+                        Ok(Some((ch, bhh))) => (ch, bhh),
+                        Ok(None) => {
+                            warn!("No such block {}", &uploaded_mblock.index_anchor_block);
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Failed to look up hashes for {}: {:?}",
+                                &uploaded_mblock.index_anchor_block, &e
+                            );
+                            continue;
+                        }
+                    };
+                if chainstate
+                    .get_microblock_status(&consensus_hash, &block_hash, &mblock.block_hash())
+                    .unwrap_or(None)
+                    .is_some()
                 {
-                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                    // yup, stored!
+                    debug!(
+                        "Preprocessed uploaded microblock {}/{}-{}",
+                        &consensus_hash,
+                        &block_hash,
+                        &mblock.block_hash()
+                    );
+                    if let Some((_, mblocks_map)) =
+                        new_microblocks.get_mut(&uploaded_mblock.index_anchor_block)
+                    {
+                        mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                    } else {
+                        let mut mblocks_map = HashMap::new();
+                        mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                        new_microblocks.insert(
+                            uploaded_mblock.index_anchor_block.clone(),
+                            (vec![], mblocks_map),
+                        );
+                    }
                 } else {
-                    let mut mblocks_map = HashMap::new();
-                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
-                    new_microblocks.insert(
-                        uploaded_mblock.index_anchor_block.clone(),
-                        (vec![], mblocks_map),
+                    // nope
+                    debug!(
+                        "Did NOT preprocess uploaded microblock {}/{}-{}",
+                        &consensus_hash,
+                        &block_hash,
+                        &mblock.block_hash()
                     );
                 }
             }
@@ -906,6 +1079,149 @@ impl Relayer {
 
         let mblock_datas = Relayer::make_microblocksdata_messages(new_microblocks);
         Ok((mblock_datas, bad_neighbors))
+    }
+
+    /// Verify that a relayed transaction is not problematic.  This is a static check -- we only
+    /// look at the tx contents.
+    ///
+    /// Return true if the check passes -- i.e. it's not problematic
+    /// Return false if the check fails -- i.e. it is problematic
+    pub fn static_check_problematic_relayed_tx(
+        mainnet: bool,
+        tx: &StacksTransaction,
+        ast_rules: ASTRules,
+    ) -> Result<(), Error> {
+        debug!(
+            "Check {} to see if it is problematic in {:?}",
+            &tx.txid(),
+            &ast_rules
+        );
+        match tx.payload {
+            TransactionPayload::SmartContract(ref smart_contract) => {
+                if ast_rules == ASTRules::PrecheckSize {
+                    let origin = tx.get_origin();
+                    let issuer_principal = {
+                        let addr = if mainnet {
+                            origin.address_mainnet()
+                        } else {
+                            origin.address_testnet()
+                        };
+                        addr.to_account_principal()
+                    };
+                    let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
+                        data
+                    } else {
+                        // not possible
+                        panic!("Transaction had a contract principal origin");
+                    };
+
+                    let contract_id = QualifiedContractIdentifier::new(
+                        issuer_principal,
+                        smart_contract.name.clone(),
+                    );
+                    let contract_code_str = smart_contract.code_body.to_string();
+
+                    // make sure that the AST isn't unreasonably big
+                    debug!("ast_size_check on {}", &contract_id);
+                    let ast_res = ast_check_size(&contract_id, &contract_code_str);
+                    debug!("ast_size_check on {} was {:?}", &contract_id, &ast_res);
+                    match ast_res {
+                        Ok(_) => {}
+                        Err(parse_error) => match parse_error.err {
+                            ParseErrors::ExpressionStackDepthTooDeep
+                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                                // don't include this block
+                                info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
+                                return Err(Error::ClarityError(parse_error.into()));
+                            }
+                            _ => {}
+                        },
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
+    /// transactions.  This is a static check -- we only look at the block contents.
+    ///
+    /// Returns true if the check passed -- i.e. no problems.
+    /// Returns false if not
+    pub fn static_check_problematic_relayed_block(
+        mainnet: bool,
+        block: &StacksBlock,
+        ast_rules: ASTRules,
+    ) -> bool {
+        for tx in block.txs.iter() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, tx, ast_rules).is_ok() {
+                info!(
+                    "Block {} with tx {} will not be stored or relayed",
+                    block.block_hash(),
+                    tx.txid()
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
+    /// problematic transactions. This is a static check -- we only look at the microblock
+    /// contents.
+    ///  
+    /// Returns true if the check passed -- i.e. no problems.
+    /// Returns false if not
+    pub fn static_check_problematic_relayed_microblock(
+        mainnet: bool,
+        mblock: &StacksMicroblock,
+        ast_rules: ASTRules,
+    ) -> bool {
+        for tx in mblock.txs.iter() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, tx, ast_rules).is_ok() {
+                info!(
+                    "Microblock {} with tx {} will not be stored relayed",
+                    mblock.block_hash(),
+                    tx.txid()
+                );
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Should we apply static checks against problematic blocks and microblocks?
+    #[cfg(any(test, feature = "testing"))]
+    pub fn do_static_problematic_checks() -> bool {
+        std::env::var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK") != Ok("1".into())
+    }
+
+    /// Should we apply static checks against problematic blocks and microblocks?
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn do_static_problematic_checks() -> bool {
+        true
+    }
+
+    /// Should we store and process problematic blocks and microblocks to staging that we mined?
+    #[cfg(any(test, feature = "testing"))]
+    pub fn process_mined_problematic_blocks(
+        cur_ast_rules: ASTRules,
+        processed_ast_rules: ASTRules,
+    ) -> bool {
+        std::env::var("STACKS_PROCESS_PROBLEMATIC_BLOCKS") != Ok("1".into())
+            || cur_ast_rules != processed_ast_rules
+    }
+
+    /// Should we store and process problematic blocks and microblocks to staging that we mined?
+    /// We should do this only if we used a different ruleset than the active one.  If it was
+    /// problematic with the currently-active rules, then obviously it shouldn't be processed.
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn process_mined_problematic_blocks(
+        cur_ast_rules: ASTRules,
+        processed_ast_rules: ASTRules,
+    ) -> bool {
+        cur_ast_rules != processed_ast_rules
     }
 
     /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
@@ -931,41 +1247,52 @@ impl Relayer {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
-        {
-            let sort_ic = sortdb.index_conn();
+        let sort_ic = sortdb.index_conn();
 
-            // process blocks we downloaded
-            let new_dled_blocks =
-                Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
-            for (new_dled_block_ch, block_data) in new_dled_blocks.into_iter() {
-                debug!(
-                    "Received downloaded block for {}/{}",
-                    &new_dled_block_ch,
-                    &block_data.block_hash();
-                    "consensus_hash" => %new_dled_block_ch,
-                    "block_hash" => %block_data.block_hash()
-                );
-                new_blocks.insert(new_dled_block_ch, block_data);
-            }
+        // process blocks we downloaded
+        let new_dled_blocks =
+            Relayer::preprocess_downloaded_blocks(&sort_ic, network_result, chainstate);
+        for (new_dled_block_ch, block_data) in new_dled_blocks.into_iter() {
+            debug!(
+                "Received downloaded block for {}/{}",
+                &new_dled_block_ch,
+                &block_data.block_hash();
+                "consensus_hash" => %new_dled_block_ch,
+                "block_hash" => %block_data.block_hash()
+            );
+            new_blocks.insert(new_dled_block_ch, block_data);
+        }
 
-            // process blocks pushed to us
-            let (new_pushed_blocks, mut new_bad_neighbors) =
-                Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate)?;
-            for (new_pushed_block_ch, block_data) in new_pushed_blocks.into_iter() {
-                debug!(
-                    "Received p2p-pushed block for {}/{}",
-                    &new_pushed_block_ch,
-                    &block_data.block_hash();
-                    "consensus_hash" => %new_pushed_block_ch,
-                    "block_hash" => %block_data.block_hash()
-                );
-                new_blocks.insert(new_pushed_block_ch, block_data);
-            }
-            bad_neighbors.append(&mut new_bad_neighbors);
+        // process blocks pushed to us
+        let (new_pushed_blocks, mut new_bad_neighbors) =
+            Relayer::preprocess_pushed_blocks(&sort_ic, network_result, chainstate)?;
+        for (new_pushed_block_ch, block_data) in new_pushed_blocks.into_iter() {
+            debug!(
+                "Received p2p-pushed block for {}/{}",
+                &new_pushed_block_ch,
+                &block_data.block_hash();
+                "consensus_hash" => %new_pushed_block_ch,
+                "block_hash" => %block_data.block_hash()
+            );
+            new_blocks.insert(new_pushed_block_ch, block_data);
+        }
+        bad_neighbors.append(&mut new_bad_neighbors);
 
-            // process blocks uploaded to us.  They've already been stored
-            for block_data in network_result.uploaded_blocks.drain(..) {
-                for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
+        // process blocks uploaded to us.  They've already been stored, but we need to report them
+        // as available anyway so the callers of this method can know that they have shown up (e.g.
+        // so they can be relayed).
+        for block_data in network_result.uploaded_blocks.drain(..) {
+            for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
+                // did we actually store it?
+                if StacksChainState::get_staging_block_status(
+                    chainstate.db(),
+                    &consensus_hash,
+                    &block.block_hash(),
+                )
+                .unwrap_or(None)
+                .is_some()
+                {
+                    // block stored
                     debug!(
                         "Received http-uploaded block for {}/{}",
                         &consensus_hash,
@@ -978,11 +1305,13 @@ impl Relayer {
 
         // process microblocks we downloaded
         let new_confirmed_microblocks =
-            Relayer::preprocess_downloaded_microblocks(network_result, chainstate);
+            Relayer::preprocess_downloaded_microblocks(&sort_ic, network_result, chainstate);
 
-        // process microblocks pushed to us
+        // process microblocks pushed to us, as well as identify which ones were uploaded via http
+        // (these ones will have already been processed, but we need to report them as
+        // newly-available to the caller nevertheless)
         let (new_microblocks, mut new_bad_neighbors) =
-            Relayer::preprocess_pushed_microblocks(network_result, chainstate)?;
+            Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
         if new_blocks.len() > 0 || new_microblocks.len() > 0 || new_confirmed_microblocks.len() > 0
@@ -1027,6 +1356,62 @@ impl Relayer {
         Ok(ret)
     }
 
+    /// Filter out problematic transactions from the network result.
+    /// Modifies network_result in-place.
+    fn filter_problematic_transactions(network_result: &mut NetworkResult, mainnet: bool) {
+        // filter out transactions that prove problematic
+        let mut filtered_pushed_transactions = HashMap::new();
+        let mut filtered_uploaded_transactions = vec![];
+        for (nk, tx_data) in network_result.pushed_transactions.drain() {
+            let mut filtered_tx_data = vec![];
+            for (relayers, tx) in tx_data.into_iter() {
+                if Relayer::do_static_problematic_checks()
+                    && !Relayer::static_check_problematic_relayed_tx(
+                        mainnet,
+                        &tx,
+                        ASTRules::PrecheckSize,
+                    )
+                    .is_ok()
+                {
+                    info!(
+                        "Pushed transaction {} is problematic; will not store or relay",
+                        &tx.txid()
+                    );
+                    continue;
+                }
+                filtered_tx_data.push((relayers, tx));
+            }
+            if filtered_tx_data.len() > 0 {
+                filtered_pushed_transactions.insert(nk, filtered_tx_data);
+            }
+        }
+
+        for tx in network_result.uploaded_transactions.drain(..) {
+            if Relayer::do_static_problematic_checks()
+                && !Relayer::static_check_problematic_relayed_tx(
+                    mainnet,
+                    &tx,
+                    ASTRules::PrecheckSize,
+                )
+                .is_ok()
+            {
+                info!(
+                    "Uploaded transaction {} is problematic; will not store or relay",
+                    &tx.txid()
+                );
+                continue;
+            }
+            filtered_uploaded_transactions.push(tx);
+        }
+
+        network_result
+            .pushed_transactions
+            .extend(filtered_pushed_transactions);
+        network_result
+            .uploaded_transactions
+            .append(&mut filtered_uploaded_transactions);
+    }
+
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
     fn process_transactions(
@@ -1036,8 +1421,8 @@ impl Relayer {
         mempool: &mut MemPoolDB,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let chain_height = match chainstate.get_stacks_chain_tip(sortdb)? {
-            Some(tip) => tip.height,
+        let chain_tip = match chainstate.get_stacks_chain_tip(sortdb)? {
+            Some(tip) => tip,
             None => {
                 debug!(
                     "No Stacks chain tip; dropping {} transaction(s)",
@@ -1046,6 +1431,9 @@ impl Relayer {
                 return Ok(vec![]);
             }
         };
+
+        let chain_height = chain_tip.height;
+        Relayer::filter_problematic_transactions(network_result, chainstate.mainnet);
 
         if let Err(e) = PeerNetwork::store_transactions(
             mempool,
@@ -1359,7 +1747,7 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(recipients)
+            recipients
         })?;
 
         // make a normalized random sample of inbound recipients, but don't send to an inbound peer
@@ -1561,7 +1949,6 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(())
         })
     }
 
@@ -1604,7 +1991,6 @@ impl PeerNetwork {
                     }
                 }
             }
-            Ok(())
         })
     }
 
@@ -1761,14 +2147,14 @@ impl PeerNetwork {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
     use crate::chainstate::stacks::test::*;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::Error as ChainstateError;
     use crate::chainstate::stacks::*;
     use crate::net::asn::*;
     use crate::net::chat::*;
@@ -1786,8 +2172,24 @@ mod test {
 
     use super::*;
     use crate::clarity_vm::clarity::ClarityConnection;
-    use crate::core::StacksEpochExtension;
     use stacks_common::types::chainstate::BlockHeaderHash;
+
+    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use clarity::vm::ast::ASTRules;
+    use clarity::vm::MAX_CALL_STACK_DEPTH;
+
+    use crate::chainstate::stacks::miner::test::make_coinbase;
+    use crate::chainstate::stacks::miner::test::make_user_stacks_transfer;
+    use crate::chainstate::stacks::miner::BlockBuilderSettings;
+    use crate::chainstate::stacks::miner::StacksMicroblockBuilder;
+    use crate::core::*;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::StacksBlockId;
+    use stacks_common::types::chainstate::StacksWorkScore;
+    use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::Address;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::vrf::VRFProof;
 
     #[test]
     fn test_relayer_stats_add_relyed_messages() {

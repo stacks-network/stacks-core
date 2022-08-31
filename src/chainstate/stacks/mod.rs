@@ -80,6 +80,7 @@ pub use stacks_common::address::{
 };
 
 pub const STACKS_BLOCK_VERSION: u8 = 0;
+pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
@@ -118,6 +119,7 @@ pub enum Error {
     PoxAlreadyLocked,
     PoxInsufficientBalance,
     PoxNoRewardCycle,
+    ProblematicTransaction(Txid),
 }
 
 impl From<marf_error> for Error {
@@ -188,6 +190,11 @@ impl fmt::Display for Error {
                     r
                 )
             }
+            Error::ProblematicTransaction(ref txid) => write!(
+                f,
+                "Transaction {} is problematic and will not be mined again",
+                txid
+            ),
         }
     }
 }
@@ -221,6 +228,7 @@ impl error::Error for Error {
             Error::PoxInsufficientBalance => None,
             Error::PoxNoRewardCycle => None,
             Error::StacksTransactionSkipped(ref _r) => None,
+            Error::ProblematicTransaction(ref _txid) => None,
         }
     }
 }
@@ -254,6 +262,7 @@ impl Error {
             Error::PoxInsufficientBalance => "PoxInsufficientBalance",
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
+            Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
         }
     }
 
@@ -541,6 +550,14 @@ pub struct TransactionContractCall {
     pub contract_name: ContractName,
     pub function_name: ClarityName,
     pub function_args: Vec<Value>,
+}
+
+impl TransactionContractCall {
+    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
+        let standard_principal =
+            StandardPrincipalData(self.address.version, self.address.bytes.0.clone());
+        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
+    }
 }
 
 /// A transaction that instantiates a smart contract

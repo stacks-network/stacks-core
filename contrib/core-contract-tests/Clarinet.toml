@@ -1,0 +1,10 @@
+
+[project]
+name = "core-contracts"
+
+[repl]
+costs_version = 1
+
+[contracts.bns]
+path = "../../src/chainstate/stacks/boot/bns.clar"
+depends_on = []

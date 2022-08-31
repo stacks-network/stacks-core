@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
+use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
@@ -68,6 +71,8 @@ use crate::ChainTip;
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
+
+use clarity::vm::ast::ASTRules;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -174,10 +179,78 @@ fn inner_process_tenure(
         // already processed my tenure
         return Ok(true);
     }
+    let burn_height = SortitionDB::get_block_snapshot_consensus(burn_db.conn(), consensus_hash)
+        .map_err(|e| {
+            error!("Failed to find block snapshot for mined block: {}", e);
+            e
+        })?
+        .ok_or_else(|| {
+            error!("Failed to find block snapshot for mined block");
+            ChainstateError::NoSuchBlockError
+        })?
+        .block_height;
 
-    let ic = burn_db.index_conn();
+    let ast_rules = SortitionDB::get_ast_rules(burn_db.conn(), burn_height)?;
+
+    // failsafe
+    if !Relayer::static_check_problematic_relayed_block(
+        chain_state.mainnet,
+        &anchored_block,
+        ASTRules::PrecheckSize,
+    ) {
+        // nope!
+        warn!(
+            "Our mined block {} was problematic",
+            &anchored_block.block_hash()
+        );
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
+                // record this block somewhere
+                if !fs::metadata(&path).is_ok() {
+                    fs::create_dir_all(&path)
+                        .expect(&format!("FATAL: could not create '{}'", &path));
+                }
+
+                let mut path = Path::new(&path);
+                let path = path.join(Path::new(&format!("{}", &anchored_block.block_hash())));
+                let mut file = fs::File::create(&path)
+                    .expect(&format!("FATAL: could not create '{:?}'", &path));
+
+                let block_bits = anchored_block.serialize_to_vec();
+                let block_bits_hex = to_hex(&block_bits);
+                let block_json = format!(
+                    r#"{{"block":"{}","consensus":"{}"}}"#,
+                    &block_bits_hex, &consensus_hash
+                );
+                file.write_all(&block_json.as_bytes()).expect(&format!(
+                    "FATAL: failed to write block bits to '{:?}'",
+                    &path
+                ));
+                info!(
+                    "Fault injection: bad block {} saved to {}",
+                    &anchored_block.block_hash(),
+                    &path.to_str().unwrap()
+                );
+            }
+        }
+        if !Relayer::process_mined_problematic_blocks(ast_rules, ASTRules::PrecheckSize) {
+            // don't process it
+            warn!(
+                "Will NOT process our problematic mined block {}",
+                &anchored_block.block_hash()
+            );
+            return Err(ChainstateError::NoTransactionsToMine);
+        } else {
+            warn!(
+                "Will process our problematic mined block {}",
+                &anchored_block.block_hash()
+            )
+        }
+    }
 
     // Preprocess the anchored block
+    let ic = burn_db.index_conn();
     chain_state.preprocess_anchored_block(
         &ic,
         consensus_hash,
@@ -339,6 +412,25 @@ fn mine_one_microblock(
             .unwrap_or(0)
     );
 
+    let burn_height = SortitionDB::get_block_snapshot_consensus(
+        sortdb.conn(),
+        &microblock_state.parent_consensus_hash,
+    )
+    .map_err(|e| {
+        error!("Failed to find block snapshot for mined block: {}", e);
+        e
+    })?
+    .ok_or_else(|| {
+        error!("Failed to find block snapshot for mined block");
+        ChainstateError::NoSuchBlockError
+    })?
+    .block_height;
+
+    let ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), burn_height).map_err(|e| {
+        error!("Failed to get AST rules for microblock: {}", e);
+        e
+    })?;
+
     let mint_result = {
         let ic = sortdb.index_conn();
         let mut microblock_miner = match StacksMicroblockBuilder::resume_unconfirmed(
@@ -388,6 +480,67 @@ fn mine_one_microblock(
             return Err(e);
         }
     };
+
+    // failsafe
+    if !Relayer::static_check_problematic_relayed_microblock(
+        chainstate.mainnet,
+        &mined_microblock,
+        ASTRules::PrecheckSize,
+    ) {
+        // nope!
+        warn!(
+            "Our mined microblock {} was problematic",
+            &mined_microblock.block_hash()
+        );
+
+        #[cfg(any(test, feature = "testing"))]
+        {
+            if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
+                // record this microblock somewhere
+                if !fs::metadata(&path).is_ok() {
+                    fs::create_dir_all(&path)
+                        .expect(&format!("FATAL: could not create '{}'", &path));
+                }
+
+                let mut path = Path::new(&path);
+                let path = path.join(Path::new(&format!("{}", &mined_microblock.block_hash())));
+                let mut file = fs::File::create(&path)
+                    .expect(&format!("FATAL: could not create '{:?}'", &path));
+
+                let mblock_bits = mined_microblock.serialize_to_vec();
+                let mblock_bits_hex = to_hex(&mblock_bits);
+
+                let mblock_json = format!(
+                    r#"{{"microblock":"{}","parent_consensus":"{}","parent_block":"{}"}}"#,
+                    &mblock_bits_hex,
+                    &microblock_state.parent_consensus_hash,
+                    &microblock_state.parent_block_hash
+                );
+                file.write_all(&mblock_json.as_bytes()).expect(&format!(
+                    "FATAL: failed to write microblock bits to '{:?}'",
+                    &path
+                ));
+                info!(
+                    "Fault injection: bad microblock {} saved to {}",
+                    &mined_microblock.block_hash(),
+                    &path.to_str().unwrap()
+                );
+            }
+        }
+        if !Relayer::process_mined_problematic_blocks(ast_rules, ASTRules::PrecheckSize) {
+            // don't process it
+            warn!(
+                "Will NOT process our problematic mined microblock {}",
+                &mined_microblock.block_hash()
+            );
+            return Err(ChainstateError::NoTransactionsToMine);
+        } else {
+            warn!(
+                "Will process our problematic mined microblock {}",
+                &mined_microblock.block_hash()
+            )
+        }
+    }
 
     // preprocess the microblock locally
     chainstate.preprocess_streamed_microblock(
@@ -774,10 +927,9 @@ fn spawn_peer(
                         }
                     }
                     Err(e) => {
-                        error!("P2P: Failed to process network dispatch: {:?}", &e);
-                        if config.is_node_event_driven() {
-                            panic!();
-                        }
+                        // this is only reachable if the network is not instantiated correctly --
+                        // i.e. you didn't connect it
+                        panic!("P2P: Failed to process network dispatch: {:?}", &e);
                     }
                 };
 
@@ -983,7 +1135,6 @@ fn spawn_miner_relayer(
                                 );
 
                                 increment_stx_blocks_mined_counter();
-
                                 match inner_process_tenure(
                                     &mined_block,
                                     &consensus_hash,
@@ -1229,7 +1380,7 @@ enum LeaderKeyRegistrationState {
 impl StacksNode {
     pub fn spawn(
         runloop: &RunLoop,
-        last_burn_block: Option<BurnchainTip>,
+        last_burn_block: Option<BlockSnapshot>,
         coord_comms: CoordinatorChannels,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
@@ -1241,7 +1392,7 @@ impl StacksNode {
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), false)
+        let mut sortdb = SortitionDB::open(&config.get_burn_db_file_path(), true)
             .expect("Error while instantiating sortition db");
 
         let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
@@ -1252,6 +1403,25 @@ impl StacksNode {
                 .expect("Failed to get sortition tip");
             SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
         };
+
+        if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
+            info!(
+                "Override burnchain height of {:?} to {}",
+                ASTRules::PrecheckSize,
+                ast_precheck_size_height
+            );
+            let mut tx = sortdb
+                .tx_begin()
+                .expect("FATAL: failed to begin tx on sortition DB");
+            SortitionDB::override_ast_rule_height(
+                &mut tx,
+                ASTRules::PrecheckSize,
+                ast_precheck_size_height,
+            )
+            .expect("FATAL: failed to override AST PrecheckSize rule height");
+            tx.commit()
+                .expect("FATAL: failed to commit sortition DB transaction");
+        }
 
         // create a new peerdb
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
@@ -1403,7 +1573,6 @@ impl StacksNode {
         // setup the relayer channel
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
-        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
         let last_sortition = Arc::new(Mutex::new(last_burn_block));
 
         let burnchain_signer = keychain.get_burnchain_signer();
@@ -1546,6 +1715,12 @@ impl StacksNode {
         true
     }
 
+    /// Determine where in the set of forks to attempt to mine the next anchored block.
+    /// `mine_tip_ch` and `mine_tip_bhh` identify the parent block on top of which to mine.
+    /// `check_burn_block` identifies what we believe to be the burn chain's sortition history tip.
+    /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
+    /// conception of the sortition history tip may have become stale by the time they call this
+    /// method, in which case, mining should *not* happen (since the block will be invalid).
     fn get_mining_tenure_information(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
@@ -1702,7 +1877,15 @@ impl StacksNode {
         };
 
         // has the tip changed from our previously-mined block for this epoch?
-        let attempt = {
+        let attempt = if last_mined_blocks.len() <= 1 {
+            // always mine if we've not mined a block for this epoch yet, or
+            // if we've mined just one attempt, unconditionally try again (so we
+            // can use `subsequent_miner_time_ms` in this attempt)
+            if last_mined_blocks.len() == 1 {
+                debug!("Have only attempted one block; unconditionally trying again");
+            }
+            last_mined_blocks.len() as u64 + 1
+        } else {
             let mut best_attempt = 0;
             debug!(
                 "Consider {} in-flight Stacks tip(s)",
@@ -1717,20 +1900,12 @@ impl StacksNode {
                     &prev_block.my_burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
-                if prev_block.anchored_block.txs.len() == 1 {
-                    if last_mined_blocks.len() == 1 {
-                        // this is an empty block, and we've only tried once before. We should always
-                        // try again, with the `subsequent_miner_time_ms` allotment, in order to see if
-                        // we can make a bigger block
-                        debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
-                        best_attempt = 1;
-                        break;
-                    } else if prev_block.attempt == 1 {
-                        // Don't let the fact that we've built an empty block during this sortition
-                        // prevent us from trying again.
-                        best_attempt = 1;
-                        continue;
-                    }
+
+                if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
+                    // Don't let the fact that we've built an empty block during this sortition
+                    // prevent us from trying again.
+                    best_attempt = 1;
+                    continue;
                 }
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash

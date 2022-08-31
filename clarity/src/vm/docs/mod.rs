@@ -560,7 +560,7 @@ and outputs a list of the same type with max_len += 1.",
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
-    output_type: "sequence_A",
+    output_type: "(optional sequence_A)",
     signature: "(as-max-len? sequence max_length)",
     description:
         "The `as-max-len?` function takes a sequence argument and a uint-valued, literal length argument.
@@ -1528,8 +1528,10 @@ const BURN_TOKEN: SpecialAPI = SpecialAPI {
 type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
 rather destroyed, reducing the circulating supply.  
 
-If a non-positive amount is provided to burn, this function returns `(err 1)`. Otherwise, on successfuly burn, it
-returns `(ok true)`.
+On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
+returns one of the following error codes:
+
+`(err u1)` -- `sender` does not have enough balance to burn this amount or the amount specified is not positive
 ",
     example: "
 (define-fungible-token stackaroo)
@@ -1541,22 +1543,22 @@ returns `(ok true)`.
 const BURN_ASSET: SpecialAPI = SpecialAPI {
     input_type: "AssetName, A, principal",
     output_type: "(response bool uint)",
-    signature: "(nft-burn? asset-class asset-identifier recipient)",
-    description: "`nft-burn?` is used to burn an asset and remove that asset's owner from the `recipient` principal.
-The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
-that definition.
+    signature: "(nft-burn? asset-class asset-identifier sender)",
+    description: "`nft-burn?` is used to burn an asset that the `sender` principal owns.
+The asset must have been defined using `define-non-fungible-token`, and the supplied 
+`asset-identifier` must be of the same type specified in that definition.
 
-If an asset identified by `asset-identifier` _doesn't exist_, this function will return an error with the following error code:
+On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
+returns one of the following error codes:
 
-`(err u1)`
-
-Otherwise, on successfuly burn, it returns `(ok true)`.
+`(err u1)` -- `sender` does not own the specified asset
+`(err u3)` -- the asset specified by `asset-identifier` does not exist
 ",
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (nft-burn? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
 };
 
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -1598,7 +1600,7 @@ one of the following error codes:
 const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(stx-burn? amount sender)",
-    description: "`stx-burn?` debits the `sender` principal's STX holdings by `amount`, destroying
+    description: "`stx-burn?` decreases the `sender` principal's STX holdings by `amount`, destroying
 the STX. The `sender` principal _must_ be equal to the current context's `tx-sender`.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -1814,6 +1816,7 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
+    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
@@ -1892,6 +1895,10 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+
+        fn get_ast_rules(&self, height: u32) -> ASTRules {
+            ASTRules::PrecheckSize
         }
     }
 
@@ -2040,11 +2047,19 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    &token_contract_content,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;

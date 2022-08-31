@@ -5,13 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.3.0]
+
+### Added
+
+- Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+  stacks-node uses for logging. (#3219)
+  Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
+- Added mock-miner sample config (#3225)
+
+### Changed
+
+- Updates to the logging of transaction events (#3139).
+- Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
+
+### Fixed
+
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
+- Fixed default miner behavior regarding block assembly
+  attempts. Previously, the miner would only attempt to assemble a
+  larger block after their first attempt (by Bitcoin RBF) if new
+  microblock or block data arrived. This changes the miner to always
+  attempt a second block assembly (#3184).
+- Fixed a bug in the node whereby the node would encounter a deadlock when
+  processing attachment requests before the P2P thread had started (#3236).
+- Fixed a bug in the P2P state machine whereby it would not absorb all transient errors
+  from sockets, but instead propagate them to the outer caller. This would lead
+  to a node crash in nodes connected to event observers, which expect the P2P
+  state machine to only report fatal errors (#3228)
+- Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
+- Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+- Ignore blocks that include problematic transactions
+
+
 ## [2.05.0.2.1]
 
 ### Fixed
 - Fixed a security bug in the SPV client whereby the chain work was not being
   considered at all when determining the canonical Bitcoin fork.  The SPV client
-now only accepts a new Bitcoin fork if it has a higher chain work than any other
-previously-seen chain (#3152).
+  now only accepts a new Bitcoin fork if it has a higher chain work than any other
+  previously-seen chain (#3152).
 
 ## [2.05.0.2.0]
 

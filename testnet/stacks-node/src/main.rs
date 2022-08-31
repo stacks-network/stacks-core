@@ -109,11 +109,39 @@ fn main() {
             args.finish().unwrap();
             ConfigFile::mainnet()
         }
+        "check-config" => {
+            let config_path: String = args.value_from_str("--config").unwrap();
+            args.finish().unwrap();
+            info!("Loading config at path {}", config_path);
+            let config_file = match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => config_file,
+                Err(e) => {
+                    warn!("Invalid config file: {}", e);
+                    process::exit(1);
+                }
+            };
+            let conf = match Config::from_config_file(config_file) {
+                Ok(conf) => {
+                    info!("Loaded config!");
+                    process::exit(0);
+                }
+                Err(e) => {
+                    warn!("Invalid config: {}", e);
+                    process::exit(1);
+                }
+            };
+        }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
-            ConfigFile::from_path(&config_path)
+            match ConfigFile::from_path(&config_path) {
+                Ok(config_file) => config_file,
+                Err(e) => {
+                    warn!("Invalid config file: {}", e);
+                    process::exit(1);
+                }
+            }
         }
         "version" => {
             println!("{}", &version());
@@ -123,7 +151,9 @@ fn main() {
             let seed = {
                 let config_path: Option<String> = args.opt_value_from_str("--config").unwrap();
                 if let Some(config_path) = config_path {
-                    let conf = Config::from_config_file(ConfigFile::from_path(&config_path));
+                    let conf =
+                        Config::from_config_file(ConfigFile::from_path(&config_path).unwrap())
+                            .unwrap();
                     args.finish().unwrap();
                     conf.node.seed
                 } else {
@@ -151,7 +181,13 @@ fn main() {
         }
     };
 
-    let conf = Config::from_config_file(config_file);
+    let conf = match Config::from_config_file(config_file) {
+        Ok(conf) => conf,
+        Err(e) => {
+            warn!("Invalid config: {}", e);
+            process::exit(1);
+        }
+    };
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
@@ -218,6 +254,8 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/stacks-node/conf/testnet-follower-conf.toml).
 \t\tExample:
 \t\t  stacks-node start --config=/path/to/config.toml
+
+check-config\t\tValidates the config file without starting up the node. Uses same arguments as start subcommand.
 
 version\t\tDisplay information about the current version and our release cycle.
 
