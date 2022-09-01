@@ -421,8 +421,8 @@ impl StacksChainState {
             return Err(Error::PoxInsufficientBalance);
         }
 
-        if bal.amount_locked() < new_total_locked {
-            return Err(Error::PoxInsufficientBalance);
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
         }
 
         snapshot.increase_lock_v2(new_total_locked);
