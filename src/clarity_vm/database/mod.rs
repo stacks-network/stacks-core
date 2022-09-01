@@ -2,7 +2,7 @@ use clarity::vm::types::PrincipalData;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn,
+    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;

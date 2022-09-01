@@ -942,6 +942,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         }
     }
 
+    /// Execute `todo` as a transaction in this block. The execution
+    /// will use the "free" cost tracker.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
+    pub fn as_free_transaction<F, R>(&mut self, todo: F) -> R
+    where
+        F: FnOnce(&mut ClarityTransactionConnection) -> R,
+    {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mut tx = self.start_transaction_processing();
+            let r = todo(&mut tx);
+            tx.commit();
+            (old_cost_tracker, r)
+        })
+    }
+
+    /// Execute `todo` as a transaction in this block.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
     pub fn as_transaction<F, R>(&mut self, todo: F) -> R
     where
         F: FnOnce(&mut ClarityTransactionConnection) -> R,

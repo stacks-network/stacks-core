@@ -96,10 +96,9 @@ pub fn get_stacking_state_pox_2(
     account: &PrincipalData,
 ) -> Option<Value> {
     with_clarity_db_ro(peer, tip, |db| {
-        let lookup_tuple = Value::Tuple(TupleData::from_data_static(vec![(
-            "stacker".into(),
-            account.clone().into(),
-        )]));
+        let lookup_tuple = Value::Tuple(
+            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+        );
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(boot::POX_2_NAME, false),
             "stacking-state",
@@ -113,16 +112,21 @@ pub fn get_stacking_state_pox_2(
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
 pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
     with_clarity_db_ro(peer, tip, |db| {
-        let total_stacked_key = TupleData::from_data_static(vec![(
+        let total_stacked_key = TupleData::from_data(vec![(
             "reward-cycle".into(),
             Value::UInt(cycle_number.into()),
         )])
+        .unwrap()
         .into();
-        db.expect_fetch_entry(
+        db.fetch_entry_unknown_descriptor(
             &boot_code_id(boot::POX_2_NAME, false),
             "reward-cycle-total-stacked",
             &total_stacked_key,
         )
+        .map(|v| {
+            v.expect_optional()
+                .expect("Expected fetch_entry to return a value")
+        })
         .unwrap()
         .expect_tuple()
         .get_owned("total-ustx")
@@ -791,6 +795,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     let alice_address = key_to_stacks_addr(&alice);
     let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
     let blocks = observer.get_blocks();
 
     let mut alice_txs = HashMap::new();
@@ -809,7 +814,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
                     alice_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == bob_address {
                     bob_txs.insert(t.auth.get_origin_nonce(), r);
-                } else if addr == key_to_stacks_addr(&charlie) {
+                } else if addr == charlie_address {
                     assert!(
                         r.execution_cost != ExecutionCost::zero(),
                         "Execution cost is not zero!"
