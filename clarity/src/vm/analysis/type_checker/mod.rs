@@ -875,6 +875,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     )?;
                 }
             }
+            (TypeSignature::NoType, _) => (),
             (_, _) => {
                 if !expected_type.admits_type(&actual_type) {
                     return Err(
