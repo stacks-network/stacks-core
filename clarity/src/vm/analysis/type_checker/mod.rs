@@ -383,7 +383,11 @@ pub fn trait_check_trait_compliance(
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
 ) -> CheckResult<()> {
-    // TODO(brice): compatibility could be cached to avoid cycling through the functions every time we check
+    // Shortcut for the simple case when the two traits are the same.
+    if actual_trait_identifier == expected_trait_identifier {
+        return Ok(());
+    }
+
     for (func_name, expected_sig) in expected_trait.iter() {
         if let Some(func) = actual_trait.get(func_name) {
             if !expected_sig.check_args_trait_compliance(func.args.clone())
