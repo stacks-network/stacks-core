@@ -20,7 +20,6 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
-use crate::vm::analysis::type_checker::trait_check_trait_compliance;
 use crate::vm::ast::parser::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};

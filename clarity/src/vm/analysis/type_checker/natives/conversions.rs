@@ -15,7 +15,7 @@ pub fn check_special_to_consensus_buff(
     context: &TypingContext,
 ) -> TypeResult {
     check_argument_count(1, args)?;
-    let input_type = checker.type_check(&args[0], None, context)?;
+    let input_type = checker.type_check(&args[0], context)?;
     let buffer_max_len = BufferLength::try_from(input_type.max_serialized_size()?)?;
     TypeSignature::new_option(TypeSignature::SequenceType(SequenceSubtype::BufferType(
         buffer_max_len,

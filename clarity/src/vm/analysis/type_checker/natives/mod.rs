@@ -78,7 +78,7 @@ fn check_special_print(
     context: &TypingContext,
 ) -> TypeResult {
     check_argument_count(1, args)?;
-    checker.type_check(&args[0], None, context)
+    checker.type_check(&args[0], context)
 }
 
 fn check_special_as_contract(
@@ -87,7 +87,7 @@ fn check_special_as_contract(
     context: &TypingContext,
 ) -> TypeResult {
     check_argument_count(1, args)?;
-    checker.type_check(&args[0], None, context)
+    checker.type_check(&args[0], context)
 }
 
 fn check_special_at_block(
@@ -97,7 +97,7 @@ fn check_special_at_block(
 ) -> TypeResult {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check(&args[1], None, context)
+    checker.type_check(&args[1], context)
 }
 
 fn check_special_begin(
@@ -140,7 +140,7 @@ fn check_special_get(
 
     let field_to_get = args[0].match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
 
-    let argument_type = checker.type_check(&args[1], None, context)?;
+    let argument_type = checker.type_check(&args[1], context)?;
 
     if let TypeSignature::TupleType(tuple_type_sig) = argument_type {
         inner_handle_tuple_get(&tuple_type_sig, field_to_get, checker)
@@ -164,13 +164,13 @@ fn check_special_merge(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let res = checker.type_check(&args[0], None, context)?;
+    let res = checker.type_check(&args[0], context)?;
     let mut base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(res.clone())),
     }?;
 
-    let res = checker.type_check(&args[1], None, context)?;
+    let res = checker.type_check(&args[1], context)?;
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
         _ => Err(CheckErrors::ExpectedTuple(res.clone())),
@@ -201,17 +201,15 @@ pub fn check_special_tuple_cons(
     )?;
 
     handle_binding_list(args, |var_name, var_sexp| {
-        checker
-            .type_check(var_sexp, None, context)
-            .and_then(|var_type| {
-                runtime_cost(
-                    ClarityCostFunction::AnalysisTupleItemsCheck,
-                    checker,
-                    var_type.type_size()?,
-                )?;
-                tuple_type_data.push((var_name.clone(), var_type));
-                Ok(())
-            })
+        checker.type_check(var_sexp, context).and_then(|var_type| {
+            runtime_cost(
+                ClarityCostFunction::AnalysisTupleItemsCheck,
+                checker,
+                var_type.type_size()?,
+            )?;
+            tuple_type_data.push((var_name.clone(), var_type));
+            Ok(())
+        })
     })?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
@@ -243,7 +241,7 @@ fn check_special_let(
             )));
         }
 
-        let typed_result = checker.type_check(var_sexp, None, &out_context)?;
+        let typed_result = checker.type_check(var_sexp, &out_context)?;
 
         runtime_cost(
             ClarityCostFunction::AnalysisBindName,
@@ -301,7 +299,7 @@ fn check_special_set_var(
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
 
-    let value_type = checker.type_check(&args[1], None, context)?;
+    let value_type = checker.type_check(&args[1], context)?;
 
     let expected_value_type = checker
         .contract_context

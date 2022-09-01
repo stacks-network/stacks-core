@@ -525,7 +525,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             let result = result_res?;
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-                self.type_check(&exp, None, &local_context)?;
+                self.type_check(&exp, &local_context)?;
             }
         }
         Ok(())
@@ -538,29 +538,22 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected_type: &TypeSignature,
     ) -> TypeResult {
-        let actual_type = self.type_check(expr, Some(expected_type), context)?;
-        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+        runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
-        if !expected_type.admits_type(&actual_type) {
-            let mut err: CheckError =
-                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
-            err.set_expression(expr);
-            Err(err)
-        } else {
-            Ok(actual_type)
-        }
+        self.inner_type_check_expects(expr, context, expected_type)
+            .map_err(|mut e| {
+                if !e.has_expression() {
+                    e.set_expression(expr)
+                }
+                e
+            })
     }
 
     // Type checks an expression, recursively type checking its subexpressions
-    pub fn type_check(
-        &mut self,
-        expr: &SymbolicExpression,
-        expected_type: Option<&TypeSignature>,
-        context: &TypingContext,
-    ) -> TypeResult {
+    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
-        let mut result = self.inner_type_check(expr, expected_type, context);
+        let mut result = self.inner_type_check(expr, context);
 
         if let Err(ref mut error) = result {
             if !error.has_expression() {
@@ -598,7 +591,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let mut result = Vec::new();
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
-            result.push(self.type_check(arg, None, context)?)
+            result.push(self.type_check(arg, context)?)
         }
         Ok(result)
     }
@@ -657,7 +650,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         self.function_return_tracker = Some(None);
 
-        let return_result = self.type_check(body, None, &function_context);
+        let return_result = self.type_check(body, &function_context);
 
         match return_result {
             Err(e) => {
@@ -893,11 +886,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(expected_type.clone())
     }
 
-    fn inner_type_check(
+    fn inner_type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
-        expected_type: Option<&TypeSignature>,
         context: &TypingContext,
+        expected_type: &TypeSignature,
     ) -> TypeResult {
         let mut expr_type = match expr.expr {
             AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
@@ -908,52 +901,70 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             }
         };
 
-        if let Some(expected_type) = expected_type {
-            match (expected_type, &expr.expr) {
-                (
-                    TypeSignature::TraitReferenceType(expected_trait_id),
-                    LiteralValue(Value::Principal(PrincipalData::Contract(
-                        ref contract_identifier,
-                    ))),
-                ) => {
-                    // When a principal literal is used as a trait, make sure it implements the trait.
-                    let contract_to_check = self
-                        .db
-                        .load_contract(&contract_identifier)
-                        .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        match (expected_type, &expr.expr) {
+            (
+                TypeSignature::TraitReferenceType(expected_trait_id),
+                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+            ) => {
+                // When a principal literal is used as a trait, make sure it implements the trait.
+                let contract_to_check = self
+                    .db
+                    .load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                    let expected_trait = &self.lookup_trait(expected_trait_id)?;
-                    contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
-                }
-                (TypeSignature::TraitReferenceType(expected_trait_id), _) => {
-                    // When any other expression is used as a trait, those with trait
-                    // types should be checked for compatibility. Others should report
-                    // an error.
-                    let expr_trait_id = if let TypeSignature::TraitReferenceType(expr_trait_id) =
-                        expr_type
-                    {
+                let expected_trait = &self.lookup_trait(expected_trait_id)?;
+                contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
+            }
+            (TypeSignature::TraitReferenceType(expected_trait_id), _) => {
+                // When any other expression is used as a trait, those with trait
+                // types should be checked for compatibility. Others should report
+                // an error.
+                let expr_trait_id =
+                    if let TypeSignature::TraitReferenceType(expr_trait_id) = expr_type {
                         expr_trait_id
                     } else {
                         return Err(CheckErrors::TypeError(expected_type.clone(), expr_type).into());
                     };
-                    let actual_trait = self.lookup_trait(&expr_trait_id)?;
-                    let expected_trait = self.lookup_trait(expected_trait_id)?;
-                    trait_check_trait_compliance(
-                        &expr_trait_id,
-                        &actual_trait,
-                        expected_trait_id,
-                        &expected_trait,
-                    )?;
-                }
-                (_, _) => {
-                    self.inner_type_check_type(&expr_type, expected_type, context)?;
-                }
+                let actual_trait = self.lookup_trait(&expr_trait_id)?;
+                let expected_trait = self.lookup_trait(expected_trait_id)?;
+                trait_check_trait_compliance(
+                    &expr_trait_id,
+                    &actual_trait,
+                    expected_trait_id,
+                    &expected_trait,
+                )?;
             }
-
-            // If we reach here with no errors, then the expression can be
-            // treated as the expected type.
-            expr_type = expected_type.clone();
+            (_, _) => {
+                self.inner_type_check_type(&expr_type, expected_type, context)?;
+            }
         }
+
+        // If we reach here with no errors, then the expression can be
+        // treated as the expected type.
+        expr_type = expected_type.clone();
+
+        runtime_cost(
+            ClarityCostFunction::AnalysisTypeAnnotate,
+            self,
+            expr_type.type_size()?,
+        )?;
+        self.type_map.set_type(expr, expr_type.clone())?;
+        Ok(expr_type)
+    }
+
+    fn inner_type_check(
+        &mut self,
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+    ) -> TypeResult {
+        let expr_type = match expr.expr {
+            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
+            Atom(ref name) => self.lookup_variable(name, context)?,
+            List(ref expression) => self.type_check_function_application(expression, context)?,
+            TraitReference(_, _) | Field(_) => {
+                return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
+            }
+        };
 
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
@@ -970,7 +981,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         var_type: &SymbolicExpression,
         context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, TypeSignature)> {
-        let var_type = self.type_check(var_type, None, context)?;
+        let var_type = self.type_check(var_type, context)?;
         Ok((var_name.clone(), var_type))
     }
 

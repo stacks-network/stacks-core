@@ -34,7 +34,7 @@ pub fn check_special_okay(
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
-    let inner_type = checker.type_check(&args[0], None, context)?;
+    let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(inner_type, no_type())?;
     Ok(resp_type)
 }
@@ -48,7 +48,7 @@ pub fn check_special_some(
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
-    let inner_type = checker.type_check(&args[0], None, context)?;
+    let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_option(inner_type)?;
     Ok(resp_type)
 }
@@ -62,7 +62,7 @@ pub fn check_special_error(
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
 
-    let inner_type = checker.type_check(&args[0], None, context)?;
+    let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_response(no_type(), inner_type)?;
     Ok(resp_type)
 }
@@ -74,7 +74,7 @@ pub fn check_special_is_response(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
@@ -92,7 +92,7 @@ pub fn check_special_is_optional(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
@@ -110,8 +110,8 @@ pub fn check_special_default_to(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let default = checker.type_check(&args[0], None, context)?;
-    let input = checker.type_check(&args[1], None, context)?;
+    let default = checker.type_check(&args[0], context)?;
+    let input = checker.type_check(&args[1], context)?;
 
     analysis_typecheck_cost(checker, &default, &input)?;
 
@@ -132,7 +132,7 @@ pub fn check_special_asserts(
     check_argument_count(2, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
-    let on_error = checker.type_check(&args[1], None, context)?;
+    let on_error = checker.type_check(&args[1], context)?;
 
     checker.track_return_type(on_error)?;
 
@@ -184,8 +184,8 @@ pub fn check_special_unwrap_or_ret(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
-    let on_error = checker.type_check(&args[1], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
+    let on_error = checker.type_check(&args[1], context)?;
 
     checker.track_return_type(on_error)?;
 
@@ -199,8 +199,8 @@ pub fn check_special_unwrap_err_or_ret(
 ) -> TypeResult {
     check_argument_count(2, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
-    let on_error = checker.type_check(&args[1], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
+    let on_error = checker.type_check(&args[1], context)?;
 
     checker.track_return_type(on_error)?;
 
@@ -214,7 +214,7 @@ pub fn check_special_try_ret(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
@@ -252,7 +252,7 @@ pub fn check_special_unwrap(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     inner_unwrap(input, checker)
 }
@@ -264,7 +264,7 @@ pub fn check_special_unwrap_err(
 ) -> TypeResult {
     check_argument_count(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     inner_unwrap_err(input, checker)
 }
@@ -296,7 +296,7 @@ fn eval_with_new_binding(
         inner_context.variable_types.insert(bind_name, bind_type);
     }
 
-    checker.type_check(body, None, &inner_context)
+    checker.type_check(body, &inner_context)
 }
 
 fn check_special_match_opt(
@@ -324,7 +324,7 @@ fn check_special_match_opt(
 
     let some_branch_type =
         eval_with_new_binding(some_branch, bind_name, option_type, checker, context)?;
-    let none_branch_type = checker.type_check(none_branch, None, context)?;
+    let none_branch_type = checker.type_check(none_branch, context)?;
 
     analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
 
@@ -378,7 +378,7 @@ pub fn check_special_match(
 ) -> TypeResult {
     check_arguments_at_least(1, args)?;
 
-    let input = checker.type_check(&args[0], None, context)?;
+    let input = checker.type_check(&args[0], context)?;
 
     match input {
         TypeSignature::OptionalType(option_type) => {
