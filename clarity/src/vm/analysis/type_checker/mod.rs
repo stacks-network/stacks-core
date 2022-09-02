@@ -303,6 +303,7 @@ impl FunctionType {
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
+        contract_context: Option<&ContractContext>,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
@@ -357,6 +358,8 @@ impl FunctionType {
                             expected_trait_id.name.to_string(),
                         ))?;
                     trait_check_trait_compliance(
+                        db,
+                        contract_context,
                         &trait_data.trait_identifier,
                         &actual_trait,
                         expected_trait_id,
@@ -378,6 +381,8 @@ impl FunctionType {
 }
 
 pub fn trait_check_trait_compliance(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
@@ -390,8 +395,19 @@ pub fn trait_check_trait_compliance(
 
     for (func_name, expected_sig) in expected_trait.iter() {
         if let Some(func) = actual_trait.get(func_name) {
-            if !expected_sig.check_args_trait_compliance(func.args.clone())
-                || !expected_sig.returns.admits_type(&func.returns)
+            let args_iter = expected_sig.args.iter().zip(func.args.iter());
+            for (expected_type, actual_type) in args_iter {
+                if inner_type_check_type(db, contract_context, actual_type, expected_type).is_err()
+                {
+                    return Err(CheckErrors::IncompatibleTrait(
+                        expected_trait_identifier.clone(),
+                        actual_trait_identifier.clone(),
+                    )
+                    .into());
+                }
+            }
+            if inner_type_check_type(db, contract_context, &func.returns, &expected_sig.returns)
+                .is_err()
             {
                 return Err(CheckErrors::IncompatibleTrait(
                     expected_trait_identifier.clone(),
@@ -408,6 +424,129 @@ pub fn trait_check_trait_compliance(
         }
     }
     Ok(())
+}
+
+fn inner_type_check_type(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    actual_type: &TypeSignature,
+    expected_type: &TypeSignature,
+) -> TypeResult {
+    // Recurse into values to check embedded traits properly
+    match (actual_type, expected_type) {
+        (
+            TypeSignature::OptionalType(atom_inner_type),
+            TypeSignature::OptionalType(expected_inner_type),
+        ) => {
+            inner_type_check_type(db, contract_context, atom_inner_type, expected_inner_type)?;
+        }
+        (
+            TypeSignature::ResponseType(atom_inner_types),
+            TypeSignature::ResponseType(expected_inner_types),
+        ) => {
+            inner_type_check_type(
+                db,
+                contract_context,
+                &atom_inner_types.0,
+                &expected_inner_types.0,
+            )?;
+            inner_type_check_type(
+                db,
+                contract_context,
+                &atom_inner_types.1,
+                &expected_inner_types.1,
+            )?;
+        }
+        (
+            TypeSignature::SequenceType(SequenceSubtype::ListType(atom_list_type)),
+            TypeSignature::SequenceType(SequenceSubtype::ListType(expected_list_type)),
+        ) => {
+            inner_type_check_type(
+                db,
+                contract_context,
+                atom_list_type.get_list_item_type(),
+                expected_list_type.get_list_item_type(),
+            )?;
+        }
+        (
+            TypeSignature::TupleType(atom_tuple_type),
+            TypeSignature::TupleType(expected_tuple_type),
+        ) => {
+            for (name, atom_field_type) in atom_tuple_type.get_type_map() {
+                match expected_tuple_type.field_type(name) {
+                    Some(expected_field_type) => {
+                        inner_type_check_type(
+                            db,
+                            contract_context,
+                            atom_field_type,
+                            expected_field_type,
+                        )?;
+                    }
+                    None => {
+                        return Err(CheckErrors::TypeError(
+                            expected_type.clone(),
+                            atom_field_type.clone(),
+                        )
+                        .into())
+                    }
+                }
+            }
+        }
+        (
+            TypeSignature::TraitReferenceType(atom_trait_id),
+            TypeSignature::TraitReferenceType(expected_trait_id),
+        ) => {
+            if atom_trait_id != expected_trait_id {
+                let atom_trait = lookup_trait(db, contract_context, &atom_trait_id)?;
+                let expected_trait = lookup_trait(db, contract_context, expected_trait_id)?;
+                trait_check_trait_compliance(
+                    db,
+                    contract_context,
+                    &atom_trait_id,
+                    &atom_trait,
+                    expected_trait_id,
+                    &expected_trait,
+                )?;
+            }
+        }
+        (TypeSignature::NoType, _) => (),
+        (_, _) => {
+            if !expected_type.admits_type(&actual_type) {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+        }
+    }
+    Ok(expected_type.clone())
+}
+
+fn lookup_trait(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    trait_id: &TraitIdentifier,
+) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
+    // If the trait is from the current contract, its not in the db yet.
+    if let Some(contract_context) = contract_context {
+        if contract_context.is_contract(&trait_id.contract_identifier) {
+            return Ok(contract_context
+                .get_trait(&trait_id.name)
+                .ok_or(CheckErrors::NoSuchTrait(
+                    trait_id.contract_identifier.to_string(),
+                    trait_id.name.to_string(),
+                ))?
+                .clone());
+        }
+    }
+
+    db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name)?
+        .ok_or(
+            CheckErrors::NoSuchTrait(
+                trait_id.contract_identifier.to_string(),
+                trait_id.name.to_string(),
+            )
+            .into(),
+        )
 }
 
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
@@ -782,115 +921,6 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn lookup_trait(
-        &mut self,
-        trait_id: &TraitIdentifier,
-    ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
-        // If the trait is from the current contract, its not in the db yet
-        if self
-            .contract_context
-            .is_contract(&trait_id.contract_identifier)
-        {
-            Ok(self
-                .contract_context
-                .get_trait(&trait_id.name)
-                .ok_or(CheckErrors::NoSuchTrait(
-                    trait_id.contract_identifier.to_string(),
-                    trait_id.name.to_string(),
-                ))?
-                .clone())
-        } else {
-            Ok(self
-                .db
-                .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)?
-                .ok_or(CheckErrors::NoSuchTrait(
-                    trait_id.contract_identifier.to_string(),
-                    trait_id.name.to_string(),
-                ))?)
-        }
-    }
-
-    fn inner_type_check_type(
-        &mut self,
-        actual_type: &TypeSignature,
-        expected_type: &TypeSignature,
-        context: &TypingContext,
-    ) -> TypeResult {
-        // Recurse into values to check embedded traits properly
-        match (actual_type, expected_type) {
-            (
-                TypeSignature::OptionalType(atom_inner_type),
-                TypeSignature::OptionalType(expected_inner_type),
-            ) => {
-                self.inner_type_check_type(atom_inner_type, expected_inner_type, context)?;
-            }
-            (
-                TypeSignature::ResponseType(atom_inner_types),
-                TypeSignature::ResponseType(expected_inner_types),
-            ) => {
-                self.inner_type_check_type(&atom_inner_types.0, &expected_inner_types.0, context)?;
-                self.inner_type_check_type(&atom_inner_types.1, &expected_inner_types.1, context)?;
-            }
-            (
-                TypeSignature::SequenceType(SequenceSubtype::ListType(atom_list_type)),
-                TypeSignature::SequenceType(SequenceSubtype::ListType(expected_list_type)),
-            ) => {
-                self.inner_type_check_type(
-                    atom_list_type.get_list_item_type(),
-                    expected_list_type.get_list_item_type(),
-                    context,
-                )?;
-            }
-            (
-                TypeSignature::TupleType(atom_tuple_type),
-                TypeSignature::TupleType(expected_tuple_type),
-            ) => {
-                for (name, atom_field_type) in atom_tuple_type.get_type_map() {
-                    match expected_tuple_type.field_type(name) {
-                        Some(expected_field_type) => {
-                            self.inner_type_check_type(
-                                atom_field_type,
-                                expected_field_type,
-                                context,
-                            )?;
-                        }
-                        None => {
-                            return Err(CheckErrors::TypeError(
-                                expected_type.clone(),
-                                atom_field_type.clone(),
-                            )
-                            .into())
-                        }
-                    }
-                }
-            }
-            (
-                TypeSignature::TraitReferenceType(atom_trait_id),
-                TypeSignature::TraitReferenceType(expected_trait_id),
-            ) => {
-                if atom_trait_id != expected_trait_id {
-                    let atom_trait = self.lookup_trait(&atom_trait_id)?;
-                    let expected_trait = self.lookup_trait(expected_trait_id)?;
-                    trait_check_trait_compliance(
-                        &atom_trait_id,
-                        &atom_trait,
-                        expected_trait_id,
-                        &expected_trait,
-                    )?;
-                }
-            }
-            (TypeSignature::NoType, _) => (),
-            (_, _) => {
-                if !expected_type.admits_type(&actual_type) {
-                    return Err(
-                        CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
-                    );
-                }
-            }
-        }
-        Ok(expected_type.clone())
-    }
-
     fn inner_type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -917,7 +947,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     .load_contract(&contract_identifier)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let expected_trait = &self.lookup_trait(expected_trait_id)?;
+                let expected_trait =
+                    &lookup_trait(self.db, Some(&self.contract_context), expected_trait_id)?;
                 contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
             }
             (TypeSignature::TraitReferenceType(expected_trait_id), _) => {
@@ -930,9 +961,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     } else {
                         return Err(CheckErrors::TypeError(expected_type.clone(), expr_type).into());
                     };
-                let actual_trait = self.lookup_trait(&expr_trait_id)?;
-                let expected_trait = self.lookup_trait(expected_trait_id)?;
+                let actual_trait =
+                    lookup_trait(self.db, Some(&self.contract_context), &expr_trait_id)?;
+                let expected_trait =
+                    lookup_trait(self.db, Some(&self.contract_context), expected_trait_id)?;
                 trait_check_trait_compliance(
+                    self.db,
+                    Some(&self.contract_context),
                     &expr_trait_id,
                     &actual_trait,
                     expected_trait_id,
@@ -940,7 +975,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 )?;
             }
             (_, _) => {
-                self.inner_type_check_type(&expr_type, expected_type, context)?;
+                inner_type_check_type(
+                    self.db,
+                    Some(&self.contract_context),
+                    &expr_type,
+                    expected_type,
+                )?;
             }
         }
 

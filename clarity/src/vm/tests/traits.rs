@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::types::StacksEpochId;
-
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::analysis::mem_type_check;
 use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
@@ -53,6 +51,7 @@ fn test_all() {
         test_return_trait_with_contract_of,
         test_return_trait_with_contract_of_wrapped_in_begin,
         test_return_trait_with_contract_of_wrapped_in_let,
+        test_pass_principal_literal_to_trait,
         test_pass_trait_to_subtrait,
         test_pass_trait_to_subtrait_invalid,
         test_embedded_trait,
@@ -1639,6 +1638,57 @@ fn test_let3_trait(owned_env: &mut OwnedEnvironment) {
             )
             .unwrap(),
             Value::okay(Value::UInt(42)).unwrap()
+        );
+    }
+}
+
+fn test_pass_principal_literal_to_trait(owned_env: &mut OwnedEnvironment) {
+    let dispatching_contract = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (contract-call? contract get-1 u1))";
+    let target_contract = "(define-public (get-1 (a uint)) (ok a))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity2,
+    );
+
+    {
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+            dispatching_contract,
+        )
+        .unwrap();
+
+        env.initialize_contract(
+            QualifiedContractIdentifier::local("target-contract").unwrap(),
+            target_contract,
+        )
+        .unwrap();
+    }
+
+    {
+        let target_contract = Value::from(PrincipalData::Contract(
+            QualifiedContractIdentifier::local("target-contract").unwrap(),
+        ));
+        let mut env = owned_env.get_exec_environment(
+            Some(p1.clone().expect_principal()),
+            None,
+            &mut placeholder_context,
+        );
+        assert_eq!(
+            env.execute_contract(
+                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
+                "wrapped-get-1",
+                &symbols_from_values(vec![target_contract]),
+                false
+            )
+            .unwrap(),
+            Value::okay(Value::UInt(1)).unwrap()
         );
     }
 }

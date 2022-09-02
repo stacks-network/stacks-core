@@ -170,19 +170,14 @@ impl DefinedFunction {
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
 
-            // Arguments containing principals can be implicitly cast to traits
+            // Arguments containing principal literals can be implicitly cast to traits
             // to match parameter types.
-            // e.g. `(optional principal)` to `(optional <trait>`)
+            // e.g. `(some .foo)` to `(optional <trait>`)
             // and traits can be implicitly cast to sub-traits
             // e.g. `<foo-and-bar>` to `<foo>`
             let cast_value = implicit_cast(type_sig, value)?;
 
             match (&type_sig, &cast_value) {
-                // FIXME(brice): This first case should be removed after verifying that it doesn't get hit.
-                (
-                    TypeSignature::TraitReferenceType(_),
-                    Value::Principal(PrincipalData::Contract(_)),
-                ) => unreachable!("This principal should've been mapped to a Trait"),
                 (
                     _,
                     Value::Trait(TraitData {

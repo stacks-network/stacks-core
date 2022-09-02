@@ -6586,7 +6586,7 @@ impl StacksChainState {
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
                     function_type
-                        .check_args_by_allowing_trait_cast(db, &function_args)
+                        .check_args_by_allowing_trait_cast(db, None, &function_args)
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }

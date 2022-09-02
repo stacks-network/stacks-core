@@ -23,7 +23,7 @@ use crate::vm::analysis::type_checker::tests::mem_type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
@@ -634,6 +634,44 @@ fn test_expects() {
 #[test]
 fn test_traits() {
     {
+        let trait_to_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (internal-get-1 contract))
+        (define-public (internal-get-1 (contract <trait-1>))
+            (contract-call? contract get-1 u1))";
+
+        let trait_to_compatible_trait = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-1>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-2>))
+            (ok true))";
+
+        let bad_principal_to_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-get-1 (contract principal))
+            (internal-get-1 contract))
+        (define-public (internal-get-1 (contract <trait-1>))
+            (contract-call? contract get-1 u1))";
+
+        let bad_other_trait = "(define-trait trait-1 (
+            (get-1 (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (get-2 (uint) (response uint uint))
+        ))
+        (define-public (wrapped-get-2 (contract <trait-1>))
+            (internal-get-2 contract))
+        (define-public (internal-get-2 (contract <trait-2>))
+            (contract-call? contract get-2 u1))";
+
         let embedded_trait = "(define-trait trait-12 (
             (get-1 (uint) (response uint uint))
             (get-2 (uint) (response uint uint))
@@ -705,6 +743,138 @@ fn test_traits() {
             )
         )";
 
+        let trait_args_differ = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (int) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-1>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-2>))
+            (ok true))";
+
+        let trait_ret_ty_differ = "(define-trait trait-1 (
+            (echo (uint) (response int uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-1>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-2>))
+            (contract-call? contract echo u1))";
+
+        let trait_with_compatible_trait_arg = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-a (
+            (echo (<trait-1>) (response uint uint))
+        ))
+        (define-trait trait-b (
+            (echo (<trait-2>) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-a>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+            (contract-call? contract echo callee))";
+
+        let trait_with_bad_trait_arg = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response int uint))
+        ))
+        (define-trait trait-a (
+            (echo (<trait-1>) (response uint uint))
+        ))
+        (define-trait trait-b (
+            (echo (<trait-2>) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-a>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+            (contract-call? contract echo callee))";
+
+        let trait_with_superset_trait_arg = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+            (foo (uint) (response uint uint))
+        ))
+        (define-trait trait-a (
+            (echo (<trait-1>) (response uint uint))
+        ))
+        (define-trait trait-b (
+            (echo (<trait-2>) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-a>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+            (contract-call? contract echo callee))";
+
+        let trait_with_subset_trait_arg = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+            (foo (uint) (response uint uint))
+        ))
+        (define-trait trait-a (
+            (echo (<trait-1>) (response uint uint))
+        ))
+        (define-trait trait-b (
+            (echo (<trait-2>) (response uint uint))
+        ))
+        (define-public (wrapped-echo (contract <trait-b>))
+            (internal-echo contract))
+        (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
+            (contract-call? contract echo callee))";
+
+        mem_type_check(trait_to_trait).unwrap();
+        mem_type_check(trait_to_compatible_trait).unwrap();
+
+        let err = mem_type_check(bad_principal_to_trait).unwrap_err();
+        eprintln!("pass principal value to trait param: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::PrincipalType,
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+
+        let err = mem_type_check(bad_other_trait).unwrap_err();
+        eprintln!("pass invalid embedded trait to trait param: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(expected, actual),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(expected.name.as_str(), "trait-2");
+                assert_eq!(actual.name.as_str(), "trait-1");
+                true
+            }
+            _ => false,
+        });
+
         mem_type_check(embedded_trait).unwrap();
         mem_type_check(embedded_trait_compatible).unwrap();
 
@@ -712,12 +882,12 @@ fn test_traits() {
         eprintln!("pass invalid embedded trait to trait param: {}", err);
         assert!(match err {
             CheckError {
-                err: CheckErrors::IncompatibleTrait(trait_super, trait_sub),
+                err: CheckErrors::IncompatibleTrait(expected, actual),
                 expressions: _,
                 diagnostic: _,
             } => {
-                assert_eq!(trait_super.name.as_str(), "trait-12");
-                assert_eq!(trait_sub.name.as_str(), "trait-1");
+                assert_eq!(expected.name.as_str(), "trait-12");
+                assert_eq!(actual.name.as_str(), "trait-1");
                 true
             }
             _ => false,
@@ -725,5 +895,58 @@ fn test_traits() {
 
         mem_type_check(let_trait).unwrap();
         mem_type_check(let3_trait).unwrap();
+
+        let err = mem_type_check(trait_args_differ).unwrap_err();
+        eprintln!("pass trait with different arg type to trait param: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(expected, actual),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(expected.name.as_str(), "trait-2");
+                assert_eq!(actual.name.as_str(), "trait-1");
+                true
+            }
+            _ => false,
+        });
+
+        let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
+        eprintln!(
+            "pass trait with different return type to trait param: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(expected, actual),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(expected.name.as_str(), "trait-2");
+                assert_eq!(actual.name.as_str(), "trait-1");
+                true
+            }
+            _ => false,
+        });
+
+        mem_type_check(trait_with_compatible_trait_arg).unwrap();
+
+        let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
+        eprintln!(
+            "trait with trait argument, pass incompatible trait: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(expected, actual),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(expected.name.as_str(), "trait-b");
+                assert_eq!(actual.name.as_str(), "trait-a");
+                true
+            }
+            _ => false,
+        });
     }
 }

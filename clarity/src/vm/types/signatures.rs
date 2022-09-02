@@ -620,25 +620,8 @@ impl FunctionSignature {
         }
         let args_iter = self.args.iter().zip(args.iter());
         for (expected_arg, arg) in args_iter {
-            match (expected_arg, arg) {
-                (
-                    TypeSignature::TraitReferenceType(expected),
-                    TypeSignature::TraitReferenceType(candidate),
-                ) => {
-                    if candidate != expected {
-                        // FIXME(brice): check how this is used... will this only be the
-                        // exact trait here (after implicit casting) or do we need to
-                        // handle compatible traits?
-                        // We may be able to just remove this case and use admits_type
-                        // in all cases.
-                        return false;
-                    }
-                }
-                _ => {
-                    if !arg.admits_type(&expected_arg) {
-                        return false;
-                    }
-                }
+            if !arg.admits_type(&expected_arg) {
+                return false;
             }
         }
         true
