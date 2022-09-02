@@ -5205,18 +5205,6 @@ impl StacksChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
 
-        debug!("Evaluating block with epoch = {}", evaluated_epoch);
-        if evaluated_epoch >= StacksEpochId::Epoch21 {
-            Self::check_and_handle_reward_start(
-                burn_tip_height.into(),
-                burn_dbconn,
-                sortition_dbconn,
-                &mut clarity_tx,
-                chain_tip,
-                &parent_sortition_id,
-            )?;
-        }
-
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
             conn,
@@ -5289,6 +5277,18 @@ impl StacksChainState {
         // if we get here, then we need to reset the block-cost back to 0 since this begins the
         // epoch defined by this miner.
         clarity_tx.reset_cost(ExecutionCost::zero());
+
+        debug!("Evaluating block with epoch = {}", evaluated_epoch);
+        if evaluated_epoch >= StacksEpochId::Epoch21 {
+            Self::check_and_handle_reward_start(
+                burn_tip_height.into(),
+                burn_dbconn,
+                sortition_dbconn,
+                &mut clarity_tx,
+                chain_tip,
+                &parent_sortition_id,
+            )?;
+        }
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
