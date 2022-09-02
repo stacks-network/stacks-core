@@ -21,6 +21,7 @@ use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::types::{FixedFunction, FunctionType, Value};
 use crate::vm::variables::NativeVariables;
+use crate::vm::ClarityVersion;
 
 pub mod contracts;
 
@@ -36,6 +37,8 @@ struct KeywordAPI {
     output_type: &'static str,
     description: &'static str,
     example: &'static str,
+    /// The version where this keyword was first introduced.
+    version: ClarityVersion,
 }
 
 #[derive(Serialize)]
@@ -46,6 +49,8 @@ struct FunctionAPI {
     signature: String,
     description: String,
     example: String,
+    /// The version where this keyword was first introduced.
+    version: ClarityVersion,
 }
 
 struct SimpleFunctionAPI {
@@ -77,13 +82,15 @@ const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     description: "Returns the current block height of the Stacks blockchain as an uint",
     example:
         "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    version: ClarityVersion::Clarity1,
 };
 
 const BURN_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     name: "burn-block-height",
     output_type: "uint",
     description: "Returns the current block height of the underlying burn blockchain as a uint",
-    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks."
+    example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
+    version: ClarityVersion::Clarity1,
 };
 
 const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
@@ -94,6 +101,7 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+    version: ClarityVersion::Clarity1,
 };
 
 const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
@@ -102,6 +110,7 @@ const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
     description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
 contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
+    version: ClarityVersion::Clarity1,
 };
 
 const TX_SPONSOR_KEYWORD: KeywordAPI = KeywordAPI {
@@ -109,13 +118,15 @@ const TX_SPONSOR_KEYWORD: KeywordAPI = KeywordAPI {
     output_type: "optional principal",
     description: "Returns the sponsor of the current transaction if there is a sponsor, otherwise returns None.",
     example: "(print tx-sponsor?) ;; Will print out an optional value containing the Stacks address of the transaction sponsor",
+    version: ClarityVersion::Clarity1,
 };
 
 const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
     name: "stx-liquid-supply",
     output_type: "uint",
     description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
-    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX"
+    example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX",
+    version: ClarityVersion::Clarity1,
 };
 
 const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
@@ -124,6 +135,7 @@ const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
     description: "Returns whether or not the code is running in a regression test",
     example:
         "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    version: ClarityVersion::Clarity1,
 };
 
 const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
@@ -131,13 +143,15 @@ const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
     output_type: "bool",
     description: "Returns a boolean indicating whether or not the code is running on the mainnet",
     example: "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
+    version: ClarityVersion::Clarity1,
 };
 
 const CHAINID_KEYWORD: KeywordAPI = KeywordAPI {
     name: "chain-id",
     output_type: "uint",
     description: "Returns the 32-bit chain ID of the blockchain running this transaction",
-    example: "(print chain-id) ;; Will print 'u1' if the code is running on mainnet, and 'u2147483648' on testnet, and other values on different chains."
+    example: "(print chain-id) ;; Will print 'u1' if the code is running on mainnet, and 'u2147483648' on testnet, and other values on different chains.",
+    version: ClarityVersion::Clarity1,
 };
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -151,7 +165,8 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
       none))
 (only-if-positive 4) ;; Returns (some 4)
 (only-if-positive (- 3)) ;; Returns none
-"
+",
+    version: ClarityVersion::Clarity1,
 };
 
 const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -162,6 +177,7 @@ const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
+    version: ClarityVersion::Clarity1,
 };
 
 const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -172,6 +188,7 @@ const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
+    version: ClarityVersion::Clarity1,
 };
 
 const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -678,6 +695,7 @@ fn make_for_simple_native(
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
+        version: function.get_version(),
     }
 }
 
@@ -2192,6 +2210,7 @@ fn make_for_special(api: &SpecialAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
+        version: ClarityVersion::Clarity1,
     }
 }
 
@@ -2203,6 +2222,7 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
+        version: ClarityVersion::Clarity1,
     }
 }
 
