@@ -251,10 +251,10 @@
     (runtime (linear n u1 u221)))
 
 (define-read-only (cost_secp256k1recover (n uint))
-    (runtime u14344))
+    (runtime u8655))
 
 (define-read-only (cost_secp256k1verify (n uint))
-    (runtime u13540))
+    (runtime u8349))
 
 (define-read-only (cost_print (n uint))
     (runtime (linear n u3 u1413)))
@@ -559,7 +559,7 @@
 
 (define-read-only (poison_microblock (n uint))
     {
-        runtime: u29568,
+        runtime: u17485,
         write_length: u1,
         write_count: u1,
         read_count: u1,
