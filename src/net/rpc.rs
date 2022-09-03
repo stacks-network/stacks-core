@@ -269,15 +269,18 @@ impl RPCPoxInfoData {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
 
-        let current_burn_height = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-            clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                clarity_db.get_current_burnchain_block_height() as u64
+        let current_burn_height = chainstate
+            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    clarity_db.get_current_burnchain_block_height() as u64
+                })
             })
-        }).map_err(|_| net_error::NotFoundError)?.ok_or_else(|| net_error::NotFoundError)?;
+            .map_err(|_| net_error::NotFoundError)?
+            .ok_or(net_error::NotFoundError)?;
 
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
-            .ok_or_else(|| net_error::ChainstateError("PoxNoRewardCycle".to_string()))?;
+            .ok_or(net_error::ChainstateError("PoxNoRewardCycle".to_string()))?;
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
         let pox_contract_name = burnchain
             .pox_constants
@@ -290,7 +293,9 @@ impl RPCPoxInfoData {
 
         let pox_2_first_cycle = burnchain
             .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
-            .ok_or(net_error::ChainstateError("PoX-2 first reward cycle begins before first burn block height".to_string()))?
+            .ok_or(net_error::ChainstateError(
+                "PoX-2 first reward cycle begins before first burn block height".to_string(),
+            ))?
             + 1;
 
         let data = chainstate
@@ -471,7 +476,8 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             next_reward_cycle_in,
-            pox_2_activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height as u64,
+            pox_2_activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
+                as u64,
             pox_2_first_cycle_id: pox_2_first_cycle,
         })
     }
