@@ -268,17 +268,42 @@ impl RPCPoxInfoData {
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
-        let contract_identifier = boot_code_id("pox", mainnet);
+
+        let current_burn_height = chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                clarity_db.get_current_burnchain_block_height() as u64
+            })
+        }).map_err(|_| net_error::NotFoundError)?.ok_or_else(|| net_error::NotFoundError)?;
+
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or_else(|| net_error::ChainstateError("PoxNoRewardCycle".to_string()))?;
+        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(reward_cycle_start_height);
+        let clarity_ver = match pox_contract_name {
+            POX_2_NAME => ClarityVersion::Clarity1,
+            POX_2_NAME => ClarityVersion::Clarity2,
+            _ => return Err(net_error::ChainstateError(format!("Unexpected PoX contract: {}", pox_contract_name)))
+        };
+
+        let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        let pox_2_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .ok_or(net_error::ChainstateError("PoX-2 first reward cycle begins before first burn block height".to_string()))?
+            + 1;
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
-                    ClarityVersion::Clarity1,
+                    clarity_ver,
                     sender,
                     None,
                     cost_track,
@@ -420,7 +445,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(next_cycle_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -451,6 +476,8 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             next_reward_cycle_in,
+            pox_2_activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height as u64,
+            pox_2_first_cycle_id: pox_2_first_cycle,
         })
     }
 }

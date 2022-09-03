@@ -1093,6 +1093,10 @@ pub struct RPCPoxInfoData {
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
     pub next_reward_cycle_in: u64,
+
+    // Stacks 2.1 / PoX-2 info
+    pub pox_2_activation_burnchain_block_height: u64,
+    pub pox_2_first_cycle_id: u64,
 }
 
 /// Headers response payload
