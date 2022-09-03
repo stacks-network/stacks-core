@@ -282,11 +282,6 @@ impl RPCPoxInfoData {
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
-        let clarity_ver = match pox_contract_name {
-            POX_2_NAME => ClarityVersion::Clarity1,
-            POX_2_NAME => ClarityVersion::Clarity2,
-            _ => return Err(net_error::ChainstateError(format!("Unexpected PoX contract: {}", pox_contract_name)))
-        };
 
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
@@ -303,7 +298,7 @@ impl RPCPoxInfoData {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
-                    clarity_ver,
+                    ClarityVersion::Clarity1,
                     sender,
                     None,
                     cost_track,
