@@ -307,10 +307,7 @@ impl BitcoinRegtestController {
         let (network_name, _network_type) = config.burnchain.get_bitcoin_network();
         let working_dir = config.get_burn_db_path();
         let mut burnchain = Burnchain::new(&working_dir, &config.burnchain.chain, &network_name)
-            .unwrap_or_else(|e| {
-                error!("Failed to instantiate burnchain: {}", e);
-                panic!()
-            });
+            .expect("Failed to instantiate burnchain");
         config.update_pox_constants(&mut burnchain.pox_constants);
 
         burnchain

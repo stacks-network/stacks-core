@@ -449,7 +449,8 @@ impl Node {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
         let mut burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
-        self.config.update_pox_constants(&mut burnchain.pox_constants);
+        self.config
+            .update_pox_constants(&mut burnchain.pox_constants);
 
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
@@ -1006,7 +1007,8 @@ impl Node {
         };
 
         let mut burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
-        self.config.update_pox_constants(&mut burnchain.pox_constants);
+        self.config
+            .update_pox_constants(&mut burnchain.pox_constants);
 
         let commit_outs =
             if !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1) {
