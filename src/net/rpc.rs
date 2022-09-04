@@ -270,12 +270,11 @@ impl RPCPoxInfoData {
         let chain_id = chainstate.chain_id;
 
         let current_burn_height = chainstate
-            .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+            .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     clarity_db.get_current_burnchain_block_height() as u64
                 })
             })
-            .map_err(|_| net_error::NotFoundError)?
             .ok_or(net_error::NotFoundError)?;
 
         let reward_cycle = burnchain
