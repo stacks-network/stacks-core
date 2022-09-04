@@ -89,7 +89,7 @@ use crate::net::{
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
 use crate::net::{RPCNeighbor, RPCNeighborsInfo};
-use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
+use crate::net::{RPCPeerInfoData, RPCPoxContractVersion, RPCPoxInfoData};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::clarity_store::make_contract_hash_key;
@@ -112,6 +112,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -289,6 +290,13 @@ impl RPCPoxInfoData {
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        // Note: should always be 0 unless somehow configured to start later
+        let pox_1_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-1 first reward cycle begins before first burn block height".to_string(),
+            ))?;
 
         let pox_2_first_cycle = burnchain
             .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
@@ -475,9 +483,19 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             next_reward_cycle_in,
-            pox_2_activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
-                as u64,
-            pox_2_first_cycle_id: pox_2_first_cycle,
+            contract_versions: vec![
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_1_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.first_block_height,
+                    first_reward_cycle_id: pox_1_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_2_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
+                        as u64,
+                    first_reward_cycle_id: pox_2_first_cycle,
+                },
+            ],
         })
     }
 }

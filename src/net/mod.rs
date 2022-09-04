@@ -1072,6 +1072,13 @@ pub struct RPCPoxNextCycleInfo {
     pub ustx_until_pox_rejection: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxContractVersion {
+    pub contract_id: String,
+    pub activation_burnchain_block_height: u64,
+    pub first_reward_cycle_id: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
@@ -1094,9 +1101,8 @@ pub struct RPCPoxInfoData {
     pub rejection_votes_left_required: u64,
     pub next_reward_cycle_in: u64,
 
-    // Stacks 2.1 / PoX-2 info
-    pub pox_2_activation_burnchain_block_height: u64,
-    pub pox_2_first_cycle_id: u64,
+    // Information specific to each PoX contract version
+    pub contract_versions: Vec<RPCPoxContractVersion>,
 }
 
 /// Headers response payload
