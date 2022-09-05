@@ -278,13 +278,9 @@ impl RPCPoxInfoData {
             })
             .ok_or(net_error::NotFoundError)?;
 
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .ok_or(net_error::ChainstateError("PoxNoRewardCycle".to_string()))?;
-        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
         let pox_contract_name = burnchain
             .pox_constants
-            .active_pox_contract(reward_cycle_start_height);
+            .active_pox_contract(current_burn_height);
 
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
