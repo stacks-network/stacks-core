@@ -325,8 +325,7 @@ impl FunctionType {
                         .get_defined_trait(
                             &expected_trait_id.contract_identifier,
                             &expected_trait_id.name,
-                        )
-                        .unwrap()
+                        )?
                         .ok_or(CheckErrors::NoSuchTrait(
                             expected_trait_id.contract_identifier.to_string(),
                             expected_trait_id.name.to_string(),
@@ -341,8 +340,7 @@ impl FunctionType {
                         .get_defined_trait(
                             &trait_data.trait_identifier.contract_identifier,
                             &trait_data.trait_identifier.name,
-                        )
-                        .unwrap()
+                        )?
                         .ok_or(CheckErrors::NoSuchTrait(
                             trait_data.trait_identifier.contract_identifier.to_string(),
                             trait_data.trait_identifier.name.to_string(),
@@ -351,8 +349,7 @@ impl FunctionType {
                         .get_defined_trait(
                             &expected_trait_id.contract_identifier,
                             &expected_trait_id.name,
-                        )
-                        .unwrap()
+                        )?
                         .ok_or(CheckErrors::NoSuchTrait(
                             expected_trait_id.contract_identifier.to_string(),
                             expected_trait_id.name.to_string(),
