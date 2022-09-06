@@ -316,7 +316,7 @@ fn handle_pox_v2_api_contract_call(
             //  error response type.
             return Ok(());
         }
-    } else if function_name == "stack-increase" {
+    } else if function_name == "stack-increase" || function_name == "delegate-stack-increase" {
         // in this branch case, the PoX-2 contract has stored the increase information
         //  and performed the increase checks. Now, the VM needs to update the account locks
         //  (because the locks cannot be applied directly from the Clarity code itself)
