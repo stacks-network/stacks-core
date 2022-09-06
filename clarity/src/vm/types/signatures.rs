@@ -1071,13 +1071,18 @@ impl TypeSignature {
                 _ => Err(CheckErrors::DefineTraitBadSignature),
             }?;
 
-            trait_signature.insert(
-                fn_name.clone(),
-                FunctionSignature {
-                    args: fn_args,
-                    returns: fn_return,
-                },
-            );
+            if trait_signature
+                .insert(
+                    fn_name.clone(),
+                    FunctionSignature {
+                        args: fn_args,
+                        returns: fn_return,
+                    },
+                )
+                .is_some()
+            {
+                return Err(CheckErrors::DefineTraitDuplicateMethod(fn_name.to_string()));
+            }
         }
         Ok(trait_signature)
     }

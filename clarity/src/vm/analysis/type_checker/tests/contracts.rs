@@ -835,6 +835,11 @@ fn test_traits() {
         (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
             (contract-call? contract echo callee))";
 
+        let trait_with_duplicate_method = "(define-trait double-method (
+            (foo (uint) (response uint uint))
+            (foo (bool) (response bool bool))
+          ))";
+
         mem_type_check(trait_to_trait).unwrap();
         mem_type_check(trait_to_compatible_trait).unwrap();
 
@@ -944,6 +949,20 @@ fn test_traits() {
             } => {
                 assert_eq!(expected.name.as_str(), "trait-b");
                 assert_eq!(actual.name.as_str(), "trait-a");
+                true
+            }
+            _ => false,
+        });
+
+        let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
+        eprintln!("trait with duplicate methods: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::DefineTraitDuplicateMethod(method_name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(method_name.as_str(), "foo");
                 true
             }
             _ => false,

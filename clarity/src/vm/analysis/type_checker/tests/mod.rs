@@ -3149,7 +3149,6 @@ fn test_let_bind_trait() {
         )"];
 
     for good_test in good.iter() {
-        println!("{:?}", mem_type_check(&good_test));
         assert!(mem_type_check(&good_test).is_ok());
     }
 }
@@ -3165,7 +3164,6 @@ fn test_trait_same_contract() {
         (define-public (trigger (f <trait-foo>)) (call-foo f))"];
 
     for good_test in good.iter() {
-        println!("result: {:?}", mem_type_check(&good_test));
         assert!(mem_type_check(&good_test).is_ok());
     }
 }
