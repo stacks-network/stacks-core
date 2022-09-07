@@ -53,7 +53,6 @@ fn test_all() {
         test_return_trait_with_contract_of_wrapped_in_let,
         test_pass_principal_literal_to_trait,
         test_pass_trait_to_subtrait,
-        test_pass_trait_to_subtrait_invalid,
         test_embedded_trait,
         test_pass_embedded_trait_to_subtrait,
         test_let_trait,
@@ -1343,69 +1342,6 @@ fn test_pass_trait_to_subtrait(owned_env: &mut OwnedEnvironment) {
             .unwrap(),
             Value::okay(Value::UInt(1)).unwrap()
         );
-    }
-}
-
-fn test_pass_trait_to_subtrait_invalid(owned_env: &mut OwnedEnvironment) {
-    let dispatching_contract = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-trait trait-12 (
-            (get-1 (uint) (response uint uint))
-            (get-2 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-get-1 (contract <trait-1>))
-            (internal-get-1 contract))
-        (define-public (internal-get-1 (contract <trait-12>))
-            (contract-call? contract get-2))";
-    let target_contract = "(define-public (get-1 (a uint)) (ok a))
-        (define-public (get-2 (a uint)) (ok a))";
-
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
-    let mut placeholder_context = ContractContext::new(
-        QualifiedContractIdentifier::transient(),
-        ClarityVersion::Clarity2,
-    );
-
-    {
-        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-            dispatching_contract,
-        )
-        .unwrap();
-
-        env.initialize_contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-            target_contract,
-        )
-        .unwrap();
-    }
-
-    {
-        let target_contract = Value::from(PrincipalData::Contract(
-            QualifiedContractIdentifier::local("target-contract").unwrap(),
-        ));
-        let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
-            None,
-            &mut placeholder_context,
-        );
-        let err_result = env
-            .execute_contract(
-                &QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
-                "wrapped-get-1",
-                &symbols_from_values(vec![target_contract]),
-                false,
-            )
-            .unwrap_err();
-        match err_result {
-            Error::Unchecked(CheckErrors::TraitMethodUnknown(trait_name, method)) => {
-                assert_eq!(trait_name, "trait-1");
-                assert_eq!(method, "get-2");
-            }
-            _ => panic!("{:?}", err_result),
-        }
     }
 }
 

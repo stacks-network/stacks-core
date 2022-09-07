@@ -375,6 +375,12 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
             contract_identifier: contract_identifier.clone(),
             trait_identifier: trait_identifier.clone(),
         }),
+        (TypeSignature::TraitReferenceType(trait_identifier), Value::Trait(value_trait_data)) => {
+            Value::Trait(TraitData {
+                contract_identifier: value_trait_data.contract_identifier.clone(),
+                trait_identifier: trait_identifier.clone(),
+            })
+        }
         _ => value.clone(),
     })
 }

@@ -303,7 +303,7 @@ impl FunctionType {
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
-        contract_context: Option<&ContractContext>,
+        clarity_version: ClarityVersion,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
@@ -326,10 +326,16 @@ impl FunctionType {
                             &expected_trait_id.contract_identifier,
                             &expected_trait_id.name,
                         )?
-                        .ok_or(CheckErrors::NoSuchTrait(
-                            expected_trait_id.contract_identifier.to_string(),
-                            expected_trait_id.name.to_string(),
-                        ))?;
+                        .ok_or(if clarity_version >= ClarityVersion::Clarity2 {
+                            CheckErrors::NoSuchTrait(
+                                expected_trait_id.contract_identifier.to_string(),
+                                expected_trait_id.name.to_string(),
+                            )
+                        } else {
+                            CheckErrors::NoSuchContract(
+                                expected_trait_id.contract_identifier.to_string(),
+                            )
+                        })?;
                     contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
                 }
                 (
@@ -356,7 +362,7 @@ impl FunctionType {
                         ))?;
                     trait_check_trait_compliance(
                         db,
-                        contract_context,
+                        None,
                         &trait_data.trait_identifier,
                         &actual_trait,
                         expected_trait_id,
@@ -678,15 +684,63 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected_type: &TypeSignature,
     ) -> TypeResult {
-        runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
+        // Clarity 2 allows traits embedded in compound types and allows
+        // implicit casts between compatible traits, while Clarity 1 does not.
+        if self.clarity_version >= ClarityVersion::Clarity2 {
+            runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
-        self.inner_type_check_expects(expr, context, expected_type)
-            .map_err(|mut e| {
-                if !e.has_expression() {
-                    e.set_expression(expr)
+            self.inner_type_check_expects(expr, context, expected_type)
+                .map_err(|mut e| {
+                    if !e.has_expression() {
+                        e.set_expression(expr)
+                    }
+                    e
+                })
+        } else {
+            match (&expr.expr, expected_type) {
+                (
+                    LiteralValue(Value::Principal(PrincipalData::Contract(
+                        ref contract_identifier,
+                    ))),
+                    TypeSignature::TraitReferenceType(trait_identifier),
+                ) => {
+                    let contract_to_check = self
+                        .db
+                        .load_contract(&contract_identifier)
+                        .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                    let contract_defining_trait = self
+                        .db
+                        .load_contract(&trait_identifier.contract_identifier)
+                        .ok_or(CheckErrors::NoSuchContract(
+                            trait_identifier.contract_identifier.to_string(),
+                        ))?;
+
+                    let trait_definition = contract_defining_trait
+                        .get_defined_trait(&trait_identifier.name)
+                        .ok_or(CheckErrors::NoSuchTrait(
+                            trait_identifier.contract_identifier.to_string(),
+                            trait_identifier.name.to_string(),
+                        ))?;
+
+                    contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                    return Ok(expected_type.clone());
                 }
-                e
-            })
+                (_, _) => {}
+            }
+
+            let actual_type = self.type_check(expr, context)?;
+            analysis_typecheck_cost(self, expected_type, &actual_type)?;
+
+            if !expected_type.admits_type(&actual_type) {
+                let mut err: CheckError =
+                    CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+                err.set_expression(expr);
+                Err(err)
+            } else {
+                Ok(actual_type)
+            }
+        }
     }
 
     // Type checks an expression, recursively type checking its subexpressions
@@ -1073,7 +1127,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
-        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types, &mut ())?;
+        let trait_signature =
+            TypeSignature::parse_trait_type_repr(&function_types, &mut (), self.clarity_version)?;
 
         Ok((trait_name.clone(), trait_signature))
     }

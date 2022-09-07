@@ -18,9 +18,9 @@ use assert_json_diff;
 use serde_json;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::run_analysis;
 use crate::vm::analysis::type_checker::tests::mem_type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -30,6 +30,10 @@ use crate::vm::{
     ClarityVersion, SymbolicExpression,
 };
 use stacks_common::types::StacksEpochId;
+
+fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
+}
 
 #[template]
 #[rstest]
@@ -840,8 +844,32 @@ fn test_traits() {
             (foo (bool) (response bool bool))
           ))";
 
+        mem_type_check_v1(trait_to_trait).unwrap();
         mem_type_check(trait_to_trait).unwrap();
+
         mem_type_check(trait_to_compatible_trait).unwrap();
+        let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+        eprintln!("Clarity1: pass a compatible trait: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-2");
+                        assert_eq!(found_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(bad_principal_to_trait).unwrap_err();
         eprintln!("pass principal value to trait param: {}", err);
@@ -864,9 +892,30 @@ fn test_traits() {
             }
             _ => false,
         });
+        let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
+        eprintln!("Clarity1: pass principal value to trait param: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::PrincipalType,
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(bad_other_trait).unwrap_err();
-        eprintln!("pass invalid embedded trait to trait param: {}", err);
+        eprintln!("pass incompatible trait to trait param: {}", err);
         assert!(match err {
             CheckError {
                 err: CheckErrors::IncompatibleTrait(expected, actual),
@@ -879,9 +928,61 @@ fn test_traits() {
             }
             _ => false,
         });
+        let err = mem_type_check_v1(bad_other_trait).unwrap_err();
+        eprintln!(
+            "Clarity1: pass invalid embedded trait to trait param: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-2");
+                        assert_eq!(found_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         mem_type_check(embedded_trait).unwrap();
+        let err = mem_type_check_v1(embedded_trait).unwrap_err();
+        eprintln!("Clarity1: embed trait in optional: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TraitReferenceUnknown(name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(name.as_str(), "contract");
+                true
+            }
+            _ => false,
+        });
+
         mem_type_check(embedded_trait_compatible).unwrap();
+        let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
+        eprintln!("Clarity1: embed compatible trait in optional: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TraitReferenceUnknown(name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(name.as_str(), "contract");
+                true
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(bad_embedded_trait).unwrap_err();
         eprintln!("pass invalid embedded trait to trait param: {}", err);
@@ -897,9 +998,52 @@ fn test_traits() {
             }
             _ => false,
         });
+        let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
+        eprintln!(
+            "Clarity1: pass invalid embedded trait to trait param: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TraitReferenceUnknown(name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(name.as_str(), "contract");
+                true
+            }
+            _ => false,
+        });
 
         mem_type_check(let_trait).unwrap();
+        let err = mem_type_check_v1(let_trait).unwrap_err();
+        eprintln!("Clarity1: bind trait in let variable: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TraitReferenceUnknown(name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(name.as_str(), "t1");
+                true
+            }
+            _ => false,
+        });
+
         mem_type_check(let3_trait).unwrap();
+        let err = mem_type_check_v1(let3_trait).unwrap_err();
+        eprintln!("Clarity1: bind trait in let variable nested: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TraitReferenceUnknown(name),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(name.as_str(), "t3");
+                true
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(trait_args_differ).unwrap_err();
         eprintln!("pass trait with different arg type to trait param: {}", err);
@@ -912,6 +1056,31 @@ fn test_traits() {
                 assert_eq!(expected.name.as_str(), "trait-2");
                 assert_eq!(actual.name.as_str(), "trait-1");
                 true
+            }
+            _ => false,
+        });
+        let err = mem_type_check_v1(trait_args_differ).unwrap_err();
+        eprintln!(
+            "Clarity1: pass trait with different arg type to trait param: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-2");
+                        assert_eq!(found_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
             }
             _ => false,
         });
@@ -933,8 +1102,55 @@ fn test_traits() {
             }
             _ => false,
         });
+        let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
+        eprintln!(
+            "Clarity1: pass trait with different return type to trait param: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-2");
+                        assert_eq!(found_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         mem_type_check(trait_with_compatible_trait_arg).unwrap();
+        let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
+        eprintln!("Clarity1: trait with compatible trait arg: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-b");
+                        assert_eq!(found_trait.name.as_str(), "trait-a");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
         eprintln!(
@@ -953,6 +1169,31 @@ fn test_traits() {
             }
             _ => false,
         });
+        let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
+        eprintln!(
+            "Clarity1: trait with trait argument, pass incompatible trait: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-b");
+                        assert_eq!(found_trait.name.as_str(), "trait-a");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
 
         let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
         eprintln!("trait with duplicate methods: {}", err);
@@ -967,5 +1208,6 @@ fn test_traits() {
             }
             _ => false,
         });
+        mem_type_check_v1(trait_with_duplicate_method).unwrap();
     }
 }

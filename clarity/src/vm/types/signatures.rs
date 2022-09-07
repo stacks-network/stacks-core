@@ -488,16 +488,6 @@ impl TypeSignature {
                 }
             }
             NoType => panic!("NoType should never be asked to admit."),
-            TraitReferenceType(_) => {
-                match other {
-                    TraitReferenceType(_) | PrincipalType => {
-                        // The type-checker will have already verified that these
-                        // are compatible.
-                        true
-                    }
-                    _ => false,
-                }
-            }
             _ => other == self,
         }
     }
@@ -1033,6 +1023,7 @@ impl TypeSignature {
     pub fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
+        clarity_version: ClarityVersion,
     ) -> Result<BTreeMap<ClarityName, FunctionSignature>> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args[0]
@@ -1080,6 +1071,7 @@ impl TypeSignature {
                     },
                 )
                 .is_some()
+                && clarity_version >= ClarityVersion::Clarity2
             {
                 return Err(CheckErrors::DefineTraitDuplicateMethod(fn_name.to_string()));
             }

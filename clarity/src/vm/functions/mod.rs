@@ -686,8 +686,10 @@ fn special_let(
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
-            if let Trait(trait_data) = &binding_value {
-                inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
+            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+                if let Trait(trait_data) = &binding_value {
+                    inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
+                }
             }
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())

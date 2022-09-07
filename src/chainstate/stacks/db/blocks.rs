@@ -6585,8 +6585,11 @@ impl StacksChainState {
                         .get_public_function_type(&contract_identifier, &function_name)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
                         .ok_or_else(|| MemPoolRejection::NoSuchPublicFunction)?;
+                    let clarity_version = db
+                        .get_clarity_version(&contract_identifier)
+                        .map_err(|_e| MemPoolRejection::NoSuchContract)?;
                     function_type
-                        .check_args_by_allowing_trait_cast(db, None, &function_args)
+                        .check_args_by_allowing_trait_cast(db, clarity_version, &function_args)
                         .map_err(|e| MemPoolRejection::BadFunctionArgument(e))
                 })?;
             }

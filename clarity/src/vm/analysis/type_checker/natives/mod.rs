@@ -31,7 +31,7 @@ use crate::vm::types::{
     FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
     BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
-use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -248,10 +248,17 @@ fn check_special_let(
             checker,
             typed_result.type_size()?,
         )?;
-        if let TypeSignature::TraitReferenceType(trait_id) = typed_result {
-            out_context
-                .traits_references
-                .insert(var_name.clone(), trait_id);
+        // Beginning in Clarity 2, traits can be propagated into let variables.
+        if checker.clarity_version >= ClarityVersion::Clarity2 {
+            if let TypeSignature::TraitReferenceType(trait_id) = typed_result {
+                out_context
+                    .traits_references
+                    .insert(var_name.clone(), trait_id);
+            } else {
+                out_context
+                    .variable_types
+                    .insert(var_name.clone(), typed_result);
+            }
         } else {
             out_context
                 .variable_types
