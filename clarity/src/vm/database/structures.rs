@@ -534,15 +534,9 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let new_unlock_height = self.burn_block_height + 1;
         self.balance = match self.balance {
             STXBalance::Unlocked { amount } => STXBalance::Unlocked { amount },
-            STXBalance::LockedPoxOne {
-                amount_unlocked,
-                amount_locked,
-                ..
-            } => STXBalance::LockedPoxOne {
-                amount_unlocked,
-                amount_locked,
-                unlock_height: new_unlock_height,
-            },
+            STXBalance::LockedPoxOne { .. } => {
+                unreachable!("Attempted to accelerate the unlock of a lockup created by PoX-1")
+            }
             STXBalance::LockedPoxTwo {
                 amount_unlocked,
                 amount_locked,
