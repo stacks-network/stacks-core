@@ -891,7 +891,7 @@
 
      ;; must be called with positive `increase-by`
      (asserts! (>= increase-by u1)
-               (err ERR_STACKING_INVALID_LOCK_PERIOD))
+               (err ERR_STACKING_INVALID_AMOUNT))
 
      (let ((unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
            (cur-cycle (current-pox-reward-cycle))
@@ -947,7 +947,7 @@
       ;; stacking-state is unchanged, so no need to update
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
-      (ok { stacker: tx-sender, total-locked: new-total-locked}))))
+      (ok { stacker: stacker, total-locked: new-total-locked}))))
 
 ;; As a delegator, extend an active stacking lock, issuing a "partial commitment" for the
 ;;   extended-to cycles.
