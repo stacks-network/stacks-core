@@ -417,7 +417,12 @@ impl RPCPoxInfoData {
             .ok_or_else(|| net_error::DBError(db_error::Overflow))?
             as u64;
 
-        let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+        let cur_cycle_pox_active = sortdb
+            .is_pox_active(burnchain, &burnchain_tip)
+            .unwrap_or_else(|e| {
+                error!("Error in /v2/pox while determining if PoX is active: {}", e);
+                false
+            });
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
