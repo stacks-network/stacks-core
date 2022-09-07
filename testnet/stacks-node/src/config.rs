@@ -410,6 +410,7 @@ impl Config {
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,
         bitcoin_network: BitcoinNetworkType,
+        pox_2_activation: Option<u32>,
     ) -> Result<Vec<StacksEpoch>, String> {
         let default_epochs = match bitcoin_network {
             BitcoinNetworkType::Mainnet => {
@@ -497,6 +498,16 @@ impl Config {
         if burn_mode == "mocknet" {
             for epoch in out_epochs.iter_mut() {
                 epoch.block_limit = ExecutionCost::max_value();
+            }
+        }
+
+        if let Some(pox_2_activation) = pox_2_activation {
+            let last_epoch = out_epochs
+                .iter()
+                .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
+                .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
+            if last_epoch.start_height > pox_2_activation as u64 {
+                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {}, epoch 2.1 start height = {}", pox_2_activation, last_epoch.start_height))?;
             }
         }
 
@@ -698,6 +709,7 @@ impl Config {
                         conf_epochs,
                         &result.mode,
                         result.get_bitcoin_network().1,
+                        burnchain.pox_2_activation,
                     )?);
                 }
 
