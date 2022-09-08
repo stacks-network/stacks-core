@@ -164,18 +164,48 @@ pub struct BitcoinTxOutput {
     pub units: u64,
 }
 
+/// Legacy Bitcoin address input type, based on scriptSig.
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum BitcoinInputType {
     Standard,
     SegwitP2SH,
 }
 
+/// Bitcoin tx input we can parse in 2.05 and earlier.
+/// In 2.05 and earlier, we cared about being able to parse a scriptSig and witness.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BitcoinTxInput {
+pub struct BitcoinTxInputStructured {
     pub keys: Vec<BitcoinPublicKey>,
     pub num_required: usize,
     pub in_type: BitcoinInputType,
     pub tx_ref: (Txid, u32),
+}
+
+/// Bitcoin tx input we can parse in 2.1 and later.
+/// In 2.1 and later, we don't care about being able to parse a scriptSig or witness.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BitcoinTxInputRaw {
+    pub scriptSig: Vec<u8>,
+    pub witness: Vec<Vec<u8>>,
+    pub tx_ref: (Txid, u32),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum BitcoinTxInput {
+    Structured(BitcoinTxInputStructured),
+    Raw(BitcoinTxInputRaw),
+}
+
+impl From<BitcoinTxInputStructured> for BitcoinTxInput {
+    fn from(inp: BitcoinTxInputStructured) -> BitcoinTxInput {
+        BitcoinTxInput::Structured(inp)
+    }
+}
+
+impl From<BitcoinTxInputRaw> for BitcoinTxInput {
+    fn from(inp: BitcoinTxInputRaw) -> BitcoinTxInput {
+        BitcoinTxInput::Raw(inp)
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
