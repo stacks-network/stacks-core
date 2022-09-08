@@ -844,6 +844,57 @@ fn test_traits() {
             (foo (bool) (response bool bool))
           ))";
 
+        let trait_to_subtrait_and_back = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+            (foo (uint) (response uint uint))
+        ))
+        (define-private (foo-0 (impl-contract <trait-2>))
+            (foo-1 impl-contract))
+     
+        (define-private (foo-1 (impl-contract <trait-1>))
+            (foo-2 impl-contract))
+        
+        (define-private (foo-2 (impl-contract <trait-2>))
+            true)";
+
+        let trait_list_to_map = "(define-trait token-trait (
+            (echo (uint) (response uint uint))
+        ))
+        (define-public (send-many (data (list 10 {amount: uint, sender: principal, recipient: principal})) (token <token-trait>))
+            (ok (map my-iter data (list token token token token token token token token token token)))
+        )
+        (define-private (my-iter (data {amount: uint, sender: principal, recipient: principal}) (token <token-trait>))
+            true
+        )";
+
+        let if_branches_with_incompatible_trait_types = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (foo (uint) (response uint uint))
+        ))
+        (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
+            (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
+                (contract-call? to-invoke method)
+            )
+        )";
+
+        let if_branches_with_compatible_trait_types = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+            (foo (uint) (response uint uint))
+        ))
+        (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
+            (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
+                (contract-call? to-invoke method)
+            )
+        )";
+
         mem_type_check_v1(trait_to_trait).unwrap();
         mem_type_check(trait_to_trait).unwrap();
 
@@ -1209,5 +1260,138 @@ fn test_traits() {
             _ => false,
         });
         mem_type_check_v1(trait_with_duplicate_method).unwrap();
+
+        let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
+        eprintln!("trait to subtrait and back: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IncompatibleTrait(expected, actual),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                assert_eq!(expected.name.as_str(), "trait-2");
+                assert_eq!(actual.name.as_str(), "trait-1");
+                true
+            }
+            _ => false,
+        });
+        let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
+        eprintln!("Clarity1: trait to subtrait and back: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::TypeError(expected, found),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (expected, found) {
+                    (
+                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::TraitReferenceType(found_trait),
+                    ) => {
+                        assert_eq!(expected_trait.name.as_str(), "trait-2");
+                        assert_eq!(found_trait.name.as_str(), "trait-1");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+
+        mem_type_check(trait_list_to_map).unwrap();
+        mem_type_check_v1(trait_list_to_map).unwrap();
+
+        let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
+        eprintln!("if branches with incompatible trait types: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IfArmsMustMatch(type1, type2),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (type1, type2) {
+                    (
+                        TypeSignature::TraitReferenceType(trait1),
+                        TypeSignature::TraitReferenceType(trait2),
+                    ) => {
+                        assert_eq!(trait1.name.as_str(), "trait-1");
+                        assert_eq!(trait2.name.as_str(), "trait-2");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+        let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
+        eprintln!(
+            "Clarity1: if branches with incompatible trait types: {}",
+            err
+        );
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IfArmsMustMatch(type1, type2),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (type1, type2) {
+                    (
+                        TypeSignature::TraitReferenceType(trait1),
+                        TypeSignature::TraitReferenceType(trait2),
+                    ) => {
+                        assert_eq!(trait1.name.as_str(), "trait-1");
+                        assert_eq!(trait2.name.as_str(), "trait-2");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+
+        let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
+        eprintln!("if branches with compatible trait types: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IfArmsMustMatch(type1, type2),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (type1, type2) {
+                    (
+                        TypeSignature::TraitReferenceType(trait1),
+                        TypeSignature::TraitReferenceType(trait2),
+                    ) => {
+                        assert_eq!(trait1.name.as_str(), "trait-1");
+                        assert_eq!(trait2.name.as_str(), "trait-2");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
+        let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
+        eprintln!("Clarity1: if branches with compatible trait types: {}", err);
+        assert!(match err {
+            CheckError {
+                err: CheckErrors::IfArmsMustMatch(type1, type2),
+                expressions: _,
+                diagnostic: _,
+            } => {
+                match (type1, type2) {
+                    (
+                        TypeSignature::TraitReferenceType(trait1),
+                        TypeSignature::TraitReferenceType(trait2),
+                    ) => {
+                        assert_eq!(trait1.name.as_str(), "trait-1");
+                        assert_eq!(trait2.name.as_str(), "trait-2");
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        });
     }
 }
