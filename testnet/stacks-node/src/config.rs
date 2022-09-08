@@ -704,6 +704,7 @@ impl Config {
                     PrincipalData::parse(&c)
                         .expect(&format!("FATAL: not a valid principal identifier: {}", c))
                 }),
+                segwit: miner.segwit.unwrap_or(miner_default_config.segwit),
             },
             None => miner_default_config,
         };
@@ -1632,6 +1633,7 @@ pub struct MinerConfig {
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
+    pub segwit: bool,
 }
 
 impl MinerConfig {
@@ -1643,6 +1645,7 @@ impl MinerConfig {
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
             block_reward_recipient: None,
+            segwit: false,
         }
     }
 }
@@ -1749,6 +1752,7 @@ pub struct MinerConfigFile {
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
+    pub segwit: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
