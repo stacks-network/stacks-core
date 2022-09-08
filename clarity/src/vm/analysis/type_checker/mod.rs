@@ -33,6 +33,7 @@ use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, OptionalData,
     PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
     StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, Value,
+    MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use std::collections::{BTreeMap, HashMap};
@@ -400,7 +401,8 @@ pub fn trait_check_trait_compliance(
         if let Some(func) = actual_trait.get(func_name) {
             let args_iter = expected_sig.args.iter().zip(func.args.iter());
             for (expected_type, actual_type) in args_iter {
-                if inner_type_check_type(db, contract_context, actual_type, expected_type).is_err()
+                if inner_type_check_type(db, contract_context, actual_type, expected_type, 1)
+                    .is_err()
                 {
                     return Err(CheckErrors::IncompatibleTrait(
                         expected_trait_identifier.clone(),
@@ -409,8 +411,14 @@ pub fn trait_check_trait_compliance(
                     .into());
                 }
             }
-            if inner_type_check_type(db, contract_context, &func.returns, &expected_sig.returns)
-                .is_err()
+            if inner_type_check_type(
+                db,
+                contract_context,
+                &func.returns,
+                &expected_sig.returns,
+                1,
+            )
+            .is_err()
             {
                 return Err(CheckErrors::IncompatibleTrait(
                     expected_trait_identifier.clone(),
@@ -434,14 +442,25 @@ fn inner_type_check_type(
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
+    depth: u8,
 ) -> TypeResult {
+    if depth > MAX_TYPE_DEPTH {
+        return Err(CheckErrors::TypeSignatureTooDeep.into());
+    }
+
     // Recurse into values to check embedded traits properly
     match (actual_type, expected_type) {
         (
             TypeSignature::OptionalType(atom_inner_type),
             TypeSignature::OptionalType(expected_inner_type),
         ) => {
-            inner_type_check_type(db, contract_context, atom_inner_type, expected_inner_type)?;
+            inner_type_check_type(
+                db,
+                contract_context,
+                atom_inner_type,
+                expected_inner_type,
+                depth + 1,
+            )?;
         }
         (
             TypeSignature::ResponseType(atom_inner_types),
@@ -452,12 +471,14 @@ fn inner_type_check_type(
                 contract_context,
                 &atom_inner_types.0,
                 &expected_inner_types.0,
+                depth + 1,
             )?;
             inner_type_check_type(
                 db,
                 contract_context,
                 &atom_inner_types.1,
                 &expected_inner_types.1,
+                depth + 1,
             )?;
         }
         (
@@ -469,6 +490,7 @@ fn inner_type_check_type(
                 contract_context,
                 atom_list_type.get_list_item_type(),
                 expected_list_type.get_list_item_type(),
+                depth + 1,
             )?;
         }
         (
@@ -483,6 +505,7 @@ fn inner_type_check_type(
                             contract_context,
                             atom_field_type,
                             expected_field_type,
+                            depth + 1,
                         )?;
                     }
                     None => {
@@ -1031,6 +1054,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     Some(&self.contract_context),
                     &expr_type,
                     expected_type,
+                    1,
                 )?;
             }
         }
