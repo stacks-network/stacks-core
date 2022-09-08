@@ -229,6 +229,33 @@ impl Sha256dHash {
         Ok(Sha256dHash(ret))
     }
 
+    /// Decodes a little-endian (i.e. same as sha256sum output) hex string as a Sha256dHash
+    #[inline]
+    pub fn from_hex_le(s: &str) -> Result<Sha256dHash, HexError> {
+        if s.len() != 64 {
+            return Err(HexError::BadLength(s.len()));
+        }
+
+        let bytes = s.as_bytes();
+        let mut ret = [0; 32];
+        for i in 0..32 {
+            let hi = match bytes[2 * i] {
+                b @ b'0'..=b'9' => (b - b'0') as u8,
+                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b => return Err(HexError::BadCharacter(b as char)),
+            };
+            let lo = match bytes[2 * i + 1] {
+                b @ b'0'..=b'9' => (b - b'0') as u8,
+                b @ b'a'..=b'f' => (b - b'a' + 10) as u8,
+                b @ b'A'..=b'F' => (b - b'A' + 10) as u8,
+                b => return Err(HexError::BadCharacter(b as char)),
+            };
+            ret[i] = hi * 0x10 + lo;
+        }
+        Ok(Sha256dHash(ret))
+    }
+
     /// Human-readable hex output
     pub fn le_hex_string(&self) -> String {
         let &Sha256dHash(data) = self;
