@@ -36,6 +36,8 @@ use crate::deps_common::bitcoin::network::serialize::{
 };
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
+use crate::util::hash::to_hex;
+
 /// A reference to a transaction output
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct OutPoint {
@@ -282,6 +284,167 @@ impl Transaction {
         Sha256dHash::from_data(&raw_vec)
     }
 
+    /// Get hashPrevouts for a segwit sighash
+    fn segwit_prevouts_hash(&self, anyone_can_pay: bool) -> Sha256dHash {
+        if anyone_can_pay {
+            // per bip-143, this must be all 0's
+            Sha256dHash([0u8; 32])
+        } else {
+            // sha256d of the concatenation of the previous outpoints, which are each the concatenation
+            // of the previous txid and output index
+            let mut raw_vec = vec![];
+            for inp in self.input.iter() {
+                let mut prev_output_bytes = serialize(&inp.previous_output)
+                    .expect("FATAL: failed to encode previous output");
+                raw_vec.append(&mut prev_output_bytes);
+            }
+            Sha256dHash::from_data(&raw_vec)
+        }
+    }
+
+    /// Get hashSequence for a segwit sighash
+    fn segwit_sequence_hash(&self, sighash_type: SigHashType, anyone_can_pay: bool) -> Sha256dHash {
+        if anyone_can_pay
+            || sighash_type == SigHashType::None
+            || sighash_type == SigHashType::Single
+        {
+            // per bip-143, this must be all 0's
+            Sha256dHash([0u8; 32])
+        } else {
+            // sha256d of the concatenation of the nSequences
+            let mut raw_vec = vec![];
+            for inp in self.input.iter() {
+                raw_vec.append(&mut inp.sequence.to_le_bytes().to_vec());
+            }
+            Sha256dHash::from_data(&raw_vec)
+        }
+    }
+
+    /// Get the script bytes for a segwit scripthash.
+    /// does not work for codeseparator
+    fn segwit_script_pubkey_bytes(&self, script: &Script) -> Vec<u8> {
+        // bizarrely, if this is a p2wpkh, we have to convert it into a p2pkh
+        let script_bytes = script.clone().into_bytes();
+        if script_bytes.len() == 22 && script_bytes[0..2] == [0x00, 0x14] {
+            // p2wpkh --> length-prefixed p2pkh
+            let mut converted_script_bytes = vec![];
+            converted_script_bytes.append(&mut vec![0x19, 0x76, 0xa9, 0x14]);
+            converted_script_bytes.append(&mut script_bytes[2..22].to_vec());
+            converted_script_bytes.append(&mut vec![0x88, 0xac]);
+            converted_script_bytes
+        } else {
+            // p2wsh or p2tr
+            // codeseparator is not supported
+            // prefix the script bytes with a varint length
+            let mut length_script = vec![];
+            let mut script_bytes = script.clone().into_bytes();
+            let script_len = VarInt(script_bytes.len() as u64);
+
+            let mut script_len_bytes =
+                serialize(&script_len).expect("FATAL: failed to encode varint");
+            length_script.append(&mut script_len_bytes);
+            length_script.append(&mut script_bytes);
+            length_script
+        }
+    }
+
+    /// Get the hashed outputs for a segwit sighash
+    fn segwit_outputs_hash(&self, input_index: usize, sighash_type: SigHashType) -> Sha256dHash {
+        if sighash_type != SigHashType::Single && sighash_type != SigHashType::None {
+            // hash of all output amounts and scriptpubkeys
+            let mut raw_vec = vec![];
+            for outp in self.output.iter() {
+                raw_vec.append(&mut outp.value.to_le_bytes().to_vec());
+
+                let mut script_bytes = outp.script_pubkey.clone().into_bytes();
+                let script_len = VarInt(script_bytes.len() as u64);
+
+                let mut script_len_bytes =
+                    serialize(&script_len).expect("FATAL: failed to encode varint");
+                raw_vec.append(&mut script_len_bytes);
+                raw_vec.append(&mut script_bytes);
+            }
+            Sha256dHash::from_data(&raw_vec)
+        } else if sighash_type == SigHashType::Single && input_index < self.output.len() {
+            // hash of just the output indexed by the input index
+            let mut raw_vec = vec![];
+
+            let mut script_bytes = self.output[input_index].script_pubkey.clone().into_bytes();
+            let script_len = VarInt(script_bytes.len() as u64);
+
+            let mut script_len_bytes =
+                serialize(&script_len).expect("FATAL: failed to encode varint");
+            raw_vec.append(&mut script_len_bytes);
+            raw_vec.append(&mut script_bytes);
+            Sha256dHash::from_data(&raw_vec)
+        } else {
+            Sha256dHash([0u8; 32])
+        }
+    }
+
+    /// Segwit sighash
+    pub fn segwit_signature_hash(
+        &self,
+        input_index: usize,
+        script_pubkey: &Script,
+        amount: u64,
+        sighash_u32: u32,
+    ) -> Sha256dHash {
+        // Double SHA256 of the serialization of:
+        // 1.  nVersion of the transaction (4-byte little endian)
+        // 2.  hashPrevouts (32-byte hash)
+        // 3.  hashSequence (32-byte hash)
+        // 4.  outpoint (32-byte hash + 4-byte little endian)
+        // 5.  scriptCode of the input (serialized as scripts inside CTxOuts)
+        // 6.  value of the output spent by this input (8-byte little endian)
+        // 7.  nSequence of the input (4-byte little endian)
+        // 8.  hashOutputs (32-byte hash)
+        // 9.  nLocktime of the transaction (4-byte little endian)
+        // 10. sighash type of the signature (4-byte little endian)
+        let mut raw_vec = vec![];
+
+        let (sighash, anyone_can_pay) =
+            SigHashType::from_u32(sighash_u32).split_anyonecanpay_flag();
+
+        // nVersion
+        raw_vec.append(&mut self.version.to_le_bytes().to_vec());
+
+        // hashPrevouts
+        let prevouts_hash = self.segwit_prevouts_hash(anyone_can_pay);
+        raw_vec.append(&mut prevouts_hash.as_bytes().to_vec());
+
+        // hashSequence
+        let hash_sequence = self.segwit_sequence_hash(sighash, anyone_can_pay);
+        raw_vec.append(&mut hash_sequence.as_bytes().to_vec());
+
+        // outpoint in question
+        let mut outpoint_to_sign = serialize(&self.input[input_index].previous_output)
+            .expect("FATAL: failed to serialize to vec");
+        raw_vec.append(&mut outpoint_to_sign);
+
+        // scriptCode for this input.
+        let mut script_code = self.segwit_script_pubkey_bytes(script_pubkey);
+        raw_vec.append(&mut script_code);
+
+        // value sent
+        raw_vec.append(&mut amount.to_le_bytes().to_vec());
+
+        // input sequence
+        raw_vec.append(&mut self.input[input_index].sequence.to_le_bytes().to_vec());
+
+        // hashed outputs
+        let outputs_hash = self.segwit_outputs_hash(input_index, sighash);
+        raw_vec.append(&mut outputs_hash.as_bytes().to_vec());
+
+        // locktime
+        raw_vec.append(&mut self.lock_time.to_le_bytes().to_vec());
+
+        // sighash
+        raw_vec.append(&mut sighash_u32.to_le_bytes().to_vec());
+
+        Sha256dHash::from_data(&raw_vec)
+    }
+
     /// Gets the "weight" of this transaction, as defined by BIP141. For transactions with an empty
     /// witness, this is simply the consensus-serialized size times 4. For transactions with a
     /// witness, this is the non-witness consensus-serialized size multiplied by 3 plus the
@@ -510,7 +673,7 @@ impl SigHashType {
 
 #[cfg(test)]
 mod tests {
-    use super::{Transaction, TxIn};
+    use super::{SigHashType, Transaction, TxIn};
 
     use crate::deps_common;
     use crate::deps_common::bitcoin::blockdata::script::Script;
@@ -959,5 +1122,69 @@ mod tests {
         run_test_sighash("8f53639901f1d643e01fc631f632b7a16e831d846a0184cdcda289b8fa7767f0c292eb221a00000000046a53abacffffffff037a2daa01000000000553ac6a6a51eac349020000000005ac526552638421b3040000000007006a005100ac63048a1492", "ac65", 0, 1033685559, "da86c260d42a692358f46893d6f91563985d86eeb9ea9e21cd38c2d8ffcfcc4d");
         run_test_sighash("b3cad3a7041c2c17d90a2cd994f6c37307753fa3635e9ef05ab8b1ff121ca11239a0902e700300000009ab635300006aac5163ffffffffcec91722c7468156dce4664f3c783afef147f0e6f80739c83b5f09d5a09a57040200000004516a6552ffffffff969d1c6daf8ef53a70b7cdf1b4102fb3240055a8eaeaed2489617cd84cfd56cf020000000352ab53ffffffff46598b6579494a77b593681c33422a99559b9993d77ca2fa97833508b0c169f80200000009655300655365516351ffffffff04d7ddf800000000000853536a65ac6351ab09f3420300000000056aab65abac33589d04000000000952656a65655151acac944d6f0400000000006a8004ba", "005165", 1, 1035865506, "fe1dc9e8554deecf8f50c417c670b839cc9d650722ebaaf36572418756075d58");
         run_test_sighash("cf781855040a755f5ba85eef93837236b34a5d3daeb2dbbdcf58bb811828d806ed05754ab8010000000351ac53ffffffffda1e264727cf55c67f06ebcc56dfe7fa12ac2a994fecd0180ce09ee15c480f7d00000000096351516a51acac00ab53dd49ff9f334befd6d6f87f1a832cddfd826a90b78fd8cf19a52cb8287788af94e939d6020000000700525251ac526310d54a7e8900ed633f0f6f0841145aae7ee0cbbb1e2a0cae724ee4558dbabfdc58ba6855010000000552536a53abfd1b101102c51f910500000000096300656a525252656a300bee010000000009ac52005263635151abe19235c9", "53005365", 2, 1422854188, "d5981bd4467817c1330da72ddb8760d6c2556cd809264b2d85e6d274609fc3a3");
+    }
+
+    #[test]
+    fn test_segwit_signature_hash() {
+        // bip 143 test vector
+        // https://github.com/bitcoin/bips/blob/master/bip-0143.mediawiki#Native_P2WPKH
+        let unsigned_tx_hex = "0100000002fff7f7881a8099afa6940d42d1e7f6362bec38171ea3edf433541db4e4ad969f0000000000eeffffffef51e1b804cc89d182d279655c3aa89e815b1b309fe287d9b2b55d57b90ec68a0100000000ffffffff02202cb206000000001976a9148280b37df378db99f66f85c95a783a76ac7a6d5988ac9093510d000000001976a9143bde42dbee7e4dbe6a21b2d50ce2f0167faa815988ac11000000";
+        let unsigned_tx: Transaction =
+            deserialize(&hex_bytes(unsigned_tx_hex).unwrap()[..]).unwrap();
+
+        let script1 =
+            Script::from(hex_bytes("00141d0f172a0ecb48aee1be1f2687d2963ae33f71a1").unwrap());
+        let sigh1 = unsigned_tx.segwit_signature_hash(1, &script1, 600000000, 0x01);
+        assert_eq!(
+            sigh1,
+            Sha256dHash::from_hex_le(
+                "c37af31116d1b27caf68aae9e3ac82f1477929014d5b917657d0eb49478cb670"
+            )
+            .unwrap()
+        );
+
+        // coinmonks test vector
+        // https://medium.com/coinmonks/creating-and-signing-a-segwit-transaction-from-scratch-ec98577b526a
+        let tx_hex = "02000000000103ed204affc7519dfce341db0569687569d12b1520a91a9824531c038ad62aa9d1010000006a47304402200da2c4d8f2f44a8154fe127fe5bbe93be492aa589870fe77eb537681bc29c8ec02201eee7504e37db2ef27fa29afda46b6c331cd1a651bb6fa5fd85dcf51ac01567a01210242BF11B788DDFF450C791F16E83465CC67328CA945C703469A08E37EF0D0E061ffffffff9cb872539fbe1bc0b9c5562195095f3f35e6e13919259956c6263c9bd53b20b70100000000ffffffff8012f1ec8aa9a63cf8b200c25ddae2dece42a2495cc473c1758972cfcd84d90401000000171600146a721dcca372f3c17b2c649b2ba61aa0fda98a91ffffffff01b580f50000000000160014cb61ee4568082cb59ac26bb96ec8fbe0109a4c000002483045022100f8dac321b0429798df2952d086e763dd5b374d031c7f400d92370ae3c5f57afd0220531207b28b1b137573941c7b3cf5384a3658ef5fc238d26150d8f75b2bcc61e70121025972A1F2532B44348501075075B31EB21C02EEF276B91DB99D30703F2081B7730247304402204ebf033caf3a1a210623e98b49acb41db2220c531843106d5c50736b144b15aa02201a006be1ebc2ffef0927d4458e3bb5e41e5abc7e44fc5ceb920049b46f879711012102AE68D299CBB8AB99BF24C9AF79A7B13D28AC8CD21F6F7F750300EDA41A589A5D00000000";
+        let mut tx: Transaction = deserialize(&hex_bytes(tx_hex).unwrap()[..]).unwrap();
+
+        // clear out signatures
+        for inp in tx.input.iter_mut() {
+            inp.script_sig = Script::from(vec![]);
+            inp.witness.clear();
+        }
+
+        let script0 =
+            Script::from(hex_bytes("76a914b780d54c6b03b053916333b50a213d566bbedd1388ac").unwrap());
+        let legacy_sighash = tx.signature_hash(0, &script0, 0x01);
+        assert_eq!(
+            legacy_sighash,
+            Sha256dHash::from_hex_le(
+                "5a1fd602ea8fd1e18875e6c3a0ff16a6a90011723269ce3dc1460dbcb2a5aef5"
+            )
+            .unwrap()
+        );
+
+        let script1 =
+            Script::from(hex_bytes("0014594c2e3da92d1904f7e7c856220f8cae5efb5564").unwrap());
+        let sighash = tx.segwit_signature_hash(1, &script1, 9300, 0x01);
+        assert_eq!(
+            sighash,
+            Sha256dHash::from_hex_le(
+                "4876161197833dd58a1a2ba20728633677f38b9a7513a4d7d3714a7f7d3a1fa2"
+            )
+            .unwrap()
+        );
+
+        let script2 =
+            Script::from(hex_bytes("00146a721dcca372f3c17b2c649b2ba61aa0fda98a91").unwrap());
+        let sighash = tx.segwit_signature_hash(2, &script2, 16029969, 0x01);
+        assert_eq!(
+            sighash,
+            Sha256dHash::from_hex_le(
+                "75edf00453c46073a2e8093fdb2cf7bfa56ac04d77a9961fcc5dd3d1dd299529"
+            )
+            .unwrap()
+        );
     }
 }
