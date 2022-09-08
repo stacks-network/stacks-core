@@ -72,7 +72,7 @@ use crate::util_lib::db::Error as db_error;
 use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
@@ -563,6 +563,7 @@ impl Burnchain {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
+                sleep_ms(100);
                 e
             })?;
         }
