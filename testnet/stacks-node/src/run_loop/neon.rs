@@ -15,8 +15,7 @@ use std::collections::HashSet;
 use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
 
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::address::BitcoinAddressType;
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -26,10 +25,12 @@ use stacks::chainstate::coordinator::{
     Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENTS_CHANNEL_SIZE};
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
+use super::RunLoopCallbacks;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::StacksNode;
 use crate::node::use_test_genesis_chainstate;
@@ -38,9 +39,9 @@ use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
     BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
-
-use super::RunLoopCallbacks;
 use libc;
+use stacks::util::hash::Hash160;
+use stacks_common::types::PublicKey;
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
@@ -273,36 +274,53 @@ impl RunLoop {
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
         if self.config.node.miner {
             let keychain = Keychain::default(self.config.node.seed.clone());
-            let node_address = Keychain::address_from_burnchain_signer(
-                &keychain.get_burnchain_signer(),
-                self.config.is_mainnet(),
-            );
-            let btc_addr = BitcoinAddress::from_bytes(
-                self.config.burnchain.get_bitcoin_network().1,
-                BitcoinAddressType::PublicKeyHash,
-                &node_address.to_bytes(),
-            )
-            .expect("FATAL: unable to determine Bitcoin address for miner");
-            info!("Miner node: checking UTXOs at address: {}", btc_addr);
-
+            let mut op_signer = keychain.generate_op_signer();
             match burnchain.create_wallet_if_dne() {
                 Err(e) => warn!("Error when creating wallet: {:?}", e),
                 _ => {}
             }
+            let mut btc_addrs = vec![
+                // legacy
+                BitcoinAddress::from_bytes_legacy(
+                    self.config.burnchain.get_bitcoin_network().1,
+                    LegacyBitcoinAddressType::PublicKeyHash,
+                    &Hash160::from_data(&op_signer.get_public_key().to_bytes()).0,
+                )
+                .expect("FATAL: failed to construct legacy bitcoin address"),
+            ];
+            if self.config.miner.segwit {
+                btc_addrs.push(
+                    // segwit p2wpkh
+                    BitcoinAddress::from_bytes_segwit_p2wpkh(
+                        self.config.burnchain.get_bitcoin_network().1,
+                        &Hash160::from_data(&op_signer.get_public_key().to_bytes_compressed()).0,
+                    )
+                    .expect("FATAL: failed to construct segwit p2wpkh address"),
+                );
+            }
 
-            let utxos =
-                burnchain.get_utxos(&keychain.generate_op_signer().get_public_key(), 1, None, 0);
-            if utxos.is_none() {
-                if self.config.node.mock_mining {
-                    info!("No UTXOs found, but configured to mock mine");
-                    true
+            for btc_addr in btc_addrs.into_iter() {
+                info!("Miner node: checking UTXOs at address: {}", &btc_addr);
+                let utxos = burnchain.get_utxos(
+                    StacksEpochId::Epoch21,
+                    &op_signer.get_public_key(),
+                    btc_addr.clone(),
+                    1,
+                    None,
+                    0,
+                );
+                if utxos.is_none() {
+                    warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
                 } else {
-                    error!("UTXOs not found - switching off mining, will run as a Follower node. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr);
-                    false
+                    info!("UTXOs found - will run as a Miner node");
+                    return true;
                 }
+            }
+            if self.config.node.mock_mining {
+                info!("No UTXOs found, but configured to mock mine");
+                return true;
             } else {
-                info!("UTXOs found - will run as a Miner node");
-                true
+                return false;
             }
         } else {
             info!("Will run as a Follower node");
