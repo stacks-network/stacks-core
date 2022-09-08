@@ -789,6 +789,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_transfer_stacks_tx(
         &mut self,
+        _epoch_id: StacksEpochId,
         _payload: TransferStxOp,
         _signer: &mut BurnchainOpSigner,
         _utxo: Option<UTXO>,
@@ -914,6 +915,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
+        _epoch_id: StacksEpochId,
         _payload: PreStxOp,
         _signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
