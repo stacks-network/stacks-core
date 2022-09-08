@@ -19,8 +19,8 @@ use std::io::{Read, Write};
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::BurnchainRecipient;
 use crate::burnchains::Txid;
-use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::Error as op_error;
@@ -142,7 +142,7 @@ impl TransferStxOp {
         )
     }
 
-    /// parse a StackStxOp
+    /// parse a TransferStxOp
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
@@ -150,22 +150,22 @@ impl TransferStxOp {
         sender: &StacksAddress,
     ) -> Result<TransferStxOp, op_error> {
         // can't be too careful...
-        let outputs = tx.get_recipients();
+        let num_outputs = tx.num_recipients();
 
         if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -180,7 +180,15 @@ impl TransferStxOp {
             op_error::ParseError
         })?;
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
         let output = outputs[0]
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: could not decode the first output");
+                op_error::InvalidInput
+            })?
             .address
             .clone()
             .try_into_stacks_address()
@@ -269,36 +277,37 @@ mod tests {
             opcode: Opcodes::TransferStx as u8,
             data: vec![1; 77],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -318,7 +327,9 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(
             &op.recipient,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
         );
         assert_eq!(op.transfered_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.memo, vec![1; 61]);
