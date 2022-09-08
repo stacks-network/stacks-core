@@ -1,6 +1,7 @@
 ;; The .pox-2 contract
 ;; Error codes
 (define-constant ERR_STACKING_UNREACHABLE 255)
+(define-constant ERR_STACKING_CORRUPTED_STATE 254)
 (define-constant ERR_STACKING_INSUFFICIENT_FUNDS 1)
 (define-constant ERR_STACKING_INVALID_LOCK_PERIOD 2)
 (define-constant ERR_STACKING_ALREADY_STACKED 3)
@@ -286,6 +287,70 @@
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
     (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: index }))
 
+(define-private (set-uint-at (in-list (list 12 uint)) (index uint) (value uint))
+    (unwrap-panic (as-max-len? 
+        (concat (append (default-to (list) (slice in-list u0 index))
+                    value)
+                (default-to (list) (slice in-list (+ u1 index) (len in-list))))
+        u12)))
+
+(define-private (fold-unlock-reward-cycle (set-index uint)
+                                          (data-res (response { cycle: uint,
+                                                      first-unlocked-cycle: uint,
+                                                      stacker: principal
+                                                    } int)))
+    (let ((data (try! data-res))
+          (cycle (get cycle data))
+          (first-unlocked-cycle (get first-unlocked-cycle data)))
+         ;; if current-cycle hasn't reached first-unlocked-cycle, just continue to next iter
+         (asserts! (>= cycle first-unlocked-cycle) (ok (merge data { cycle: (+ u1 cycle) })))
+         (let ((cycle-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: cycle, index: set-index })))
+               (cycle-entry-u (get stacker cycle-entry))
+               (cycle-entry-total-ustx (get total-ustx cycle-entry))
+               (cycle-last-entry-ix (- (get len (unwrap-panic (map-get? reward-cycle-pox-address-list-len { reward-cycle: cycle }))) u1)))
+            (asserts! (is-eq cycle-entry-u (some (get stacker data))) (err ERR_STACKING_CORRUPTED_STATE))
+            (if (not (is-eq cycle-last-entry-ix set-index))
+                ;; do a "move" if the entry to remove isn't last
+                (let ((move-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: cycle, index: cycle-last-entry-ix }))))
+                    (map-set reward-cycle-pox-address-list
+                             { reward-cycle: cycle, index: set-index }
+                             move-entry)
+                    (match (get stacker move-entry) moved-stacker
+                     ;; if the moved entry had an associated stacker, update its state
+                     (let ((moved-state (unwrap-panic (map-get? stacking-state { stacker: moved-stacker })))
+                           ;; calculate the index into the reward-set-indexes that `cycle` is at
+                           (moved-cycle-index (- cycle (get first-reward-cycle moved-state)))
+                           (moved-reward-list (get reward-set-indexes moved-state))
+                           ;; reward-set-indexes[moved-cycle-index] = set-index via slice, append, concat.
+                           (update-list (set-uint-at moved-reward-list moved-cycle-index set-index)))
+                          (map-set stacking-state { stacker: moved-stacker }
+                                   (merge moved-state { reward-set-indexes: update-list })))
+                     ;; otherwise, we dont need to update stacking-state after move
+                     true))
+                ;; if not moving, just noop
+                true)
+            ;; in all cases, we now need to delete the last list entry
+            (map-delete reward-cycle-pox-address-list { reward-cycle: cycle, index: cycle-last-entry-ix })
+            (map-set reward-cycle-pox-address-list-len { reward-cycle: cycle } { len: cycle-last-entry-ix })
+            ;; finally, update `reward-cycle-total-stacked`
+            (map-set reward-cycle-total-stacked { reward-cycle: cycle }
+                { total-ustx: (- (get total-ustx (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: cycle })))
+                                 cycle-entry-total-ustx) })
+            (ok (merge data { cycle: (+ u1 cycle)} )))))
+
+;; This method is called by the Stacks block processor directly in order to handle the contract state mutations
+;;  associated with an early unlock. This can only be invoked by the block processor: it is private, and no methods
+;;  from this contract invoke it.
+(define-private (handle-unlock (user principal) (amount-locked uint) (cycle-to-unlock uint))
+    (let ((user-stacking-state (unwrap-panic (map-get? stacking-state { stacker: user })))
+          (first-cycle-locked (get first-reward-cycle user-stacking-state))
+          (reward-set-indexes (get reward-set-indexes user-stacking-state)))
+        ;; iterate over each reward set the user is a member of, and remove them from the sets. only apply to reward sets after cycle-to-unlock.
+        (try! (fold fold-unlock-reward-cycle reward-set-indexes (ok { cycle: first-cycle-locked, first-unlocked-cycle: cycle-to-unlock, stacker: user })))
+        ;; Now that we've cleaned up all the reward set entries for the user, delete the user's stacking-state
+        (map-delete stacking-state { stacker: user })
+        (ok true)))
+
 ;; Add a PoX address to the `cycle-index`-th reward cycle, if `cycle-index` is between 0 and the given num-cycles (exclusive).
 ;; Arguments are given as a tuple, so this function can be (folded ..)'ed onto a list of its arguments.
 ;; Used by add-pox-addr-to-reward-cycles.
@@ -343,12 +408,13 @@
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
         (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
                          { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, 
-                           reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) })))
+                           reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) }))
+        (reward-set-indexes (get reward-set-indexes results)))
     ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
     ;; It _should_ be equal to num-cycles.
     (asserts! (is-eq num-cycles (get i results)) (err ERR_STACKING_UNREACHABLE))
-    (asserts! (is-eq num-cycles (len (get reward-set-indexes results))) (err ERR_STACKING_UNREACHABLE))
-    (ok (get reward-set-indexes results))))
+    (asserts! (is-eq num-cycles (len reward-set-indexes)) (err ERR_STACKING_UNREACHABLE))
+    (ok reward-set-indexes)))
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
                  (cycle-index uint)

@@ -1634,66 +1634,6 @@ impl<'a> SortitionHandleConn<'a> {
         })
     }
 
-    /// is the given block a descendant of `potential_ancestor`?
-    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
-    ///  * potential_ancestor: the stacks block hash of the potential ancestor
-    pub fn descended_from(
-        &mut self,
-        block_at_burn_height: u64,
-        potential_ancestor: &BlockHeaderHash,
-    ) -> Result<bool, db_error> {
-        let earliest_block_height = self.conn().query_row(
-            "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
-            &[potential_ancestor],
-            |row| Ok(u64::from_row(row).expect("Expected u64 in database")))?;
-
-        let mut sn = self
-            .get_block_snapshot_by_height(block_at_burn_height)?
-            .ok_or_else(|| {
-                test_debug!("No snapshot at height {}", block_at_burn_height);
-                db_error::NotFoundError
-            })?;
-
-        while sn.block_height >= earliest_block_height {
-            if !sn.sortition {
-                return Ok(false);
-            }
-            if &sn.winning_stacks_block_hash == potential_ancestor {
-                return Ok(true);
-            }
-
-            // step back to the parent
-            match SortitionDB::get_block_commit_parent_sortition_id(
-                self.conn(),
-                &sn.winning_block_txid,
-                &sn.sortition_id,
-            )? {
-                Some(parent_sortition_id) => {
-                    // we have the block_commit parent memoization data
-                    test_debug!(
-                        "Parent sortition of {} memoized as {}",
-                        &sn.winning_block_txid,
-                        &parent_sortition_id
-                    );
-                    sn = SortitionDB::get_block_snapshot(self.conn(), &parent_sortition_id)?
-                        .ok_or_else(|| db_error::NotFoundError)?;
-                }
-                None => {
-                    // we do not have the block_commit parent memoization data
-                    // step back to the parent
-                    test_debug!("No parent sortition memo for {}", &sn.winning_block_txid);
-                    let block_commit =
-                        get_block_commit_by_txid(&self.conn(), &sn.winning_block_txid)?
-                            .expect("CORRUPTION: winning block commit for snapshot not found");
-                    sn = self
-                        .get_block_snapshot_by_height(block_commit.parent_block_ptr as u64)?
-                        .ok_or_else(|| db_error::NotFoundError)?;
-                }
-            }
-        }
-        return Ok(false);
-    }
-
     fn get_tip_indexed(&self, key: &str) -> Result<Option<String>, db_error> {
         self.get_indexed(&self.context.chain_tip, key)
     }

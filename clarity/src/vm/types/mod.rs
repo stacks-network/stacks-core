@@ -1359,13 +1359,6 @@ impl TupleData {
         self.data_map.len() as u64
     }
 
-    /// This is like `from_data` for constructing a tuple, but is to be used in contexts
-    /// where the constructed tuple is *known* to be a valid Clarity value (e.g., static contexts)
-    /// This panics if the tuple is not a valid Clarity value.
-    pub fn from_data_static(data: Vec<(ClarityName, Value)>) -> TupleData {
-        Self::from_data(data).expect("FATAL: static Clarity tuple initialization failed")
-    }
-
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();

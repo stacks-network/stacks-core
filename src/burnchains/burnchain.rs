@@ -455,9 +455,12 @@ impl Burnchain {
         )
     }
 
-    /// Is this block the block in a reward cycle right before the reward phase
-    ///  starts? This is the mod 0 block.
-    pub fn is_pre_reward_cycle_start(
+    /// Is this block either the first block in a reward cycle or
+    ///  right before the reward phase starts? This is the mod 0 or mod 1
+    ///  block. Reward cycle start events (like auto-unlocks) process *after*
+    ///  the first reward block, so this function is used to determine when
+    ///  that has passed.
+    pub fn is_before_reward_cycle(
         first_block_ht: u64,
         burn_ht: u64,
         reward_cycle_length: u64,
