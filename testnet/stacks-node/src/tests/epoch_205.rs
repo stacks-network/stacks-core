@@ -545,8 +545,9 @@ fn transition_empty_blocks() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
+    let mut bitcoin_controller =
+        BitcoinRegtestController::new_dummy(conf.clone(), burnchain.clone());
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {

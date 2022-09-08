@@ -2232,10 +2232,10 @@ fn make_all_api_reference() -> ReferenceAPIs {
         .iter()
         .map(|x| make_api_reference(x))
         .collect();
-
     for data_type in DefineFunctions::ALL.iter() {
         functions.push(make_define_reference(data_type))
     }
+    functions.sort_by(|x, y| x.name.cmp(&y.name));
 
     let mut keywords = Vec::new();
     for variable in NativeVariables::ALL.iter() {
@@ -2244,6 +2244,7 @@ fn make_all_api_reference() -> ReferenceAPIs {
             keywords.push(api_ref)
         }
     }
+    keywords.sort_by(|x, y| x.name.cmp(&y.name));
 
     ReferenceAPIs {
         functions,
