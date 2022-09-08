@@ -214,7 +214,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
         let memo_hex: String = row.get_unwrap("memo");
-        let address = StacksAddress::from_column(row, "address")?;
 
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
 
@@ -229,7 +228,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
             consensus_hash: consensus_hash,
             public_key: public_key,
             memo: memo,
-            address: address,
         };
 
         Ok(leader_key_row)
@@ -501,7 +499,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
-        address TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -4091,7 +4088,7 @@ impl<'a> SortitionHandleTx<'a> {
                 info!(
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
-                    "apparent_sender" => %op.apparent_sender.to_bitcoin_address(BitcoinNetworkType::Mainnet)
+                    "apparent_sender" => %op.apparent_sender
                 );
                 self.insert_block_commit(op, sort_id)
             }
@@ -4146,11 +4143,10 @@ impl<'a> SortitionHandleTx<'a> {
             &leader_key.consensus_hash,
             &leader_key.public_key.to_hex(),
             &to_hex(&leader_key.memo),
-            &leader_key.address.to_string(),
             sort_id,
         ];
 
-        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -4995,13 +4991,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5081,13 +5070,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5119,14 +5101,14 @@ pub mod tests {
             commit_outs: vec![],
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -5306,13 +5288,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5402,13 +5377,6 @@ pub mod tests {
             .unwrap(),
             public_key: public_key.clone(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5902,13 +5870,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5940,14 +5901,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -8029,13 +7990,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -8068,14 +8022,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("dec0489b200c05e3611c174a203da75bea86eb16d254afdec9d93a7d50623426")
@@ -8109,14 +8063,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("c25b21f8c8d55f52cf67e1e7604ca243438df7753a06bea085e10a9957ce0f8e")
@@ -8150,14 +8104,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("a55f4f6afff0ba597a22a5d90bea2cd61b078518dbdf67f77588e3c0effb5c0f")
@@ -8191,14 +8145,14 @@ pub mod tests {
 
             burn_fee: 1,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("53bfa82f97ef65f0239ded2b4ed93cab1f9d72f9454ac5eb4d7d0f79ad9e0127")
