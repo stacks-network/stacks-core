@@ -143,12 +143,14 @@ impl BurnchainController for MocknetController {
 
     fn submit_operation(
         &mut self,
+        _epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         _op_signer: &mut BurnchainOpSigner,
         _attempt: u64,
-    ) -> bool {
+    ) -> Option<Txid> {
+        let txid = operation.txid();
         self.queued_operations.push_back(operation);
-        true
+        Some(txid)
     }
 
     fn sync(
@@ -175,7 +177,6 @@ impl BurnchainController for MocknetController {
                         consensus_hash: payload.consensus_hash,
                         public_key: payload.public_key,
                         memo: payload.memo,
-                        address: payload.address,
                         txid,
                         vtxindex: vtxindex,
                         block_height: next_block_header.block_height,
