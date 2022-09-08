@@ -700,7 +700,7 @@ impl BurnBlockInfoProperty {
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
                                 ("version".into(), BUFF_1.clone()),
-                                ("hashbytes".into(), BUFF_20.clone()),
+                                ("hashbytes".into(), BUFF_32.clone()),
                             ])
                             .expect("FATAL: bad type signature for pox addr"),
                         ),
