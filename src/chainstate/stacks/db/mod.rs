@@ -30,7 +30,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
@@ -1097,8 +1097,8 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
-            Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
+        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+            Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
