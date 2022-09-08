@@ -19,7 +19,6 @@ use std::error;
 use std::fmt;
 use std::thread;
 
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
@@ -1204,8 +1203,6 @@ mod tests {
     use std::fs;
 
     use rusqlite::NO_PARAMS;
-
-    use crate::chainstate::stacks::address::PoxAddress;
 
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
