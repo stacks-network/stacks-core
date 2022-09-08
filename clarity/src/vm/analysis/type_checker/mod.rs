@@ -710,9 +710,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         // Clarity 2 allows traits embedded in compound types and allows
         // implicit casts between compatible traits, while Clarity 1 does not.
         if self.clarity_version >= ClarityVersion::Clarity2 {
-            runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
-
-            self.inner_type_check_expects(expr, context, expected_type)
+            self.clarity2_type_check_expects(expr, context, expected_type)
                 .map_err(|mut e| {
                     if !e.has_expression() {
                         e.set_expression(expr)
@@ -720,49 +718,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     e
                 })
         } else {
-            match (&expr.expr, expected_type) {
-                (
-                    LiteralValue(Value::Principal(PrincipalData::Contract(
-                        ref contract_identifier,
-                    ))),
-                    TypeSignature::TraitReferenceType(trait_identifier),
-                ) => {
-                    let contract_to_check = self
-                        .db
-                        .load_contract(&contract_identifier)
-                        .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-
-                    let contract_defining_trait = self
-                        .db
-                        .load_contract(&trait_identifier.contract_identifier)
-                        .ok_or(CheckErrors::NoSuchContract(
-                            trait_identifier.contract_identifier.to_string(),
-                        ))?;
-
-                    let trait_definition = contract_defining_trait
-                        .get_defined_trait(&trait_identifier.name)
-                        .ok_or(CheckErrors::NoSuchTrait(
-                            trait_identifier.contract_identifier.to_string(),
-                            trait_identifier.name.to_string(),
-                        ))?;
-
-                    contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
-                    return Ok(expected_type.clone());
-                }
-                (_, _) => {}
-            }
-
-            let actual_type = self.type_check(expr, context)?;
-            analysis_typecheck_cost(self, expected_type, &actual_type)?;
-
-            if !expected_type.admits_type(&actual_type) {
-                let mut err: CheckError =
-                    CheckErrors::TypeError(expected_type.clone(), actual_type).into();
-                err.set_expression(expr);
-                Err(err)
-            } else {
-                Ok(actual_type)
-            }
+            self.clarity1_type_check_expects(expr, context, expected_type)
         }
     }
 
@@ -995,7 +951,58 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn inner_type_check_expects(
+    fn clarity1_type_check_expects(
+        &mut self,
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+        expected_type: &TypeSignature,
+    ) -> TypeResult {
+        match (&expr.expr, expected_type) {
+            (
+                LiteralValue(Value::Principal(PrincipalData::Contract(
+                    ref contract_identifier,
+                ))),
+                TypeSignature::TraitReferenceType(trait_identifier),
+            ) => {
+                let contract_to_check = self
+                    .db
+                    .load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let contract_defining_trait = self
+                    .db
+                    .load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(
+                        trait_identifier.contract_identifier.to_string(),
+                    ))?;
+
+                let trait_definition = contract_defining_trait
+                    .get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchTrait(
+                        trait_identifier.contract_identifier.to_string(),
+                        trait_identifier.name.to_string(),
+                    ))?;
+
+                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                return Ok(expected_type.clone());
+            }
+            (_, _) => {}
+        }
+
+        let actual_type = self.type_check(expr, context)?;
+        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+
+        if !expected_type.admits_type(&actual_type) {
+            let mut err: CheckError =
+                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+            err.set_expression(expr);
+            Err(err)
+        } else {
+            Ok(actual_type)
+        }
+    }
+
+    fn clarity2_type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
@@ -1010,6 +1017,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             }
         };
 
+        analysis_typecheck_cost(self, expected_type, &expr_type)?;
         match (expected_type, &expr.expr) {
             (
                 TypeSignature::TraitReferenceType(expected_trait_id),
