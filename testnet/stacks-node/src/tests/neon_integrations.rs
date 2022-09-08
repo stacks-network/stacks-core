@@ -10,7 +10,7 @@ use std::{env, thread};
 
 use rusqlite::types::ToSql;
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
@@ -73,7 +73,7 @@ use super::{
     SK_2,
 };
 use stacks::chainstate::stacks::miner::{
-    TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
+    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 
 use crate::config::FeeEstimatorName;
@@ -1082,9 +1082,9 @@ fn stx_transfer_btc_integration_test() {
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.clone().into();
-    let _spender_btc_addr = BitcoinAddress::from_bytes(
+    let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
-        BitcoinAddressType::PublicKeyHash,
+        LegacyBitcoinAddressType::PublicKeyHash,
         &spender_stx_addr.bytes.0,
     )
     .unwrap();
@@ -1153,11 +1153,14 @@ fn stx_transfer_btc_integration_test() {
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::PreStx(pre_stx_op),
-            &mut miner_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch2_05,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -1180,11 +1183,14 @@ fn stx_transfer_btc_integration_test() {
     let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::TransferStx(transfer_stx_op),
-            &mut spender_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch2_05,
+                BlockstackOperationType::TransferStx(transfer_stx_op),
+                &mut spender_signer,
+                1
+            )
+            .is_some(),
         "Transfer operation should submit successfully"
     );
     // should be elected in the same block as the transfer, so balances should be unchanged.
@@ -1217,6 +1223,7 @@ fn stx_transfer_btc_integration_test() {
 
     let pre_stx_tx = btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch2_05,
             BlockstackOperationType::PreStx(pre_stx_op),
             &mut miner_signer,
             None,
@@ -1248,6 +1255,7 @@ fn stx_transfer_btc_integration_test() {
 
     btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch2_05,
             BlockstackOperationType::TransferStx(transfer_stx_op),
             &mut spender_signer,
             Some(transfer_stx_utxo),
@@ -4872,9 +4880,9 @@ fn pox_integration_test() {
             .to_vec(),
     );
 
-    let pox_2_address = BitcoinAddress::from_bytes(
+    let pox_2_address = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Testnet,
-        BitcoinAddressType::PublicKeyHash,
+        LegacyBitcoinAddressType::PublicKeyHash,
         &Hash160::from_node_public_key(&pox_2_pubkey).to_bytes(),
     )
     .unwrap();
@@ -5282,20 +5290,20 @@ fn pox_integration_test() {
         }
     }
 
-    let pox_1_address = BitcoinAddress::from_bytes(
+    let pox_1_address = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Testnet,
-        BitcoinAddressType::PublicKeyHash,
+        LegacyBitcoinAddressType::PublicKeyHash,
         &Hash160::from_node_public_key(&pox_pubkey).to_bytes(),
     )
     .unwrap();
 
     assert_eq!(recipient_slots.len(), 2);
     assert_eq!(
-        recipient_slots.get(&pox_2_address.to_b58()).cloned(),
+        recipient_slots.get(&format!("{}", &pox_2_address)).cloned(),
         Some(7u64)
     );
     assert_eq!(
-        recipient_slots.get(&pox_1_address.to_b58()).cloned(),
+        recipient_slots.get(&format!("{}", &pox_1_address)).cloned(),
         Some(7u64)
     );
 
