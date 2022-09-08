@@ -27,12 +27,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::burnchains::bitcoin::address::address_type_to_version_byte;
 use crate::burnchains::bitcoin::address::to_c32_version_byte;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::address::BitcoinAddressType;
+use crate::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxOutput};
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
@@ -291,74 +290,34 @@ impl BurnchainStateTransition {
 
 impl BurnchainSigner {
     #[cfg(test)]
+    pub fn mock_parts(
+        hash_mode: AddressHashMode,
+        num_sigs: usize,
+        public_keys: Vec<StacksPublicKey>,
+    ) -> BurnchainSigner {
+        // This isn't actually a scriptsig.
+        // This is just a byte-serialized representation of the arguments.
+        // This is used for test compatibility.
+        let hex_strs: Vec<_> = public_keys.into_iter().map(|pubk| pubk.to_hex()).collect();
+        let repr = format!("{},{},{:?}", hash_mode as u8, &num_sigs, &hex_strs);
+        BurnchainSigner(repr)
+    }
+
+    #[cfg(test)]
     pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
-        BurnchainSigner {
-            hash_mode: AddressHashMode::SerializeP2PKH,
-            num_sigs: 1,
-            public_keys: vec![pubk.clone()],
-        }
-    }
-
-    pub fn from_bitcoin_input(inp: &BitcoinTxInput) -> BurnchainSigner {
-        match inp.in_type {
-            BitcoinInputType::Standard => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2SH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-            BitcoinInputType::SegwitP2SH => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WPKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WSH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
-        let addr_type = match &self.hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
-                BitcoinAddressType::PublicKeyHash
-            }
-            _ => BitcoinAddressType::ScriptHash,
-        };
-        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
-            .unwrap()
-            .to_string()
-    }
-
-    pub fn to_address_bits(&self) -> Vec<u8> {
-        let h = public_keys_to_address_hash(&self.hash_mode, self.num_sigs, &self.public_keys);
-        h.as_bytes().to_vec()
+        BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
     }
 }
 
 impl BurnchainRecipient {
-    pub fn from_bitcoin_output(o: &BitcoinTxOutput) -> BurnchainRecipient {
-        let addr = StacksAddress::from_bitcoin_address(&o.address);
-        let pox_addr = PoxAddress::Standard(addr, None);
-        BurnchainRecipient {
-            address: pox_addr,
-            amount: o.units,
+    pub fn try_from_bitcoin_output(o: &BitcoinTxOutput) -> Option<BurnchainRecipient> {
+        if let Some(pox_addr) = PoxAddress::try_from_bitcoin_output(o) {
+            Some(BurnchainRecipient {
+                address: pox_addr,
+                amount: o.units,
+            })
+        } else {
+            None
         }
     }
 }
@@ -454,7 +413,10 @@ impl Burnchain {
         })
     }
 
+    /// BROKEN; DO NOT USE IN NEW CODE
+    /// Use is_mainnet_21() instead
     pub fn is_mainnet(&self) -> bool {
+        // NOTE: this is always false, and it's consensus-critical so we can't change it :(
         self.network_id == NETWORK_ID_MAINNET
     }
 
@@ -951,6 +913,12 @@ impl Burnchain {
             indexer.get_first_block_header_timestamp()?,
             indexer.get_stacks_epochs(),
         )?;
+        let (parser_sortdb, _) = self.connect_db(
+            true,
+            indexer.get_first_block_header_hash()?,
+            indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
+        )?;
         let burn_chain_tip = burnchain_db.get_canonical_chain_tip().map_err(|e| {
             error!("Failed to query burn chain tip from burn DB: {}", e);
             e
@@ -1044,13 +1012,21 @@ impl Burnchain {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
 
+                    let cur_epoch =
+                        SortitionDB::get_stacks_epoch(parser_sortdb.conn(), ipc_block.height())?
+                            .expect(&format!(
+                                "FATAL: no stacks epoch defined for {}",
+                                ipc_block.height()
+                            ));
+
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block)?;
+                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
-                        "Parsed block {} in {}ms",
+                        "Parsed block {} (epoch {}) in {}ms",
                         burnchain_block.block_height(),
+                        cur_epoch.epoch_id,
                         parse_end.saturating_sub(parse_start)
                     );
 
@@ -1195,7 +1171,7 @@ impl Burnchain {
         I: BurnchainIndexer + 'static,
     {
         self.setup_chainstate(indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(
+        let (sortdb, mut burnchain_db) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1364,13 +1340,19 @@ impl Burnchain {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
 
+                    let cur_epoch =
+                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?.expect(
+                            &format!("FATAL: no stacks epoch defined for {}", ipc_block.height()),
+                        );
+
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block)?;
+                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
-                        "Parsed block {} in {}ms",
+                        "Parsed block {} (in epoch {}) in {}ms",
                         burnchain_block.block_height(),
+                        cur_epoch.epoch_id,
                         parse_end.saturating_sub(parse_start)
                     );
 
@@ -1586,13 +1568,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1615,13 +1590,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -1644,13 +1612,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914f464a593895cd58c74a7352dd4a65c491d0c0bf688ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c")
@@ -1858,14 +1819,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -1898,14 +1859,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0")
@@ -1938,14 +1899,14 @@ pub mod tests {
 
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "0283d603abdd2392646dbdd0dc80beb39c25bfab96a8a921ea5e7517ce533f8cd5",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("301dc687a9f06a1ae87a013f27133e9cec0843c2983567be73e185827c7c13de")
@@ -2410,21 +2371,11 @@ pub mod tests {
 
             leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));
 
-            let btc_input = BitcoinTxInput {
-                in_type: BitcoinInputType::Standard,
-                keys: vec![bitcoin_publickey.clone()],
-                num_required: 1,
-                tx_ref: (Txid([0; 32]), 0),
-            };
-
-            leader_bitcoin_addresses.push(
-                BitcoinAddress::from_bytes(
-                    BitcoinNetworkType::Testnet,
-                    BitcoinAddressType::PublicKeyHash,
-                    &btc_input.to_address_bits(),
-                )
-                .unwrap(),
-            );
+            leader_bitcoin_addresses.push(BitcoinAddress::from_bytes_legacy(
+                BitcoinNetworkType::Testnet,
+                LegacyBitcoinAddressType::PublicKeyHash,
+                &Hash160::from_data(&bitcoin_publickey.to_bytes()).0,
+            ));
         }
 
         let mut expected_burn_total: u64 = 0;
@@ -2504,14 +2455,14 @@ pub mod tests {
 
                     burn_fee: i as u64,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             &leader_bitcoin_public_keys[(i - 1) as usize].clone(),
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes(&vec![
                         i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2546,9 +2497,6 @@ pub mod tests {
                 )
                 .unwrap(),
                 memo: vec![0, 0, 0, 0, i],
-                address: StacksAddress::from_bitcoin_address(
-                    &leader_bitcoin_addresses[i as usize].clone(),
-                ),
 
                 txid: Txid::from_bytes(&vec![
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
