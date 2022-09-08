@@ -621,8 +621,13 @@ fn transition_empty_blocks() {
                 commit_outs,
             });
             let mut op_signer = keychain.generate_op_signer();
-            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
-            assert!(res, "Failed to submit block-commit");
+            let res = bitcoin_controller.submit_operation(
+                StacksEpochId::Epoch2_05,
+                op,
+                &mut op_signer,
+                1,
+            );
+            assert!(res.is_some(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
