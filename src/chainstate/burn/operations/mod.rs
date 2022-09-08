@@ -199,6 +199,7 @@ pub struct StackStxOp {
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct PreStxOp {
     /// the output address
+    /// (must be a legacy Bitcoin address)
     pub output: StacksAddress,
 
     // common to all transactions
@@ -246,7 +247,6 @@ pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
     pub memo: Vec<u8>,                 // extra bytes in the op-return
-    pub address: StacksAddress, // NOTE: no longer used for anything consensus-critical, but identifies the change address output
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
