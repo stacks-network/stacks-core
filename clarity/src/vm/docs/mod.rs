@@ -41,6 +41,14 @@ struct KeywordAPI {
     version: ClarityVersion,
 }
 
+#[derive(Serialize, Clone)]
+struct SimpleKeywordAPI {
+    name: &'static str,
+    output_type: &'static str,
+    description: &'static str,
+    example: &'static str,
+}
+
 #[derive(Serialize)]
 struct FunctionAPI {
     name: String,
@@ -76,24 +84,22 @@ struct DefineAPI {
     example: &'static str,
 }
 
-const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "block-height",
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain as an uint",
     example:
         "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks.",
-    version: ClarityVersion::Clarity1,
 };
 
-const BURN_BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "burn-block-height",
     output_type: "uint",
     description: "Returns the current block height of the underlying burn blockchain as a uint",
     example: "(> burn-block-height 1000) ;; returns true if the current height of the underlying burn blockchain has passed 1000 blocks.",
-    version: ClarityVersion::Clarity1,
 };
 
-const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
+const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "contract-caller",
     output_type: "principal",
     description: "Returns the caller of the current contract context. If this contract is the first one called by a signed transaction,
@@ -101,60 +107,53 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
-    version: ClarityVersion::Clarity1,
 };
 
-const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
+const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "tx-sender",
     output_type: "principal",
     description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
 contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
-    version: ClarityVersion::Clarity1,
 };
 
-const TX_SPONSOR_KEYWORD: KeywordAPI = KeywordAPI {
+const TX_SPONSOR_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "tx-sponsor?",
     output_type: "optional principal",
     description: "Returns the sponsor of the current transaction if there is a sponsor, otherwise returns None.",
     example: "(print tx-sponsor?) ;; Will print out an optional value containing the Stacks address of the transaction sponsor",
-    version: ClarityVersion::Clarity1,
 };
 
-const TOTAL_LIQUID_USTX_KEYWORD: KeywordAPI = KeywordAPI {
+const TOTAL_LIQUID_USTX_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stx-liquid-supply",
     output_type: "uint",
     description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
     example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX",
-    version: ClarityVersion::Clarity1,
 };
 
-const REGTEST_KEYWORD: KeywordAPI = KeywordAPI {
+const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "is-in-regtest",
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
     example:
         "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
-    version: ClarityVersion::Clarity1,
 };
 
-const MAINNET_KEYWORD: KeywordAPI = KeywordAPI {
+const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "is-in-mainnet",
     output_type: "bool",
     description: "Returns a boolean indicating whether or not the code is running on the mainnet",
     example: "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
-    version: ClarityVersion::Clarity1,
 };
 
-const CHAINID_KEYWORD: KeywordAPI = KeywordAPI {
+const CHAINID_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "chain-id",
     output_type: "uint",
     description: "Returns the 32-bit chain ID of the blockchain running this transaction",
     example: "(print chain-id) ;; Will print 'u1' if the code is running on mainnet, and 'u2147483648' on testnet, and other values on different chains.",
-    version: ClarityVersion::Clarity1,
 };
 
-const NONE_KEYWORD: KeywordAPI = KeywordAPI {
+const NONE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "none",
     output_type: "(optional ?)",
     description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
@@ -166,10 +165,9 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
 (only-if-positive 4) ;; Returns (some 4)
 (only-if-positive (- 3)) ;; Returns none
 ",
-    version: ClarityVersion::Clarity1,
 };
 
-const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
+const TRUE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "true",
     output_type: "bool",
     description: "Boolean true constant.",
@@ -177,10 +175,9 @@ const TRUE_KEYWORD: KeywordAPI = KeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
-    version: ClarityVersion::Clarity1,
 };
 
-const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
+const FALSE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "false",
     output_type: "bool",
     description: "Boolean false constant.",
@@ -188,7 +185,6 @@ const FALSE_KEYWORD: KeywordAPI = KeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
-    version: ClarityVersion::Clarity1,
 };
 
 const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -2112,105 +2108,112 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
         Not => make_for_simple_native(&NOT_API, &Not, name),
-        Equals => make_for_special(&EQUALS_API, name),
-        If => make_for_special(&IF_API, name),
-        Let => make_for_special(&LET_API, name),
-        FetchVar => make_for_special(&FETCH_VAR_API, name),
-        SetVar => make_for_special(&SET_VAR_API, name),
-        Map => make_for_special(&MAP_API, name),
-        Filter => make_for_special(&FILTER_API, name),
-        Fold => make_for_special(&FOLD_API, name),
-        Append => make_for_special(&APPEND_API, name),
-        Concat => make_for_special(&CONCAT_API, name),
-        AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, name),
-        Len => make_for_special(&LEN_API, name),
-        ElementAt => make_for_special(&ELEMENT_AT_API, name),
-        IndexOf => make_for_special(&INDEX_OF_API, name),
-        Slice => make_for_special(&SLICE_API, name),
-        ListCons => make_for_special(&LIST_API, name),
-        FetchEntry => make_for_special(&FETCH_ENTRY_API, name),
-        SetEntry => make_for_special(&SET_ENTRY_API, name),
-        InsertEntry => make_for_special(&INSERT_ENTRY_API, name),
-        DeleteEntry => make_for_special(&DELETE_ENTRY_API, name),
-        TupleCons => make_for_special(&TUPLE_CONS_API, name),
-        TupleGet => make_for_special(&TUPLE_GET_API, name),
-        TupleMerge => make_for_special(&TUPLE_MERGE_API, name),
-        Begin => make_for_special(&BEGIN_API, name),
-        Hash160 => make_for_special(&HASH160_API, name),
-        Sha256 => make_for_special(&SHA256_API, name),
-        Sha512 => make_for_special(&SHA512_API, name),
-        Sha512Trunc256 => make_for_special(&SHA512T256_API, name),
-        Keccak256 => make_for_special(&KECCAK256_API, name),
-        Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, name),
-        Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, name),
-        Print => make_for_special(&PRINT_API, name),
-        ContractCall => make_for_special(&CONTRACT_CALL_API, name),
-        ContractOf => make_for_special(&CONTRACT_OF_API, name),
-        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, name),
-        AsContract => make_for_special(&AS_CONTRACT_API, name),
-        GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, name),
-        GetBurnBlockInfo => make_for_special(&GET_BURN_BLOCK_INFO_API, name),
-        ConsOkay => make_for_special(&CONS_OK_API, name),
-        ConsError => make_for_special(&CONS_ERR_API, name),
-        ConsSome => make_for_special(&CONS_SOME_API, name),
-        DefaultTo => make_for_special(&DEFAULT_TO_API, name),
-        Asserts => make_for_special(&ASSERTS_API, name),
-        UnwrapRet => make_for_special(&EXPECTS_API, name),
-        UnwrapErrRet => make_for_special(&EXPECTS_ERR_API, name),
-        Unwrap => make_for_special(&UNWRAP_API, name),
-        UnwrapErr => make_for_special(&UNWRAP_ERR_API, name),
-        Match => make_for_special(&MATCH_API, name),
-        TryRet => make_for_special(&TRY_API, name),
-        IsOkay => make_for_special(&IS_OK_API, name),
-        IsNone => make_for_special(&IS_NONE_API, name),
-        IsErr => make_for_special(&IS_ERR_API, name),
-        IsSome => make_for_special(&IS_SOME_API, name),
-        MintAsset => make_for_special(&MINT_ASSET, name),
-        MintToken => make_for_special(&MINT_TOKEN, name),
-        GetTokenBalance => make_for_special(&GET_BALANCE, name),
-        GetAssetOwner => make_for_special(&GET_OWNER, name),
-        TransferToken => make_for_special(&TOKEN_TRANSFER, name),
-        TransferAsset => make_for_special(&ASSET_TRANSFER, name),
-        BurnToken => make_for_special(&BURN_TOKEN, name),
-        BurnAsset => make_for_special(&BURN_ASSET, name),
-        GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, name),
-        AtBlock => make_for_special(&AT_BLOCK, name),
+        Equals => make_for_special(&EQUALS_API, function),
+        If => make_for_special(&IF_API, function),
+        Let => make_for_special(&LET_API, function),
+        FetchVar => make_for_special(&FETCH_VAR_API, function),
+        SetVar => make_for_special(&SET_VAR_API, function),
+        Map => make_for_special(&MAP_API, function),
+        Filter => make_for_special(&FILTER_API, function),
+        Fold => make_for_special(&FOLD_API, function),
+        Append => make_for_special(&APPEND_API, function),
+        Concat => make_for_special(&CONCAT_API, function),
+        AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, function),
+        Len => make_for_special(&LEN_API, function),
+        ElementAt => make_for_special(&ELEMENT_AT_API, function),
+        IndexOf => make_for_special(&INDEX_OF_API, function),
+        Slice => make_for_special(&SLICE_API, function),
+        ListCons => make_for_special(&LIST_API, function),
+        FetchEntry => make_for_special(&FETCH_ENTRY_API, function),
+        SetEntry => make_for_special(&SET_ENTRY_API, function),
+        InsertEntry => make_for_special(&INSERT_ENTRY_API, function),
+        DeleteEntry => make_for_special(&DELETE_ENTRY_API, function),
+        TupleCons => make_for_special(&TUPLE_CONS_API, function),
+        TupleGet => make_for_special(&TUPLE_GET_API, function),
+        TupleMerge => make_for_special(&TUPLE_MERGE_API, function),
+        Begin => make_for_special(&BEGIN_API, function),
+        Hash160 => make_for_special(&HASH160_API, function),
+        Sha256 => make_for_special(&SHA256_API, function),
+        Sha512 => make_for_special(&SHA512_API, function),
+        Sha512Trunc256 => make_for_special(&SHA512T256_API, function),
+        Keccak256 => make_for_special(&KECCAK256_API, function),
+        Secp256k1Recover => make_for_special(&SECP256K1RECOVER_API, function),
+        Secp256k1Verify => make_for_special(&SECP256K1VERIFY_API, function),
+        Print => make_for_special(&PRINT_API, function),
+        ContractCall => make_for_special(&CONTRACT_CALL_API, function),
+        ContractOf => make_for_special(&CONTRACT_OF_API, function),
+        PrincipalOf => make_for_special(&PRINCIPAL_OF_API, function),
+        AsContract => make_for_special(&AS_CONTRACT_API, function),
+        GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API, function),
+        GetBurnBlockInfo => make_for_special(&GET_BURN_BLOCK_INFO_API, function),
+        ConsOkay => make_for_special(&CONS_OK_API, function),
+        ConsError => make_for_special(&CONS_ERR_API, function),
+        ConsSome => make_for_special(&CONS_SOME_API, function),
+        DefaultTo => make_for_special(&DEFAULT_TO_API, function),
+        Asserts => make_for_special(&ASSERTS_API, function),
+        UnwrapRet => make_for_special(&EXPECTS_API, function),
+        UnwrapErrRet => make_for_special(&EXPECTS_ERR_API, function),
+        Unwrap => make_for_special(&UNWRAP_API, function),
+        UnwrapErr => make_for_special(&UNWRAP_ERR_API, function),
+        Match => make_for_special(&MATCH_API, function),
+        TryRet => make_for_special(&TRY_API, function),
+        IsOkay => make_for_special(&IS_OK_API, function),
+        IsNone => make_for_special(&IS_NONE_API, function),
+        IsErr => make_for_special(&IS_ERR_API, function),
+        IsSome => make_for_special(&IS_SOME_API, function),
+        MintAsset => make_for_special(&MINT_ASSET, function),
+        MintToken => make_for_special(&MINT_TOKEN, function),
+        GetTokenBalance => make_for_special(&GET_BALANCE, function),
+        GetAssetOwner => make_for_special(&GET_OWNER, function),
+        TransferToken => make_for_special(&TOKEN_TRANSFER, function),
+        TransferAsset => make_for_special(&ASSET_TRANSFER, function),
+        BurnToken => make_for_special(&BURN_TOKEN, function),
+        BurnAsset => make_for_special(&BURN_ASSET, function),
+        GetTokenSupply => make_for_special(&GET_TOKEN_SUPPLY, function),
+        AtBlock => make_for_special(&AT_BLOCK, function),
         GetStxBalance => make_for_simple_native(&STX_GET_BALANCE, &GetStxBalance, name),
         StxGetAccount => make_for_simple_native(&STX_GET_ACCOUNT, &StxGetAccount, name),
-        StxTransfer => make_for_special(&STX_TRANSFER, name),
-        StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, name),
+        StxTransfer => make_for_special(&STX_TRANSFER, function),
+        StxTransferMemo => make_for_special(&STX_TRANSFER_MEMO, function),
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
-        ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, name),
-        FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, name),
+        ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
+        FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
     }
 }
 
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
-    match variable {
-        NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
-        NativeVariables::ContractCaller => Some(CONTRACT_CALLER_KEYWORD.clone()),
-        NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
-        NativeVariables::NativeTrue => Some(TRUE_KEYWORD.clone()),
-        NativeVariables::NativeFalse => Some(FALSE_KEYWORD.clone()),
-        NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
-        NativeVariables::BurnBlockHeight => Some(BURN_BLOCK_HEIGHT.clone()),
-        NativeVariables::TotalLiquidMicroSTX => Some(TOTAL_LIQUID_USTX_KEYWORD.clone()),
-        NativeVariables::Regtest => Some(REGTEST_KEYWORD.clone()),
-        NativeVariables::Mainnet => Some(MAINNET_KEYWORD.clone()),
-        NativeVariables::ChainId => Some(CHAINID_KEYWORD.clone()),
-        NativeVariables::TxSponsor => Some(TX_SPONSOR_KEYWORD.clone()),
-    }
+    let simple_api = match variable {
+        NativeVariables::TxSender => TX_SENDER_KEYWORD.clone(),
+        NativeVariables::ContractCaller => CONTRACT_CALLER_KEYWORD.clone(),
+        NativeVariables::NativeNone => NONE_KEYWORD.clone(),
+        NativeVariables::NativeTrue => TRUE_KEYWORD.clone(),
+        NativeVariables::NativeFalse => FALSE_KEYWORD.clone(),
+        NativeVariables::BlockHeight => BLOCK_HEIGHT.clone(),
+        NativeVariables::BurnBlockHeight => BURN_BLOCK_HEIGHT.clone(),
+        NativeVariables::TotalLiquidMicroSTX => TOTAL_LIQUID_USTX_KEYWORD.clone(),
+        NativeVariables::Regtest => REGTEST_KEYWORD.clone(),
+        NativeVariables::Mainnet => MAINNET_KEYWORD.clone(),
+        NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
+        NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
+    };
+    Some(KeywordAPI {
+        name: simple_api.name,
+        output_type: simple_api.output_type,
+        description: simple_api.description,
+        example: simple_api.example,
+        version: variable.get_version(),
+    })
 }
 
-fn make_for_special(api: &SpecialAPI, name: String) -> FunctionAPI {
+fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI {
     FunctionAPI {
-        name,
+        name: function.get_name().to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
         signature: api.signature.to_string(),
         description: api.description.to_string(),
         example: api.example.to_string(),
-        version: ClarityVersion::Clarity1,
+        version: function.get_version(),
     }
 }
 
