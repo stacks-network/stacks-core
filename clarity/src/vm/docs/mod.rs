@@ -1499,7 +1499,7 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
-    output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 20)) (version (buff 1))))) (payout uint)))",
+    output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 32)) (version (buff 1))))) (payout uint)))",
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
@@ -1517,12 +1517,15 @@ The list will include burn addresses -- that is, the unspendable addresses that 
 there will be exactly one burn address reported. During the reward phase, up to two burn addresses may be reported in the event that some PoX reward slots are not claimed.
 
 The `addrs` list contains the same PoX address values passed into the PoX smart contract:
-   * They each have type signature `(tuple (hashbytes (buff 20)) (version (buff 1)))`
+   * They each have type signature `(tuple (hashbytes (buff 32)) (version (buff 1)))`
    * The `version` field can be any of the following:
-      * `0x00` means this is a p2pkh address, and `hashbytes` is the hash160 of a single public key
-      * `0x01` means this is a p2sh address, and `hashbytes` is the hash160 of a redeemScript script
-      * `0x02` means this is a p2wpkh-p2sh address, and `hashbytes` is the hash160 of a p2wpkh witness script
-      * `0x03` means this is a p2wsh-p2sh address, and `hashbytes` is the hash160 of a p2wsh witness script
+      * `0x00` means this is a p2pkh address, and `hashbytes` is the 20-byte hash160 of a single public key
+      * `0x01` means this is a p2sh address, and `hashbytes` is the 20-byte hash160 of a redeemScript script
+      * `0x02` means this is a p2wpkh-p2sh address, and `hashbytes` is the 20-byte hash160 of a p2wpkh witness script
+      * `0x03` means this is a p2wsh-p2sh address, and `hashbytes` is the 20-byte hash160 of a p2wsh witness script
+      * `0x04` means this is a p2wpkh address, and `hashbytes` is the 20-byte hash160 of the witness script
+      * `0x05` means this is a p2wsh address, and `hashbytes` is the 32-byte sha256 of the witness script
+      * `0x06` means this is a p2tr address, and `hashbytes` is the 32-byte sha256 of the witness script
 ",
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
