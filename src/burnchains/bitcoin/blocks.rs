@@ -48,6 +48,8 @@ use stacks_common::util::log;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
+use crate::core::StacksEpochId;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
     pub block_header: LoneBlockHeader,
@@ -239,6 +241,16 @@ impl BitcoinBlockParser {
         }
     }
 
+    /// Allow raw inputs?
+    fn allow_raw_inputs(epoch_id: StacksEpochId) -> bool {
+        epoch_id >= StacksEpochId::Epoch21
+    }
+
+    /// Allow segwit outputs?
+    fn allow_segwit_outputs(epoch_id: StacksEpochId) -> bool {
+        epoch_id >= StacksEpochId::Epoch21
+    }
+
     /// Verify that a block matches a header
     pub fn check_block(block: &Block, header: &LoneBlockHeader) -> bool {
         if header.header.bitcoin_hash() != block.bitcoin_hash() {
@@ -299,21 +311,39 @@ impl BitcoinBlockParser {
     /// Is this an acceptable transaction?  It must have
     /// * an OP_RETURN output at output 0
     /// * only p2pkh or p2sh outputs for outputs 1...n
-    fn maybe_burnchain_tx(&self, tx: &Transaction) -> bool {
+    fn maybe_burnchain_tx(&self, tx: &Transaction, epoch_id: StacksEpochId) -> bool {
         if self.parse_data(&tx.output[0].script_pubkey).is_none() {
             test_debug!("Tx {:?} has no valid OP_RETURN", tx.txid());
             return false;
         }
 
         for i in 1..tx.output.len() {
-            if !tx.output[i].script_pubkey.is_p2pkh() && !tx.output[i].script_pubkey.is_p2sh() {
-                // unrecognized output type
-                test_debug!(
-                    "Tx {:?} has unrecognized output type in output {}",
-                    tx.txid(),
-                    i
-                );
-                return false;
+            if epoch_id < StacksEpochId::Epoch21 {
+                // only support legacy addresses pre-2.1
+                if !tx.output[i].script_pubkey.is_p2pkh() && !tx.output[i].script_pubkey.is_p2sh() {
+                    // unrecognized output type
+                    test_debug!(
+                        "Tx {:?} has unrecognized output type in output {}",
+                        tx.txid(),
+                        i
+                    );
+                    return false;
+                }
+            } else {
+                // in 2.1 and later, support it if the output decodes
+                if BitcoinAddress::from_scriptpubkey(
+                    BitcoinNetworkType::Mainnet,
+                    &tx.output[i].script_pubkey.to_bytes(),
+                )
+                .is_none()
+                {
+                    test_debug!(
+                        "Tx {:?} has unrecognized output type in output {}",
+                        tx.txid(),
+                        i
+                    );
+                    return false;
+                }
             }
         }
 
@@ -321,11 +351,12 @@ impl BitcoinBlockParser {
     }
 
     /// Parse a transaction's inputs into burnchain tx inputs.
-    /// Succeeds only if we can parse each input.
-    fn parse_inputs(&self, tx: &Transaction) -> Option<Vec<BitcoinTxInput>> {
+    /// Succeeds only if we can parse each input into a structured input.
+    /// (this is the behavior of Stacks 2.05 and earlier)
+    fn parse_inputs_structured(tx: &Transaction) -> Option<Vec<BitcoinTxInput>> {
         let mut ret = vec![];
         for inp in &tx.input {
-            match BitcoinTxInput::from_bitcoin_txin(&inp) {
+            match BitcoinTxInput::from_bitcoin_txin_structured(&inp) {
                 None => {
                     test_debug!("Failed to parse input");
                     return None;
@@ -338,13 +369,35 @@ impl BitcoinBlockParser {
         Some(ret)
     }
 
+    /// Parse a transaction's inputs into raw burnchain tx inputs.
+    /// (this is the behavior of Stacks 2.1 and later)
+    fn parse_inputs_raw(tx: &Transaction) -> Vec<BitcoinTxInput> {
+        let mut ret = vec![];
+        for inp in &tx.input {
+            ret.push(BitcoinTxInput::from_bitcoin_txin_raw(&inp));
+        }
+        ret
+    }
+
     /// Parse a transaction's outputs into burnchain tx outputs.
-    /// Succeeds only if we can parse each output.
     /// Does not parse the first output -- this is the OP_RETURN
-    fn parse_outputs(&self, tx: &Transaction) -> Option<Vec<BitcoinTxOutput>> {
+    fn parse_outputs(
+        &self,
+        tx: &Transaction,
+        epoch_id: StacksEpochId,
+    ) -> Option<Vec<BitcoinTxOutput>> {
+        if tx.output.len() == 0 {
+            return None;
+        }
+
         let mut ret = vec![];
         for outp in &tx.output[1..tx.output.len()] {
-            match BitcoinTxOutput::from_bitcoin_txout(self.network_id, &outp) {
+            let out_opt = if BitcoinBlockParser::allow_segwit_outputs(epoch_id) {
+                BitcoinTxOutput::from_bitcoin_txout(self.network_id, &outp)
+            } else {
+                BitcoinTxOutput::from_bitcoin_txout_legacy(self.network_id, &outp)
+            };
+            match out_opt {
                 None => {
                     test_debug!("Failed to parse output");
                     return None;
@@ -357,9 +410,17 @@ impl BitcoinBlockParser {
         Some(ret)
     }
 
-    /// Parse a Bitcoin transaction into a Burnchain transaction
-    pub fn parse_tx(&self, tx: &Transaction, vtxindex: usize) -> Option<BitcoinTransaction> {
-        if !self.maybe_burnchain_tx(tx) {
+    /// Parse a Bitcoin transaction into a Burnchain transaction.
+    /// If `self.allow_raw_inputs()` is true, then scriptSigs will not be decoded.
+    /// Otherwise, they will be; if decoding fails, None will be returned.
+    /// In all cases, attempt to decode scriptPubKeys (and if this fails, return None)
+    pub fn parse_tx(
+        &self,
+        tx: &Transaction,
+        vtxindex: usize,
+        epoch_id: StacksEpochId,
+    ) -> Option<BitcoinTransaction> {
+        if !self.maybe_burnchain_tx(tx, epoch_id) {
             test_debug!("Not a burnchain tx");
             return None;
         }
@@ -373,8 +434,12 @@ impl BitcoinBlockParser {
         let data_amt = tx.output[0].value;
 
         let (opcode, data) = data_opt.unwrap();
-        let inputs_opt = self.parse_inputs(tx);
-        let outputs_opt = self.parse_outputs(tx);
+        let inputs_opt = if BitcoinBlockParser::allow_raw_inputs(epoch_id) {
+            Some(BitcoinBlockParser::parse_inputs_raw(tx))
+        } else {
+            BitcoinBlockParser::parse_inputs_structured(tx)
+        };
+        let outputs_opt = self.parse_outputs(tx, epoch_id);
 
         match (inputs_opt, outputs_opt) {
             (Some(inputs), Some(outputs)) => {
@@ -396,13 +461,18 @@ impl BitcoinBlockParser {
     }
 
     /// Given a Bitcoin block, extract the transactions that have OP_RETURN <magic>.
-    /// All outputs must also either be p2pkh or p2sh, and all inputs must encode
-    /// eiher a p2pkh or multisig p2sh scriptsig.
-    pub fn parse_block(&self, block: &Block, block_height: u64) -> BitcoinBlock {
+    /// Uses the internal epoch id to determine whether or not to parse segwit outputs, and whether
+    /// or not to decode scriptSigs.
+    pub fn parse_block(
+        &self,
+        block: &Block,
+        block_height: u64,
+        epoch_id: StacksEpochId,
+    ) -> BitcoinBlock {
         let mut accepted_txs = vec![];
         for i in 0..block.txdata.len() {
             let tx = &block.txdata[i];
-            match self.parse_tx(tx, i) {
+            match self.parse_tx(tx, i, epoch_id) {
                 Some(bitcoin_tx) => {
                     accepted_txs.push(bitcoin_tx);
                 }
@@ -431,6 +501,7 @@ impl BitcoinBlockParser {
         block: &Block,
         header: &LoneBlockHeader,
         height: u64,
+        epoch_id: StacksEpochId,
     ) -> Option<BitcoinBlock> {
         // block header contents must match
         if !BitcoinBlockParser::check_block(block, header) {
@@ -443,7 +514,7 @@ impl BitcoinBlockParser {
         }
 
         // parse it
-        let burn_block = self.parse_block(&block, height);
+        let burn_block = self.parse_block(&block, height, epoch_id);
         Some(burn_block)
     }
 }
@@ -451,13 +522,18 @@ impl BitcoinBlockParser {
 impl BurnchainBlockParser for BitcoinBlockParser {
     type D = BitcoinBlockDownloader;
 
-    fn parse(&mut self, ipc_block: &BitcoinBlockIPC) -> Result<BurnchainBlock, burnchain_error> {
+    fn parse(
+        &mut self,
+        ipc_block: &BitcoinBlockIPC,
+        epoch_id: StacksEpochId,
+    ) -> Result<BurnchainBlock, burnchain_error> {
         match ipc_block.block_message {
             btc_message::NetworkMessage::Block(ref block) => {
                 match self.process_block(
                     &block,
                     &ipc_block.header_data.block_header,
                     ipc_block.header_data.block_height,
+                    epoch_id,
                 ) {
                     None => Err(burnchain_error::ParseError),
                     Some(block_data) => Ok(BurnchainBlock::Bitcoin(block_data)),
@@ -472,17 +548,20 @@ impl BurnchainBlockParser for BitcoinBlockParser {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::bitcoin::{
-        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
+        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxInputRaw,
+        BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
+    use crate::core::StacksEpochId;
     use stacks_common::deps_common::bitcoin::blockdata::block::{Block, LoneBlockHeader};
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::Address;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::log;
 
@@ -544,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn maybe_burnchain_tx_test() {
+    fn maybe_burnchain_tx_test_2_05() {
         let tx_fixtures = vec![
             TxParseFixture {
                 // valid
@@ -566,13 +645,15 @@ mod tests {
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
-            let res = parser.maybe_burnchain_tx(&tx);
+            let res = parser.maybe_burnchain_tx(&tx, StacksEpochId::Epoch2_05);
             assert_eq!(res, tx_fixture.result);
         }
     }
 
+    /// Parse transactions in epoch 2.05 and earlier.
+    /// All inputs should be BittcoinTxInputStructured
     #[test]
-    fn parse_tx_test() {
+    fn parse_tx_test_2_05() {
         let vtxindex = 4;
         let tx_fixtures = vec![
             TxFixture {
@@ -585,39 +666,39 @@ mod tests {
                     opcode: '+' as u8,
                     data: hex_bytes("fae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe").unwrap(),
                     inputs: vec![
-                        BitcoinTxInput {
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
                             tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 2),
-                        },
-                        BitcoinTxInput {
+                        }.into(),
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
                             tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 1),
-                        },
-                        BitcoinTxInput {
+                        }.into(),
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::Standard,
                             tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 4),
-                        }
+                        }.into()
                     ],
                     outputs: vec![
                         BitcoinTxOutput {
                             units: 27500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
                         },
                         BitcoinTxOutput {
                             units: 70341,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
                         }
                     ]
                 })
@@ -632,7 +713,7 @@ mod tests {
                     opcode: '~' as u8,
                     data: hex_bytes("7061747269636b7374616e6c6579322e6964").unwrap(),
                     inputs: vec![
-                        BitcoinTxInput {
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("04ff897d48c25c48c598aea0d6b1e835008e6679bddbc8d41d7d9f73e6a0dc2b8fe1402487ce2ba1e5365ee28fed024093499c11b8485fb6758a357c7573055767").unwrap(),
                                 BitcoinPublicKey::from_hex("04f9478048ce8ff9cfc188a184c8c8c0a3e3dee68f96f6c3bc6f0f7e043ca8d241d5a03ab50157422ad43e9ee1a0a80b0dd17f0b0023f891dbd85daa3069554e2b").unwrap(),
@@ -641,8 +722,8 @@ mod tests {
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
                             tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 1),
-                        },
-                        BitcoinTxInput {
+                        }.into(),
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("046097f22211c1f4832e54f0cc76c06b80a4e1fcf237ea487561c80bd5b28b6a483706a04d99038cb434eee82306902193e7b1a368dba33ad14b3f30e004c95e6e").unwrap(),
                                 BitcoinPublicKey::from_hex("048e264f76559020fdf50d3a7d9f57ccd548f3dfb962837f958e446add48429951d61e99a109cded2ba9812ee152ebba53a2a6c7b6dfb3c61fcba1b08529283749").unwrap(),
@@ -651,16 +732,16 @@ mod tests {
                             num_required: 2,
                             in_type: BitcoinInputType::Standard,
                             tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 2),
-                        },
+                        }.into(),
                     ],
                     outputs: vec![
                         BitcoinTxOutput {
                             units: 11000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
                         },
                         BitcoinTxOutput {
                             units: 1293677,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
                         }
                     ]
                 })
@@ -675,23 +756,23 @@ mod tests {
                     opcode: ':' as u8,
                     data: hex_bytes("666f6f2e74657374").unwrap(),
                     inputs: vec![
-                        BitcoinTxInput {
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                             ],
                             num_required: 1,
                             in_type: BitcoinInputType::SegwitP2SH,
                             tx_ref: (Txid::from_hex("9ec1e4c25610b96cc1afa2b00b2919ce31a7052081c069c586d72a72092befa7").unwrap(), 1),
-                        }
+                        }.into()
                     ],
                     outputs: vec![
                         BitcoinTxOutput {
                             units: 5500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
                         },
                         BitcoinTxOutput {
                             units: 4993076500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                         }
                     ]
                 })
@@ -706,7 +787,7 @@ mod tests {
                     opcode: '?' as u8,
                     data: hex_bytes("9fab7f294936ddb6524a48feff691ecbd0ca9e8f107d845c417a5438d1cb441e827c5126").unwrap(),
                     inputs: vec![
-                        BitcoinTxInput {
+                        BitcoinTxInputStructured {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap(),
                                 BitcoinPublicKey::from_hex("02f21b29694df4c2188bee97103d10d017d1865fb40528f25589af9db6e0786b65").unwrap(),
@@ -715,16 +796,16 @@ mod tests {
                             num_required: 2,
                             in_type: BitcoinInputType::SegwitP2SH,
                             tx_ref: (Txid::from_hex("22bd4eed46f8fd3f2947f54b6b2a76984698cda514c65074a203857b96dc11e4").unwrap(), 1),
-                        }
+                        }.into()
                     ],
                     outputs: vec![
                         BitcoinTxOutput {
                             units: 4993326000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("87a0487869af70b6b1cc79bd374b75ba1be5cff9").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("87a0487869af70b6b1cc79bd374b75ba1be5cff9").unwrap()).unwrap()
                         },
                         BitcoinTxOutput {
                             units: 6400000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                         },
                     ]
                 })
@@ -734,18 +815,200 @@ mod tests {
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
-            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
+            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05);
+            assert!(burnchain_tx.is_some());
+            assert_eq!(burnchain_tx, tx_fixture.result);
+        }
+    }
+
+    /// Parse transactions in epoch 2.1
+    /// All inputs should be BitcoinTxInputRaw
+    #[test]
+    fn parse_tx_test_2_1() {
+        let vtxindex = 4;
+        let tx_fixtures = vec![
+            TxFixture {
+                // NAME_UPDATE transaction with 3 singlesig inputs
+                txstr: "010000000320a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542020000008b483045022100be57031bf2c095945ba2876e97b3f86ee051643a29b908f22ed45ccf58620103022061e056e5f48c5a51c66604a1ca28e4bfaabab1478424c9bbb396cc6afe5c222e0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0feffffff20a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542010000008b483045022100fd9c04b330810694cb4bfef793b193f9cbfaa07325700f217b9cb03e5207005302202f07e7c9c6774c5619a043752444f6da6fd81b9d9d008ec965796d87271598de0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0feffffff20a081bcd1a80d9c1945f863d29dc84278411ed74cb6dcba30541bf8d5770542040000008a47304402205e24943a40b8ef876cc218a7e8994f4be7afb7aa02403bb73510fac01b33ead3022033e5fb811c396b2fb50a825cd1d86e82eb83483901a1793d0eb15e3e9f1d1c5b814104c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96feffffff030000000000000000296a2769642bfae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe6c6b0000000000001976a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188acc5120100000000001976a9149f2660e75380675206b6f1e2b4f106ae33266be488ac00000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("185c112401590b11acdfea6bb26d2a8e37cb31f24a0c89dbb8cc14b3d6271fb1").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '+' as u8,
+                    data: hex_bytes("fae543ff5672fb607fe15e16b1c3ef38737c631c7c5d911c6617993c21fba731363f1cfe").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("483045022100be57031bf2c095945ba2876e97b3f86ee051643a29b908f22ed45ccf58620103022061e056e5f48c5a51c66604a1ca28e4bfaabab1478424c9bbb396cc6afe5c222e0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 2),
+                        }.into(),
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("483045022100fd9c04b330810694cb4bfef793b193f9cbfaa07325700f217b9cb03e5207005302202f07e7c9c6774c5619a043752444f6da6fd81b9d9d008ec965796d87271598de0141040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 1),
+                        }.into(),
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("47304402205e24943a40b8ef876cc218a7e8994f4be7afb7aa02403bb73510fac01b33ead3022033e5fb811c396b2fb50a825cd1d86e82eb83483901a1793d0eb15e3e9f1d1c5b814104c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("420577d5f81b5430badcb64cd71e417842c89dd263f845199c0da8d1bc81a020").unwrap(), 4),
+                        }.into()
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 27500,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                        },
+                        BitcoinTxOutput {
+                            units: 70341,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
+                        }
+                    ]
+                })
+            },
+            TxFixture {
+                // NAME_REVOKE with 2 2-of-3 multisig inputs
+                txstr: "0100000002b4c2c2fede361654f0f6b65dd8ba385f3a4b05c76cd573f3689b09b7298b142201000000fd5c010047304402203537b5ded3716553b6f3fc7ccc7e55bc42b6caa1c069c9b2ce068d57f9024de7022026eb81e226b0de30448732835424eef52a3b9d67020c62b48df75974c5fe09870147304402201cc22e43302688d975df3bcad70065c8dad497b092a58e97c6c306b65176c70802200b9c3a62b22865e957331578d6e5d684cad87279fd8b852fcc2d34d3911e8643014cc9524104ff897d48c25c48c598aea0d6b1e835008e6679bddbc8d41d7d9f73e6a0dc2b8fe1402487ce2ba1e5365ee28fed024093499c11b8485fb6758a357c75730557674104f9478048ce8ff9cfc188a184c8c8c0a3e3dee68f96f6c3bc6f0f7e043ca8d241d5a03ab50157422ad43e9ee1a0a80b0dd17f0b0023f891dbd85daa3069554e2b41046fd8c7330fbe307a0fad0bf9472ca080f4941f4b6edea7ab090e3e26075e7277a0bd61f42eff54daf3e6141de46a98a5a8265c9e8d58bd1a86cf36d418788ab853aeffffffffb4c2c2fede361654f0f6b65dd8ba385f3a4b05c76cd573f3689b09b7298b142202000000fd5d0100473044022070cfd1e13d9844db995111ed5cc0578ca4d03504fdec1cf1636cd0054dffeeed022046c8d87291367402f4b54c2ef985a0171e400fe079da5234c912103cf2dd683b0148304502210099f092b12000dc78074934135443656091c606b40c7925bae30a6285946e36b9022062b5fa5e28986e0c27aad11f8fdb1409eb87a169972dc1ebbd91aa45810f9d9a014cc95241046097f22211c1f4832e54f0cc76c06b80a4e1fcf237ea487561c80bd5b28b6a483706a04d99038cb434eee82306902193e7b1a368dba33ad14b3f30e004c95e6e41048e264f76559020fdf50d3a7d9f57ccd548f3dfb962837f958e446add48429951d61e99a109cded2ba9812ee152ebba53a2a6c7b6dfb3c61fcba1b0852928374941044c9f30b4546c1f30087001fa6450e52c645bd49e91a18c9c16965b72f5153f0e4b04712218b42b2bc578017b471beaa7d8c0a9eb69174ad50714d7ef4117863d53aeffffffff030000000000000000176a1569647e7061747269636b7374616e6c6579322e6964f82a00000000000017a914eb1881fb0682c2eb37e478bf918525a2c61bc404876dbd13000000000017a914c26afc6cb80ca477c280780902b40cbef8cd804d8700000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '~' as u8,
+                    data: hex_bytes("7061747269636b7374616e6c6579322e6964").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("0047304402203537b5ded3716553b6f3fc7ccc7e55bc42b6caa1c069c9b2ce068d57f9024de7022026eb81e226b0de30448732835424eef52a3b9d67020c62b48df75974c5fe09870147304402201cc22e43302688d975df3bcad70065c8dad497b092a58e97c6c306b65176c70802200b9c3a62b22865e957331578d6e5d684cad87279fd8b852fcc2d34d3911e8643014cc9524104ff897d48c25c48c598aea0d6b1e835008e6679bddbc8d41d7d9f73e6a0dc2b8fe1402487ce2ba1e5365ee28fed024093499c11b8485fb6758a357c75730557674104f9478048ce8ff9cfc188a184c8c8c0a3e3dee68f96f6c3bc6f0f7e043ca8d241d5a03ab50157422ad43e9ee1a0a80b0dd17f0b0023f891dbd85daa3069554e2b41046fd8c7330fbe307a0fad0bf9472ca080f4941f4b6edea7ab090e3e26075e7277a0bd61f42eff54daf3e6141de46a98a5a8265c9e8d58bd1a86cf36d418788ab853ae").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 1),
+                        }.into(),
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("00473044022070cfd1e13d9844db995111ed5cc0578ca4d03504fdec1cf1636cd0054dffeeed022046c8d87291367402f4b54c2ef985a0171e400fe079da5234c912103cf2dd683b0148304502210099f092b12000dc78074934135443656091c606b40c7925bae30a6285946e36b9022062b5fa5e28986e0c27aad11f8fdb1409eb87a169972dc1ebbd91aa45810f9d9a014cc95241046097f22211c1f4832e54f0cc76c06b80a4e1fcf237ea487561c80bd5b28b6a483706a04d99038cb434eee82306902193e7b1a368dba33ad14b3f30e004c95e6e41048e264f76559020fdf50d3a7d9f57ccd548f3dfb962837f958e446add48429951d61e99a109cded2ba9812ee152ebba53a2a6c7b6dfb3c61fcba1b0852928374941044c9f30b4546c1f30087001fa6450e52c645bd49e91a18c9c16965b72f5153f0e4b04712218b42b2bc578017b471beaa7d8c0a9eb69174ad50714d7ef4117863d53ae").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("22148b29b7099b68f373d56cc7054b3a5f38bad85db6f6f0541636defec2c2b4").unwrap(), 2),
+                        }.into(),
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 11000,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
+                        },
+                        BitcoinTxOutput {
+                            units: 1293677,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
+                        }
+                    ]
+                })
+            },
+            TxFixture {
+                // NAME_REGISTRATION with p2wpkh-p2sh segwit input
+                txstr: "01000000000101a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e0100000017160014393ffec4f09b38895b8502377693f23c6ae00f19ffffffff0300000000000000000d6a0b69643a666f6f2e746573747c1500000000000017a9144b85301ba8e42bf98472b8ed4939d5f76b98fcea87144d9c290100000017a91431f8968eb1730c83fb58409a9a560a0a0835027f8702483045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b012102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e8100000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("b908952b30ccfdfa59985dc1ffdd2a22ef054d20fa253510d2af7797dddee459").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: ':' as u8,
+                    data: hex_bytes("666f6f2e74657374").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("160014393ffec4f09b38895b8502377693f23c6ae00f19").unwrap(),
+                            witness: vec![
+                                hex_bytes("3045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b01").unwrap(),
+                                hex_bytes("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
+                            ],
+                            tx_ref: (Txid::from_hex("9ec1e4c25610b96cc1afa2b00b2919ce31a7052081c069c586d72a72092befa7").unwrap(), 1),
+                        }.into(),
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 5500,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
+                        },
+                        BitcoinTxOutput {
+                            units: 4993076500,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
+                        }
+                    ]
+                })
+            },
+            TxFixture {
+                // NAME_PREORDER with a 2-of-3 p2wsh-p2sh multisig segwit input 
+                txstr: "01000000000101e411dc967b8503a27450c614a5cd984698762a6b4bf547293ffdf846ed4ebd22010000002322002067091a41e9871c5ae20b0c69a786f02df5d3c7aa632689b608069181b43a28a2ffffffff030000000000000000296a2769643f9fab7f294936ddb6524a48feff691ecbd0ca9e8f107d845c417a5438d1cb441e827c5126b01ba0290100000017a91487a0487869af70b6b1cc79bd374b75ba1be5cff98700a86100000000001976a914000000000000000000000000000000000000000088ac0400473044022064c5b5f61baad8bb8ecad98666b99e09f1777ef805df41a1c7926f8468b6b6df02205eac177c77f274acb670cd24d504f01b27de767e0241c818c91e479cb0ddcf18014730440220053ce777bc7bb842d8eef83769a027797567624ab9eed5722889ed3192f431b30220256e8aaef8de2a571198acde708fcbca02fb18780ac470c0d7f811734af729af0169522102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e812102f21b29694df4c2188bee97103d10d017d1865fb40528f25589af9db6e0786b6521028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f953ae00000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("16751ca54407b922e3072830cf4be58c5562a6dc350f6703192b673c4cc86182").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '?' as u8,
+                    data: hex_bytes("9fab7f294936ddb6524a48feff691ecbd0ca9e8f107d845c417a5438d1cb441e827c5126").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("22002067091a41e9871c5ae20b0c69a786f02df5d3c7aa632689b608069181b43a28a2").unwrap(),
+                            witness: vec![
+                                vec![],
+                                hex_bytes("3044022064c5b5f61baad8bb8ecad98666b99e09f1777ef805df41a1c7926f8468b6b6df02205eac177c77f274acb670cd24d504f01b27de767e0241c818c91e479cb0ddcf1801").unwrap(),
+                                hex_bytes("30440220053ce777bc7bb842d8eef83769a027797567624ab9eed5722889ed3192f431b30220256e8aaef8de2a571198acde708fcbca02fb18780ac470c0d7f811734af729af01").unwrap(),
+                                hex_bytes("522102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e812102f21b29694df4c2188bee97103d10d017d1865fb40528f25589af9db6e0786b6521028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f953ae").unwrap()
+                            ],
+                            tx_ref: (Txid::from_hex("22bd4eed46f8fd3f2947f54b6b2a76984698cda514c65074a203857b96dc11e4").unwrap(), 1),
+                        }.into(),
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 4993326000,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("87a0487869af70b6b1cc79bd374b75ba1be5cff9").unwrap()).unwrap()
+                        },
+                        BitcoinTxOutput {
+                            units: 6400000,
+                            address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Mainnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                        },
+                    ]
+                })
+            },
+            TxFixture {
+                // NAMESPACE_REVEAL with a segwit p2wpkh script pubkey
+                txstr: "0100000001fde2146ec3ecf037ad515c0c1e2ba8abee348bd2b3c6a576bf909d78b0b18cd2010000006a47304402203ec06f11bc5b7e79fad54b2d69a375ba78576a2a0293f531a082fcfe13a9e9e802201afcf0038d9ccb9c88113248faaf812321b65d7b09b4a6e2f04f463d2741101e012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3ffffffff0300000000000000001a6a186964260000cd73fa046543210000000000aa0001746573747c1500000000000016001482093b62a3699282d926981bed7665e8384caa552076fd29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac00000000".to_owned(),
+                result: Some(BitcoinTransaction {
+                    data_amt: 0,
+                    txid: to_txid(&hex_bytes("8b8a12909d48fd86c06e92270133d320498fb36caa0fdcb3292a8bba99669ebd").unwrap()),
+                    vtxindex: vtxindex,
+                    opcode: '&' as u8,
+                    data: hex_bytes("0000cd73fa046543210000000000aa000174657374").unwrap(),
+                    inputs: vec![
+                        BitcoinTxInputRaw {
+                            scriptSig: hex_bytes("47304402203ec06f11bc5b7e79fad54b2d69a375ba78576a2a0293f531a082fcfe13a9e9e802201afcf0038d9ccb9c88113248faaf812321b65d7b09b4a6e2f04f463d2741101e012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap(),
+                            witness: vec![],
+                            tx_ref: (Txid::from_hex("d28cb1b0789d90bf76a5c6b3d28b34eeaba82b1e0c5c51ad37f0ecc36e14e2fd").unwrap(), 1),
+                        }.into()
+                    ],
+                    outputs: vec![
+                        BitcoinTxOutput {
+                            units: 5500,
+                            address: BitcoinAddress::from_string("bc1qsgynkc4rdxfg9kfxnqd76an9aquye2j4kdnk7c").unwrap(),
+                        },
+                        BitcoinTxOutput {
+                            units: 4999444000,
+                            address: BitcoinAddress::from_string("1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ").unwrap(),
+                        },
+                    ],
+                }),
+            }
+        ];
+
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes([105, 100])); // "id"
+        for tx_fixture in tx_fixtures {
+            test_debug!("parse {}", &tx_fixture.txstr);
+            let tx = make_tx(&tx_fixture.txstr).unwrap();
+            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch21);
             assert!(burnchain_tx.is_some());
             assert_eq!(burnchain_tx, tx_fixture.result);
         }
     }
 
     #[test]
-    fn parse_tx_strange() {
+    fn parse_tx_strange_2_05() {
         let vtxindex = 4;
         let tx_fixtures_strange : Vec<TxFixture> = vec![
             TxFixture {
-                // NAMESPACE_REVEAL with a segwit p2wpkh script pubkey (shouldn't parse)
+                // NAMESPACE_REVEAL with a segwit p2wpkh script pubkey (shouldn't parse in epoch
+                // 2.05)
                 txstr: "0100000001fde2146ec3ecf037ad515c0c1e2ba8abee348bd2b3c6a576bf909d78b0b18cd2010000006a47304402203ec06f11bc5b7e79fad54b2d69a375ba78576a2a0293f531a082fcfe13a9e9e802201afcf0038d9ccb9c88113248faaf812321b65d7b09b4a6e2f04f463d2741101e012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3ffffffff0300000000000000001a6a186964260000cd73fa046543210000000000aa0001746573747c1500000000000016001482093b62a3699282d926981bed7665e8384caa552076fd29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac00000000".to_owned(),
                 result: None
             },
@@ -760,7 +1023,7 @@ mod tests {
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100])); // "id"
         for tx_fixture in tx_fixtures_strange {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
-            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
+            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05);
             assert!(burnchain_tx.is_none());
         }
     }
@@ -786,23 +1049,23 @@ mod tests {
                             opcode: ':' as u8,
                             data: hex_bytes("666f6f2e74657374").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::SegwitP2SH,
                                     tx_ref: (Txid::from_hex("9ec1e4c25610b96cc1afa2b00b2919ce31a7052081c069c586d72a72092befa7").unwrap(), 1),
-                                }
+                                }.into(),
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 4993076500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                                 }
                             ]
                         }
@@ -829,23 +1092,23 @@ mod tests {
                             opcode: '$' as u8,
                             data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
                                     tx_ref: (Txid::from_hex("f741c40e6ad746f96be5a483d45b874f37158302d4a5d71da4f874a349ff17c5").unwrap(), 1),
-                                }
+                                }.into()
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 4986192000,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -857,23 +1120,23 @@ mod tests {
                             opcode: '$' as u8,
                             data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
                                     tx_ref: (Txid::from_hex("ba53c1d5b3d18115d7a9f7402e7c96281a05af1835f98dc8d729158c96d31193").unwrap(), 0),
-                                }
+                                }.into()
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -885,23 +1148,23 @@ mod tests {
                             opcode: '$' as u8,
                             data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
                                     tx_ref: (Txid::from_hex("bb8c5223c42c740c056afb147264c0982a96bafd4801e121669da99fc3ca33f4").unwrap(), 0),
-                                }
+                                }.into()
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -913,23 +1176,23 @@ mod tests {
                             opcode: '$' as u8,
                             data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
                                     tx_ref: (Txid::from_hex("a8e317854cf5e11e13539f44cabdcf29767d838ae684a865f849a8405c3d96b4").unwrap(), 0),
-                                }
+                                }.into()
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -941,23 +1204,23 @@ mod tests {
                             opcode: '$' as u8,
                             data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
                             inputs: vec![
-                                BitcoinTxInput {
+                                BitcoinTxInputStructured {
                                     keys: vec![
                                         BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()
                                     ],
                                     num_required: 1,
                                     in_type: BitcoinInputType::Standard,
                                     tx_ref: (Txid::from_hex("be8b8ec102773e2c2e6179584684280a0f42c83c11dc1a30610310c91796c804").unwrap(), 0),
-                                }
+                                }.into()
                             ],
                             outputs: vec![
                                 BitcoinTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
                                 },
                                 BitcoinTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes_legacy(BitcoinNetworkType::Testnet, LegacyBitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
                                 }
                             ]
                         }
@@ -979,7 +1242,8 @@ mod tests {
             let header = make_block_header(&block_fixture.header).unwrap();
             let height = block_fixture.height;
 
-            let parsed_block_opt = parser.process_block(&block, &header, height);
+            let parsed_block_opt =
+                parser.process_block(&block, &header, height, StacksEpochId::Epoch2_05);
             assert_eq!(parsed_block_opt, block_fixture.result);
         }
     }
