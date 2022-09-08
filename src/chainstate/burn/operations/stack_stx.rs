@@ -19,8 +19,8 @@ use std::io::{Read, Write};
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::BurnchainRecipient;
 use crate::burnchains::Txid;
-use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::Error as op_error;
@@ -79,23 +79,21 @@ impl PreStxOp {
         tx: &BurnchainTransaction,
     ) -> Result<PreStxOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
-        let outputs = tx.get_recipients();
+        let num_inputs = tx.num_signers();
+        let num_outputs = tx.num_recipients();
 
-        if inputs.len() == 0 {
+        if num_inputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs, num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs, num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -105,12 +103,20 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         };
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
         let output = outputs[0]
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: first output cannot be decoded");
+                op_error::InvalidInput
+            })?
             .address
             .clone()
             .try_into_stacks_address()
             .ok_or_else(|| {
-                warn!("Invalid tx: output must be representable as a StacksAddress");
+                warn!("Invalid tx: first output must be representable as a StacksAddress");
                 op_error::InvalidInput
             })?;
 
@@ -216,22 +222,22 @@ impl StackStxOp {
         sender: &StacksAddress,
     ) -> Result<StackStxOp, op_error> {
         // can't be too careful...
-        let outputs = tx.get_recipients();
+        let num_outputs = tx.num_recipients();
 
         if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -246,9 +252,17 @@ impl StackStxOp {
             op_error::ParseError
         })?;
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
+        let first_output = outputs[0].as_ref().ok_or_else(|| {
+            warn!("Invalid tx: failed to decode first output");
+            op_error::InvalidInput
+        })?;
+
         // coerce a hash mode for this address if need be, since we'll need it when we feed this
         // address into the .pox contract
-        let reward_addr = outputs[0].address.clone().coerce_hash_mode();
+        let reward_addr = first_output.address.clone().coerce_hash_mode();
 
         Ok(StackStxOp {
             sender: sender.clone(),
@@ -365,36 +379,37 @@ mod tests {
             opcode: Opcodes::PreStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -412,7 +427,9 @@ mod tests {
 
         assert_eq!(
             &op.output,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
         );
     }
 
@@ -424,36 +441,37 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -474,7 +492,9 @@ mod tests {
         assert_eq!(
             &op.reward_addr,
             &PoxAddress::Standard(
-                StacksAddress::from_bitcoin_address(&tx.outputs[0].address),
+                StacksAddress::from_legacy_bitcoin_address(
+                    &tx.outputs[0].address.clone().expect_legacy()
+                ),
                 Some(AddressHashMode::SerializeP2PKH)
             )
         );
