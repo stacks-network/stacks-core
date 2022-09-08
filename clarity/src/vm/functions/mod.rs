@@ -31,7 +31,7 @@ use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
-use crate::vm::Value::Trait;
+use crate::vm::Value::CallableContract;
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
@@ -687,7 +687,7 @@ fn special_let(
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
             if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-                if let Trait(trait_data) = &binding_value {
+                if let CallableContract(trait_data) = &binding_value {
                     inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
                 }
             }

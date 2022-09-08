@@ -21,8 +21,8 @@ use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
-use crate::vm::types::{OptionalData, ResponseData, TraitData, TypeSignature, Value};
-use crate::vm::Value::Trait;
+use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
+use crate::vm::Value::CallableContract;
 use crate::vm::{self, ClarityVersion};
 use crate::vm::{ClarityName, SymbolicExpression};
 
@@ -126,10 +126,10 @@ fn eval_with_new_binding(
     env.add_memory(memory_use)?;
 
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        if let Trait(trait_data) = &bind_value {
+        if let CallableContract(trait_data) = &bind_value {
             inner_context.callable_contracts.insert(
                 bind_name.clone(),
-                TraitData {
+                CallableData {
                     contract_identifier: trait_data.contract_identifier.clone(),
                     trait_identifier: trait_data.trait_identifier.clone(),
                 },

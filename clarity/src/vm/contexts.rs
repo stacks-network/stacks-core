@@ -39,8 +39,8 @@ use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
 use crate::vm::stx_transfer_consolidated;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TraitData,
-    TraitIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, CallableData, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::{eval, is_reserved};
 
@@ -233,7 +233,7 @@ pub struct LocalContext<'a> {
     pub function_context: Option<&'a LocalContext<'a>>,
     pub parent: Option<&'a LocalContext<'a>>,
     pub variables: HashMap<ClarityName, Value>,
-    pub callable_contracts: HashMap<ClarityName, TraitData>,
+    pub callable_contracts: HashMap<ClarityName, CallableData>,
     depth: u16,
 }
 
@@ -1783,7 +1783,7 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn lookup_callable_contract(&self, name: &str) -> Option<&TraitData> {
+    pub fn lookup_callable_contract(&self, name: &str) -> Option<&CallableData> {
         match self.callable_contracts.get(name) {
             Some(found) => Some(found),
             None => match self.parent {

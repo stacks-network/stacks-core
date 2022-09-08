@@ -156,7 +156,7 @@ pub struct ResponseData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraitData {
+pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
     pub trait_identifier: TraitIdentifier,
 }
@@ -239,7 +239,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
-    Trait(TraitData),
+    CallableContract(CallableData),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -1039,11 +1039,11 @@ impl Value {
         }
     }
 
-    pub fn expect_trait(self) -> TraitData {
-        if let Value::Trait(t) = self {
+    pub fn expect_callable(self) -> CallableData {
+        if let Value::CallableContract(t) = self {
             t
         } else {
-            error!("Value '{:?}' is not a trait", &self);
+            error!("Value '{:?}' is not a callable contract", &self);
             panic!();
         }
     }
@@ -1199,7 +1199,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
-            Value::Trait(trait_data) => write!(f, "{}", trait_data),
+            Value::CallableContract(callable_data) => write!(f, "{}", callable_data),
         }
     }
 }
@@ -1282,7 +1282,7 @@ impl fmt::Display for PrincipalData {
     }
 }
 
-impl fmt::Display for TraitData {
+impl fmt::Display for CallableData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,

@@ -28,9 +28,9 @@ use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
-    FunctionType, ListData, ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    ResponseData, SequenceData, SequenceSubtype, TraitData, TraitIdentifier, TupleData,
-    TupleTypeSignature, TypeSignature,
+    CallableData, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype, TraitIdentifier,
+    TupleData, TupleTypeSignature, TypeSignature,
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
@@ -180,7 +180,7 @@ impl DefinedFunction {
             match (&type_sig, &cast_value) {
                 (
                     _,
-                    Value::Trait(TraitData {
+                    Value::CallableContract(CallableData {
                         contract_identifier,
                         trait_identifier,
                     }),
@@ -190,7 +190,7 @@ impl DefinedFunction {
                     // The trait compatibility has been checked by the type-checker.
                     context.callable_contracts.insert(
                         name.clone(),
-                        TraitData {
+                        CallableData {
                             contract_identifier: contract_identifier.clone(),
                             trait_identifier: trait_identifier.clone(),
                         },
@@ -371,16 +371,17 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
         (
             TypeSignature::TraitReferenceType(trait_identifier),
             Value::Principal(PrincipalData::Contract(contract_identifier)),
-        ) => Value::Trait(TraitData {
+        ) => Value::CallableContract(CallableData {
             contract_identifier: contract_identifier.clone(),
             trait_identifier: trait_identifier.clone(),
         }),
-        (TypeSignature::TraitReferenceType(trait_identifier), Value::Trait(value_trait_data)) => {
-            Value::Trait(TraitData {
-                contract_identifier: value_trait_data.contract_identifier.clone(),
-                trait_identifier: trait_identifier.clone(),
-            })
-        }
+        (
+            TypeSignature::TraitReferenceType(trait_identifier),
+            Value::CallableContract(value_trait_data),
+        ) => Value::CallableContract(CallableData {
+            contract_identifier: value_trait_data.contract_identifier.clone(),
+            trait_identifier: trait_identifier.clone(),
+        }),
         _ => value.clone(),
     })
 }
@@ -398,7 +399,7 @@ fn test_implicit_cast() {
             .unwrap();
     let contract = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     let cast_contract = implicit_cast(&trait_ty, &contract).unwrap();
-    let cast_trait = cast_contract.expect_trait();
+    let cast_trait = cast_contract.expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
 
@@ -407,14 +408,14 @@ fn test_implicit_cast() {
     let optional_contract = Value::some(contract.clone()).unwrap();
     let cast_optional = implicit_cast(&optional_ty, &optional_contract).unwrap();
     match &cast_optional.expect_optional().unwrap() {
-        Value::Trait(TraitData {
+        Value::CallableContract(CallableData {
             contract_identifier: contract_id,
             trait_identifier: trait_id,
         }) => {
             assert_eq!(contract_id, &contract_identifier);
             assert_eq!(trait_id, &trait_identifier);
         }
-        other => panic!("expected Value::Trait, got {:?}", other),
+        other => panic!("expected Value::CallableContract, got {:?}", other),
     }
 
     // (ok principal) -> (ok <trait>)
@@ -422,7 +423,7 @@ fn test_implicit_cast() {
         TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
     let response_contract = Value::okay(contract.clone()).unwrap();
     let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
-    let cast_trait = cast_response.expect_result_ok().expect_trait();
+    let cast_trait = cast_response.expect_result_ok().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
 
@@ -431,7 +432,7 @@ fn test_implicit_cast() {
         TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
     let response_contract = Value::error(contract.clone()).unwrap();
     let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
-    let cast_trait = cast_response.expect_result_err().expect_trait();
+    let cast_trait = cast_response.expect_result_err().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
 
@@ -445,7 +446,7 @@ fn test_implicit_cast() {
     let cast_list = implicit_cast(&list_ty, &list_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
-        let cast_trait = item.expect_trait();
+        let cast_trait = item.expect_callable();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
     }
@@ -474,7 +475,7 @@ fn test_implicit_cast() {
         .get(&a_name)
         .unwrap()
         .clone()
-        .expect_trait();
+        .expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
 
@@ -496,7 +497,7 @@ fn test_implicit_cast() {
     let items = cast_list.expect_list();
     for item in items {
         let cast_opt = item.expect_optional().unwrap();
-        let cast_trait = cast_opt.expect_trait();
+        let cast_trait = cast_opt.expect_callable();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
     }

@@ -839,7 +839,7 @@ impl TypeSignature {
             }
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature(),
-            Value::Trait(v) => TraitReferenceType(v.trait_identifier.clone()),
+            Value::CallableContract(v) => TraitReferenceType(v.trait_identifier.clone()),
         }
     }
 

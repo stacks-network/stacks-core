@@ -341,16 +341,19 @@ impl FunctionType {
                 }
                 (
                     TypeSignature::TraitReferenceType(expected_trait_id),
-                    Value::Trait(trait_data),
+                    Value::CallableContract(callable_data),
                 ) => {
                     let actual_trait = db
                         .get_defined_trait(
-                            &trait_data.trait_identifier.contract_identifier,
-                            &trait_data.trait_identifier.name,
+                            &callable_data.trait_identifier.contract_identifier,
+                            &callable_data.trait_identifier.name,
                         )?
                         .ok_or(CheckErrors::NoSuchTrait(
-                            trait_data.trait_identifier.contract_identifier.to_string(),
-                            trait_data.trait_identifier.name.to_string(),
+                            callable_data
+                                .trait_identifier
+                                .contract_identifier
+                                .to_string(),
+                            callable_data.trait_identifier.name.to_string(),
                         ))?;
                     let expected_trait = db
                         .get_defined_trait(
@@ -364,7 +367,7 @@ impl FunctionType {
                     trait_check_trait_compliance(
                         db,
                         None,
-                        &trait_data.trait_identifier,
+                        &callable_data.trait_identifier,
                         &actual_trait,
                         expected_trait_id,
                         &expected_trait,
@@ -959,9 +962,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> TypeResult {
         match (&expr.expr, expected_type) {
             (
-                LiteralValue(Value::Principal(PrincipalData::Contract(
-                    ref contract_identifier,
-                ))),
+                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::TraitReferenceType(trait_identifier),
             ) => {
                 let contract_to_check = self
