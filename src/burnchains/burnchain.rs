@@ -245,6 +245,7 @@ impl BurnchainStateTransition {
             windowed_missed_commits,
             burn_blocks,
         );
+        BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
         // find out which user burns and block commits we're going to take
         for i in 0..burn_dist.len() {
