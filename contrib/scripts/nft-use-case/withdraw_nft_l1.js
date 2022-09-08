@@ -19,8 +19,9 @@ async function main() {
     const contractAddr = process.env.USER_ADDR;
     const withdrawalBlockHeight = process.argv[2];
     const nonce = parseInt(process.argv[3]);
+    const withdrawalId = 0;
 
-    let json_merkle_entry = await fetch(`${hyperchainUrl}/v2/withdrawal/nft/${withdrawalBlockHeight}/${addr}/0/${contractAddr}/simple-nft-l2/nft-token/5`).then(x => x.json())
+    let json_merkle_entry = await fetch(`${hyperchainUrl}/v2/withdrawal/nft/${withdrawalBlockHeight}/${addr}/${withdrawalId}/${contractAddr}/simple-nft-l2/nft-token/5`).then(x => x.json())
     let cv_merkle_entry = {
         withdrawal_leaf_hash: deserializeCV(json_merkle_entry.withdrawal_leaf_hash),
         withdrawal_root: deserializeCV(json_merkle_entry.withdrawal_root),
@@ -38,6 +39,8 @@ async function main() {
         functionArgs: [
             uintCV(5), // ID
             standardPrincipalCV(addr), // recipient
+            uintCV(withdrawalId), // withdrawal-id
+            uintCV(withdrawalBlockHeight), // withdrawal-height
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-contract
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-mint-contract
             cv_merkle_entry.withdrawal_root, // withdrawal root
