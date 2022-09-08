@@ -1311,6 +1311,7 @@ impl PeerDB {
             &network_epoch,
             &(count - (ret.len() as u32)),
         ];
+
         let mut random_peers =
             query_rows::<Neighbor, _>(conn, &random_peers_qry, random_peers_args)?;
 

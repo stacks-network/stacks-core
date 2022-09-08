@@ -12,6 +12,22 @@ use_test_genesis_chainstate = true
 chain = "bitcoin"
 mode = "mocknet"
 
+[[burnchain.epochs]]
+epoch_name = "1.0"
+start_height = 0
+
+[[burnchain.epochs]]
+epoch_name = "2.0"
+start_height = 0
+
+[[burnchain.epochs]]
+epoch_name = "2.05"
+start_height = 1
+
+[[burnchain.epochs]]
+epoch_name = "2.1"
+start_height = 2
+
 [[ustx_balance]]
 # secret key = aaf57b4730f713cf942bc63f0801c4a62abe5a6ac8e3da10389f9ca3420b0dc701
 address = "ST18F1AHKW194BWQ3CEFDPWVRARA79RBGFEWSDQR8"

@@ -936,6 +936,7 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         proposal: &miner::Proposal,
         validator_key: Option<&Secp256k1PrivateKey>,
+        signing_contract: Option<&QualifiedContractIdentifier>,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
@@ -952,9 +953,22 @@ impl ConversationHttp {
             }
         };
 
+        let signing_contract = match signing_contract {
+            Some(key) => key,
+            None => {
+                let response = HttpResponseType::BlockProposalInvalid {
+                    metadata: response_metadata,
+                    error_message:
+                        "Cannot validate block proposal: not configured with a multiparty contract"
+                            .into(),
+                };
+                return response.send(http, fd);
+            }
+        };
+
         let response = match proposal.validate(chainstate, &sortdb.index_conn()) {
             Ok(_) => {
-                let signature = proposal.sign(validator_key);
+                let signature = proposal.sign(validator_key, signing_contract.clone());
                 HttpResponseType::BlockProposalValid {
                     metadata: response_metadata,
                     signature,
@@ -1037,11 +1051,12 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         canonical_tip: &StacksBlockId,
         requested_block_height: u64,
-        withdrawal_key: String,
+        withdrawal_key: Value,
         canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+        let withdrawal_key_bytes = withdrawal_key.serialize_to_vec();
 
         let requested_block = match chainstate
             .index_conn()
@@ -1078,7 +1093,7 @@ impl ConversationHttp {
             }
         };
 
-        let merkle_path = match withdrawal_tree.path(withdrawal_key.as_bytes()) {
+        let merkle_path = match withdrawal_tree.path(&withdrawal_key_bytes) {
             Some(path) => path,
             None => {
                 return HttpResponseType::NotFound(
@@ -1127,7 +1142,7 @@ impl ConversationHttp {
 
         let withdrawal_root = withdrawal::buffer_from_hash(withdrawal_tree.root());
         let withdrawal_leaf_hash = withdrawal::buffer_from_hash(
-            MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(withdrawal_key.as_bytes()),
+            MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(&withdrawal_key_bytes),
         );
 
         let response = WithdrawalResponse {
@@ -2754,6 +2769,7 @@ impl ConversationHttp {
             }
             HttpRequestType::BlockProposal(_, ref proposal) => {
                 let validator_key = self.connection.options.hyperchain_validator.as_ref();
+                let signing_contract = self.connection.options.hyperchain_signing_contract.as_ref();
 
                 // TODO(#135): add sender validation. This method should only
                 //  be sent by the leader: we should not accept proposals
@@ -2766,6 +2782,7 @@ impl ConversationHttp {
                     sortdb,
                     &proposal,
                     validator_key,
+                    signing_contract,
                     network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None

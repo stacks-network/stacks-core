@@ -1,4 +1,5 @@
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::vm::database::ClarityBackingStore;
@@ -6,30 +7,78 @@ use clarity::vm::events::{
     FTEventType, FTWithdrawEventData, NFTEventType, NFTWithdrawEventData, STXEventType,
     STXWithdrawEventData, StacksTransactionEvent,
 };
-use clarity::vm::types::{AssetIdentifier, PrincipalData};
+use clarity::vm::types::{AssetIdentifier, PrincipalData, SequenceData, TupleData};
 use clarity::vm::Value;
 use regex::internal::Input;
 
-pub fn make_key_for_withdrawal(
-    data: String,
-    recipient: &PrincipalData,
-    withdrawal_id: u32,
-    block_height: u64,
-) -> String {
-    format!(
-        "withdrawal::{}::{}::{}::{}",
-        block_height,
-        data,
-        recipient.to_string(),
-        withdrawal_id,
-    )
+fn clarity_ascii_str(input: &str) -> Value {
+    Value::string_ascii_from_bytes(input.as_bytes().to_vec())
+        .expect("Supplied string was not ASCII")
 }
 
 pub fn buffer_from_hash(hash: Sha512Trunc256Sum) -> Value {
     Value::buff_from(hash.0.to_vec()).expect("Failed to construct buffer from hash")
 }
 
-pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height: u64) -> String {
+/// The supplied withdrawal ID is inserted into the supplied withdraw event
+/// (this is why the event are supplied as a mutable argument).
+///
+/// The format for withdrawal event keys is that each key in the
+/// Merkle withdrawal tree is the consensus serialization of one of the following
+/// tuples:
+///
+/// ```javascript
+///   { type: "stx",
+///     height: u128,
+///     withdrawal-id: u128,
+///     recipient: principal,
+///     amount: u128 }
+/// ```
+///
+/// *NOTE*: because subnets support SIP-009 and SIP-010 tokens only,
+///   these wire formats *do not* include the `asset-name`, because
+///   only one asset can be supported per contract.
+/// ```javascript
+///   { type: "nft",
+///     asset-contract: principal,
+///     height: u128,
+///     withdrawal-id: u128,
+///     recipient: principal,
+///     nft-id: u128 }
+/// ```
+///
+/// ```javascript
+///   { type: "ft",
+///     asset-contract: principal,
+///     height: u128,
+///     withdrawal-id: u128,
+///     recipient: principal,
+///     amount: u128 }
+/// ```
+
+pub fn generate_key_from_event(
+    event: &mut StacksTransactionEvent,
+    withdrawal_id: u32,
+    block_height: u64,
+) -> Option<Value> {
+    match event {
+        StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(data)) => {
+            data.withdrawal_id = Some(withdrawal_id);
+            Some(make_key_for_nft_withdrawal_event(data, block_height))
+        }
+        StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) => {
+            data.withdrawal_id = Some(withdrawal_id);
+            Some(make_key_for_ft_withdrawal_event(data, block_height))
+        }
+        StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) => {
+            data.withdrawal_id = Some(withdrawal_id);
+            Some(make_key_for_stx_withdrawal_event(data, block_height))
+        }
+        _ => None,
+    }
+}
+
+pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height: u64) -> Value {
     let withdrawal_id = data
         .withdrawal_id
         .expect("Tried to serialize a withdraw event before setting withdrawal ID");
@@ -40,6 +89,7 @@ pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height
           "withdrawal_id" => withdrawal_id,
           "amount" => %data.amount,
           "asset_id" => %data.asset_identifier);
+
     make_key_for_ft_withdrawal(
         &data.sender,
         withdrawal_id,
@@ -49,7 +99,7 @@ pub fn make_key_for_ft_withdrawal_event(data: &FTWithdrawEventData, block_height
     )
 }
 
-pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_height: u64) -> String {
+pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_height: u64) -> Value {
     let withdrawal_id = data
         .withdrawal_id
         .expect("Tried to serialize a withdraw event before setting withdrawal ID");
@@ -68,7 +118,7 @@ pub fn make_key_for_nft_withdrawal_event(data: &NFTWithdrawEventData, block_heig
     )
 }
 
-pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_height: u64) -> String {
+pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_height: u64) -> Value {
     let withdrawal_id = data
         .withdrawal_id
         .expect("Tried to serialize a withdraw event before setting withdrawal ID");
@@ -81,15 +131,49 @@ pub fn make_key_for_stx_withdrawal_event(data: &STXWithdrawEventData, block_heig
     make_key_for_stx_withdrawal(&data.sender, withdrawal_id, data.amount, block_height)
 }
 
+pub fn make_key_for_stx_withdrawal(
+    recipient: &PrincipalData,
+    withdrawal_id: u32,
+    amount: u128,
+    block_height: u64,
+) -> Value {
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("stx")),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(recipient.clone())),
+        ("amount".into(), Value::UInt(amount)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
+}
+
 pub fn make_key_for_nft_withdrawal(
     sender: &PrincipalData,
     withdrawal_id: u32,
     asset_identifier: &AssetIdentifier,
     id: u128,
     block_height: u64,
-) -> String {
-    let str_data = format!("nft::{}::{}", asset_identifier, id);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
+) -> Value {
+    let asset_contract = Value::Principal(PrincipalData::from(
+        asset_identifier.contract_identifier.clone(),
+    ));
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("nft")),
+        ("asset-contract".into(), asset_contract),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(sender.clone())),
+        ("nft-id".into(), Value::UInt(id)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
 }
 
 pub fn make_key_for_ft_withdrawal(
@@ -98,47 +182,27 @@ pub fn make_key_for_ft_withdrawal(
     asset_identifier: &AssetIdentifier,
     amount: u128,
     block_height: u64,
-) -> String {
-    let str_data = format!("ft::{}::{}", asset_identifier, amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
+) -> Value {
+    let asset_contract = Value::Principal(PrincipalData::from(
+        asset_identifier.contract_identifier.clone(),
+    ));
+    TupleData::from_data(vec![
+        ("type".into(), clarity_ascii_str("ft")),
+        ("asset-contract".into(), asset_contract),
+        ("height".into(), Value::UInt(u128::from(block_height))),
+        (
+            "withdrawal-id".into(),
+            Value::UInt(u128::from(withdrawal_id)),
+        ),
+        ("recipient".into(), Value::Principal(sender.clone())),
+        ("amount".into(), Value::UInt(amount)),
+    ])
+    .expect("Withdrawal key tuple is too large for Clarity")
+    .into()
 }
 
-pub fn make_key_for_stx_withdrawal(
-    sender: &PrincipalData,
-    withdrawal_id: u32,
-    amount: u128,
-    block_height: u64,
-) -> String {
-    let str_data = format!("stx::{}", amount);
-    make_key_for_withdrawal(str_data, sender, withdrawal_id, block_height)
-}
-
-/// The supplied withdrawal ID is inserted into the supplied withdraw event
-/// (this is why the event are supplied as a mutable argument).
-pub fn generate_key_from_event(
-    event: &mut StacksTransactionEvent,
-    withdrawal_id: u32,
-    block_height: u64,
-) -> Option<String> {
-    match event {
-        StacksTransactionEvent::NFTEvent(NFTEventType::NFTWithdrawEvent(data)) => {
-            data.withdrawal_id = Some(withdrawal_id);
-            Some(make_key_for_nft_withdrawal_event(data, block_height))
-        }
-        StacksTransactionEvent::FTEvent(FTEventType::FTWithdrawEvent(data)) => {
-            data.withdrawal_id = Some(withdrawal_id);
-            Some(make_key_for_ft_withdrawal_event(data, block_height))
-        }
-        StacksTransactionEvent::STXEvent(STXEventType::STXWithdrawEvent(data)) => {
-            data.withdrawal_id = Some(withdrawal_id);
-            Some(make_key_for_stx_withdrawal_event(data, block_height))
-        }
-        _ => None,
-    }
-}
-
-pub fn convert_withdrawal_key_to_bytes(key: &str) -> Vec<u8> {
-    key.as_bytes().to_vec()
+pub fn convert_withdrawal_key_to_bytes(key: &Value) -> Vec<u8> {
+    key.serialize_to_vec()
 }
 
 /// The order of withdrawal events in the transaction receipts will determine the withdrawal IDs
@@ -154,15 +218,12 @@ pub fn generate_withdrawal_keys(
         for event in receipt.events.iter_mut() {
             if let Some(key) = generate_key_from_event(event, withdrawal_id, block_height) {
                 withdrawal_id += 1;
-                items.push(key);
+                items.push(convert_withdrawal_key_to_bytes(&key));
             }
         }
     }
 
     items
-        .iter()
-        .map(|item: &String| convert_withdrawal_key_to_bytes(item))
-        .collect()
 }
 
 /// Put all withdrawal keys and values into a single Merkle tree.
@@ -181,6 +242,11 @@ pub fn create_withdrawal_merkle_tree(
 
 #[cfg(test)]
 mod test {
+    use clarity::types::chainstate::StacksAddress;
+    use clarity::types::Address;
+    use clarity::util::hash::to_hex;
+    use clarity::vm::types::StandardPrincipalData;
+
     use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
     use crate::chainstate::stacks::{
         CoinbasePayload, StacksTransaction, TransactionAuth, TransactionPayload,
@@ -212,6 +278,9 @@ mod test {
         )
         .unwrap();
         let user_addr = to_addr(&pk);
+        let contract_addr =
+            StacksAddress::from_string("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+
         let mut spending_condition =
             TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&pk))
                 .expect("Failed to create p2pkh spending condition from public key.");
@@ -228,7 +297,7 @@ mod test {
             StacksTransactionEvent::FTEvent(FTWithdrawEvent(FTWithdrawEventData {
                 asset_identifier: AssetIdentifier {
                     contract_identifier: QualifiedContractIdentifier::new(
-                        user_addr.into(),
+                        contract_addr.into(),
                         ContractName::from("simple-ft"),
                     ),
                     asset_name: ClarityName::from("ft-token"),
@@ -241,7 +310,7 @@ mod test {
             StacksTransactionEvent::NFTEvent(NFTWithdrawEvent(NFTWithdrawEventData {
                 asset_identifier: AssetIdentifier {
                     contract_identifier: QualifiedContractIdentifier::new(
-                        user_addr.into(),
+                        contract_addr.into(),
                         ContractName::from("simple-nft"),
                     ),
                     asset_name: ClarityName::from("nft-token"),
@@ -281,11 +350,8 @@ mod test {
         let stx_withdrawal_leaf_hash =
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(stx_withdrawal_key_bytes.as_slice());
         assert_eq!(
-            stx_withdrawal_leaf_hash.as_bytes().to_vec(),
-            vec![
-                172, 139, 11, 211, 5, 246, 229, 87, 32, 65, 240, 19, 169, 240, 51, 242, 145, 194,
-                35, 50, 110, 250, 125, 182, 250, 233, 86, 22, 132, 34, 54, 87
-            ]
+            to_hex(stx_withdrawal_leaf_hash.as_bytes()),
+            "bde3658bbc38952599ef925ea3075a2fbfc5619cebf48cce140994c8b328fe35",
         );
 
         let ft_withdrawal_key = generate_key_from_event(&mut ft_withdraw_event, 1, 0).unwrap();
@@ -293,11 +359,8 @@ mod test {
         let ft_withdrawal_leaf_hash =
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(ft_withdrawal_key_bytes.as_slice());
         assert_eq!(
-            ft_withdrawal_leaf_hash.as_bytes().to_vec(),
-            vec![
-                150, 1, 86, 186, 197, 139, 77, 69, 128, 76, 166, 52, 11, 95, 39, 180, 157, 104, 85,
-                120, 195, 235, 158, 52, 62, 173, 45, 78, 125, 176, 10, 181
-            ]
+            to_hex(ft_withdrawal_leaf_hash.as_bytes()),
+            "be7bcffde781f217150cfc63c88fc2e78bca424b318f5421abdfe96842321e79"
         );
 
         let nft_withdrawal_key = generate_key_from_event(&mut nft_withdraw_event, 2, 0).unwrap();
@@ -305,11 +368,8 @@ mod test {
         let nft_withdrawal_leaf_hash =
             MerkleTree::<Sha512Trunc256Sum>::get_leaf_hash(nft_withdrawal_key_bytes.as_slice());
         assert_eq!(
-            nft_withdrawal_leaf_hash.as_bytes().to_vec(),
-            vec![
-                192, 142, 158, 115, 44, 43, 219, 156, 110, 47, 200, 153, 159, 226, 157, 254, 243,
-                156, 131, 240, 141, 179, 228, 34, 45, 250, 148, 88, 182, 39, 52, 121
-            ]
+            to_hex(nft_withdrawal_leaf_hash.as_bytes()),
+            "6456c2cdb1c1016fddf2e9b7eb88cd677741f0420614a824ac8b774a24285a35"
         );
 
         let first_level_first_node = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
@@ -317,22 +377,16 @@ mod test {
             &ft_withdrawal_leaf_hash,
         );
         assert_eq!(
-            first_level_first_node.as_bytes().to_vec(),
-            vec![
-                33, 59, 115, 31, 248, 41, 193, 100, 153, 181, 12, 29, 119, 128, 236, 142, 63, 0,
-                103, 65, 45, 101, 65, 135, 50, 36, 6, 86, 23, 242, 101, 86
-            ]
+            to_hex(first_level_first_node.as_bytes()),
+            "a00db116739a78d6547e18399924b8ec0201079149369b43422e816587f97ede"
         );
         let first_level_second_node = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
             &nft_withdrawal_leaf_hash,
             &nft_withdrawal_leaf_hash,
         );
         assert_eq!(
-            first_level_second_node.as_bytes().to_vec(),
-            vec![
-                143, 101, 57, 194, 25, 34, 84, 26, 183, 99, 126, 86, 66, 243, 83, 115, 185, 210,
-                20, 198, 46, 34, 238, 63, 37, 111, 253, 68, 89, 39, 195, 245
-            ]
+            to_hex(first_level_second_node.as_bytes()),
+            "8bec7ac5a0ec8eed899374f25fa8c0aa67e852b0c5a99ff6595e589a8d123ea0"
         );
 
         let calculated_root_hash = MerkleTree::<Sha512Trunc256Sum>::get_node_hash(
@@ -340,11 +394,8 @@ mod test {
             &first_level_second_node,
         );
         assert_eq!(
-            calculated_root_hash.as_bytes().to_vec(),
-            vec![
-                125, 119, 23, 55, 33, 63, 210, 96, 23, 203, 132, 126, 25, 3, 23, 127, 138, 157,
-                172, 210, 18, 252, 170, 7, 192, 175, 57, 178, 110, 63, 246, 49
-            ]
+            to_hex(calculated_root_hash.as_bytes()),
+            "b02609e344ebb6525c83cd6c2bd3d2a1c73daa2c9344119f036d615b110aad15",
         );
         assert_eq!(root_hash, calculated_root_hash);
     }

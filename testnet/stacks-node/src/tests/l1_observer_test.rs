@@ -3,6 +3,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 
 use crate::config::{EventKeyType, EventObserverConfig};
+use crate::tests::l1_multiparty::MOCKNET_EPOCH_2_1;
 use crate::tests::neon_integrations::{
     filter_map_events, get_account, get_nft_withdrawal_entry, get_withdrawal_entry, submit_tx,
     test_observer,
@@ -215,6 +216,26 @@ pub fn wait_for_next_stacks_block(sortition_db: &SortitionDB) -> bool {
     true
 }
 
+pub fn wait_for_target_l1_block(sortition_db: &SortitionDB, target: u64) -> bool {
+    let mut next = 0;
+    info!("wait_for_target_l1_block started"; "target" => target);
+    let start = Instant::now();
+    while next <= target {
+        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+            panic!("Timed out waiting for block to process, aborting test.");
+        }
+
+        thread::sleep(Duration::from_millis(100));
+
+        let tip_snapshot = SortitionDB::get_canonical_burn_chain_tip(&sortition_db.conn())
+            .expect("Could not read from SortitionDB.");
+
+        next = tip_snapshot.block_height;
+    }
+    info!("wait_for_target_l1_block finished"; "target" => target);
+    true
+}
+
 /// Deserializes the `StacksTransaction` objects from `blocks` and returns all those that
 /// match `test_fn`.
 fn select_transactions_where(
@@ -314,19 +335,13 @@ fn l1_basic_listener_test() {
     let termination_switch = run_loop.get_termination_switch();
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
-    // Start Stacks L1.
-    let l1_toml_file = "../../contrib/conf/stacks-l1-mocknet.toml";
-    let mut stacks_l1_controller = StacksL1Controller::new(l1_toml_file.to_string(), true);
-    let _stacks_res = stacks_l1_controller
-        .start_process()
-        .expect("stacks l1 controller didn't start");
-
     // Sleep to give the run loop time to listen to blocks.
     thread::sleep(Duration::from_millis(45000));
 
     // The burnchain should have registered what the listener recorded.
     let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
-    let (_, burndb) = burnchain.open_db(true).unwrap();
+    let (_sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
     let tip = burndb
         .get_canonical_chain_tip()
         .expect("couldn't get chain tip");
@@ -375,6 +390,7 @@ fn l1_integration_test() {
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
 
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
     publish_hc_contracts_to_l1(0, &config, miner_account.clone().into());
 
     // Wait for exactly two stacks blocks.
@@ -450,8 +466,13 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         .expect("stacks l1 controller didn't start");
     let mut l1_nonce = 0;
 
+    // The burnchain should have registered what the listener recorded.
+    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
+    let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
+
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
 
     // Publish the NFT/FT/HC traits
     let trait_content =
@@ -524,10 +545,6 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
     submit_tx(l1_rpc_origin, &hc_contract_publish);
 
     println!("Submitted FT, NFT, and Hyperchain contracts!");
-
-    // The burnchain should have registered what the listener recorded.
-    let burnchain = Burnchain::new(&config.get_burn_db_path(), &config.burnchain.chain).unwrap();
-    let (sortition_db, burndb) = burnchain.open_db(true).unwrap();
 
     wait_for_next_stacks_block(&sortition_db);
     wait_for_next_stacks_block(&sortition_db);
@@ -1103,6 +1120,8 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
+            Value::UInt(0),
+            Value::UInt(withdrawal_height.into()),
             Value::none(),
             Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(ft_contract_id.clone())),
@@ -1123,6 +1142,8 @@ fn l1_deposit_and_withdraw_asset_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
+            Value::UInt(1),
+            Value::UInt(withdrawal_height.into()),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::buff_from(root_hash).unwrap(),
@@ -1248,6 +1269,7 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
 
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
 
     // Publish the NFT/FT/HC traits
     let trait_content =
@@ -1575,6 +1597,8 @@ fn l1_deposit_and_withdraw_stx_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
+            Value::UInt(0),
+            Value::UInt(withdrawal_height.into()),
             root_hash_val,
             leaf_hash_val,
             siblings_val,
@@ -1650,6 +1674,7 @@ fn l2_simple_contract_calls() {
         .expect("stacks l1 controller didn't start");
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
 
     publish_hc_contracts_to_l1(0, &config, miner_account.clone().into());
 
@@ -1714,6 +1739,7 @@ fn l2_simple_contract_calls() {
 /// (a) assets minted on L1 chain can be deposited into hyperchain
 /// (b) assets minted on hyperchain can be withdrawn to the L1
 #[test]
+#[allow(unused_assignments)]
 fn nft_deposit_and_withdraw_integration_test() {
     // running locally:
     // STACKS_BASE_DIR=~/devel/stacks-blockchain/target/release/stacks-node STACKS_NODE_TEST=1 cargo test --workspace nft_deposit_and_withdraw_integration_test
@@ -1776,6 +1802,7 @@ fn nft_deposit_and_withdraw_integration_test() {
 
     // Sleep to give the L1 chain time to start
     thread::sleep(Duration::from_millis(10_000));
+    wait_for_target_l1_block(&sortition_db, MOCKNET_EPOCH_2_1);
 
     // Publish the NFT/FT/mint-from-hyperchain traits onto L1
     let trait_content =
@@ -2351,7 +2378,7 @@ fn nft_deposit_and_withdraw_integration_test() {
         .unwrap();
 
     let mut l1_native_nft_sib_data = Vec::new();
-    for (i, sib) in l1_native_nft_path.iter().enumerate() {
+    for (_i, sib) in l1_native_nft_path.iter().enumerate() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -2395,7 +2422,7 @@ fn nft_deposit_and_withdraw_integration_test() {
         .unwrap();
 
     let mut hc_native_nft_sib_data = Vec::new();
-    for (i, sib) in hc_native_nft_path.iter().enumerate() {
+    for (_i, sib) in hc_native_nft_path.iter().enumerate() {
         let sib_hash = Value::buff_from(sib.hash.as_bytes().to_vec()).unwrap();
         // the sibling's side is the opposite of what PathOrder is set to
         let sib_is_left = Value::Bool(sib.order == MerklePathOrder::Right);
@@ -2438,6 +2465,8 @@ fn nft_deposit_and_withdraw_integration_test() {
         &[
             Value::UInt(1),
             Value::Principal(user_addr.into()),
+            Value::UInt(0),
+            Value::UInt(withdrawal_height.into()),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::buff_from(root_hash.clone()).unwrap(),
@@ -2457,6 +2486,8 @@ fn nft_deposit_and_withdraw_integration_test() {
         &[
             Value::UInt(5),
             Value::Principal(user_addr.into()),
+            Value::UInt(1),
+            Value::UInt(withdrawal_height.into()),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::Principal(PrincipalData::Contract(nft_contract_id.clone())),
             Value::buff_from(root_hash).unwrap(),
