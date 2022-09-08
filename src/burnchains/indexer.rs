@@ -18,7 +18,7 @@ use crate::burnchains::BurnchainBlock;
 use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::*;
 
-use crate::core::StacksEpoch;
+use crate::core::{StacksEpoch, StacksEpochId};
 use crate::types::chainstate::BurnchainHeaderHash;
 
 // IPC messages between threads
@@ -52,6 +52,7 @@ pub trait BurnchainBlockParser {
     fn parse(
         &mut self,
         block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B,
+        epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlock, burnchain_error>;
 }
 
