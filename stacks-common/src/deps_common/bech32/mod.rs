@@ -719,7 +719,7 @@ impl std::error::Error for Error {
 /// # Examples
 ///
 /// ```rust
-/// use bech32::convert_bits;
+/// use stacks_common::deps_common::bech32::convert_bits;
 /// let base5 = convert_bits(&[0xff], 8, 5, true);
 /// assert_eq!(base5.unwrap(), vec![0x1f, 0x1c]);
 /// ```
