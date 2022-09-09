@@ -1986,13 +1986,27 @@ fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
          (+ (foo (bar 1)) 1)
          ";
 
-    assert!(match mem_type_check(contract).unwrap_err().err {
-        CheckErrors::TypeError(t1, t2) => {
-            t1 == TypeSignature::from_string("(optional bool)", version, epoch)
-                && t2 == TypeSignature::from_string("(optional int)", version, epoch)
-        }
-        _ => false,
-    });
+    if version < ClarityVersion::Clarity2 {
+        assert!(
+            match mem_run_analysis(contract, version, epoch).unwrap_err().err {
+                CheckErrors::TypeError(t1, t2) => {
+                    t1 == TypeSignature::from_string("(optional bool)", version, epoch)
+                        && t2 == TypeSignature::from_string("(optional int)", version, epoch)
+                }
+                _ => false,
+            }
+        );
+    } else {
+        assert!(
+            match mem_run_analysis(contract, version, epoch).unwrap_err().err {
+                CheckErrors::TypeError(t1, t2) => {
+                    t1 == TypeSignature::from_string("bool", version, epoch)
+                        && t2 == TypeSignature::from_string("int", version, epoch)
+                }
+                _ => false,
+            }
+        );
+    }
 }
 
 #[test]

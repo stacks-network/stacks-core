@@ -20,8 +20,8 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{type_check, CheckError};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
@@ -1078,11 +1078,13 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
             )
         })
         .unwrap_err();
+
     match err.err {
         CheckErrors::TypeError(
             TypeSignature::TraitReferenceType(_),
             TypeSignature::TraitReferenceType(_),
-        ) => {}
+        ) if version < ClarityVersion::Clarity2 => {}
+        CheckErrors::IncompatibleTrait(_, _) => {}
         _ => panic!("{:?}", err),
     }
 }
@@ -1741,14 +1743,18 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db
-        .execute(|db| {
-            type_check(&impl_contract_id, &mut impl_contract, db, true, &version)?;
-            type_check(&trait_contract_id, &mut trait_contract, db, true, &version)
-        })
-        .unwrap_err();
-    match err.err {
-        CheckErrors::NoSuchContract(contract) => assert!(contract.ends_with(".trait-contract")),
-        _ => panic!("{:?}", err),
+    // Referring to a trait from the current contract is supported in Clarity2,
+    // but not in Clarity1.
+    match db.execute(|db| {
+        type_check(&impl_contract_id, &mut impl_contract, db, true, &version)?;
+        type_check(&trait_contract_id, &mut trait_contract, db, true, &version)
+    }) {
+        Err(CheckError {
+            err: CheckErrors::NoSuchContract(contract),
+            expressions: _,
+            diagnostic: _,
+        }) if version < ClarityVersion::Clarity2 => assert!(contract.ends_with(".trait-contract")),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
+        res => panic!("{}: {:?}", version, res),
     }
 }
