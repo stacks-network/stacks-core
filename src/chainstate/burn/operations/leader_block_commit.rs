@@ -1306,9 +1306,7 @@ mod tests {
 
                     burn_fee: 24690,
                     input: (Txid([0x11; 32]), 0),
-                    apparent_sender: BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                    ]),
+                    apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
 
                     txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
                     vtxindex: vtxindex,
