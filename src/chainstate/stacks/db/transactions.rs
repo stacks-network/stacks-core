@@ -9058,7 +9058,7 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
             .is_some());
 
         let (fee, tx_receipt) = StacksChainState::process_transaction(
@@ -9081,7 +9081,7 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
             .is_some());
 
         conn.commit_block();
