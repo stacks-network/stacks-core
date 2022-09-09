@@ -909,7 +909,7 @@ fn delegate_stack_increase() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("test_simple_pox_2_increase"),
+        &format!("pox_2_delegate_stack_increase"),
         6002,
         Some(epochs.clone()),
         Some(&observer),
@@ -1016,6 +1016,15 @@ fn delegate_stack_increase() {
 
     let mut txs_to_submit = vec![];
 
+    let fail_direct_increase_delegation = alice_nonce;
+    txs_to_submit.push(make_pox_2_contract_call(
+        &alice,
+        alice_nonce,
+        "stack-increase",
+        vec![Value::UInt(1)],
+    ));
+    alice_nonce += 1;
+
     let fail_delegate_too_much_locked = bob_nonce;
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
@@ -1118,8 +1127,15 @@ fn delegate_stack_increase() {
         }
     }
 
-    assert_eq!(alice_txs.len() as u64, 1);
+    assert_eq!(alice_txs.len() as u64, 2);
     assert_eq!(bob_txs.len() as u64, 5);
+
+    assert_eq!(
+        &alice_txs[&fail_direct_increase_delegation]
+            .result
+            .to_string(),
+        "(err 20)"
+    );
 
     // transaction should fail because Alice did not delegate enough funds to Bob
     assert_eq!(

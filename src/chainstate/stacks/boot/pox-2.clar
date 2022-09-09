@@ -806,6 +806,9 @@
                 (err ERR_STACKING_INSUFFICIENT_FUNDS))
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
+      ;; stacker must be directly stacking
+      (asserts! (> (len (get reward-set-indexes stacker-state)) u0)
+                (err ERR_STACKING_ALREADY_DELEGATED))
       ;; update reward cycle amounts
       (asserts! (is-some (fold increase-reward-cycle-entry 
             (get reward-set-indexes stacker-state)
