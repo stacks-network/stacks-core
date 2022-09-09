@@ -1016,7 +1016,7 @@ mod tests {
                 // segwit taproot
                 // taken from mainnet tx 33e794d097969002ee05d336686fc03c9e15a597c1b9827669460fac98799036
                 scriptpubkey: hex_bytes(
-                    "0120339ce7e165e67d93adb3fef88a6d4beed33f01fa876f05a225242b82a631abc0",
+                    "5120339ce7e165e67d93adb3fef88a6d4beed33f01fa876f05a225242b82a631abc0",
                 )
                 .unwrap()
                 .to_vec(),
@@ -1092,7 +1092,11 @@ mod tests {
                 (Some(addr), Some(res)) => assert_eq!(addr, res),
                 (None, None) => {}
                 (None, Some(_r)) => {
-                    test_debug!("Failed to decode an address when we should have");
+                    test_debug!(
+                        "Failed to decode an address when we should have: {:?}, {:?}",
+                        &fixture.scriptpubkey,
+                        &_r
+                    );
                     assert!(false);
                 }
                 (Some(_a), None) => {
