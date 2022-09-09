@@ -8713,7 +8713,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"foo".to_string(),
                 &runtime_checkerror_trait.to_string(),
-                None,
+                Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
@@ -8734,7 +8734,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"foo-impl".to_string(),
                 &runtime_checkerror_impl.to_string(),
-                None,
+                Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
@@ -8749,26 +8749,47 @@ pub mod test {
 
         let signed_runtime_checkerror_impl_tx = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror = StacksTransaction::new(
+        let mut tx_runtime_checkerror_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
                 &"trait-checkerror".to_string(),
                 &runtime_checkerror.to_string(),
-                None,
+                Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror.chain_id = 0x80000000;
-        tx_runtime_checkerror.set_tx_fee(1);
-        tx_runtime_checkerror.set_origin_nonce(2);
+        tx_runtime_checkerror_clar1.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_clar1.chain_id = 0x80000000;
+        tx_runtime_checkerror_clar1.set_tx_fee(1);
+        tx_runtime_checkerror_clar1.set_origin_nonce(2);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_tx = signer.get_tx().unwrap();
+        let signed_runtime_checkerror_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror_clar2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror".to_string(),
+                &runtime_checkerror.to_string(),
+                Some(ClarityVersion::Clarity2),
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_clar2.chain_id = 0x80000000;
+        tx_runtime_checkerror_clar2.set_tx_fee(1);
+        tx_runtime_checkerror_clar2.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_clar2);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_tx_clar2 = signer.get_tx().unwrap();
 
         let mut tx_test_trait_checkerror = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -8794,26 +8815,49 @@ pub mod test {
 
         let signed_test_trait_checkerror_tx = signer.get_tx().unwrap();
 
-        let mut tx_runtime_checkerror_cc_contract = StacksTransaction::new(
+        let mut tx_runtime_checkerror_cc_contract_clar1 = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
             TransactionPayload::new_smart_contract(
                 &"trait-checkerror-cc".to_string(),
                 &runtime_checkerror_contract.to_string(),
-                None,
+                Some(ClarityVersion::Clarity1),
             )
             .unwrap(),
         );
 
-        tx_runtime_checkerror_cc_contract.post_condition_mode = TransactionPostConditionMode::Allow;
-        tx_runtime_checkerror_cc_contract.chain_id = 0x80000000;
-        tx_runtime_checkerror_cc_contract.set_tx_fee(1);
-        tx_runtime_checkerror_cc_contract.set_origin_nonce(3);
+        tx_runtime_checkerror_cc_contract_clar1.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_cc_contract_clar1.chain_id = 0x80000000;
+        tx_runtime_checkerror_cc_contract_clar1.set_tx_fee(1);
+        tx_runtime_checkerror_cc_contract_clar1.set_origin_nonce(3);
 
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx = signer.get_tx().unwrap();
+        let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_runtime_checkerror_cc_contract_clar2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"trait-checkerror-cc".to_string(),
+                &runtime_checkerror_contract.to_string(),
+                Some(ClarityVersion::Clarity2),
+            )
+            .unwrap(),
+        );
+
+        tx_runtime_checkerror_cc_contract_clar2.post_condition_mode =
+            TransactionPostConditionMode::Allow;
+        tx_runtime_checkerror_cc_contract_clar2.chain_id = 0x80000000;
+        tx_runtime_checkerror_cc_contract_clar2.set_tx_fee(1);
+        tx_runtime_checkerror_cc_contract_clar2.set_origin_nonce(4);
+
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar2);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_runtime_checkerror_cc_contract_tx_clar2 = signer.get_tx().unwrap();
 
         let contract_id = QualifiedContractIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
@@ -8845,9 +8889,12 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar1,
+            false,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let err = StacksChainState::process_transaction(
@@ -8868,7 +8915,7 @@ pub mod test {
 
         let err = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx,
+            &signed_runtime_checkerror_cc_contract_tx_clar1,
             false,
         )
         .unwrap_err();
@@ -8909,9 +8956,12 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar1,
+            false,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let err = StacksChainState::process_transaction(
@@ -8932,7 +8982,7 @@ pub mod test {
 
         let err = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx,
+            &signed_runtime_checkerror_cc_contract_tx_clar1,
             false,
         )
         .unwrap_err();
@@ -8948,7 +8998,7 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, this is a runtime error
+        // in 2.1, this is a runtime error when using clarity 1
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -8958,12 +9008,11 @@ pub mod test {
         );
 
         // make this mineable
-        tx_runtime_checkerror_cc_contract.set_origin_nonce(4);
-
-        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract);
+        tx_runtime_checkerror_cc_contract_clar1.set_origin_nonce(4);
+        let mut signer = StacksTransactionSigner::new(&tx_runtime_checkerror_cc_contract_clar1);
         signer.sign_origin(&privk).unwrap();
 
-        let signed_runtime_checkerror_cc_contract_tx = signer.get_tx().unwrap();
+        let signed_runtime_checkerror_cc_contract_tx_clar1 = signer.get_tx().unwrap();
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
@@ -8981,9 +9030,12 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_runtime_checkerror_tx, false)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar1,
+            false,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, tx_receipt) = StacksChainState::process_transaction(
@@ -9006,12 +9058,12 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(TraitReferenceType(TraitIdentifier ")
             .is_some());
 
         let (fee, tx_receipt) = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx,
+            &signed_runtime_checkerror_cc_contract_tx_clar1,
             false,
         )
         .unwrap();
@@ -9029,8 +9081,81 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(TraitReferenceType(TraitIdentifier ")
             .is_some());
+
+        conn.commit_block();
+
+        // in 2.1, this is successful when using clarity 2
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([4u8; 20]),
+            &BlockHeaderHash([4u8; 32]),
+        );
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_trait_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_impl_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_tx_clar2,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_trait_checkerror_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 4);
+
+        // no state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(true)));
+
+        assert!(tx_receipt.vm_error.is_none());
+
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_runtime_checkerror_cc_contract_tx_clar2,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        // nonce keeps advancing
+        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        assert_eq!(acct.nonce, 5);
+
+        // state change materialized
+        let executed_var =
+            StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
+        assert_eq!(executed_var, Some(Value::Bool(true)));
+
+        assert!(tx_receipt.vm_error.is_none());
 
         conn.commit_block();
     }
