@@ -1083,6 +1083,12 @@ impl<'a, 'b> Environment<'a, 'b> {
         self.inner_execute_contract(contract, tx_name, args, read_only, true)
     }
 
+    /// This method handles actual execution of contract-calls on a contract.
+    ///
+    /// `allow_private` should always be set to `false` for user transactions:
+    ///  this ensures that only `define-public` and `define-read-only` methods can
+    ///  be invoked. The `allow_private` mode should only be used by
+    ///  `Environment::execute_contract_allow_private`.
     fn inner_execute_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

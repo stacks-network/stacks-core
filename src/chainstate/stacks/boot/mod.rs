@@ -141,6 +141,12 @@ pub struct RawRewardSetEntry {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
+    /// This data contains the set of principals who missed a reward slot
+    ///  in this reward cycle.
+    ///
+    /// The first element of the tuple is the principal whose microSTX
+    ///  were locked, and the second element is the amount of microSTX
+    ///  that were locked
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
@@ -411,7 +417,14 @@ impl StacksChainState {
             if let Some(stacker) = stacker.as_ref() {
                 contributed_stackers.push((stacker.clone(), stacked_amt));
             }
-            // peak at the next address in the set, and see if we need to sum
+            // Here we check if we should combine any entries with the same
+            //  reward address together in the reward set.
+            // The outer while loop pops the last element of the
+            //  addresses vector, and here we peak at the last item in
+            //  the vector (via last()). Because the items in the
+            //  vector are sorted by address, we know that any entry
+            //  with the same `reward_address` as `address` will be at the end of
+            //  the list (and therefore found by this loop)
             while addresses.last().map(|x| &x.reward_address) == Some(&address) {
                 let next_contrib = addresses
                     .pop()
