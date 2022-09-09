@@ -1449,7 +1449,7 @@ mod tests {
                     },
                     BurnSamplePoint {
                         burns: (block_commit_3.burn_fee).into(),
-                        median_burn: block_commit_2.burn_fee.into(),
+                        median_burn: block_commit_3.burn_fee.into(),
                         range_start: Uint256([
                             0x7db29a7961508e12,
                             0x12c7bbdaf334f834,
