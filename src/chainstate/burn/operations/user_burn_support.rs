@@ -138,7 +138,7 @@ impl UserBurnSupportOp {
         })?;
 
         // outputs[0] should be the burn output
-        if output_0.address.is_burn() {
+        if !output_0.address.is_burn() {
             // wrong burn output
             test_debug!("Invalid tx: burn output missing (got {:?})", outputs[0]);
             return Err(op_error::ParseError);
