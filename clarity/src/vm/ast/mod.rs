@@ -60,26 +60,21 @@ pub fn build_ast<T: CostTracker>(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> ParseResult<ContractAST> {
-    runtime_cost(
-        ClarityCostFunction::AstParse,
+    let (contract, _, _) = inner_build_ast(
+        contract_identifier,
+        source_code,
         cost_track,
-        source_code.len() as u64,
+        clarity_version,
+        epoch,
+        true,
     )?;
-    let pre_expressions = if epoch >= StacksEpochId::Epoch21 {
-        parser::v2::parse(source_code)?
-    } else {
-        parser::v1::parse(source_code)?
-    };
-    let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
-    StackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
-    ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version)?;
-    DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version)?;
-    TraitsResolver::run_pass(&mut contract_ast, clarity_version)?;
-    SugarExpander::run_pass(&mut contract_ast, clarity_version)?;
-    ExpressionIdentifier::run_expression_pass(&mut contract_ast, clarity_version)?;
-    Ok(contract_ast)
+    Ok(contract)
 }
 
+/// Used by developer tools only. Continues on through errors by inserting
+/// placeholders into the AST. Collects as many diagnostics as possible.
+/// Always returns a ContractAST, a vector of diagnostics, and a boolean
+/// that indicates if the build was successful.
 pub fn build_ast_with_diagnostics<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -87,20 +82,46 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> (ContractAST, Vec<Diagnostic>, bool) {
+    inner_build_ast(
+        contract_identifier,
+        source_code,
+        cost_track,
+        clarity_version,
+        epoch,
+        false,
+    )
+    .unwrap()
+}
+
+pub fn inner_build_ast<T: CostTracker>(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+    cost_track: &mut T,
+    clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
+    error_early: bool,
+) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
         ClarityCostFunction::AstParse,
         cost_track,
         source_code.len() as u64,
     ) {
+        Err(e) if error_early => return Err(e.into()),
         Err(e) => Some(e),
         _ => None,
     };
 
     let (pre_expressions, mut diagnostics, mut success) = if epoch >= StacksEpochId::Epoch21 {
-        parser::v2::parse_collect_diagnostics(source_code)
+        if error_early {
+            let exprs = parser::v2::parse(source_code)?;
+            (exprs, Vec::new(), true)
+        } else {
+            parser::v2::parse_collect_diagnostics(source_code)
+        }
     } else {
         match parser::v1::parse(source_code) {
             Ok(pre_expressions) => (pre_expressions, vec![], true),
+            Err(error) if error_early => return Err(error),
             Err(error) => (vec![], vec![error.diagnostic], false),
         }
     };
@@ -118,6 +139,7 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
     }
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     match StackDepthChecker::run_pass(&mut contract_ast, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -125,6 +147,7 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         _ => (),
     }
     match ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -132,6 +155,7 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         _ => (),
     }
     match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -139,6 +163,7 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         _ => (),
     }
     match TraitsResolver::run_pass(&mut contract_ast, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -146,6 +171,7 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         _ => (),
     }
     match SugarExpander::run_pass(&mut contract_ast, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
@@ -153,13 +179,14 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         _ => (),
     }
     match ExpressionIdentifier::run_expression_pass(&mut contract_ast, clarity_version) {
+        Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);
             success = false;
         }
         _ => (),
     }
-    (contract_ast, diagnostics, success)
+    Ok((contract_ast, diagnostics, success))
 }
 
 #[cfg(test)]
