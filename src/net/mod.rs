@@ -1085,6 +1085,7 @@ pub struct RPCPoxInfoData {
     pub contract_id: String,
     pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub current_burnchain_block_height: u64,
     pub prepare_phase_block_length: u64,
     pub reward_phase_block_length: u64,
     pub reward_slots: u64,

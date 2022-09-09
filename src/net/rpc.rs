@@ -451,6 +451,7 @@ impl RPCPoxInfoData {
             contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
+            current_burnchain_block_height: burnchain_tip.block_height,
             prepare_phase_block_length: prepare_cycle_length,
             reward_phase_block_length: reward_cycle_length - prepare_cycle_length,
             reward_slots,
