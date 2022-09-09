@@ -185,7 +185,23 @@ impl DefinedFunction {
 
             match (&type_sig, &cast_value) {
                 (
-                    _,
+                    TypeSignature::TraitReferenceType(trait_identifier),
+                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                ) => {
+                    // Argument is a trait reference, probably leading to a dynamic contract call
+                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                    // The code fetching and checking the trait is implemented in the contract_call eval function.
+                    // Note that this case only shows up in Clarity1 when the implicit casting is skipped.
+                    context.callable_contracts.insert(
+                        name.clone(),
+                        CallableData {
+                            contract_identifier: callee_contract_id.clone(),
+                            trait_identifier: trait_identifier.clone(),
+                        },
+                    );
+                }
+                (
+                    TypeSignature::TraitReferenceType(_),
                     Value::CallableContract(CallableData {
                         contract_identifier,
                         trait_identifier,
@@ -202,11 +218,15 @@ impl DefinedFunction {
                         },
                     );
                 }
-                _ => (),
+                _ => {
+                    if !type_sig.admits(&cast_value) {
+                        return Err(
+                            CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
+                        );
+                    }
+                }
             }
-            if !type_sig.admits(&cast_value) {
-                return Err(CheckErrors::TypeValueError(type_sig.clone(), cast_value).into());
-            }
+
             if let Some(_) = context.variables.insert(name.clone(), cast_value) {
                 return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
             }
