@@ -17,7 +17,7 @@
 use std::fmt;
 
 use rusqlite::types::ToSql;
-use rusqlite::Row;
+use rusqlite::{Row, RowIndex};
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
@@ -75,7 +75,7 @@ impl PeerAddress {
 }
 
 impl FromColumn<PeerAddress> for PeerAddress {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<PeerAddress, db_error> {
         let addrbytes_bin: String = row.get_unwrap(column_name);
         if addrbytes_bin.len() != 128 {
             error!("Unparsable peer address {}", addrbytes_bin);

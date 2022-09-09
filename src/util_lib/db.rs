@@ -46,7 +46,7 @@ use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
-use rusqlite::Row;
+use rusqlite::{Row, RowIndex};
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
@@ -181,7 +181,7 @@ pub trait FromRow<T> {
 }
 
 pub trait FromColumn<T> {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<T, Error>;
+    fn from_column<'a, I: RowIndex>(row: &'a Row, idx: I) -> Result<T, Error>;
 }
 
 impl FromRow<u64> for u64 {
@@ -202,7 +202,7 @@ impl FromRow<String> for String {
 }
 
 impl FromColumn<u64> for u64 {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<u64, Error> {
         let x: i64 = row.get_unwrap(column_name);
         if x < 0 {
             return Err(Error::ParseError);
@@ -212,7 +212,7 @@ impl FromColumn<u64> for u64 {
 }
 
 impl FromColumn<Option<u64>> for u64 {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Option<u64>, Error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<Option<u64>, Error> {
         let x: Option<i64> = row.get_unwrap(column_name);
         match x {
             Some(x) => {
@@ -234,16 +234,16 @@ impl FromRow<i64> for i64 {
 }
 
 impl FromColumn<i64> for i64 {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<i64, Error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<i64, Error> {
         let x: i64 = row.get_unwrap(column_name);
         Ok(x)
     }
 }
 
 impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
-    fn from_column<'a>(
+    fn from_column<'a, I: RowIndex>(
         row: &'a Row,
-        column_name: &str,
+        column_name: I,
     ) -> Result<QualifiedContractIdentifier, Error> {
         let value: String = row.get_unwrap(column_name);
         QualifiedContractIdentifier::parse(&value).map_err(|_| Error::ParseError)
@@ -252,7 +252,7 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
 
 /// Make public keys loadable from a sqlite database
 impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, Error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<Secp256k1PublicKey, Error> {
         let pubkey_hex: String = row.get_unwrap(column_name);
         let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex).map_err(|_e| Error::ParseError)?;
         Ok(pubkey)
@@ -261,7 +261,7 @@ impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
 
 /// Make private keys loadable from a sqlite database
 impl FromColumn<Secp256k1PrivateKey> for Secp256k1PrivateKey {
-    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PrivateKey, Error> {
+    fn from_column<'a, I: RowIndex>(row: &'a Row, column_name: I) -> Result<Secp256k1PrivateKey, Error> {
         let privkey_hex: String = row.get_unwrap(column_name);
         let privkey =
             Secp256k1PrivateKey::from_hex(&privkey_hex).map_err(|_e| Error::ParseError)?;
@@ -279,9 +279,9 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
 macro_rules! impl_byte_array_from_column_only {
     ($thing:ident) => {
         impl crate::util_lib::db::FromColumn<$thing> for $thing {
-            fn from_column(
+            fn from_column<I: rusqlite::RowIndex>(
                 row: &rusqlite::Row,
-                column_name: &str,
+                column_name: I,
             ) -> Result<Self, crate::util_lib::db::Error> {
                 Ok(row.get_unwrap::<_, Self>(column_name))
             }
@@ -308,9 +308,9 @@ macro_rules! impl_byte_array_from_column {
         }
 
         impl crate::util_lib::db::FromColumn<$thing> for $thing {
-            fn from_column(
+            fn from_column<I: rusqlite::RowIndex>(
                 row: &rusqlite::Row,
-                column_name: &str,
+                column_name: I,
             ) -> Result<Self, crate::util_lib::db::Error> {
                 Ok(row.get_unwrap::<_, Self>(column_name))
             }

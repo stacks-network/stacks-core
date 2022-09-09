@@ -40,7 +40,7 @@ use crate::burnchains::bitcoin::PeerMessage;
 
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::OptionalExtension;
-use rusqlite::Row;
+use rusqlite::{Row, RowIndex};
 use rusqlite::Transaction;
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 
@@ -108,19 +108,19 @@ pub struct SpvClient {
 }
 
 impl FromColumn<Sha256dHash> for Sha256dHash {
-    fn from_column(row: &Row, column_name: &str) -> Result<Sha256dHash, db_error> {
+    fn from_column<I: RowIndex>(row: &Row, column_name: I) -> Result<Sha256dHash, db_error> {
         Ok(row.get_unwrap::<_, Self>(column_name))
     }
 }
 
 impl FromRow<BlockHeader> for BlockHeader {
     fn from_row<'a>(row: &'a Row) -> Result<BlockHeader, db_error> {
-        let version: u32 = row.get_unwrap("version");
-        let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, "prev_blockhash")?;
-        let merkle_root: Sha256dHash = Sha256dHash::from_column(row, "merkle_root")?;
-        let time: u32 = row.get_unwrap("time");
-        let bits: u32 = row.get_unwrap("bits");
-        let nonce: u32 = row.get_unwrap("nonce");
+        let version: u32 = row.get_unwrap(1);
+        let prev_blockhash: Sha256dHash = Sha256dHash::from_column(row, 2)?;
+        let merkle_root: Sha256dHash = Sha256dHash::from_column(row, 3)?;
+        let time: u32 = row.get_unwrap(4);
+        let bits: u32 = row.get_unwrap(5);
+        let nonce: u32 = row.get_unwrap(6);
 
         Ok(BlockHeader {
             version,
@@ -620,7 +620,7 @@ impl SpvClient {
     ) -> Result<Option<LoneBlockHeader>, btc_error> {
         let header_opt: Option<BlockHeader> = query_row(
             &self.headers_db,
-            "SELECT * FROM headers WHERE height = ?1",
+            "SELECT height, version, prev_blockhash, merkle_root, time, bits, nonce FROM headers WHERE height = ?1",
             &[&u64_to_sql(block_height)?],
         )?;
         Ok(header_opt.map(|h| LoneBlockHeader {
@@ -642,12 +642,12 @@ impl SpvClient {
     ) -> Result<Vec<LoneBlockHeader>, btc_error> {
         let mut headers = vec![];
 
-        let sql_query = "SELECT * FROM headers WHERE height >= ?1 AND height < ?2 ORDER BY height";
+        let sql_query = "SELECT height, version, prev_blockhash, merkle_root, time, bits, nonce FROM headers WHERE height >= ?1 AND height < ?2 ORDER BY height";
         let sql_args: &[&dyn ToSql] = &[&u64_to_sql(start_block)?, &u64_to_sql(end_block)?];
 
         let mut stmt = self
             .headers_db
-            .prepare(sql_query)
+            .prepare_cached(sql_query)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
         let mut rows = stmt
@@ -660,7 +660,7 @@ impl SpvClient {
             .next()
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?
         {
-            let height: u64 = u64::from_column(&row, "height")?;
+            let height: u64 = u64::from_column(&row, 0)?;
             if height != next_height {
                 break;
             }
