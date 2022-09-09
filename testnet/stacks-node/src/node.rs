@@ -57,6 +57,7 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::vm::database::BurnStateDB;
 
+use rand::RngCore;
 use stacks::chainstate::stacks::address::PoxAddress;
 
 #[derive(Debug, Clone)]
@@ -809,6 +810,8 @@ impl Node {
                 .expect("FATAL: failed to submit block-commit");
 
             self.block_commits.insert(txid);
+        } else {
+            warn!("No leader key active!");
         }
     }
 
@@ -1010,12 +1013,17 @@ impl Node {
         vrf_public_key: VRFPublicKey,
         consensus_hash: &ConsensusHash,
     ) -> BlockstackOperationType {
+        let mut txid_bytes = [0u8; 32];
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut txid_bytes);
+        let txid = Txid(txid_bytes);
+
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
             consensus_hash: consensus_hash.clone(),
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
+            vtxindex: 1,
+            txid,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
         })
@@ -1053,6 +1061,11 @@ impl Node {
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
+        let mut txid_bytes = [0u8; 32];
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut txid_bytes);
+        let txid = Txid(txid_bytes);
+
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             block_header_hash,
             burn_fee,
@@ -1064,8 +1077,8 @@ impl Node {
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
+            vtxindex: 2,
+            txid,
             commit_outs,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),

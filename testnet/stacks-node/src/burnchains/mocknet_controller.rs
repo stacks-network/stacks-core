@@ -161,24 +161,17 @@ impl BurnchainController for MocknetController {
 
         // Simulating mining
         let next_block_header = Self::build_next_block_header(&chain_tip.block_snapshot);
-        let mut vtxindex = 1;
         let mut ops = vec![];
 
         while let Some(payload) = self.queued_operations.pop_front() {
-            let txid = Txid(
-                Sha256Sum::from_data(
-                    format!("{}::{}", next_block_header.block_height, vtxindex).as_bytes(),
-                )
-                .0,
-            );
             let op = match payload {
                 BlockstackOperationType::LeaderKeyRegister(payload) => {
                     BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
                         consensus_hash: payload.consensus_hash,
                         public_key: payload.public_key,
                         memo: payload.memo,
-                        txid,
-                        vtxindex: vtxindex,
+                        txid: payload.txid,
+                        vtxindex: payload.vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                     })
@@ -196,8 +189,8 @@ impl BurnchainController for MocknetController {
                         apparent_sender: payload.apparent_sender,
                         input: payload.input,
                         commit_outs: payload.commit_outs,
-                        txid,
-                        vtxindex: vtxindex,
+                        txid: payload.txid,
+                        vtxindex: payload.vtxindex,
                         block_height: next_block_header.block_height,
                         burn_parent_modulus: if next_block_header.block_height > 0 {
                             (next_block_header.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS
@@ -216,16 +209,14 @@ impl BurnchainController for MocknetController {
                         key_vtxindex: payload.key_vtxindex,
                         block_header_hash_160: payload.block_header_hash_160,
                         burn_fee: payload.burn_fee,
-                        txid,
-                        vtxindex: vtxindex,
+                        txid: payload.txid,
+                        vtxindex: payload.vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                     })
                 }
                 BlockstackOperationType::PreStx(payload) => {
                     BlockstackOperationType::PreStx(PreStxOp {
-                        txid,
-                        vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload
@@ -233,8 +224,6 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::TransferStx(payload) => {
                     BlockstackOperationType::TransferStx(TransferStxOp {
-                        txid,
-                        vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload
@@ -242,8 +231,6 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::StackStx(payload) => {
                     BlockstackOperationType::StackStx(StackStxOp {
-                        txid,
-                        vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload
@@ -251,7 +238,6 @@ impl BurnchainController for MocknetController {
                 }
             };
             ops.push(op);
-            vtxindex += 1;
         }
 
         // Include txs in a new block
