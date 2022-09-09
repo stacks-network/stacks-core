@@ -35,6 +35,7 @@ use crate::vm::types::{
 use crate::vm::{eval, Environment, LocalContext, Value};
 
 use super::costs::CostOverflowingMath;
+use super::ClarityVersion;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
@@ -175,7 +176,12 @@ impl DefinedFunction {
             // e.g. `(some .foo)` to `(optional <trait>`)
             // and traits can be implicitly cast to sub-traits
             // e.g. `<foo-and-bar>` to `<foo>`
-            let cast_value = implicit_cast(type_sig, value)?;
+            let cast_value =
+                if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+                    implicit_cast(type_sig, value)?
+                } else {
+                    value.clone()
+                };
 
             match (&type_sig, &cast_value) {
                 (
