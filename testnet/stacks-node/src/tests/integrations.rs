@@ -38,6 +38,8 @@ use stacks::core::StacksEpochId;
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::StacksAddressExtensions;
 
+use stacks_common::types::chainstate::StacksBlockId;
+
 use super::{
     make_contract_call, make_contract_publish, make_stacks_transfer, to_addr, ADDR_4, SK_1, SK_2,
     SK_3,
@@ -253,6 +255,19 @@ fn integration_test_get_info() {
                         &StacksEpochId::Epoch20,
                     )
                     .unwrap();
+
+                // store this for later, because we can't just do it in a refcell or any outer
+                // variable because this is a function pointer type, and thus can't access anything
+                // outside its scope :(
+                let tmppath = "/tmp/integration_test_get_info-old-tip";
+                let old_tip = StacksBlockId::new(&consensus_hash, &header_hash);
+                use std::fs;
+                use std::io::Write;
+                if fs::metadata(&tmppath).is_ok() {
+                    fs::remove_file(&tmppath).unwrap();
+                }
+                let mut f = fs::File::create(&tmppath).unwrap();
+                f.write_all(&old_tip.serialize_to_vec()).unwrap();
             } else if round == 2 {
                 // block-height = 3
                 let publish_tx = make_contract_publish(
@@ -863,7 +878,17 @@ fn integration_test_get_info() {
 
                 // test query parameters for v2/trait endpoint
                 // evaluate check for explicit compliance against the chain tip of the first block (contract DNE at that block)
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=753d84de5c475a85abd0eeb3ac87da03ff0f794507b60a3f66356425bc1dedaf", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+
+                // Recover the stored tip
+                let tmppath = "/tmp/integration_test_get_info-old-tip";
+                use std::fs;
+                use std::io::Read;
+                let mut f = fs::File::open(&tmppath).unwrap();
+                let mut buf = vec![];
+                f.read_to_end(&mut buf);
+                let old_tip = StacksBlockId::consensus_deserialize(&mut &buf[..]).unwrap();
+
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip={}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1", &old_tip);
                 let res = client.get(&path).send().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");
