@@ -428,9 +428,14 @@ fn check_contract_call(
 
             runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
-            let trait_signature = checker.contract_context.get_trait(&trait_id.name).ok_or(
-                CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
-            )?;
+            let trait_signature = if checker.clarity_version < ClarityVersion::Clarity2 {
+                checker.contract_context.get_trait(&trait_id.name)
+            } else {
+                checker.contract_context.get_trait_by_id(trait_id)
+            }
+            .ok_or(CheckErrors::TraitReferenceUnknown(
+                trait_id.name.to_string(),
+            ))?;
             let func_signature =
                 trait_signature
                     .get(func_name)
@@ -477,10 +482,12 @@ fn check_contract_of(
 
     runtime_cost(ClarityCostFunction::ContractOf, checker, 1)?;
 
-    checker
-        .contract_context
-        .get_trait(&trait_id.name)
-        .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+    if checker.clarity_version < ClarityVersion::Clarity2 {
+        checker.contract_context.get_trait(&trait_id.name)
+    } else {
+        checker.contract_context.get_trait_by_id(trait_id)
+    }
+    .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)
 }

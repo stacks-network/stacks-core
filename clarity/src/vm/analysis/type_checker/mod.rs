@@ -371,6 +371,7 @@ impl FunctionType {
                         &actual_trait,
                         expected_trait_id,
                         &expected_trait,
+                        clarity_version,
                     )?;
                 }
                 (expected_type, value) => {
@@ -394,6 +395,7 @@ pub fn trait_check_trait_compliance(
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    clarity_version: ClarityVersion,
 ) -> CheckResult<()> {
     // Shortcut for the simple case when the two traits are the same.
     if actual_trait_identifier == expected_trait_identifier {
@@ -404,8 +406,15 @@ pub fn trait_check_trait_compliance(
         if let Some(func) = actual_trait.get(func_name) {
             let args_iter = expected_sig.args.iter().zip(func.args.iter());
             for (expected_type, actual_type) in args_iter {
-                if inner_type_check_type(db, contract_context, actual_type, expected_type, 1)
-                    .is_err()
+                if inner_type_check_type(
+                    db,
+                    contract_context,
+                    actual_type,
+                    expected_type,
+                    clarity_version,
+                    1,
+                )
+                .is_err()
                 {
                     return Err(CheckErrors::IncompatibleTrait(
                         expected_trait_identifier.clone(),
@@ -419,6 +428,7 @@ pub fn trait_check_trait_compliance(
                 contract_context,
                 &func.returns,
                 &expected_sig.returns,
+                clarity_version,
                 1,
             )
             .is_err()
@@ -445,6 +455,7 @@ fn inner_type_check_type(
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
+    clarity_version: ClarityVersion,
     depth: u8,
 ) -> TypeResult {
     if depth > MAX_TYPE_DEPTH {
@@ -462,6 +473,7 @@ fn inner_type_check_type(
                 contract_context,
                 atom_inner_type,
                 expected_inner_type,
+                clarity_version,
                 depth + 1,
             )?;
         }
@@ -474,6 +486,7 @@ fn inner_type_check_type(
                 contract_context,
                 &atom_inner_types.0,
                 &expected_inner_types.0,
+                clarity_version,
                 depth + 1,
             )?;
             inner_type_check_type(
@@ -481,6 +494,7 @@ fn inner_type_check_type(
                 contract_context,
                 &atom_inner_types.1,
                 &expected_inner_types.1,
+                clarity_version,
                 depth + 1,
             )?;
         }
@@ -493,6 +507,7 @@ fn inner_type_check_type(
                 contract_context,
                 atom_list_type.get_list_item_type(),
                 expected_list_type.get_list_item_type(),
+                clarity_version,
                 depth + 1,
             )?;
         }
@@ -508,6 +523,7 @@ fn inner_type_check_type(
                             contract_context,
                             atom_field_type,
                             expected_field_type,
+                            clarity_version,
                             depth + 1,
                         )?;
                     }
@@ -526,8 +542,10 @@ fn inner_type_check_type(
             TypeSignature::TraitReferenceType(expected_trait_id),
         ) => {
             if atom_trait_id != expected_trait_id {
-                let atom_trait = lookup_trait(db, contract_context, &atom_trait_id)?;
-                let expected_trait = lookup_trait(db, contract_context, expected_trait_id)?;
+                let atom_trait =
+                    lookup_trait(db, contract_context, &atom_trait_id, clarity_version)?;
+                let expected_trait =
+                    lookup_trait(db, contract_context, expected_trait_id, clarity_version)?;
                 trait_check_trait_compliance(
                     db,
                     contract_context,
@@ -535,6 +553,7 @@ fn inner_type_check_type(
                     &atom_trait,
                     expected_trait_id,
                     &expected_trait,
+                    clarity_version,
                 )?;
             }
         }
@@ -554,17 +573,21 @@ fn lookup_trait(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
+    clarity_version: ClarityVersion,
 ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
     // If the trait is from the current contract, its not in the db yet.
     if let Some(contract_context) = contract_context {
         if contract_context.is_contract(&trait_id.contract_identifier) {
-            return Ok(contract_context
-                .get_trait(&trait_id.name)
-                .ok_or(CheckErrors::NoSuchTrait(
-                    trait_id.contract_identifier.to_string(),
-                    trait_id.name.to_string(),
-                ))?
-                .clone());
+            return Ok(if clarity_version < ClarityVersion::Clarity2 {
+                contract_context.get_trait(&trait_id.name)
+            } else {
+                contract_context.get_trait_by_id(trait_id)
+            }
+            .ok_or(CheckErrors::NoSuchTrait(
+                trait_id.contract_identifier.to_string(),
+                trait_id.name.to_string(),
+            ))?
+            .clone());
         }
     }
 
@@ -1030,8 +1053,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     .load_contract(&contract_identifier)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let expected_trait =
-                    &lookup_trait(self.db, Some(&self.contract_context), expected_trait_id)?;
+                let expected_trait = &lookup_trait(
+                    self.db,
+                    Some(&self.contract_context),
+                    expected_trait_id,
+                    self.clarity_version,
+                )?;
                 contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
             }
             (TypeSignature::TraitReferenceType(expected_trait_id), _) => {
@@ -1044,10 +1071,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     } else {
                         return Err(CheckErrors::TypeError(expected_type.clone(), expr_type).into());
                     };
-                let actual_trait =
-                    lookup_trait(self.db, Some(&self.contract_context), &expr_trait_id)?;
-                let expected_trait =
-                    lookup_trait(self.db, Some(&self.contract_context), expected_trait_id)?;
+                let actual_trait = lookup_trait(
+                    self.db,
+                    Some(&self.contract_context),
+                    &expr_trait_id,
+                    self.clarity_version,
+                )?;
+                let expected_trait = lookup_trait(
+                    self.db,
+                    Some(&self.contract_context),
+                    expected_trait_id,
+                    self.clarity_version,
+                )?;
                 trait_check_trait_compliance(
                     self.db,
                     Some(&self.contract_context),
@@ -1055,6 +1090,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     &actual_trait,
                     expected_trait_id,
                     &expected_trait,
+                    self.clarity_version,
                 )?;
             }
             (_, _) => {
@@ -1063,6 +1099,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     Some(&self.contract_context),
                     &expr_type,
                     expected_type,
+                    self.clarity_version,
                     1,
                 )?;
             }
@@ -1288,8 +1325,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         self,
                         trait_type_size(&trait_signature)?,
                     )?;
-                    self.contract_context
-                        .add_trait(trait_name, trait_signature)?;
+                    if self.clarity_version < ClarityVersion::Clarity2 {
+                        self.contract_context
+                            .add_trait(trait_name, trait_signature)?;
+                    } else {
+                        self.contract_context
+                            .add_defined_trait(name.clone(), trait_signature)?;
+                    }
                 }
                 DefineFunctionsParsed::UseTrait {
                     name,
@@ -1308,8 +1350,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                                 type_size,
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
-                            self.contract_context
-                                .add_trait(trait_identifier.name.clone(), trait_sig)?
+                            if self.clarity_version < ClarityVersion::Clarity2 {
+                                self.contract_context
+                                    .add_trait(trait_identifier.name.clone(), trait_sig)?
+                            } else {
+                                self.contract_context
+                                    .add_used_trait(trait_identifier.clone(), trait_sig)?
+                            }
                         }
                         None => {
                             // still had to do a db read, even if it didn't exist!

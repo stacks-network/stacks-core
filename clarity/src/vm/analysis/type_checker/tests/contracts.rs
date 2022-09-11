@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+
 use assert_json_diff;
 use serde_json;
 
@@ -23,7 +25,10 @@ use crate::vm::analysis::{contract_interface_builder::build_contract_interface, 
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
+};
+use crate::vm::ContractName;
 use crate::vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
@@ -42,6 +47,12 @@ fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, Contr
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
 fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_epoch21_clarity_versions(#[case] version: ClarityVersion) {}
+
 /// backwards-compatibility shim
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
@@ -49,13 +60,29 @@ pub fn type_check(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
 ) -> Result<ContractAnalysis, CheckError> {
+    type_check_version(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        ClarityVersion::Clarity2,
+    )
+}
+
+pub fn type_check_version(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &mut [SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+    version: ClarityVersion,
+) -> Result<ContractAnalysis, CheckError> {
     run_analysis(
         contract_identifier,
         expressions,
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity2,
+        version,
     )
     .map_err(|(e, _)| e)
 }
@@ -895,8 +922,8 @@ fn test_traits() {
             )
         )";
 
-        mem_type_check_v1(trait_to_trait).unwrap();
         mem_type_check(trait_to_trait).unwrap();
+        mem_type_check_v1(trait_to_trait).unwrap();
 
         mem_type_check(trait_to_compatible_trait).unwrap();
         let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
@@ -1393,5 +1420,46 @@ fn test_traits() {
             }
             _ => false,
         });
+    }
+}
+
+/// Based on issue #3215 from sskeirik
+#[apply(test_epoch21_clarity_versions)]
+fn test_traits_multi_contract(#[case] version: ClarityVersion) {
+    let epoch = StacksEpochId::latest();
+
+    let trait_contract_src = "(define-trait a (
+        (do-it () (response bool bool))
+    ))";
+    let use_contract_src = "(use-trait a-alias .a-trait.a)
+    (define-trait a (
+      (do-that () (response bool bool))
+    ))
+    (define-public (call-do-it (a-contract <a-alias>))
+      (contract-call? a-contract do-it)
+    )";
+
+    let use_contract_id = QualifiedContractIdentifier::local("use-a-trait").unwrap();
+    let trait_contract_id = QualifiedContractIdentifier::local("a-trait").unwrap();
+
+    let mut use_contract = parse(&use_contract_id, use_contract_src, version, epoch).unwrap();
+    let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version, epoch).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    match db.execute(|db| {
+        type_check_version(&trait_contract_id, &mut trait_contract, db, true, version)?;
+        type_check_version(&use_contract_id, &mut use_contract, db, true, version)
+    }) {
+        Err(CheckError {
+            err: CheckErrors::TraitMethodUnknown(trait_name, function),
+            expressions: _,
+            diagnostic: _,
+        }) if version < ClarityVersion::Clarity2 => {
+            assert_eq!(trait_name.as_str(), "a");
+            assert_eq!(function.as_str(), "do-it");
+        }
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
+        res => panic!("{:?}", res),
     }
 }
