@@ -7,6 +7,7 @@ use std::str::FromStr;
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
+    Clarity3,
 }
 
 impl fmt::Display for ClarityVersion {
@@ -14,13 +15,14 @@ impl fmt::Display for ClarityVersion {
         match self {
             ClarityVersion::Clarity1 => write!(f, "Clarity 1"),
             ClarityVersion::Clarity2 => write!(f, "Clarity 2"),
+            ClarityVersion::Clarity3 => write!(f, "Clarity 3"),
         }
     }
 }
 
 impl ClarityVersion {
     pub fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity2
+        ClarityVersion::Clarity3
     }
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
@@ -31,6 +33,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch21 => ClarityVersion::Clarity2,
+            StacksEpochId::Epoch22 => ClarityVersion::Clarity3,
         }
     }
 }
@@ -43,10 +46,12 @@ impl FromStr for ClarityVersion {
         if s == "clarity1" {
             Ok(ClarityVersion::Clarity1)
         } else if s == "clarity2" {
-            Ok(ClarityVersion::Clarity1)
+            Ok(ClarityVersion::Clarity2)
+        } else if s == "clarity3" {
+            Ok(ClarityVersion::Clarity3)
         } else {
             Err(RuntimeErrorType::ParseError(
-                "Invalid clarity version. Valid versions are: Clarity1, Clarity2.".to_string(),
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, and Clarity3.".to_string(),
             )
             .into())
         }

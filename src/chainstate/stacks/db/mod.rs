@@ -201,6 +201,7 @@ impl DBConfig {
             StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
             StacksEpochId::Epoch2_05 => self.version == "2",
             StacksEpochId::Epoch21 => self.version == "2",
+            StacksEpochId::Epoch22 => self.version == "2",
         }
     }
 }

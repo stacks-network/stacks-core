@@ -58,6 +58,9 @@ pub mod contracts;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity3, StacksEpochId::Epoch22)]
 fn test_clarity_versions_type_checker(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -80,6 +83,16 @@ fn type_check_helper(exp: &str) -> TypeResult {
 
 fn type_check_helper_v1(exp: &str) -> TypeResult {
     mem_run_analysis(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
+        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+}
+
+fn type_check_helper_v2(exp: &str) -> TypeResult {
+    mem_run_analysis(exp, ClarityVersion::Clarity2, StacksEpochId::Epoch22)
+        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+}
+
+fn type_check_helper_v3(exp: &str) -> TypeResult {
+    mem_run_analysis(exp, ClarityVersion::Clarity3, StacksEpochId::Epoch22)
         .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
@@ -1463,7 +1476,11 @@ fn test_native_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper_v2(&good_test).unwrap())
+        );
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
         );
     }
 
@@ -1479,7 +1496,29 @@ fn test_native_concat() {
         CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper_v2(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper_v3(&bad_test).unwrap_err().err);
+    }
+
+    let good_v3 = "(concat (list 2 3) (list 4 5) (list 6 7))";
+    let expected_v3 = "(list 6 int)";
+
+    assert_eq!(
+        expected_v3,
+        &format!("{}", type_check_helper_v3(&good_v3).unwrap())
+    );
+
+    let bad_v3 = [
+        "(concat (list 2 3) (list u4) (list 5))",
+        "(concat (list u0) (list u0) (list u0) (list 1)",
+    ];
+
+    let bad_expected_v3 = [
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper_v3(&bad_test).unwrap_err().err);
     }
 }
 
@@ -1503,9 +1542,32 @@ fn test_concat_append_supertypes() {
         eprintln!("{}", good_test);
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper_v2(&good_test).unwrap())
+        );
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
         );
     }
+
+    let good_v3 = [
+         "(concat (list) (list 4 5) (list 1) (list))",
+         "(concat (list (list 2) (list) (list 4 5))
+                  (list (list) (list) (list 7 8 9))
+                  (list (list 1) (list 2 3) (list)))",
+     ];
+     let expected_v3 = [
+         "(list 3 int)",
+         "(list 9 (list 3 int))",
+     ];
+
+     for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
+         eprintln!("{}", good_test);
+         assert_eq!(
+             expected,
+             &format!("{}", type_check_helper_v3(&good_test).unwrap())
+         );
+     }
 }
 
 #[test]
@@ -1516,7 +1578,21 @@ fn test_buff_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper_v2(&good_test).unwrap())
+        );
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
+        );
+    }
+
+    let good_v3 = ["(concat 0x010203 0x0405 0x06 0x070809)"];
+    let expected_v3 = ["(buff 9)"];
+
+    for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
         );
     }
 }
@@ -2730,7 +2806,21 @@ fn test_string_ascii_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper_v2(&good_test).unwrap())
+        );
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
+        );
+    }
+
+    let good_v3 = ["(concat \"block\" \"stack\" \"123\")"];
+    let expected_v3 = ["(string-ascii 13)"];
+
+    for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
         );
     }
 }
@@ -2783,7 +2873,21 @@ fn test_string_utf8_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper_v2(&good_test).unwrap())
+        );
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
+        );
+    }
+
+    let good_v3 = ["(concat u\"block\" u\"stack\\u{1F926}\" u\"123\")"];
+    let expected_v3 = ["(string-utf8 11)"];
+
+    for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
         );
     }
 }

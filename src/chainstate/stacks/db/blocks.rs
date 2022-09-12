@@ -4593,7 +4593,7 @@ impl StacksChainState {
                         receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch21 => {
+                    StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
                         panic!("No defined transition from Epoch21 forward")
                     }
                 }
@@ -5050,7 +5050,7 @@ impl StacksChainState {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)
             }
-            StacksEpochId::Epoch21 => StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => StacksChainState::get_stacking_and_transfer_burn_ops_v210(
                 chainstate_tx,
                 parent_index_hash,
                 sortdb_conn,

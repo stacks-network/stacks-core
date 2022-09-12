@@ -36,6 +36,9 @@ use stacks_common::types::StacksEpochId;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity3, StacksEpochId::Epoch22)]
 fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 /// backwards-compatibility shim
@@ -399,7 +402,7 @@ fn test_names_tokens_contracts_interface() {
         ],
         "fungible_tokens": [],
         "non_fungible_tokens": [],
-        "clarity_version": "Clarity2"
+        "clarity_version": "Clarity3"
     }"#).unwrap();
 
     eprintln!("{}", test_contract_json_str);

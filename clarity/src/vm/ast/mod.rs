@@ -94,8 +94,8 @@ mod test {
 
     #[test]
     fn test_expression_identification_tuples() {
-        for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
-            for epoch in &[StacksEpochId::Epoch2_05, StacksEpochId::Epoch21] {
+        for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3] {
+            for epoch in &[StacksEpochId::Epoch2_05, StacksEpochId::Epoch21, StacksEpochId::Epoch22] {
                 let progn = "{ a: (+ 1 2 3),
                            b: 1,
                            c: 3 }";

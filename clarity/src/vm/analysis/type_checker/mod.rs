@@ -119,20 +119,24 @@ impl AnalysisPass for TypeChecker<'_, '_> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
+println!("HERE AnalysisPass for TypeChecker");
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command =
             TypeChecker::new(analysis_db, cost_track, &contract_analysis.clarity_version);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
+println!("HERE version {:#?}", contract_analysis);
         match command.run(contract_analysis) {
             Ok(_) => {
                 let cost_track = command.into_contract_analysis(contract_analysis);
                 contract_analysis.replace_contract_cost_tracker(cost_track);
+println!("HERE ok");
                 Ok(())
             }
             err => {
                 let TypeChecker { cost_track, .. } = command;
                 contract_analysis.replace_contract_cost_tracker(cost_track);
+println!("HERE err");
                 err
             }
         }

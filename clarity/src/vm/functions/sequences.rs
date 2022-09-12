@@ -212,13 +212,14 @@ pub fn special_append(
     }
 }
 
-switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
+switch_on_global_epoch_22!(special_concat(special_concat_v200, special_concat_v205, special_concat_v220));
 
 pub fn special_concat_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
+println!("HERE old old func");
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
@@ -263,6 +264,35 @@ pub fn special_concat_v205(
             Err(RuntimeErrorType::BadTypeConstruction.into())
         }
     }?;
+
+    Ok(wrapped_seq)
+}
+
+pub fn special_concat_v220(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_arguments_at_least(1, args)?;
+
+    let mut wrapped_seq = eval(&args[0], env, context)?;
+    if let Value::Sequence(ref mut seq) = wrapped_seq {
+
+        for arg in &args[1..]{
+            let mut other_wrapped_seq = eval(&arg, env, context)?;
+
+            if let Value::Sequence(ref mut other_seq) = other_wrapped_seq {
+                seq.append(other_seq)?;
+            } else {
+                runtime_cost(ClarityCostFunction::Concat, env, args.len())?;
+                return Err(RuntimeErrorType::BadTypeConstruction.into());
+            }
+        }
+        runtime_cost(ClarityCostFunction::Concat, env, seq.len())?;
+    } else {
+        runtime_cost(ClarityCostFunction::Concat, env, args.len())?;
+        return Err(RuntimeErrorType::BadTypeConstruction.into());
+    }
 
     Ok(wrapped_seq)
 }

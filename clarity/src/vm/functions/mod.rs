@@ -45,6 +45,7 @@ macro_rules! switch_on_global_epoch {
             env: &mut Environment,
             context: &LocalContext,
         ) -> Result<Value> {
+
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -53,6 +54,29 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 2.1.
                 StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch22 => $Epoch205Version(args, env, context),
+            }
+        }
+    };
+}
+
+macro_rules! switch_on_global_epoch_22 {
+    ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident, $Epoch22Version:ident)) => {
+        pub fn $Name(
+            args: &[SymbolicExpression],
+            env: &mut Environment,
+            context: &LocalContext,
+        ) -> Result<Value> {
+
+            match env.epoch() {
+                StacksEpochId::Epoch10 => {
+                    panic!("Executing Clarity method during Epoch 1.0, before Clarity")
+                }
+                StacksEpochId::Epoch20 => $Epoch2Version(args, env, context),
+                StacksEpochId::Epoch2_05 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.1.
+                StacksEpochId::Epoch21 => $Epoch205Version(args, env, context),
+                StacksEpochId::Epoch22 => $Epoch22Version(args, env, context),
             }
         }
     };

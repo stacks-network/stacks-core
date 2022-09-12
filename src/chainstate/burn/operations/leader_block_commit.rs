@@ -656,7 +656,7 @@ impl LeaderBlockCommitOp {
                 BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
             };
             let intended_sortition = match epoch.epoch_id {
-                StacksEpochId::Epoch21 => {
+                StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
                     // correct behavior
                     let sortition_height = self
                         .block_height
@@ -817,7 +817,7 @@ impl LeaderBlockCommitOp {
                 }
             }
             // Note: 2.05 and 2.1 share the same marker.
-            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => {
+            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
                 if self.memo.len() < 1 {
                     debug!(
                         "Invalid block commit";

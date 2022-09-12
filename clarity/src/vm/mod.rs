@@ -406,8 +406,19 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
         StacksEpochId::Epoch2_05,
         use_mainnet,
     );
+    let epoch_22_result = execute_with_parameters(
+            program,
+            ClarityVersion::Clarity3,
+            StacksEpochId::Epoch22,
+            use_mainnet,
+    );
     assert_eq!(
         epoch_200_result, epoch_205_result,
+        "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
+        program
+    );
+    assert_eq!(
+        epoch_200_result, epoch_22_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
         program
     );
@@ -468,6 +479,17 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch21,
+        false,
+    )
+}
+
+/// Execute for test in in Clarity2, Epoch21, testnet.
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_v3(program: &str) -> Result<Option<Value>> {
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch22,
         false,
     )
 }

@@ -38,6 +38,9 @@ use crate::vm::variables::NativeVariables;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity3, StacksEpochId::Epoch22)]
 fn test_clarity_versions_arith_checker(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -139,6 +142,12 @@ fn test_variables_fail_arithmetic_check_clarity1() {
             "Check contract:\n {}",
             contract
         );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch22),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
     }
 
     let tests = [
@@ -149,6 +158,7 @@ fn test_variables_fail_arithmetic_check_clarity1() {
     for contract in tests.iter() {
         check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05);
         check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch22);
     }
 }
 
@@ -197,6 +207,18 @@ fn test_variables_fail_arithmetic_check_clarity2() {
     for (contract, result) in tests.iter() {
         assert_eq!(
             arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch22),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity3, StacksEpochId::Epoch22),
             result.clone(),
             "Check contract:\n {}",
             contract
@@ -305,6 +327,12 @@ fn test_functions_clarity1() {
             "Check contract:\n {}",
             contract
         );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch22),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
     }
 }
 
@@ -403,7 +431,20 @@ fn test_functions_clarity2() {
             "Check contract:\n {}",
             contract
         );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch22),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
+        assert_eq!(
+            arithmetic_check(contract, ClarityVersion::Clarity3, StacksEpochId::Epoch22),
+            result.clone(),
+            "Check contract:\n {}",
+            contract
+        );
     }
+
 }
 
 #[test]
@@ -445,5 +486,8 @@ fn test_functions_contract() {
         check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05);
         check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch21);
         check_good(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch21);
+        check_good(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch22);
+        check_good(contract, ClarityVersion::Clarity2, StacksEpochId::Epoch22);
+        check_good(contract, ClarityVersion::Clarity3, StacksEpochId::Epoch22);
     }
 }

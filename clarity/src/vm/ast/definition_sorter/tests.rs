@@ -34,6 +34,7 @@ use crate::vm::ClarityVersion;
 #[rstest]
 #[case(ClarityVersion::Clarity1)]
 #[case(ClarityVersion::Clarity2)]
+#[case(ClarityVersion::Clarity3)]
 fn test_clarity_versions_definition_sorter(#[case] version: ClarityVersion) {}
 
 fn run_scoped_parsing_helper(contract: &str, version: ClarityVersion) -> ParseResult<ContractAST> {

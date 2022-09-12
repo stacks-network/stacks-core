@@ -24,7 +24,7 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::{execute, execute_v2, ClarityVersion};
+use crate::vm::{execute, execute_v2, execute_v3, ClarityVersion, execute_with_parameters};
 use stacks_common::types::StacksEpochId;
 use std::convert::TryInto;
 
@@ -33,6 +33,9 @@ use std::convert::TryInto;
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity3, StacksEpochId::Epoch22)]
 fn test_clarity_versions_sequences(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[test]
@@ -310,6 +313,42 @@ fn test_string_utf8_concat() {
 
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
+
+#[test]
+fn test_string_ascii_concat_v22() {
+    let tests = [
+        "(concat \"A\")",
+        "(concat \"A\" \"B\")",
+        "(concat \"A\" \"B\" \"C\")",
+        "(concat \"A\" \"B\" \"C\" \"D\" \"E\" \"F\" \"G\")",
+        "(concat \"ABC\" \"DEF\" \"GHI\")",
+    ];
+    let expected = [
+        Value::string_ascii_from_bytes("A".into()).unwrap(),
+        Value::string_ascii_from_bytes("AB".into()).unwrap(),
+        Value::string_ascii_from_bytes("ABC".into()).unwrap(),
+        Value::string_ascii_from_bytes("ABCDEFG".into()).unwrap(),
+        Value::string_ascii_from_bytes("ABCDEFGHI".into()).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()){
+        assert_eq!(*expected, 
+            execute_v3(test).unwrap().unwrap()
+        );
+    }
+}
+
+#[test]
+fn test_string_utf8_concat_v22() {
+    let test1 =
+        "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
+
+    let expected = Value::string_utf8_from_bytes("🤦🏼‍♂️".into()).unwrap();
+
+    assert_eq!(expected, execute_v3(test1).unwrap().unwrap());
+}
+
+
 
 #[test]
 fn test_string_ascii_get_len() {
@@ -607,6 +646,59 @@ fn test_simple_list_concat() {
 }
 
 #[test]
+fn test_simple_list_concat_v22() {
+    let tests = [
+        "(concat (list 1 2) (list 4 8) (list 10))",
+        "(concat (list 1) (list 4) (list 8))",
+        "(concat (list) (list 1 9 0) (list))",
+        "(concat (list) (list) (list))",
+        "(concat (list (list 1) (list 2)) (list (list 3)) (list (list 4)))",
+    ];
+    
+    let expected = [
+        Value::list_from(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(4),
+            Value::Int(8),
+            Value::Int(10),
+        ])
+        .unwrap(),
+        Value::list_from(vec![Value::Int(1), Value::Int(4), Value::Int(8)]).unwrap(),
+        Value::list_from(vec![Value::Int(1), Value::Int(9), Value::Int(0)]).unwrap(),
+        Value::list_from(vec![]).unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(1)]).unwrap(),
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+            Value::list_from(vec![Value::Int(3)]).unwrap(),
+            Value::list_from(vec![Value::Int(4)]).unwrap(),
+        ])
+        .unwrap(),
+    ];
+    
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v3(test).unwrap().unwrap());
+    }
+    
+    assert_eq!(
+        execute_v3("(concat (list 1) (list u4 u8))").unwrap_err(),
+        CheckErrors::TypeError(IntType, UIntType).into()
+    );
+
+    assert_eq!(
+        execute_v3("(concat (list 1) 3)",).unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    assert_eq!(
+        execute_v3("(concat (list 1) \"1\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+    
+}
+
+
+#[test]
 fn test_simple_buff_concat() {
     let tests = [
         "(concat 0x303132 0x3334)",
@@ -633,6 +725,37 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 (list 1))").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+}
+
+#[test]
+fn test_simple_buff_concat_v22() {
+    let tests = [
+        "(concat 0x303132 0x3334)",
+        "(concat 0x00 0x00 0x0a)",
+        "(concat 0x01)",
+    ];
+
+    let expected = [
+        Value::buff_from(vec![48, 49, 50, 51, 52]).unwrap(),
+        Value::buff_from(vec![0, 0, 10]).unwrap(),
+        Value::buff_from(vec![1]).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(),
+                execute_v3(test).unwrap().unwrap()
+        );
+    }
+
+    assert_eq!(
+        execute_v3("(concat 0x31 0x32 3)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    assert_eq!(
+        execute_v3("(concat 0x31 0x32 (list 1))").unwrap_err(),
         RuntimeErrorType::BadTypeConstruction.into()
     );
 }

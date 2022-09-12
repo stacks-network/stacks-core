@@ -32,7 +32,8 @@ use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifie
 use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
 use crate::vm::ClarityVersion;
 use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
+    eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    execute_v3 as vm_execute_v3, execute_with_parameters,
 };
 use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use stacks_common::address::c32;
@@ -51,6 +52,9 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
+#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch22)]
+#[case(ClarityVersion::Clarity3, StacksEpochId::Epoch22)]
 fn test_clarity_versions_simple_apply_eval(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
@@ -334,6 +338,8 @@ fn test_from_consensus_buff_type_checks() {
     for (input, expected) in vectors.iter() {
         let result = vm_execute_v2(input).expect_err("Should raise an error");
         assert_eq!(&result.to_string(), expected);
+        let result_v3 = vm_execute_v3(input).expect_err("Should raise an error");
+        assert_eq!(&result_v3.to_string(), expected);
     }
 }
 
@@ -986,7 +992,14 @@ fn test_sequence_comparisons_clarity2() {
             "{:?}, {:?}",
             program,
             expectation.clone()
-        )
+        );
+        assert_eq!(
+            expectation.clone(),
+            vm_execute_v3(program).unwrap().unwrap(),
+            "{:?}, {:?}",
+            program,
+            expectation.clone()
+        );
     });
 }
 
@@ -1044,7 +1057,8 @@ fn test_sequence_comparisons_mismatched_types() {
         .iter()
         .zip(v2_error_expectations)
         .for_each(|(program, expectation)| {
-            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err());
+            assert_eq!(*expectation, vm_execute_v3(program).unwrap_err());
         });
 
     // Tests that comparing objects of different types results in an error in Clarity2.
@@ -1083,7 +1097,8 @@ fn test_sequence_comparisons_mismatched_types() {
         .iter()
         .zip(error_expectations)
         .for_each(|(program, expectation)| {
-            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err())
+            assert_eq!(*expectation, vm_execute_v2(program).unwrap_err());
+            assert_eq!(*expectation, vm_execute_v3(program).unwrap_err());
         });
 }
 
@@ -1658,7 +1673,18 @@ fn test_chain_id() {
                 )
                 .unwrap()
                 .unwrap()
-            )
+            );
+            assert_eq!(
+                expectation.clone(),
+                execute_with_parameters(
+                    program,
+                    ClarityVersion::Clarity3,
+                    StacksEpochId::Epoch22,
+                    true
+                )
+                .unwrap()
+                .unwrap()
+            );
         });
 
     let testnet_expectations = [Value::UInt(CHAIN_ID_TESTNET.into())];
@@ -1677,6 +1703,17 @@ fn test_chain_id() {
                 )
                 .unwrap()
                 .unwrap()
-            )
+            );
+            assert_eq!(
+                expectation.clone(),
+                execute_with_parameters(
+                    program,
+                    ClarityVersion::Clarity3,
+                    StacksEpochId::Epoch22,
+                    false
+                )
+                .unwrap()
+                .unwrap()
+            );
         });
 }
