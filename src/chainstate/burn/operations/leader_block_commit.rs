@@ -23,6 +23,7 @@ use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Txid;
 use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
+use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::{
