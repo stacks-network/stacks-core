@@ -1215,6 +1215,7 @@ impl<'a> ClarityDatabase<'a> {
         self.fetch_entry(contract_identifier, map_name, key_value, &descriptor)
     }
 
+    /// Returns a Clarity optional type wrapping a found or not found result
     pub fn fetch_entry(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
