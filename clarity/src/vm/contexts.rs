@@ -1062,10 +1062,40 @@ impl<'a, 'b> Environment<'a, 'b> {
 
     pub fn execute_contract(
         &mut self,
+        contract: &QualifiedContractIdentifier,
+        tx_name: &str,
+        args: &[SymbolicExpression],
+        read_only: bool,
+    ) -> Result<Value> {
+        self.inner_execute_contract(contract, tx_name, args, read_only, false)
+    }
+
+    /// This method is exposed for callers that need to invoke a private method directly.
+    /// For example, this is used by the Stacks chainstate for invoking private methods
+    /// on the pox-2 contract. This should not be called by user transaction processing.
+    pub fn execute_contract_allow_private(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        tx_name: &str,
+        args: &[SymbolicExpression],
+        read_only: bool,
+    ) -> Result<Value> {
+        self.inner_execute_contract(contract, tx_name, args, read_only, true)
+    }
+
+    /// This method handles actual execution of contract-calls on a contract.
+    ///
+    /// `allow_private` should always be set to `false` for user transactions:
+    ///  this ensures that only `define-public` and `define-read-only` methods can
+    ///  be invoked. The `allow_private` mode should only be used by
+    ///  `Environment::execute_contract_allow_private`.
+    fn inner_execute_contract(
+        &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
+        allow_private: bool,
     ) -> Result<Value> {
         let contract_size = self
             .global_context
@@ -1080,7 +1110,7 @@ impl<'a, 'b> Environment<'a, 'b> {
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-            if !func.is_public() {
+            if !allow_private && !func.is_public() {
                 return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
                 return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
