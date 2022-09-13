@@ -25,6 +25,8 @@ use crate::vm::analysis::{contract_interface_builder::build_contract_interface, 
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::errors::Error;
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
 };
@@ -936,8 +938,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-2");
                         assert_eq!(found_trait.name.as_str(), "trait-1");
@@ -959,7 +961,7 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                         TypeSignature::PrincipalType,
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-1");
@@ -980,7 +982,7 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
                         TypeSignature::PrincipalType,
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-1");
@@ -1019,8 +1021,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-2");
                         assert_eq!(found_trait.name.as_str(), "trait-1");
@@ -1150,8 +1152,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-2");
                         assert_eq!(found_trait.name.as_str(), "trait-1");
@@ -1193,8 +1195,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-2");
                         assert_eq!(found_trait.name.as_str(), "trait-1");
@@ -1217,8 +1219,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-b");
                         assert_eq!(found_trait.name.as_str(), "trait-a");
@@ -1260,8 +1262,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-b");
                         assert_eq!(found_trait.name.as_str(), "trait-a");
@@ -1312,8 +1314,8 @@ fn test_traits() {
             } => {
                 match (expected, found) {
                     (
-                        TypeSignature::TraitReferenceType(expected_trait),
-                        TypeSignature::TraitReferenceType(found_trait),
+                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
                     ) => {
                         assert_eq!(expected_trait.name.as_str(), "trait-2");
                         assert_eq!(found_trait.name.as_str(), "trait-1");
@@ -1338,8 +1340,8 @@ fn test_traits() {
             } => {
                 match (type1, type2) {
                     (
-                        TypeSignature::TraitReferenceType(trait1),
-                        TypeSignature::TraitReferenceType(trait2),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
                     ) => {
                         assert_eq!(trait1.name.as_str(), "trait-1");
                         assert_eq!(trait2.name.as_str(), "trait-2");
@@ -1363,8 +1365,8 @@ fn test_traits() {
             } => {
                 match (type1, type2) {
                     (
-                        TypeSignature::TraitReferenceType(trait1),
-                        TypeSignature::TraitReferenceType(trait2),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
                     ) => {
                         assert_eq!(trait1.name.as_str(), "trait-1");
                         assert_eq!(trait2.name.as_str(), "trait-2");
@@ -1386,8 +1388,8 @@ fn test_traits() {
             } => {
                 match (type1, type2) {
                     (
-                        TypeSignature::TraitReferenceType(trait1),
-                        TypeSignature::TraitReferenceType(trait2),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
                     ) => {
                         assert_eq!(trait1.name.as_str(), "trait-1");
                         assert_eq!(trait2.name.as_str(), "trait-2");
@@ -1408,8 +1410,8 @@ fn test_traits() {
             } => {
                 match (type1, type2) {
                     (
-                        TypeSignature::TraitReferenceType(trait1),
-                        TypeSignature::TraitReferenceType(trait2),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
                     ) => {
                         assert_eq!(trait1.name.as_str(), "trait-1");
                         assert_eq!(trait2.name.as_str(), "trait-2");

@@ -113,24 +113,30 @@ pub fn special_contract_call(
                         })?;
                     let contract_context_to_check = contract_to_check.contract_context;
 
+                    // This error case indicates a bad implementation. Only traits should be
+                    // added to callable_contracts.
+                    let trait_identifier = trait_data
+                        .trait_identifier
+                        .as_ref()
+                        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
+
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check
-                        .is_explicitly_implementing_trait(&trait_data.trait_identifier)
+                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
                     {
                         (&trait_data.contract_identifier, None)
                     } else {
-                        let trait_name = trait_data.trait_identifier.name.to_string();
+                        let trait_name = trait_identifier.name.to_string();
 
                         // Retrieve, from the trait definition, the expected method signature
                         let contract_defining_trait = env
                             .global_context
                             .database
-                            .get_contract(&trait_data.trait_identifier.contract_identifier)
+                            .get_contract(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
                                 CheckErrors::NoSuchContract(
-                                    trait_data.trait_identifier.contract_identifier.to_string(),
+                                    trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
                         let contract_context_defining_trait =
@@ -160,7 +166,7 @@ pub fn special_contract_call(
 
                         function_to_check.check_trait_expectations(
                             &contract_context_defining_trait,
-                            &trait_data.trait_identifier,
+                            &trait_identifier,
                         )?;
 
                         // Retrieve the expected method signature

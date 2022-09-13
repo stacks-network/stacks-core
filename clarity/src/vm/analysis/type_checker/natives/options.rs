@@ -25,6 +25,7 @@ use crate::vm::analysis::type_checker::{
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::types::signatures::CallableSubtype;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -293,7 +294,7 @@ fn eval_with_new_binding(
 
     // Beginning in Clarity 2, traits can be bound.
     if checker.clarity_version >= ClarityVersion::Clarity2 {
-        if let TypeSignature::TraitReferenceType(trait_id) = bind_type {
+        if let TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) = bind_type {
             inner_context.traits_references.insert(bind_name, trait_id);
         } else {
             inner_context.variable_types.insert(bind_name, bind_type);

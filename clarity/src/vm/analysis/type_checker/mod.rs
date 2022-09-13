@@ -28,12 +28,12 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, BUFF_20};
 use crate::vm::types::{
-    parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, OptionalData,
-    PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
-    StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature, Value,
-    MAX_TYPE_DEPTH,
+    parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
+    SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
+    Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use std::collections::{BTreeMap, HashMap};
@@ -316,12 +316,16 @@ impl FunctionType {
         for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
             match (&expected_arg.signature, arg) {
                 (
-                    TypeSignature::TraitReferenceType(expected_trait_id),
-                    Value::Principal(PrincipalData::Contract(contract)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+                    Value::CallableContract(CallableData {
+                        contract_identifier,
+                        trait_identifier: None,
+                    }),
                 ) => {
-                    let contract_to_check = db
-                        .load_contract(contract)
-                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
+                    let contract_to_check =
+                        db.load_contract(contract_identifier).ok_or_else(|| {
+                            CheckErrors::NoSuchContract(contract_identifier.name.to_string())
+                        })?;
                     let expected_trait = db
                         .get_defined_trait(
                             &expected_trait_id.contract_identifier,
@@ -340,20 +344,20 @@ impl FunctionType {
                     contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
                 }
                 (
-                    TypeSignature::TraitReferenceType(expected_trait_id),
-                    Value::CallableContract(callable_data),
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+                    Value::CallableContract(CallableData {
+                        contract_identifier: _,
+                        trait_identifier: Some(trait_identifier),
+                    }),
                 ) => {
                     let actual_trait = db
                         .get_defined_trait(
-                            &callable_data.trait_identifier.contract_identifier,
-                            &callable_data.trait_identifier.name,
+                            &trait_identifier.contract_identifier,
+                            &trait_identifier.name,
                         )?
                         .ok_or(CheckErrors::NoSuchTrait(
-                            callable_data
-                                .trait_identifier
-                                .contract_identifier
-                                .to_string(),
-                            callable_data.trait_identifier.name.to_string(),
+                            trait_identifier.contract_identifier.to_string(),
+                            trait_identifier.name.to_string(),
                         ))?;
                     let expected_trait = db
                         .get_defined_trait(
@@ -367,7 +371,7 @@ impl FunctionType {
                     trait_check_trait_compliance(
                         db,
                         None,
-                        &callable_data.trait_identifier,
+                        &trait_identifier,
                         &actual_trait,
                         expected_trait_id,
                         &expected_trait,
@@ -538,8 +542,8 @@ fn inner_type_check_type(
             }
         }
         (
-            TypeSignature::TraitReferenceType(atom_trait_id),
-            TypeSignature::TraitReferenceType(expected_trait_id),
+            TypeSignature::CallableType(CallableSubtype::Trait(atom_trait_id)),
+            TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             if atom_trait_id != expected_trait_id {
                 let atom_trait =
@@ -554,6 +558,33 @@ fn inner_type_check_type(
                     expected_trait_id,
                     &expected_trait,
                     clarity_version,
+                )?;
+            }
+        }
+        (
+            TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
+            TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+        ) => {
+            let contract_to_check = db
+                .load_contract(&contract_identifier)
+                .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+            let expected_trait =
+                lookup_trait(db, contract_context, expected_trait_id, clarity_version)?;
+            contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
+        }
+        (
+            TypeSignature::ListUnionType(types),
+            TypeSignature::CallableType(CallableSubtype::Trait(_)),
+        ) => {
+            // Verify that all types in the union implement this trait
+            for subtype in types {
+                inner_type_check_type(
+                    db,
+                    contract_context,
+                    &TypeSignature::CallableType(subtype.clone()),
+                    expected_type,
+                    clarity_version,
+                    depth + 1,
                 )?;
             }
         }
@@ -836,7 +867,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             self.contract_context.check_name_used(arg_name)?;
 
             match arg_type {
-                TypeSignature::TraitReferenceType(trait_id) => {
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) => {
                     function_context.add_trait_reference(&arg_name, &trait_id);
                 }
                 _ => {
@@ -961,7 +992,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
-            Ok(TypeSignature::TraitReferenceType(type_result.clone()))
+            Ok(TypeSignature::CallableType(CallableSubtype::Trait(
+                type_result.clone(),
+            )))
         } else {
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupVariableDepth,
@@ -986,7 +1019,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         match (&expr.expr, expected_type) {
             (
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
-                TypeSignature::TraitReferenceType(trait_identifier),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
             ) => {
                 let contract_to_check = self
                     .db
@@ -1044,7 +1077,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         analysis_typecheck_cost(self, expected_type, &expr_type)?;
         match (expected_type, &expr.expr) {
             (
-                TypeSignature::TraitReferenceType(expected_trait_id),
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
             ) => {
                 // When a principal literal is used as a trait, make sure it implements the trait.
@@ -1061,12 +1094,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 )?;
                 contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
             }
-            (TypeSignature::TraitReferenceType(expected_trait_id), _) => {
+            (TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)), _) => {
                 // When any other expression is used as a trait, those with trait
                 // types should be checked for compatibility. Others should report
                 // an error.
                 let expr_trait_id =
-                    if let TypeSignature::TraitReferenceType(expr_trait_id) = expr_type {
+                    if let TypeSignature::CallableType(CallableSubtype::Trait(expr_trait_id)) =
+                        expr_type
+                    {
                         expr_trait_id
                     } else {
                         return Err(CheckErrors::TypeError(expected_type.clone(), expr_type).into());
@@ -1124,7 +1159,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> TypeResult {
         let expr_type = match expr.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
+            AtomValue(ref value) => TypeSignature::type_of(value),
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value),
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {

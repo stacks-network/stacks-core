@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // TypeSignatures
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
@@ -27,8 +27,9 @@ use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
 use crate::vm::types::{
-    CharType, QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
-    TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, WRAPPER_VALUE_SIZE,
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, SequencedValue,
+    StandardPrincipalData, TraitIdentifier, Value, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
+    WRAPPER_VALUE_SIZE,
 };
 use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
@@ -93,7 +94,10 @@ pub enum TypeSignature {
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
-    TraitReferenceType(TraitIdentifier),
+    CallableType(CallableSubtype),
+    // Used for list of callables which can later be coerced to principals
+    // or traits.
+    ListUnionType(HashSet<CallableSubtype>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,9 +126,15 @@ pub enum StringSubtype {
     UTF8(StringUTF8Length),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub enum CallableSubtype {
+    Principal(QualifiedContractIdentifier),
+    Trait(TraitIdentifier),
+}
+
 use self::TypeSignature::{
-    BoolType, IntType, NoType, OptionalType, PrincipalType, ResponseType, SequenceType,
-    TraitReferenceType, TupleType, UIntType,
+    BoolType, CallableType, IntType, ListUnionType, NoType, OptionalType, PrincipalType,
+    ResponseType, SequenceType, TupleType, UIntType,
 };
 
 lazy_static! {
@@ -487,8 +497,56 @@ impl TypeSignature {
                     false
                 }
             }
+            PrincipalType => {
+                if other == &PrincipalType {
+                    true
+                } else if let CallableType(CallableSubtype::Principal(_)) = other {
+                    true
+                } else {
+                    false
+                }
+            }
             NoType => panic!("NoType should never be asked to admit."),
             _ => other == self,
+        }
+    }
+
+    pub fn concretize(&self) -> Result<TypeSignature> {
+        match self {
+            ListUnionType(types) => {
+                let mut is_trait = None;
+                let mut is_principal = true;
+                for partial in types {
+                    match partial {
+                        CallableSubtype::Principal(_) => {
+                            if let Some(expected) = is_trait {
+                                return Err(CheckErrors::TypeError(
+                                    TypeSignature::CallableType(partial.clone()),
+                                    TypeSignature::PrincipalType,
+                                ));
+                            } else {
+                                is_principal = true;
+                            }
+                        }
+                        CallableSubtype::Trait(t) => {
+                            if is_principal {
+                                return Err(CheckErrors::TypeError(
+                                    TypeSignature::PrincipalType,
+                                    TypeSignature::CallableType(partial.clone()),
+                                ));
+                            } else {
+                                is_trait = Some(t.clone());
+                            }
+                        }
+                    }
+                }
+                if let Some(t) = is_trait {
+                    Ok(TypeSignature::CallableType(CallableSubtype::Trait(t)))
+                } else {
+                    Ok(TypeSignature::PrincipalType)
+                }
+            }
+            _ => Ok(self.clone()),
         }
     }
 }
@@ -801,6 +859,23 @@ impl TypeSignature {
                 )))
             }
             (NoType, x) | (x, NoType) => Ok(x.clone()),
+            (CallableType(x), CallableType(y)) => {
+                if x == y {
+                    Ok(a.clone())
+                } else {
+                    Ok(ListUnionType(HashSet::from([x.clone(), y.clone()])))
+                }
+            }
+            (ListUnionType(l), CallableType(y)) => {
+                let mut l1 = l.clone();
+                l1.insert(y.clone());
+                Ok(ListUnionType(l1))
+            }
+            (CallableType(x), ListUnionType(l)) => {
+                let mut l1 = l.clone();
+                l1.insert(x.clone());
+                Ok(ListUnionType(l1))
+            }
             (x, y) => {
                 if x == y {
                     Ok(x.clone())
@@ -839,7 +914,22 @@ impl TypeSignature {
             }
             Value::Optional(v) => v.type_signature(),
             Value::Response(v) => v.type_signature(),
-            Value::CallableContract(v) => TraitReferenceType(v.trait_identifier.clone()),
+            Value::CallableContract(v) => {
+                if let Some(trait_identifier) = &v.trait_identifier {
+                    CallableType(CallableSubtype::Trait(trait_identifier.clone()))
+                } else {
+                    CallableType(CallableSubtype::Principal(v.contract_identifier.clone()))
+                }
+            }
+        }
+    }
+
+    pub fn literal_type_of(x: &Value) -> TypeSignature {
+        match x {
+            Value::Principal(PrincipalData::Contract(contract_id)) => {
+                CallableType(CallableSubtype::Principal(contract_id.clone()))
+            }
+            _ => Self::type_of(x),
         }
     }
 
@@ -1008,12 +1098,12 @@ impl TypeSignature {
             }
             SymbolicExpressionType::TraitReference(_, ref trait_definition) => {
                 match trait_definition {
-                    TraitDefinition::Defined(trait_id) => {
-                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
-                    }
-                    TraitDefinition::Imported(trait_id) => {
-                        Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
-                    }
+                    TraitDefinition::Defined(trait_id) => Ok(TypeSignature::CallableType(
+                        CallableSubtype::Trait(trait_id.clone()),
+                    )),
+                    TraitDefinition::Imported(trait_id) => Ok(TypeSignature::CallableType(
+                        CallableSubtype::Trait(trait_id.clone()),
+                    )),
                 }
             }
             _ => Err(CheckErrors::InvalidTypeDescription),
@@ -1106,7 +1196,8 @@ impl TypeSignature {
         match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            TraitReferenceType(_)
+            CallableType(_)
+            | ListUnionType(_)
             | NoType
             | IntType
             | UIntType
@@ -1156,7 +1247,8 @@ impl TypeSignature {
                 let s_size = s.size();
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
-            TraitReferenceType(_) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
+            CallableType(CallableSubtype::Trait(_)) => Some(276), // 20+128+128
         }
     }
 
@@ -1185,7 +1277,7 @@ impl TypeSignature {
                     .checked_add(s.inner_type_size()?)?
                     .checked_add(1)
             }
-            TraitReferenceType(_) => Some(1),
+            CallableType(_) | ListUnionType(_) => Some(1),
         }
     }
 }
@@ -1374,7 +1466,11 @@ impl fmt::Display for TypeSignature {
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 write!(f, "(string-utf8 {})", len)
             }
-            TraitReferenceType(trait_alias) => write!(f, "<{}>", trait_alias.to_string()),
+            CallableType(CallableSubtype::Trait(trait_id)) => write!(f, "<{}>", trait_id),
+            CallableType(CallableSubtype::Principal(contract_id)) => {
+                write!(f, "(principal {})", contract_id)
+            }
+            ListUnionType(_) => write!(f, "principal"),
         }
     }
 }

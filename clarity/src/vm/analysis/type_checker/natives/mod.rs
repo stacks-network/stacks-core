@@ -23,7 +23,7 @@ use std::convert::TryFrom;
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
-use crate::vm::types::signatures::SequenceSubtype;
+use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -250,7 +250,7 @@ fn check_special_let(
         )?;
         // Beginning in Clarity 2, traits can be propagated into let variables.
         if checker.clarity_version >= ClarityVersion::Clarity2 {
-            if let TypeSignature::TraitReferenceType(trait_id) = typed_result {
+            if let TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) = typed_result {
                 out_context
                     .traits_references
                     .insert(var_name.clone(), trait_id);
@@ -366,6 +366,7 @@ fn check_special_if(
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
     TypeSignature::least_supertype(expr1, expr2)
+        .and_then(|t| t.concretize())
         .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }
 

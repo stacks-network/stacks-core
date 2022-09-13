@@ -158,7 +158,7 @@ pub struct ResponseData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub trait_identifier: TraitIdentifier,
+    pub trait_identifier: Option<TraitIdentifier>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
@@ -1284,11 +1284,15 @@ impl fmt::Display for PrincipalData {
 
 impl fmt::Display for CallableData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "({} as <{}>)",
-            self.contract_identifier, self.trait_identifier,
-        )
+        if let Some(trait_identifier) = &self.trait_identifier {
+            write!(
+                f,
+                "({} as <{}>)",
+                self.contract_identifier, trait_identifier,
+            )
+        } else {
+            write!(f, "{}", self.contract_identifier,)
+        }
     }
 }
 

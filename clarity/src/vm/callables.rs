@@ -35,6 +35,7 @@ use crate::vm::types::{
 use crate::vm::{eval, Environment, LocalContext, Value};
 
 use super::costs::CostOverflowingMath;
+use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
 
 pub enum CallableType {
@@ -185,7 +186,7 @@ impl DefinedFunction {
 
             match (&type_sig, &cast_value) {
                 (
-                    TypeSignature::TraitReferenceType(trait_identifier),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
                     Value::Principal(PrincipalData::Contract(callee_contract_id)),
                 ) => {
                     // Argument is a trait reference, probably leading to a dynamic contract call
@@ -196,12 +197,12 @@ impl DefinedFunction {
                         name.clone(),
                         CallableData {
                             contract_identifier: callee_contract_id.clone(),
-                            trait_identifier: trait_identifier.clone(),
+                            trait_identifier: Some(trait_identifier.clone()),
                         },
                     );
                 }
                 (
-                    TypeSignature::TraitReferenceType(_),
+                    TypeSignature::CallableType(CallableSubtype::Trait(_)),
                     Value::CallableContract(CallableData {
                         contract_identifier,
                         trait_identifier,
@@ -395,18 +396,11 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
             })
         }
         (
-            TypeSignature::TraitReferenceType(trait_identifier),
-            Value::Principal(PrincipalData::Contract(contract_identifier)),
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            Value::CallableContract(callable_data),
         ) => Value::CallableContract(CallableData {
-            contract_identifier: contract_identifier.clone(),
-            trait_identifier: trait_identifier.clone(),
-        }),
-        (
-            TypeSignature::TraitReferenceType(trait_identifier),
-            Value::CallableContract(value_trait_data),
-        ) => Value::CallableContract(CallableData {
-            contract_identifier: value_trait_data.contract_identifier.clone(),
-            trait_identifier: trait_identifier.clone(),
+            contract_identifier: callable_data.contract_identifier.clone(),
+            trait_identifier: Some(trait_identifier.clone()),
         }),
         _ => value.clone(),
     })
@@ -419,15 +413,25 @@ fn test_implicit_cast() {
         "SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-trait.nft-trait",
     )
     .unwrap();
-    let trait_ty = TypeSignature::TraitReferenceType(trait_identifier.clone());
+    let trait_ty = TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier.clone()));
     let contract_identifier =
         QualifiedContractIdentifier::parse("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract")
             .unwrap();
-    let contract = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
+    let contract_identifier2 =
+        QualifiedContractIdentifier::parse("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract2")
+            .unwrap();
+    let contract = Value::CallableContract(CallableData {
+        contract_identifier: contract_identifier.clone(),
+        trait_identifier: None,
+    });
+    let contract2 = Value::CallableContract(CallableData {
+        contract_identifier: contract_identifier2.clone(),
+        trait_identifier: None,
+    });
     let cast_contract = implicit_cast(&trait_ty, &contract).unwrap();
     let cast_trait = cast_contract.expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
     // (optional principal) -> (optional <trait>)
     let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
@@ -439,7 +443,7 @@ fn test_implicit_cast() {
             trait_identifier: trait_id,
         }) => {
             assert_eq!(contract_id, &contract_identifier);
-            assert_eq!(trait_id, &trait_identifier);
+            assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
         }
         other => panic!("expected Value::CallableContract, got {:?}", other),
     }
@@ -451,7 +455,7 @@ fn test_implicit_cast() {
     let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_ok().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
     // (err principal) -> (err <trait>)
     let response_ty =
@@ -460,21 +464,16 @@ fn test_implicit_cast() {
     let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_err().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
     // (list principal) -> (list <trait>)
     let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
-    let list_contract = Value::list_with_type(
-        vec![contract.clone(), contract.clone()],
-        ListTypeData::new_list(TypeSignature::PrincipalType, 4).unwrap(),
-    )
-    .unwrap();
+    let list_contract = Value::list_from(vec![contract.clone(), contract2.clone()]).unwrap();
     let cast_list = implicit_cast(&list_ty, &list_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
         let cast_trait = item.expect_callable();
-        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
     }
 
     // {a: principal} -> {a: <trait>}
@@ -503,28 +502,25 @@ fn test_implicit_cast() {
         .clone()
         .expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-    assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
     // (list (optional principal)) -> (list (optional <trait>))
     let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
-    let list_opt_contract = Value::list_with_type(
-        vec![
-            Value::some(contract.clone()).unwrap(),
-            Value::some(contract.clone()).unwrap(),
-        ],
-        ListTypeData::new_list(
-            TypeSignature::new_option(TypeSignature::PrincipalType).unwrap(),
-            4,
-        )
-        .unwrap(),
-    )
+    let list_opt_contract = Value::list_from(vec![
+        Value::some(contract.clone()).unwrap(),
+        Value::some(contract2.clone()).unwrap(),
+        Value::none(),
+    ])
     .unwrap();
     let cast_list = implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
-        let cast_opt = item.expect_optional().unwrap();
-        let cast_trait = cast_opt.expect_callable();
-        assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier, &trait_identifier);
+        match item.expect_optional() {
+            Some(cast_opt) => {
+                let cast_trait = cast_opt.expect_callable();
+                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            }
+            None => (),
+        }
     }
 }

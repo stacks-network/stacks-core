@@ -1080,10 +1080,8 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
         .unwrap_err();
 
     match err.err {
-        CheckErrors::TypeError(
-            TypeSignature::TraitReferenceType(_),
-            TypeSignature::TraitReferenceType(_),
-        ) if version < ClarityVersion::Clarity2 => {}
+        CheckErrors::TypeError(TypeSignature::CallableType(_), TypeSignature::CallableType(_))
+            if version < ClarityVersion::Clarity2 => {}
         CheckErrors::IncompatibleTrait(_, _) => {}
         _ => panic!("{:?}", err),
     }
