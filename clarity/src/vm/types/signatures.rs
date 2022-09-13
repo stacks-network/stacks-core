@@ -519,7 +519,7 @@ impl TypeSignature {
                 for partial in types {
                     match partial {
                         CallableSubtype::Principal(_) => {
-                            if let Some(expected) = is_trait {
+                            if is_trait.is_some() {
                                 return Err(CheckErrors::TypeError(
                                     TypeSignature::CallableType(partial.clone()),
                                     TypeSignature::PrincipalType,
