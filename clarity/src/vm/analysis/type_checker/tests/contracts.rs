@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
+use std::fs::read_to_string;
 
 use assert_json_diff;
 use serde_json;
@@ -1464,4 +1465,1063 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
         res => panic!("{:?}", res),
     }
+}
+
+// Tests below are derived from https://github.com/sskeirik/clarity-trait-experiments.
+fn load(db: &mut AnalysisDatabase, name: &str) -> Result<ContractAnalysis, String> {
+    let source = read_to_string(format!(
+        "{}/src/vm/analysis/type_checker/tests/contracts/{}.clar",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    ))
+    .unwrap();
+    let contract_id = QualifiedContractIdentifier::local(name).unwrap();
+    let mut contract = parse(
+        &contract_id,
+        source.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+    )
+    .map_err(|e| e.to_string())?;
+    type_check(&contract_id, &mut contract, db, true).map_err(|e| e.to_string())
+}
+
+fn call(
+    db: &mut AnalysisDatabase,
+    contract: &str,
+    function: &str,
+    args: &str,
+) -> Result<ContractAnalysis, String> {
+    let source = format!("(contract-call? .{} {} {})", contract, function, args);
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract = parse(
+        &contract_id,
+        source.as_str(),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+    )
+    .map_err(|e| e.to_string())?;
+    type_check(&contract_id, &mut contract, db, false).map_err(|e| e.to_string())
+}
+
+#[test]
+fn clarity_trait_experiments_impl() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_empty_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define an empty trait?
+    let result = db.execute(|db| load(db, "empty-trait"));
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_duplicate_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we re-define a trait with the same type and same name in a different contract?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "empty-trait-copy")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_undefined() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that use traits in not-yet-deployed contracts?
+    let result = db.execute(|db| load(db, "no-trait"));
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_circular() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits in a contract that are circular?
+    let result = db.execute(|db| {
+        load(db, "circular-trait-1")?;
+        load(db, "circular-trait-2")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_no_response() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that do not return a response type?
+    let result = db.execute(|db| load(db, "no-response-trait"));
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_out_of_order() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that occur in a contract out-of-order?
+    let result = db.execute(|db| load(db, "out-of-order-traits"));
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_double_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different types?
+    let result = db.execute(|db| load(db, "double-trait"));
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+
+    // Since this test now fails, the others related to using this type of
+    // trait are no longer useful tests.
+}
+
+#[test]
+fn clarity_trait_experiments_identical_double_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and the same type?
+    let result = db.execute(|db| load(db, "identical-double-trait"));
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+
+    // Since this test now fails, the others related to using this type of
+    // trait are no longer useful tests.
+}
+
+#[test]
+fn clarity_trait_experiments_selfret_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait that returns itself?
+    let result = db.execute(|db| load(db, "selfret-trait"));
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_math_trait_transitive_alias() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we import a trait from a contract that uses but does not define the trait?
+    // Does the transitive import use the trait alias or the trait name?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "use-math-trait-transitive-alias")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_math_trait_transitive_name() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we import a trait from a contract that uses but does not define the trait?
+    // Does the transitive import use the trait alias or the trait name?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "use-math-trait-transitive-name")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_original_and_define_a_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we reference original trait and define trait with the same name in one contract?
+    let result = db.execute(|db| {
+        load(db, "a-trait")?;
+        load(db, "use-original-and-define-a-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_redefined_and_define_a_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we reference redefined trait and define trait with the same name in one contract?
+    // Will this redefined trait also overwrite the trait alias?
+    let result = db.execute(|db| {
+        load(db, "a-trait")?;
+        load(db, "use-redefined-and-define-a-trait")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_a_trait_transitive_original() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use the original trait from a contract that redefines it?
+    let result = db.execute(|db| {
+        load(db, "a-trait")?;
+        load(db, "use-and-define-a-trait")?;
+        load(db, "use-a-trait-transitive-original")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_use_a_trait_transitive_redefined() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use the redefined trait from a contract that redefines it?
+    let result = db.execute(|db| {
+        load(db, "a-trait")?;
+        load(db, "use-and-define-a-trait")?;
+        load(db, "use-a-trait-transitive-redefined")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_nested_traits() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we nest traits in other types inside a function parameter type?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "nested-trait-1")?;
+        load(db, "nested-trait-2")?;
+        load(db, "nested-trait-3")?;
+        load(db, "nested-trait-4")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_call_nested_trait_1() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load(db, "empty")?;
+        load(db, "empty-trait")?;
+        load(db, "math-trait")?;
+        load(db, "nested-trait-1")?;
+        load(db, "nested-trait-2")?;
+        load(db, "nested-trait-3")?;
+        load(db, "nested-trait-4")?;
+        call(db, "nested-trait-1", "foo", "(list .empty .math-trait)")?;
+        call(db, "nested-trait-2", "foo", "(some .empty)")?;
+        call(db, "nested-trait-3", "foo", "(ok .empty)")?;
+        call(db, "nested-trait-3", "foo", "(err false)")?;
+        call(db, "nested-trait-4", "foo", "(tuple (empty .empty))")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_impl_math_trait_incomplete() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use impl-trait on a partial trait implementation?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait-incomplete")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_literal() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a literal where a trait is expected with a full implementation?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "trait-literal")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_pass_let_rename_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we rename a trait with let and pass it to a function?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "pass-let-rename-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_literal_incomplete() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a literal where a trait is expected with a partial implementation?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "partial-math-trait")?;
+        load(db, "trait-literal-incomplete")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_call_let_rename_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we rename a trait with let and call it?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "call-let-rename-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_data_1() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we save trait in data-var or data-map?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "trait-data-1")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_data_2() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we save trait in data-var or data-map?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "trait-data-2")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_upcast_trait_1() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "upcast-trait-1")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_upcast_trait_2() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "upcast-trait-2")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_upcast_trait_3() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "upcast-trait-3")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_return_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we return a trait from a function and use it?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "return-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_upcast_renamed() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a let-renamed trait where a principal type is expected?
+    // That is, does let-renaming affect the type?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "upcast-renamed")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_trait_1() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "downcast-trait-1")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_trait_2() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "downcast-trait-2")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_trait_3() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "downcast-trait-3")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_trait_4() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "downcast-trait-4")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_trait_5() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "downcast-trait-5")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_identical_trait_cast() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to a different trait with the same signature?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "empty-trait-copy")?;
+        load(db, "identical-trait-cast")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_cast() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to an compatible trait?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "math-trait")?;
+        load(db, "trait-cast")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_cast_incompatible() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to an incompatible trait?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "math-trait")?;
+        load(db, "trait-cast-incompatible")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_renamed_trait_cast() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to a renaming of itself?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "renamed-trait-cast")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_readonly_use_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a trait to a read-only function?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "readonly-use-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_readonly_pass_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a trait to a read-only function?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "readonly-pass-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+// TODO: This should be allowed
+#[test]
+fn clarity_trait_experiments_readonly_call_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a trait in a read-only function?
+    let result = db.execute(|db| {
+        load(db, "empty-trait")?;
+        load(db, "readonly-call-trait")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+// TODO: This should be allowed
+#[test]
+fn clarity_trait_experiments_readonly_static_call() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a readonly function in a separate contract from a readonly function?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "readonly-static-call")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_readonly_static_call_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a function with traits from a read-only function statically?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "readonly-static-call-trait")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_dyn_call_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that fully implements a trait?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "impl-math-trait")?;
+        call(db, "use-math-trait", "add-call", ".impl-math-trait u3 u5")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_dyn_call_trait_partial() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that just implements one function from a trait?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "partial-math-trait")?;
+        call(
+            db,
+            "use-math-trait",
+            "add-call",
+            ".partial-math-trait u3 u5",
+        )
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_dyn_call_not_implemented() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that doesn't implement the function call via the trait?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "use-math-trait")?;
+        load(db, "empty")?;
+        call(db, "use-math-trait", "add-call", ".empty u3 u5")
+    });
+    match result {
+        Err(_) => (),
+        res => panic!("expected error, got Ok"),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_call_use_principal() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract with takes a principal with a contract identifier that is not bound to a deployed contract?
+    let result = db.execute(|db| {
+        load(db, "use-principal")?;
+        call(db, "use-principal", "use", ".made-up")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_call_return_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "return-trait")?;
+        call(
+            db,
+            "return-trait",
+            "add-call-indirect",
+            ".impl-math-trait u3 u5",
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_trait_recursion() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load(db, "simple-trait")?;
+        load(db, "impl-simple-trait")?;
+        load(db, "impl-simple-trait-2")?;
+        call(db, "simple-trait", "call-simple", ".impl-simple-trait-2")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+// Additional tests using this framework
+#[test]
+fn clarity_trait_experiments_principals_list_to_traits_list() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "list-of-principals")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_traits_list_to_traits_list() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "list-of-traits")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_mixed_list_to_traits_list() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "mixed-list")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
 }
