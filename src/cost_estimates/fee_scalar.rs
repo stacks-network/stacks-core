@@ -166,6 +166,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                         Some((&tx.payload, tx.get_tx_fee(), tx.tx_len()))
                     }
                     TransactionOrigin::Burn(_) => None,
+                    TransactionOrigin::NetworkProtocol => None,
                 }?;
                 let scalar_cost = match payload {
                     TransactionPayload::TokenTransfer(_, _, _) => {
