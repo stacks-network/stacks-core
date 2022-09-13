@@ -474,6 +474,32 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    /// If this snapshot is locked, then alter the lock height to be
+    /// the next burn block (i.e., `self.burn_block_height + 1`)
+    pub fn accelerate_unlock(&mut self) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        let new_unlock_height = self.burn_block_height + 1;
+        self.balance = match self.balance {
+            STXBalance::Unlocked { amount } => STXBalance::Unlocked { amount },
+            STXBalance::LockedPoxOne { .. } => {
+                unreachable!("Attempted to accelerate the unlock of a lockup created by PoX-1")
+            }
+            STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
+        };
+    }
+
     /// Unlock any tokens that are unlockable at the current
     ///  burn block height, and return the amount newly unlocked
     fn unlock_available_tokens_if_any(&mut self) -> u128 {
