@@ -465,7 +465,9 @@ impl Burnchain {
         burn_ht: u64,
         reward_cycle_length: u64,
     ) -> bool {
-        let effective_height = burn_ht - first_block_ht;
+        let effective_height = burn_ht
+            .checked_sub(first_block_ht)
+            .expect("FATAL: attempted to check reward cycle start before first block height");
         // first block of the new reward cycle
         (effective_height % reward_cycle_length) <= 1
     }
