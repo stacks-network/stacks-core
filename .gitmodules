@@ -1,0 +1,3 @@
+[submodule "hiro-docs"]
+	path = hiro-docs
+	url = https://github.com/hirosystems/docs
