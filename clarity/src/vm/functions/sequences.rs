@@ -212,14 +212,13 @@ pub fn special_append(
     }
 }
 
-switch_on_global_epoch_22!(special_concat(special_concat_v200, special_concat_v205, special_concat_v220));
+switch_on_global_clarity3!(special_concat(special_concat_v200, special_concat_v205, special_concat_v220));
 
 pub fn special_concat_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-println!("HERE old old func");
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;

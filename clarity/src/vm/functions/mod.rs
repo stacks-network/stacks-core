@@ -60,7 +60,7 @@ macro_rules! switch_on_global_epoch {
     };
 }
 
-macro_rules! switch_on_global_epoch_22 {
+macro_rules! switch_on_global_clarity3 {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident, $Epoch22Version:ident)) => {
         pub fn $Name(
             args: &[SymbolicExpression],

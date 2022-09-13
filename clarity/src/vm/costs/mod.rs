@@ -69,7 +69,6 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
 ) -> Result<()> {
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
     let cost = tracker.compute_cost(cost_function, &[size])?;
-
     tracker.add_cost(cost)
 }
 
@@ -88,9 +87,27 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
 ) -> Result<()> {
     let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
     let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
+
     let cost = track.compute_cost(
         ClarityCostFunction::AnalysisTypeCheck,
         &[cmp::max(t1_size, t2_size) as u64],
+    )?;
+    track.add_cost(cost)
+}
+
+pub fn analysis_typecheck_size(
+    t1: &TypeSignature,
+) -> Result<u32> {
+    Ok(t1.type_size().map_err(|_| CostErrors::CostOverflow)?)
+}
+
+pub fn analysis_typecheck_add_cost<T: CostTracker>(
+    track: &mut T,
+    t1: u32,
+) -> Result<()> {
+    let cost = track.compute_cost(
+        ClarityCostFunction::AnalysisTypeCheck,
+        &[t1 as u64],
     )?;
     track.add_cost(cost)
 }

@@ -116,9 +116,7 @@ pub fn run_analysis(
     );
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
-println!("Entering TypeChecker::run_pass");
         TypeChecker::run_pass(&mut contract_analysis, db)?;
-println!("Exiting TypeCheck::run_pass");
         TraitChecker::run_pass(&mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 

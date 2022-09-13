@@ -1484,16 +1484,19 @@ fn test_native_concat() {
         );
     }
 
+    let bad_test = "(concat (list u0))";
+    let expected = CheckErrors::IncorrectArgumentCount(2, 1);
+
+    assert_eq!(&expected, &type_check_helper_v2(&bad_test).unwrap_err().err);
+
     let bad = [
         "(concat (list 2 3) (list u4))",
         "(concat (list u0) (list 1))",
-        "(concat (list u0))",
     ];
 
     let bad_expected = [
         CheckErrors::TypeError(IntType, UIntType),
         CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper_v2(&bad_test).unwrap_err().err);
@@ -2882,7 +2885,7 @@ fn test_string_utf8_concat() {
     }
 
     let good_v3 = ["(concat u\"block\" u\"stack\\u{1F926}\" u\"123\")"];
-    let expected_v3 = ["(string-utf8 11)"];
+    let expected_v3 = ["(string-utf8 14)"];
 
     for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
         assert_eq!(

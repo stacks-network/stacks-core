@@ -119,24 +119,20 @@ impl AnalysisPass for TypeChecker<'_, '_> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
-println!("HERE AnalysisPass for TypeChecker");
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command =
             TypeChecker::new(analysis_db, cost_track, &contract_analysis.clarity_version);
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
-println!("HERE version {:#?}", contract_analysis);
         match command.run(contract_analysis) {
             Ok(_) => {
                 let cost_track = command.into_contract_analysis(contract_analysis);
                 contract_analysis.replace_contract_cost_tracker(cost_track);
-println!("HERE ok");
                 Ok(())
             }
             err => {
                 let TypeChecker { cost_track, .. } = command;
                 contract_analysis.replace_contract_cost_tracker(cost_track);
-println!("HERE err");
                 err
             }
         }
@@ -451,22 +447,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let mut local_context = TypingContext::new();
 
         for exp in contract_analysis.expressions.iter() {
-println!("HERE HERE HERE HERE for start {}", &self.clarity_version);
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
-println!("HERE HERE HERE HERE for result_res {:#?}", result_res);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
                     error.set_expression(&exp);
                 }
             }
             let result = result_res?;
-println!("HERE HERE HERE HERE for mid {:#?}", result);
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-println!("HERE HERE HERE HERE for mid {:#?}", &exp);
                 self.type_check(&exp, &local_context)?;
             }
-println!("HERE HERE HERE HERE for end");
         }
         Ok(())
     }
@@ -524,7 +515,6 @@ println!("HERE HERE HERE HERE for end");
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
-
         let mut result = self.inner_type_check(expr, context);
 
         if let Err(ref mut error) = result {
@@ -532,7 +522,6 @@ println!("HERE HERE HERE HERE for end");
                 error.set_expression(expr);
             }
         }
-
         result
     }
 
@@ -703,12 +692,10 @@ println!("HERE HERE HERE HERE for end");
         let (function_name, args) = expression
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;
-
         self.type_map.set_type(function_name, no_type())?;
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
-
         if let Some(type_result) = self.try_native_function_check(function_name, args, context) {
             type_result
         } else {
