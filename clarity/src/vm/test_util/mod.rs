@@ -36,6 +36,7 @@ pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
 pub const TEST_BURN_STATE_DB_22: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch22,
 };
+
 pub fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
 }
