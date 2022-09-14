@@ -9,11 +9,10 @@ RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
 
 RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
 
-RUN rustup override set nightly-2022-01-14 && \
-    rustup component add llvm-tools-preview && \
+RUN rustup component add llvm-tools-preview && \
     cargo install grcov
 
-ENV RUSTFLAGS="-Zinstrument-coverage" \
+ENV RUSTFLAGS="-Cinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
 
 RUN cargo test --no-run --workspace && \

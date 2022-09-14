@@ -12,9 +12,11 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
+use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::contexts::OwnedEnvironment;
@@ -51,7 +53,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 
-use super::test::*;
+use super::{test::*, RawRewardSetEntry};
 use crate::clarity_vm::clarity::Error as ClarityError;
 
 use crate::chainstate::burn::operations::*;
@@ -64,6 +66,88 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 ///  SortitionDB option-reference. Panics on any errors.
 fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+}
+
+/// Get the reward set entries if evaluated at the given StacksBlock
+pub fn get_reward_set_entries_at(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    at_burn_ht: u64,
+) -> Vec<RawRewardSetEntry> {
+    let burnchain = peer.config.burnchain.clone();
+    with_sortdb(peer, |ref mut c, ref sortdb| {
+        get_reward_set_entries_at_block(c, &burnchain, sortdb, tip, at_burn_ht).unwrap()
+    })
+}
+
+/// Get the STXBalance for `account` at the given chaintip
+pub fn get_stx_account_at(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    account: &PrincipalData,
+) -> STXBalance {
+    with_clarity_db_ro(peer, tip, |db| db.get_account_stx_balance(account))
+}
+
+/// Get the STXBalance for `account` at the given chaintip
+pub fn get_stacking_state_pox_2(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    account: &PrincipalData,
+) -> Option<Value> {
+    with_clarity_db_ro(peer, tip, |db| {
+        let lookup_tuple = Value::Tuple(
+            TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
+        );
+        db.fetch_entry_unknown_descriptor(
+            &boot_code_id(boot::POX_2_NAME, false),
+            "stacking-state",
+            &lookup_tuple,
+        )
+        .unwrap()
+        .expect_optional()
+    })
+}
+
+/// Get the `cycle_number`'s total stacked amount at the given chaintip
+pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
+    with_clarity_db_ro(peer, tip, |db| {
+        let total_stacked_key = TupleData::from_data(vec![(
+            "reward-cycle".into(),
+            Value::UInt(cycle_number.into()),
+        )])
+        .unwrap()
+        .into();
+        db.fetch_entry_unknown_descriptor(
+            &boot_code_id(boot::POX_2_NAME, false),
+            "reward-cycle-total-stacked",
+            &total_stacked_key,
+        )
+        .map(|v| {
+            v.expect_optional()
+                .expect("Expected fetch_entry to return a value")
+        })
+        .unwrap()
+        .expect_tuple()
+        .get_owned("total-ustx")
+        .expect("Malformed tuple returned by PoX contract")
+        .expect_u128()
+    })
+}
+
+/// Allows you to do something read-only with the ClarityDB at the given chaintip
+pub fn with_clarity_db_ro<F, R>(peer: &mut TestPeer, tip: &StacksBlockId, todo: F) -> R
+where
+    F: FnOnce(&mut ClarityDatabase) -> R,
+{
+    with_sortdb(peer, |ref mut c, ref sortdb| {
+        let headers_db = HeadersDBConn(c.state_index.sqlite_conn());
+        let burn_db = sortdb.index_conn();
+        let mut read_only_clar = c
+            .clarity_state
+            .read_only_connection(tip, &headers_db, &burn_db);
+        read_only_clar.with_clarity_db_readonly(todo)
+    })
 }
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
@@ -502,6 +586,257 @@ fn test_simple_pox_lockup_transition_pox_2() {
             _ => false,
         },
         "Charlie tx0 should have committed okay"
+    );
+}
+
+#[test]
+fn test_simple_pox_2_auto_unlock_ab() {
+    test_simple_pox_2_auto_unlock(true)
+}
+
+#[test]
+fn test_simple_pox_2_auto_unlock_ba() {
+    test_simple_pox_2_auto_unlock(false)
+}
+
+/// In this test case, two Stackers, Alice and Bob stack and interact with the
+///  PoX v1 contract and PoX v2 contract across the epoch transition.
+///
+/// Alice: stacks via PoX v1 for 4 cycles. The third of these cycles occurs after
+///        the PoX v1 -> v2 transition, and so Alice gets "early unlocked".
+///        After the early unlock, Alice re-stacks in PoX v2
+///        Alice tries to stack again via PoX v1, which is allowed by the contract,
+///        but forbidden by the VM (because PoX has transitioned to v2)
+/// Bob:   stacks via PoX v2 for 6 cycles. He attempted to stack via PoX v1 as well,
+///        but is forbidden because he has already placed an account lock via PoX v2.
+///
+/// Note: this test is symmetric over the order of alice and bob's stacking calls.
+///       when alice goes first, the auto-unlock code doesn't need to perform a "move"
+///       when bob goes first, the auto-unlock code does need to perform a "move"
+fn test_simple_pox_2_auto_unlock(alice_first: bool) {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HEIGHT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.pox_participation_threshold_pct = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("test_simple_pox_2_auto_unlock_{}", alice_first),
+        6002,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    let num_blocks = 35;
+
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let charlie = keys.pop().unwrap();
+
+    let mut coinbase_nonce = 0;
+
+    // produce blocks until the epoch switch
+    for _i in 0..10 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    // Lets have Bob lock up for v2
+    // this will lock for cycles 8, 9, 10, and 11
+    //  the first v2 cycle will be 8
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    let alice_lockup = make_pox_2_lockup(
+        &alice,
+        0,
+        1024 * POX_THRESHOLD_STEPS_USTX,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        6,
+        tip.block_height,
+    );
+
+    let bob_lockup = make_pox_2_lockup(
+        &bob,
+        0,
+        1 * POX_THRESHOLD_STEPS_USTX,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&bob).bytes,
+        6,
+        tip.block_height,
+    );
+
+    // our "tenure counter" is now at 10
+    assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
+
+    let txs = if alice_first {
+        [alice_lockup, bob_lockup]
+    } else {
+        [bob_lockup, alice_lockup]
+    };
+    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    // check that the "raw" reward set will contain entries for alice and bob
+    //  at the cycle start
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 2);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&bob).bytes.0.to_vec()
+        );
+        assert_eq!(
+            reward_set_entries[1].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+    }
+
+    // we'll produce blocks until the next reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE) + 1;
+
+    // but first, check that bob has locked tokens at (height_target + 1)
+    let (bob_bal, _) = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(&bob).to_account_principal(),
+    )
+    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // check that the "raw" reward sets for all cycles just contains entries for alice
+    //  at the cycle start
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
+        let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        assert_eq!(reward_set_entries.len(), 1);
+        assert_eq!(
+            reward_set_entries[0].reward_address.bytes(),
+            key_to_stacks_addr(&alice).bytes.0.to_vec()
+        );
+    }
+
+    // now check that bob has no locked tokens at (height_target + 1)
+    let (bob_bal, _) = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(&bob).to_account_principal(),
+    )
+    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    assert_eq!(bob_bal.amount_locked(), 0);
+
+    // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
+    let (bob_bal, _) = get_stx_account_at(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(&bob).to_account_principal(),
+    )
+    .canonical_repr_at_block(height_target + 1, burnchain.pox_constants.v1_unlock_height);
+    assert_eq!(bob_bal.amount_locked(), 0);
+
+    // check that the total reward cycle amounts have decremented correctly
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        assert_eq!(
+            get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
+            1024 * POX_THRESHOLD_STEPS_USTX
+        );
+    }
+
+    // check that bob's stacking-state is gone and alice's stacking-state is correct
+    assert!(
+        get_stacking_state_pox_2(
+            &mut peer,
+            &latest_block,
+            &key_to_stacks_addr(&bob).to_account_principal()
+        )
+        .is_none(),
+        "Bob should not have a stacking-state entry"
+    );
+
+    let alice_state = get_stacking_state_pox_2(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(&alice).to_account_principal(),
+    )
+    .expect("Alice should have stacking-state entry")
+    .expect_tuple();
+    let reward_indexes_str = format!("{}", alice_state.get("reward-set-indexes").unwrap());
+    assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
+
+    // now let's check some tx receipts
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+    let mut charlie_txs = HashMap::new();
+
+    eprintln!("Alice addr: {}", alice_address);
+    eprintln!("Bob addr: {}", bob_address);
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                eprintln!("TX addr: {}", addr);
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == charlie_address {
+                    assert!(
+                        r.execution_cost != ExecutionCost::zero(),
+                        "Execution cost is not zero!"
+                    );
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), 1);
+    assert_eq!(charlie_txs.len(), 0);
+
+    assert_eq!(bob_txs.len(), 1);
+
+    //  TX0 -> Bob's initial lockup in PoX 2
+    assert!(
+        match bob_txs.get(&0).unwrap().result {
+            Value::Response(ref r) => r.committed,
+            _ => false,
+        },
+        "Bob tx0 should have committed okay"
     );
 }
 
