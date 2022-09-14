@@ -29,6 +29,7 @@ use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use clarity::vm::representations::MAX_STRING_LEN;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
@@ -72,11 +73,11 @@ use crate::net::MAX_HEADERS;
 use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
 use crate::net::{CallReadOnlyRequestBody, TipRequest};
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX_STRING;
 use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
 use clarity::vm::{
     representations::{
-        CLARITY_NAME_REGEX_STRING, CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING,
-        STANDARD_PRINCIPAL_REGEX_STRING,
+        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
     },
     types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
     ClarityName, ContractName, Value,
