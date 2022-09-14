@@ -992,6 +992,37 @@ fn epoch_21_test_all_testnet() {
     epoch_21_test_all(false)
 }
 
+fn epoch_22_test_all(use_mainnet: bool) {
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch22,
+        ClarityVersion::Clarity3,
+    );
+
+    for f in NativeFunctions::ALL.iter() {
+        // Note: Include Clarity2 functions for Epoch21.
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(
+            test,
+            use_mainnet,
+            StacksEpochId::Epoch22,
+            ClarityVersion::Clarity3,
+        );
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+fn epoch_22_test_all_mainnet() {
+    epoch_22_test_all(true)
+}
+
+#[test]
+fn epoch_22_test_all_testnet() {
+    epoch_22_test_all(false)
+}
+
 fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: ClarityVersion) {
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);

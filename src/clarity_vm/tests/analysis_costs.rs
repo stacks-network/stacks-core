@@ -115,6 +115,9 @@ pub fn test_tracked_costs(
         if epoch > StacksEpochId::Epoch2_05 {
             conn.initialize_epoch_2_1().unwrap();
         }
+        if epoch > StacksEpochId::Epoch21 {
+            conn.initialize_epoch_2_2().unwrap();
+        }
 
         conn.commit_block();
     }
@@ -264,4 +267,32 @@ fn epoch_205_test_all_mainnet() {
 #[test]
 fn epoch_205_test_all_testnet() {
     epoch_205_test_all(false);
+}
+
+fn epoch_22_test_all(use_mainnet: bool, version: ClarityVersion) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch22, version);
+
+    for f in NativeFunctions::ALL.iter() {
+        if version < f.get_version() {
+            continue;
+        }
+
+        let test = get_simple_test(f);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch22, version);
+        assert!(cost.exceeds(&baseline));
+    }
+}
+
+#[test]
+fn epoch_22_test_all_mainnet() {
+    epoch_22_test_all(true, ClarityVersion::Clarity1);
+    epoch_22_test_all(true, ClarityVersion::Clarity2);
+    epoch_22_test_all(true, ClarityVersion::Clarity3);
+}
+
+#[test]
+fn epoch_22_test_all_testnet() {
+    epoch_22_test_all(false, ClarityVersion::Clarity1);
+    epoch_22_test_all(false, ClarityVersion::Clarity2);
+    epoch_22_test_all(false, ClarityVersion::Clarity3);
 }

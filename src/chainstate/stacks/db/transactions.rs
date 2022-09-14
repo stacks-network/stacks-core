@@ -1405,11 +1405,15 @@ pub mod test {
     pub const TestBurnStateDB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch21,
     };
+    pub const TestBurnStateDB_22: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch22,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
         &TestBurnStateDB_2_05 as &dyn BurnStateDB,
         &TestBurnStateDB_21 as &dyn BurnStateDB,
+        &TestBurnStateDB_22 as &dyn BurnStateDB,
     ];
 
     pub const PRE_21_DBS: &[&dyn BurnStateDB] = &[
@@ -8349,6 +8353,203 @@ pub mod test {
     }
 
     #[test]
+    fn test_get_tx_clarity_version_v220() {
+        struct MockedBurnDB {}
+
+        impl BurnStateDB for MockedBurnDB {
+            fn get_v1_unlock_height(&self) -> u32 {
+                2
+            }
+            fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
+                Some(sortition_id.0[0] as u32)
+            }
+            fn get_burn_start_height(&self) -> u32 {
+                0
+            }
+            fn get_pox_prepare_length(&self) -> u32 {
+                3
+            }
+            fn get_pox_reward_cycle_length(&self) -> u32 {
+                6
+            }
+            fn get_pox_rejection_fraction(&self) -> u64 {
+                15
+            }
+            fn get_burn_header_hash(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<BurnchainHeaderHash> {
+                Some(BurnchainHeaderHash([height as u8; 32]))
+            }
+            fn get_sortition_id_from_consensus_hash(
+                &self,
+                consensus_hash: &ConsensusHash,
+            ) -> Option<SortitionId> {
+                Some(SortitionId([consensus_hash.0[0]; 32]))
+            }
+            fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
+                Some(StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch22,
+                    start_height: 0,
+                    end_height: u64::MAX,
+                    block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                    network_epoch: PEER_VERSION_EPOCH_2_2,
+                })
+            }
+            fn get_stacks_epoch_by_epoch_id(
+                &self,
+                epoch_id: &StacksEpochId,
+            ) -> Option<StacksEpoch> {
+                match epoch_id {
+                    StacksEpochId::Epoch10 => Some(StacksEpoch {
+                        epoch_id: StacksEpochId::Epoch10,
+                        start_height: 0,
+                        end_height: 0,
+                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        network_epoch: PEER_VERSION_EPOCH_2_2,
+                    }),
+                    _ => self.get_stacks_epoch(0),
+                }
+            }
+            fn get_pox_payout_addrs(
+                &self,
+                height: u32,
+                sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                None
+            }
+        }
+
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "test_get_tx_clarity_version_v210");
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress {
+            version: 1,
+            bytes: Hash160([0xff; 20]),
+        };
+
+        let smart_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                None,
+            ),
+        );
+        let smart_contract_v1 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+        );
+        let smart_contract_v2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
+        );
+        let smart_contract_v3 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity3),
+            ),
+        );
+        let token_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+
+        let txs = vec![
+            smart_contract,
+            smart_contract_v1,
+            smart_contract_v2,
+            smart_contract_v3,
+            token_transfer,
+        ];
+        let mut signed_txs = vec![];
+        for mut tx in txs.into_iter() {
+            tx.chain_id = 0x80000000;
+            tx.post_condition_mode = TransactionPostConditionMode::Allow;
+            tx.set_tx_fee(0);
+
+            let mut signer = StacksTransactionSigner::new(&tx);
+            signer.sign_origin(&privk).unwrap();
+            let signed_tx = signer.get_tx().unwrap();
+            signed_txs.push(signed_tx);
+        }
+
+        let token_transfer = signed_txs.pop().unwrap();
+        let smart_contract_v3 = signed_txs.pop().unwrap();
+        let smart_contract_v2 = signed_txs.pop().unwrap();
+        let smart_contract_v1 = signed_txs.pop().unwrap();
+        let smart_contract = signed_txs.pop().unwrap();
+
+        let burndb = MockedBurnDB {};
+
+        let mut conn = chainstate.block_begin(
+            &burndb,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([2u8; 20]),
+            &BlockHeaderHash([2u8; 32]),
+        );
+
+        assert_eq!(conn.get_epoch(), StacksEpochId::Epoch22);
+        assert_eq!(
+            ClarityVersion::Clarity3,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity1,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v1).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity2,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v2).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity3,
+            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v3).unwrap()
+        );
+        assert_eq!(
+            ClarityVersion::Clarity3,
+            StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
+        );
+
+        conn.commit_block();
+    }
+
+    #[test]
     fn process_fee_gating() {
         let contract = r#"
         (define-public (send-stx (amount uint) (recipient principal))
@@ -8469,6 +8670,22 @@ pub mod test {
             &FIRST_STACKS_BLOCK_HASH,
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
+        );
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();
+        assert_eq!(fee, 0);
+
+        let err = StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false)
+            .unwrap_err();
+        conn.commit_block();
+
+        // post-2.1, this will fail since we debit the fee *before* we run the contract
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_22,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([4u8; 20]),
+            &BlockHeaderHash([4u8; 32]),
         );
         let (fee, _) =
             StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false).unwrap();

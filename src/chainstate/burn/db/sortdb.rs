@@ -7663,6 +7663,85 @@ pub mod tests {
     }
 
     #[test]
+    fn test_epoch_switch_22() {
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-sortdb-{}", to_hex(&buf));
+
+        let mut db = SortitionDB::connect(
+            &db_path_dir,
+            3,
+            &BurnchainHeaderHash([0u8; 32]),
+            0,
+            &vec![
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch10,
+                    start_height: 0,
+                    end_height: 8,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_1_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch20,
+                    start_height: 8,
+                    end_height: 12,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_0,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch2_05,
+                    start_height: 12,
+                    end_height: 14,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: 14,
+                    end_height: 16,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch22,
+                    start_height: 16,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_2,
+                },
+            ],
+            PoxConstants::test_default(),
+            true,
+        )
+        .unwrap();
+
+        let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        for i in 0..20 {
+            debug!("Get epoch for block height {}", cur_snapshot.block_height);
+            let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), cur_snapshot.block_height)
+                .unwrap()
+                .unwrap();
+
+            if cur_snapshot.block_height < 8 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch10);
+            } else if cur_snapshot.block_height < 12 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch20);
+            } else if cur_snapshot.block_height < 14 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch2_05);
+            } else if cur_snapshot.block_height < 16 {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch21);
+            } else {
+                assert_eq!(cur_epoch.epoch_id, StacksEpochId::Epoch22);
+            }
+
+            cur_snapshot =
+                test_append_snapshot(&mut db, BurnchainHeaderHash([((i + 1) as u8); 32]), &vec![]);
+        }
+    }
+
+
+    #[test]
     #[should_panic]
     fn test_bad_epochs_discontinuous() {
         let mut rng = rand::thread_rng();

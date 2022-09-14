@@ -1067,6 +1067,7 @@ simulating a miner.
             first_burnchain_block_height,
             u64::max_value(),
             u64::max_value(),
+            u64::max_value(),
         );
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
@@ -1160,6 +1161,7 @@ simulating a miner.
 
         let epochs = StacksEpoch::all(
             first_burnchain_block_height,
+            u64::max_value(),
             u64::max_value(),
             u64::max_value(),
         );
