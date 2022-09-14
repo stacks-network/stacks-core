@@ -80,6 +80,20 @@ pub fn get_reward_set_entries_at(
     })
 }
 
+/// Get the reward set entries if evaluated at the given StacksBlock
+///  in order of index in the reward-cycle-address-list map
+pub fn get_reward_set_entries_index_order_at(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    at_burn_ht: u64,
+) -> Vec<RawRewardSetEntry> {
+    let burnchain = peer.config.burnchain.clone();
+    with_sortdb(peer, |ref mut c, ref sortdb| {
+        c.get_reward_addresses(&burnchain, sortdb, at_burn_ht, tip)
+            .unwrap()
+    })
+}
+
 /// Get the STXBalance for `account` at the given chaintip
 pub fn get_stx_account_at(
     peer: &mut TestPeer,
@@ -109,6 +123,130 @@ pub fn get_stacking_state_pox_2(
     })
 }
 
+/// Perform `check_stacker_link_invariants` on cycles [0, max_cycle_number]
+pub fn check_all_stacker_link_invariants(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    first_cycle_number: u64,
+    max_cycle_number: u64,
+) {
+    for cycle in first_cycle_number..(max_cycle_number + 1) {
+        check_stacker_link_invariants(peer, tip, cycle);
+    }
+}
+
+/// Check that:
+///  (1) `reward-cycle-pox-address-list.stacker` points to a real `stacking-state`
+///  (2) `stacking-state.reward-set-indexes` matches the index of that `reward-cycle-pox-address-list`
+///  (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
+///  (4) `reward-cycle-total-stacked` is equal to the sum of all entries
+///  (5) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
+pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) {
+    let cycle_start = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height(cycle_number);
+    let reward_set_entries = get_reward_set_entries_index_order_at(peer, tip, cycle_start);
+    let mut checked_total = 0;
+    for (actual_index, entry) in reward_set_entries.iter().enumerate() {
+        checked_total += entry.amount_stacked;
+        if let Some(stacker) = &entry.stacker {
+            let stacking_state_entry = get_stacking_state_pox_2(peer, tip, stacker)
+                .expect("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state")
+                .expect_tuple();
+            let first_cycle = stacking_state_entry
+                .get("first-reward-cycle")
+                .unwrap()
+                .clone()
+                .expect_u128();
+            let lock_period = stacking_state_entry
+                .get("lock-period")
+                .unwrap()
+                .clone()
+                .expect_u128();
+            let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
+            let pox_addr =
+                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr)
+                    .unwrap();
+
+            let reward_indexes: Vec<u128> = stacking_state_entry
+                .get_owned("reward-set-indexes")
+                .unwrap()
+                .expect_list()
+                .into_iter()
+                .map(|x| x.expect_u128())
+                .collect();
+
+            assert_eq!(&entry.reward_address, &pox_addr, "Invariant violated: reward-cycle entry has a different PoX addr than in stacker-state");
+            assert_eq!(
+                reward_indexes.len() as u128,
+                lock_period,
+                "Invariant violated: lock-period should be equal to the reward indexes length"
+            );
+
+            let mut this_cycle_checked = false;
+            for i in 0..lock_period {
+                let cycle_checked = first_cycle + i;
+                let reward_index = reward_indexes[i as usize];
+
+                if cycle_checked == cycle_number as u128 {
+                    this_cycle_checked = true;
+                    assert_eq!(reward_index, actual_index as u128, "Invariant violated: stacking-state.reward-set-indexes entry at cycle_number must point to this stacker's entry");
+                }
+
+                let entry_key = Value::from(
+                    TupleData::from_data(vec![
+                        ("reward-cycle".into(), Value::UInt(cycle_number.into())),
+                        ("index".into(), Value::UInt(reward_index)),
+                    ])
+                    .unwrap(),
+                );
+                let entry_value = with_clarity_db_ro(peer, tip, |db| {
+                    db.fetch_entry_unknown_descriptor(
+                        &boot_code_id(boot::POX_2_NAME, false),
+                        "reward-cycle-pox-address-list",
+                        &entry_key
+                    )
+                        .unwrap()
+                        .expect_optional()
+                        .expect("Invariant violated: stacking-state.reward-set-indexes pointed at a non-existent entry")
+                        .expect_tuple()
+                });
+
+                let entry_stacker = entry_value.get("stacker")
+                    .unwrap()
+                    .clone()
+                    .expect_optional()
+                    .expect("Invariant violated: stacking-state.reward-set-indexes pointed at an entry without a stacker set")
+                    .expect_principal();
+
+                assert_eq!(
+                    &entry_stacker, stacker,
+                    "Invariant violated: reward-set-index points to different stacker's entry"
+                );
+
+                let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
+                let entry_pox_addr = PoxAddress::try_from_pox_tuple(
+                    peer.config.burnchain.is_mainnet(),
+                    &entry_pox_addr,
+                )
+                .unwrap();
+
+                assert_eq!(
+                    &entry_pox_addr, &pox_addr,
+                    "Invariant violated: linked reward set entry has a different PoX address"
+                );
+            }
+        }
+    }
+    let expected_total = get_reward_cycle_total(peer, tip, cycle_number);
+    assert_eq!(
+        u128::try_from(checked_total).unwrap(),
+        expected_total,
+        "Invariant violated: total reward cycle amount does not equal sum of reward set"
+    );
+}
+
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
 pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
     with_clarity_db_ro(peer, tip, |db| {
@@ -125,13 +263,17 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         )
         .map(|v| {
             v.expect_optional()
-                .expect("Expected fetch_entry to return a value")
+                .map(|v| {
+                    v.expect_tuple()
+                        .get_owned("total-ustx")
+                        .expect("Malformed tuple returned by PoX contract")
+                        .expect_u128()
+                })
+                // if no entry yet, return 0
+                .unwrap_or(0)
         })
-        .unwrap()
-        .expect_tuple()
-        .get_owned("total-ustx")
-        .expect("Malformed tuple returned by PoX contract")
-        .expect_u128()
+        // if the map doesn't exist yet, return 0
+        .unwrap_or(0)
     })
 }
 
@@ -345,6 +487,13 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
 
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &tip_index_block,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
+
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
     let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -430,7 +579,14 @@ fn test_simple_pox_lockup_transition_pox_2() {
     // our "tenure counter" is now at 10
     assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
 
-    peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
+    let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
+
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &block_id,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
 
     // alice is still locked, balance should be 0
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -451,13 +607,27 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // our "tenure counter" is now at 11
     assert_eq!(tip.block_height, 11 + EMPTY_SORTITIONS as u64);
-    peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
+    let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
+
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &block_id,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
 
     // our "tenure counter" is now at 12
     let tip = get_tip(peer.sortdb.as_ref());
     assert_eq!(tip.block_height, 12 + EMPTY_SORTITIONS as u64);
     // One more empty tenure to reach the unlock height
-    peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    let block_id = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &block_id,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
 
     // Auto unlock height is reached, Alice balance should be unlocked
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -508,7 +678,14 @@ fn test_simple_pox_lockup_transition_pox_2() {
         12,
         tip.block_height,
     );
-    peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+    let block_id = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &block_id,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
 
     assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
 
