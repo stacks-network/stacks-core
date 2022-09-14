@@ -515,6 +515,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
+
         let mut result = self.inner_type_check(expr, context);
 
         if let Err(ref mut error) = result {
@@ -522,6 +523,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 error.set_expression(expr);
             }
         }
+
         result
     }
 
@@ -692,10 +694,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let (function_name, args) = expression
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;
+
         self.type_map.set_type(function_name, no_type())?;
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::NonFunctionApplication)?;
+
         if let Some(type_result) = self.try_native_function_check(function_name, args, context) {
             type_result
         } else {
