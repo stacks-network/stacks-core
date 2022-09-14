@@ -28,7 +28,6 @@ use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
@@ -953,11 +952,8 @@ impl StacksChainState {
     }
 
     pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
-        let config = query_row::<DBConfig, _>(
-            conn,
-            &"SELECT * FROM db_config LIMIT 1".to_string(),
-            NO_PARAMS,
-        )?;
+        let config =
+            query_row::<DBConfig, _>(conn, &"SELECT * FROM db_config LIMIT 1".to_string(), [])?;
         Ok(config.expect("BUG: no db_config installed"))
     }
 

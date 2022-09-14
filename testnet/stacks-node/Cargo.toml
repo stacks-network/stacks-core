@@ -35,7 +35,7 @@ clarity = { package = "clarity", path = "../../clarity/.", features = ["testing"
 stacks_common = { package = "stacks-common", path = "../../stacks-common/.", features = ["testing"] }
 
 [dev-dependencies.rusqlite]
-version = "=0.24.2"
+version = "=0.27.0"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [[bin]]

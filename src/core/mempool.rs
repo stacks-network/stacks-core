@@ -32,7 +32,6 @@ use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
 
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
@@ -719,11 +718,9 @@ impl MemPoolDB {
         }
 
         let version = conn
-            .query_row(
-                "SELECT MAX(version) FROM schema_version",
-                rusqlite::NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
             .optional()?;
 
         Ok(version)
@@ -884,7 +881,7 @@ impl MemPoolDB {
     pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
         let sql =
             "UPDATE mempool SET last_known_origin_nonce = NULL, last_known_sponsor_nonce = NULL";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        self.db.execute(sql, [])?;
         Ok(())
     }
 
@@ -930,8 +927,7 @@ impl MemPoolDB {
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
-        query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
-            .map(|opt_tx| opt_tx.map(|tx| (tx, true)))
+        query_row(&self.db, select_no_estimate, []).map(|opt_tx| opt_tx.map(|tx| (tx, true)))
     }
 
     /// Select the next TX to consider from the pool of transactions with cost estimates.
@@ -944,8 +940,7 @@ impl MemPoolDB {
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
                    AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
-        query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)
-            .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
+        query_row(&self.db, select_estimate, []).map(|opt_tx| opt_tx.map(|tx| (tx, false)))
     }
 
     /// * `start_with_no_estimate` - Pass `true` to make this function
@@ -1029,7 +1024,7 @@ impl MemPoolDB {
             &sql_tx,
             "SELECT * FROM mempool as m LEFT OUTER JOIN fee_estimates as f ON
                                m.txid = f.txid WHERE f.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            [max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {
@@ -1219,7 +1214,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
-        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
+        let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, [])?;
         Ok(rows)
     }
 
@@ -1754,7 +1749,7 @@ impl MemPoolDB {
 
         // if we get too big, then drop some txs at random
         let sql = "SELECT size FROM tx_blacklist_size";
-        let sz = query_int(tx, sql, NO_PARAMS)? as u64;
+        let sz = query_int(tx, sql, [])? as u64;
         if sz > max_size {
             let to_delete = sz - max_size;
             let txids: Vec<Txid> = query_rows(
@@ -1851,7 +1846,7 @@ impl MemPoolDB {
     #[cfg(test)]
     pub fn dump_txs(&self) {
         let sql = "SELECT * FROM mempool";
-        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, NO_PARAMS).unwrap();
+        let txs: Vec<MemPoolTxMetadata> = query_rows(&self.db, sql, []).unwrap();
 
         eprintln!("{:#?}", txs);
     }
@@ -1880,12 +1875,12 @@ impl MemPoolDB {
     /// Find maximum height represented in the mempool
     pub fn get_max_height(conn: &DBConn) -> Result<Option<u64>, db_error> {
         let sql = "SELECT 1 FROM mempool WHERE height >= 0";
-        let count = query_rows::<i64, _>(conn, sql, NO_PARAMS)?.len();
+        let count = query_rows::<i64, _>(conn, sql, [])?.len();
         if count == 0 {
             Ok(None)
         } else {
             let sql = "SELECT MAX(height) FROM mempool";
-            Ok(Some(query_int(conn, sql, NO_PARAMS)? as u64))
+            Ok(Some(query_int(conn, sql, [])? as u64))
         }
     }
 

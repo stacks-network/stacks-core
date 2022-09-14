@@ -35,7 +35,7 @@ use std::{cmp, error};
 use rusqlite::{
     types::{FromSql, ToSql},
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
-    Transaction, NO_PARAMS,
+    Transaction,
 };
 
 use crate::chainstate::stacks::index::bits::{
@@ -445,7 +445,7 @@ impl TrieFile {
     ) -> Result<Vec<(TrieHash, T)>, Error> {
         let mut s =
             db.prepare("SELECT block_hash, external_offset FROM marf_data WHERE unconfirmed = 0 ORDER BY block_hash")?;
-        let rows = s.query_and_then(NO_PARAMS, |row| {
+        let rows = s.query_and_then([], |row| {
             let block_hash: T = row.get_unwrap("block_hash");
             let offset_i64: i64 = row.get_unwrap("external_offset");
             let offset = offset_i64 as u64;

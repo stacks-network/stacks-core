@@ -46,10 +46,10 @@ use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
+use rusqlite::Params;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
-use rusqlite::NO_PARAMS;
 
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MarfTransaction;
@@ -330,7 +330,7 @@ macro_rules! impl_byte_array_from_column {
 fn get_db_path(conn: &Connection) -> Result<String, Error> {
     let sql = "PRAGMA database_list";
     let path: Result<Option<String>, sqlite_error> =
-        conn.query_row_and_then(sql, NO_PARAMS, |row| row.get(2));
+        conn.query_row_and_then(sql, [], |row| row.get(2));
     match path {
         Ok(Some(path)) => Ok(path),
         Ok(None) => Ok("<unknown>".to_string()),
@@ -374,7 +374,7 @@ fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -389,7 +389,7 @@ where
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -410,7 +410,7 @@ pub fn query_expect_row<T, P>(
 ) -> Result<Option<T>, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -436,7 +436,7 @@ pub fn query_row_panic<T, P, F>(
 ) -> Result<Option<T>, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromRow<T>,
     F: FnOnce() -> String,
 {
@@ -462,7 +462,7 @@ pub fn query_row_columns<T, P>(
 ) -> Result<Vec<T>, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
@@ -483,7 +483,7 @@ where
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     log_sql_eqp(conn, sql_query);
     let mut stmt = conn.prepare(sql_query)?;
@@ -507,7 +507,7 @@ where
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
     P: IntoIterator,
-    P::Item: ToSql,
+    P: Params,
 {
     query_int(conn, sql_query, sql_args)
 }
@@ -532,7 +532,7 @@ fn inner_sql_pragma(
 
 /// Run a VACUUM command
 pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
-    conn.execute("VACUUM", NO_PARAMS)
+    conn.execute("VACUUM", [])
         .map_err(Error::SqliteError)
         .and_then(|_| Ok(()))
 }
@@ -810,7 +810,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
             PRIMARY KEY(value_hash)
         );
         "#,
-                NO_PARAMS,
+                [],
             )
             .map_err(Error::SqliteError)?;
         Ok(())

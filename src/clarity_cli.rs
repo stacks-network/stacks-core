@@ -30,7 +30,7 @@ use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 
 use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
 use crate::util_lib::db::sqlite_open;
@@ -294,7 +294,7 @@ fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
         conn.prepare("SELECT block_hash FROM cli_chain_tips ORDER BY id DESC LIMIT 1"),
         "FATAL: could not prepare query",
     );
-    let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
+    let mut rows = friendly_expect(stmt.query([]), "FATAL: could not fetch rows");
     let mut hash_opt = None;
     while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
         let bhh = friendly_expect(
@@ -511,7 +511,7 @@ impl CLIHeadersDB {
         friendly_expect(
             tx.execute(
                 "CREATE TABLE IF NOT EXISTS cli_chain_tips(id INTEGER PRIMARY KEY AUTOINCREMENT, block_hash TEXT UNIQUE NOT NULL);",
-                NO_PARAMS
+                []
             ),
             &format!("FATAL: failed to create 'cli_chain_tips' table"),
         );
@@ -519,7 +519,7 @@ impl CLIHeadersDB {
         friendly_expect(
             tx.execute(
                 "CREATE TABLE IF NOT EXISTS cli_config(testnet BOOLEAN NOT NULL);",
-                NO_PARAMS,
+                [],
             ),
             &format!("FATAL: failed to create 'cli_config' table"),
         );
@@ -590,7 +590,7 @@ impl CLIHeadersDB {
             self.conn.prepare("SELECT testnet FROM cli_config LIMIT 1"),
             "FATAL: could not prepare query",
         );
-        let mut rows = friendly_expect(stmt.query(NO_PARAMS), "FATAL: could not fetch rows");
+        let mut rows = friendly_expect(stmt.query([]), "FATAL: could not fetch rows");
         let mut mainnet = true;
         while let Some(row) = rows.next().expect("FATAL: could not read config row") {
             let testnet: bool = row.get_unwrap("testnet");

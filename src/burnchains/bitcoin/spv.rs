@@ -42,7 +42,7 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags};
 
 use crate::util_lib::db::{
     query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler, u64_to_sql,
@@ -230,7 +230,7 @@ impl SpvClient {
 
     fn db_get_version(conn: &DBConn) -> Result<String, btc_error> {
         let version_str = conn
-            .query_row("SELECT MAX(version) FROM db_config", NO_PARAMS, |row| {
+            .query_row("SELECT MAX(version) FROM db_config", [], |row| {
                 let version: String = row.get_unwrap(0);
                 Ok(version)
             })
@@ -346,7 +346,7 @@ impl SpvClient {
             .conn()
             .query_row(
                 "SELECT interval FROM chain_work ORDER BY interval DESC LIMIT 1",
-                NO_PARAMS,
+                [],
                 |row| row.get(0),
             )
             .optional()
@@ -602,11 +602,7 @@ impl SpvClient {
 
     /// Report the highest heigth of the last header we got
     pub fn get_highest_header_height(&self) -> Result<u64, btc_error> {
-        match query_row::<u64, _>(
-            &self.headers_db,
-            "SELECT MAX(height) FROM headers",
-            NO_PARAMS,
-        )? {
+        match query_row::<u64, _>(&self.headers_db, "SELECT MAX(height) FROM headers", [])? {
             Some(max) => Ok(max),
             None => Ok(0),
         }

@@ -17,9 +17,7 @@
 use std::collections::HashMap;
 use std::{fs, io};
 
-use rusqlite::{
-    types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
-};
+use rusqlite::{types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction};
 use serde_json;
 
 use crate::burnchains::Txid;
@@ -276,7 +274,7 @@ impl BurnchainDB {
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
-        let opt = query_row(&self.conn, qry, NO_PARAMS)?;
+        let opt = query_row(&self.conn, qry, [])?;
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 

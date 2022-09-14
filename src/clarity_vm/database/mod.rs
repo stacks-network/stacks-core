@@ -186,7 +186,7 @@ impl HeadersDB for MARF<StacksBlockId> {
 fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
     conn.query_row(
         "SELECT * FROM block_headers WHERE index_block_hash = ?",
-        [id_bhh].iter(),
+        [id_bhh],
         |x| Ok(StacksHeaderInfo::from_row(x).expect("Bad stacks header info in database")),
     )
     .optional()
@@ -196,7 +196,7 @@ fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<Stack
 fn get_miner_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<MinerPaymentSchedule> {
     conn.query_row(
         "SELECT * FROM payments WHERE index_block_hash = ? AND miner = 1",
-        [id_bhh].iter(),
+        [id_bhh],
         |x| Ok(MinerPaymentSchedule::from_row(x).expect("Bad payment info in database")),
     )
     .optional()
@@ -207,7 +207,7 @@ fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<Min
     let parent_id_bhh = conn
         .query_row(
             "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?",
-            [child_id_bhh].iter(),
+            [child_id_bhh],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))
