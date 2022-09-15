@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+#![cfg_attr(const_unstable, feature(const_extern_fn, const_fn_trait_bound))]
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::thread;
