@@ -9058,7 +9058,7 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
             .is_some());
 
         let (fee, tx_receipt) = StacksChainState::process_transaction(
@@ -9081,7 +9081,7 @@ pub mod test {
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
         assert!(err_str
-            .find("TypeValueError(OptionalType(TraitReferenceType(TraitIdentifier ")
+            .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
             .is_some());
 
         conn.commit_block();
@@ -9131,7 +9131,7 @@ pub mod test {
         let acct = StacksChainState::get_account(&mut conn, &addr.into());
         assert_eq!(acct.nonce, 4);
 
-        // no state change materialized
+        // state change materialized
         let executed_var =
             StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
         assert_eq!(executed_var, Some(Value::Bool(true)));

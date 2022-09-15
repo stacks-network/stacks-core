@@ -31,9 +31,9 @@ use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression
 use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, BUFF_20};
 use crate::vm::types::{
     parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
-    Value, MAX_TYPE_DEPTH,
+    ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    SequenceData, SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature,
+    TypeSignature, Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use std::collections::{BTreeMap, HashMap};
@@ -301,6 +301,55 @@ impl FunctionType {
         }
     }
 
+    pub fn principal_to_callable_type(&self, value: &Value) -> TypeResult {
+        Ok(match value {
+            Value::Principal(PrincipalData::Contract(contract_identifier)) => {
+                TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier.clone()))
+            }
+            Value::Optional(OptionalData {
+                data: Some(inner_value),
+            }) => TypeSignature::new_option(self.principal_to_callable_type(inner_value)?)?,
+            Value::Response(ResponseData { committed, data }) => {
+                let (ok_type, err_type) = if *committed {
+                    (
+                        self.principal_to_callable_type(data)?,
+                        TypeSignature::NoType,
+                    )
+                } else {
+                    (
+                        TypeSignature::NoType,
+                        self.principal_to_callable_type(data)?,
+                    )
+                };
+                TypeSignature::new_response(ok_type, err_type)?
+            }
+            Value::Sequence(SequenceData::List(ListData {
+                data,
+                type_signature: _,
+            })) => {
+                let inner_type = match data.first() {
+                    Some(inner_val) => self.principal_to_callable_type(inner_val)?,
+                    None => TypeSignature::NoType,
+                };
+                TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData::new_list(
+                    inner_type,
+                    data.len() as u32,
+                )?))
+            }
+            Value::Tuple(TupleData {
+                type_signature: _,
+                data_map,
+            }) => {
+                let mut type_map = BTreeMap::new();
+                for (name, field_value) in data_map {
+                    type_map.insert(name.clone(), self.principal_to_callable_type(field_value)?);
+                }
+                TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
+            }
+            _ => TypeSignature::type_of(value),
+        })
+    }
+
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
@@ -313,80 +362,20 @@ impl FunctionType {
         };
         check_argument_count(expected_args.len(), func_args)?;
 
-        for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
-            match (&expected_arg.signature, arg) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
-                    Value::CallableContract(CallableData {
-                        contract_identifier,
-                        trait_identifier: None,
-                    }),
-                ) => {
-                    let contract_to_check =
-                        db.load_contract(contract_identifier).ok_or_else(|| {
-                            CheckErrors::NoSuchContract(contract_identifier.name.to_string())
-                        })?;
-                    let expected_trait = db
-                        .get_defined_trait(
-                            &expected_trait_id.contract_identifier,
-                            &expected_trait_id.name,
-                        )?
-                        .ok_or(if clarity_version >= ClarityVersion::Clarity2 {
-                            CheckErrors::NoSuchTrait(
-                                expected_trait_id.contract_identifier.to_string(),
-                                expected_trait_id.name.to_string(),
-                            )
-                        } else {
-                            CheckErrors::NoSuchContract(
-                                expected_trait_id.contract_identifier.to_string(),
-                            )
-                        })?;
-                    contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
-                }
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
-                    Value::CallableContract(CallableData {
-                        contract_identifier: _,
-                        trait_identifier: Some(trait_identifier),
-                    }),
-                ) => {
-                    let actual_trait = db
-                        .get_defined_trait(
-                            &trait_identifier.contract_identifier,
-                            &trait_identifier.name,
-                        )?
-                        .ok_or(CheckErrors::NoSuchTrait(
-                            trait_identifier.contract_identifier.to_string(),
-                            trait_identifier.name.to_string(),
-                        ))?;
-                    let expected_trait = db
-                        .get_defined_trait(
-                            &expected_trait_id.contract_identifier,
-                            &expected_trait_id.name,
-                        )?
-                        .ok_or(CheckErrors::NoSuchTrait(
-                            expected_trait_id.contract_identifier.to_string(),
-                            expected_trait_id.name.to_string(),
-                        ))?;
-                    trait_check_trait_compliance(
-                        db,
-                        None,
-                        &trait_identifier,
-                        &actual_trait,
-                        expected_trait_id,
-                        &expected_trait,
-                        clarity_version,
-                    )?;
-                }
-                (expected_type, value) => {
-                    if !expected_type.admits(&value) {
-                        let actual_type = TypeSignature::type_of(&value);
-                        return Err(
-                            CheckErrors::TypeError(expected_type.clone(), actual_type).into()
-                        );
-                    }
-                }
-            }
+        let mut arg_types = Vec::new();
+        for arg in func_args {
+            arg_types.push(self.principal_to_callable_type(arg)?);
+        }
+
+        for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
+            inner_type_check_type(
+                db,
+                None,
+                arg_type,
+                &expected_arg.signature,
+                clarity_version,
+                1,
+            )?;
         }
         Ok(returns.clone())
     }

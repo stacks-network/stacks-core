@@ -402,6 +402,21 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
             contract_identifier: callable_data.contract_identifier.clone(),
             trait_identifier: Some(trait_identifier.clone()),
         }),
+        // N.B. it seems like this should be illegal, since it is converting a
+        // principal to a callable trait, and only principal literals should be
+        // allowed to do that. The case that this is handling is when principal
+        // values are passed in from the initial contract-call, which by
+        // definition must be a literal. Other scenarios where a principal is
+        // passed will have been caught by the type checker. This could
+        // alternatively be checked with
+        // `FunctionType::check_args_by_allowing_trait_cast` before execution.
+        (
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            Value::Principal(PrincipalData::Contract(contract_identifier)),
+        ) => Value::CallableContract(CallableData {
+            contract_identifier: contract_identifier.clone(),
+            trait_identifier: Some(trait_identifier.clone()),
+        }),
         _ => value.clone(),
     })
 }
