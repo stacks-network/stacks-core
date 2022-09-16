@@ -1644,6 +1644,169 @@ fn stack_increase() {
     assert_eq!(&alice_txs[&fail_bad_amount].result.to_string(), "(err 18)");
 }
 
+#[test]
+fn test_lock_period_invariant_extend_transition() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HT = 25;
+    let EXPECTED_FIRST_V2_CYCLE = 11;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test_pox_extend_transition_pox_2",
+        6002,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    let num_blocks = 35;
+
+    let alice = keys.pop().unwrap();
+
+    let EXPECTED_ALICE_FIRST_REWARD_CYCLE = 6;
+    let mut coinbase_nonce = 0;
+
+    let INITIAL_BALANCE = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let ALICE_LOCKUP = 1024 * POX_THRESHOLD_STEPS_USTX;
+
+    // our "tenure counter" is now at 0
+    let tip = get_tip(peer.sortdb.as_ref());
+    assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
+
+    // first tenure is empty
+    peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+    let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_balance, INITIAL_BALANCE);
+
+    let alice_account = get_account(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_account.stx_balance.amount_unlocked(), INITIAL_BALANCE);
+    assert_eq!(alice_account.stx_balance.amount_locked(), 0);
+    assert_eq!(alice_account.stx_balance.unlock_height(), 0);
+
+    // next tenure include Alice's lockup
+    let tip = get_tip(peer.sortdb.as_ref());
+    let alice_lockup = make_pox_lockup(
+        &alice,
+        0,
+        ALICE_LOCKUP,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        4,
+        tip.block_height,
+    );
+
+    // our "tenure counter" is now at 1
+    assert_eq!(tip.block_height, 1 + EMPTY_SORTITIONS as u64);
+
+    let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &tip_index_block,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
+
+    // check the stacking minimum
+    let total_liquid_ustx = get_liquid_ustx(&mut peer);
+    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+        chainstate.get_stacking_minimum(sortdb, &tip_index_block)
+    })
+    .unwrap();
+    assert_eq!(
+        min_ustx,
+        total_liquid_ustx / POX_TESTNET_STACKING_THRESHOLD_25
+    );
+
+    // no reward addresses
+    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+        get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
+    })
+    .unwrap();
+    assert_eq!(reward_addrs.len(), 0);
+
+    // check the first reward cycle when Alice's tokens get stacked
+    let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+    let alice_first_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(tip_burn_block_height)
+        .unwrap() as u128;
+
+    assert_eq!(alice_first_reward_cycle, EXPECTED_ALICE_FIRST_REWARD_CYCLE);
+
+    // alice locked, so balance should be 0
+    let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+    assert_eq!(alice_balance, 0);
+
+    // produce blocks until alice's first reward cycle
+    for _i in 0..4 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // produce blocks until immediately after the epoch switch (8 more blocks to block height 36)
+    for _i in 0..4 {
+        let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+
+        // alice is still locked, balance should be 0
+        let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
+        assert_eq!(alice_balance, 0);
+
+        check_all_stacker_link_invariants(
+            &mut peer,
+            &tip_index_block,
+            EXPECTED_FIRST_V2_CYCLE,
+            EXPECTED_FIRST_V2_CYCLE + 10,
+        );
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    // Lets have Bob lock up for v2
+    // this will lock for cycles 8, 9, 10
+    //  the first v2 cycle will be 8
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // Alice _will_ auto-unlock: she can stack-extend in PoX v2
+    let alice_lockup = make_pox_2_extend(
+        &alice,
+        1,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        6,
+    );
+
+    // our "tenure counter" is now at 10
+    assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
+
+    let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
+    check_all_stacker_link_invariants(
+        &mut peer,
+        &tip_index_block,
+        EXPECTED_FIRST_V2_CYCLE,
+        EXPECTED_FIRST_V2_CYCLE + 10,
+    );
+}
+
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
 ///  PoX v1 contract and PoX v2 contract across the epoch transition. This test
 ///  covers the two different ways a Stacker can validly extend via `stack-extend` --
