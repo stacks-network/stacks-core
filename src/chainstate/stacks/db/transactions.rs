@@ -9159,4 +9159,308 @@ pub mod test {
 
         conn.commit_block();
     }
+
+    #[test]
+    fn test_embedded_trait() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let foo_trait = "
+            (define-trait foo
+                (
+                    (do-it () (response bool uint))
+                )
+            )
+            "
+        .to_string();
+
+        let foo_impl = "
+            (impl-trait .foo.foo)
+
+            (define-public (do-it)
+                (ok true)
+            )
+            "
+        .to_string();
+
+        let call_foo = "
+            (use-trait foo .foo.foo)
+            (define-public (call-do-it (opt-f (optional <foo>)))
+                (match opt-f
+                    f (contract-call? f do-it)
+                    (ok false)
+                )
+            )
+            "
+        .to_string();
+
+        let balances = vec![(addr.clone(), 1000000000)];
+
+        let mut chainstate = instantiate_chainstate_with_balances(
+            false,
+            0x80000000,
+            "test_checkerrors_at_runtime",
+            balances,
+        );
+
+        let mut tx_foo_trait = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo".to_string(),
+                &foo_trait.to_string(),
+                Some(ClarityVersion::Clarity1),
+            )
+            .unwrap(),
+        );
+
+        tx_foo_trait.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_trait.chain_id = 0x80000000;
+        tx_foo_trait.set_tx_fee(1);
+        tx_foo_trait.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_trait);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_trait_tx = signer.get_tx().unwrap();
+
+        let mut tx_foo_impl = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"foo-impl".to_string(),
+                &foo_impl.to_string(),
+                Some(ClarityVersion::Clarity1),
+            )
+            .unwrap(),
+        );
+
+        tx_foo_impl.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_foo_impl.chain_id = 0x80000000;
+        tx_foo_impl.set_tx_fee(1);
+        tx_foo_impl.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx_foo_impl);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_foo_impl_tx = signer.get_tx().unwrap();
+
+        let mut tx_call_foo_clar1 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"call-foo".to_string(),
+                &call_foo.to_string(),
+                Some(ClarityVersion::Clarity1),
+            )
+            .unwrap(),
+        );
+
+        tx_call_foo_clar1.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_call_foo_clar1.chain_id = 0x80000000;
+        tx_call_foo_clar1.set_tx_fee(1);
+        tx_call_foo_clar1.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_call_foo_clar1);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_call_foo_tx_clar1 = signer.get_tx().unwrap();
+
+        let mut tx_call_foo_clar2 = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract(
+                &"call-foo".to_string(),
+                &call_foo.to_string(),
+                Some(ClarityVersion::Clarity2),
+            )
+            .unwrap(),
+        );
+
+        tx_call_foo_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_call_foo_clar2.chain_id = 0x80000000;
+        tx_call_foo_clar2.set_tx_fee(1);
+        tx_call_foo_clar2.set_origin_nonce(2);
+
+        let mut signer = StacksTransactionSigner::new(&tx_call_foo_clar2);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_call_foo_tx_clar2 = signer.get_tx().unwrap();
+
+        let mut tx_test_call_foo = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_contract_call(
+                addr.clone(),
+                "call-foo",
+                "call-do-it",
+                vec![Value::some(Value::Principal(PrincipalData::Contract(
+                    QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap(),
+                )))
+                .unwrap()],
+            )
+            .unwrap(),
+        );
+
+        tx_test_call_foo.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_test_call_foo.chain_id = 0x80000000;
+        tx_test_call_foo.set_tx_fee(1);
+        tx_test_call_foo.set_origin_nonce(3);
+
+        let mut signer = StacksTransactionSigner::new(&tx_test_call_foo);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_test_call_foo_tx = signer.get_tx().unwrap();
+
+        let contract_id = QualifiedContractIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("trait-checkerror"),
+        );
+
+        // in 2.0: analysis error should cause contract publish to fail
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_20,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+        match tx_receipt.result {
+            Value::Response(ResponseData {
+                committed: false,
+                data: _,
+            }) => (),
+            _ => panic!("expected the contract publish to fail"),
+        }
+
+        conn.commit_block();
+
+        // in 2.05: analysis error should cause contract publish to fail
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_20,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([2u8; 20]),
+            &BlockHeaderHash([2u8; 32]),
+        );
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+        match tx_receipt.result {
+            Value::Response(ResponseData {
+                committed: false,
+                data: _,
+            }) => (),
+            _ => panic!("expected the contract publish to fail"),
+        }
+
+        let err = StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
+            .unwrap_err();
+        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+            check_error,
+        ))) = err
+        {
+        } else {
+            panic!("Did not get unchecked interpreter error");
+        }
+
+        conn.commit_block();
+
+        // in 2.1, using clarity 1: analysis error should cause contract publish to fail
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([3u8; 20]),
+            &BlockHeaderHash([3u8; 32]),
+        );
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+        match tx_receipt.result {
+            Value::Response(ResponseData {
+                committed: false,
+                data: _,
+            }) => (),
+            _ => panic!("expected the contract publish to fail"),
+        }
+
+        conn.commit_block();
+
+        // in 2.1, using clarity 2: success
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([4u8; 20]),
+            &BlockHeaderHash([4u8; 32]),
+        );
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+        match tx_receipt.result {
+            Value::Response(ResponseData {
+                committed: true,
+                data,
+            }) => match *data {
+                Value::Bool(true) => (),
+                _ => panic!("expected (ok true) result"),
+            },
+            _ => panic!("expected successful call"),
+        }
+
+        conn.commit_block();
+    }
 }
