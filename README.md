@@ -23,11 +23,11 @@ Below are some of the features of subnets:
 
 This diagram outlines the interaction between a subnet and the Stacks layer-1 chain.
 
-![Architecture of subnets.](hiro-docs/docs/images/subnets-architecture.png)
+![Architecture of subnets.](/docs/images/subnets-architecture.png)
 
 When a miner proposes a block to the other miners, the other miners must approve and sign the block before it can be committed to the subnet.
 
-![Screenshot of subnet miners proposing and approving the blocks.](hiro-docs/docs/images/subnet-miners.png)
+![Screenshot of subnet miners proposing and approving the blocks.](/docs/images/subnet-miners.png)
 
 ### Trust models in subnets
 
