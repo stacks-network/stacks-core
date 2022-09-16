@@ -28,6 +28,7 @@ use crate::vm::errors::{
     RuntimeErrorType,
 };
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype,
@@ -353,7 +354,8 @@ impl TypeSignature {
                     .and_then(|x| x.checked_add(str_length_encode))
                     .ok_or_else(|| CheckErrors::ValueTooLarge)?
             }
-            TypeSignature::PrincipalType => {
+            TypeSignature::PrincipalType
+            | TypeSignature::CallableType(CallableSubtype::Principal(_)) => {
                 // version byte + 20 byte hash160
                 let maximum_issuer_size = 21;
                 let contract_name_length_encode = 1;
@@ -408,7 +410,8 @@ impl TypeSignature {
                 };
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
-            TypeSignature::CallableType(_) | TypeSignature::ListUnionType(_) => {
+            TypeSignature::CallableType(CallableSubtype::Trait(_))
+            | TypeSignature::ListUnionType(_) => {
                 return Err(CheckErrors::CouldNotDetermineSerializationType)
             }
         };
