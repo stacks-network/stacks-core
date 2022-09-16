@@ -74,7 +74,11 @@
         lock-period: uint,
         ;; reward cycle when rewards begin
         first-reward-cycle: uint,
-        ;; indexes in each reward-set associated with this user
+        ;; indexes in each reward-set associated with this user.
+        ;; these indexes are only valid looking forward from
+        ;;  `first-reward-cycle` (i.e., they do not correspond
+        ;;  to entries in the reward set that may have been from
+        ;;  previous stack-stx calls, or prior to an extend)
         reward-set-indexes: (list 12 uint)
     }
 )
@@ -827,6 +831,7 @@
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 20) }))
    (let ((stacker-info (stx-account tx-sender))
+         (stacker-state (get-stacker-info tx-sender))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info)))
 
@@ -866,13 +871,30 @@
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
-      (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender))))
+      (let ((extended-reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender)))
+            ;; maintaining valid stacking-state entries requires checking
+            ;;  whether there is an existing entry for the stacker in the state
+            ;; this would be the case if the stacker is extending a lockup from PoX-1
+            ;;  to PoX-2
+            (first-reward-cycle (match (get first-reward-cycle stacker-state)
+                                       ;; if we've stacked in PoX2, then max(cur-cycle, stacker-state.first-reward-cycle) is valid
+                                       old-first-cycle (if (> cur-cycle old-first-cycle) cur-cycle old-first-cycle)
+                                       ;; otherwise, there aren't PoX2 entries until first-extend-cycle
+                                       first-extend-cycle))
+            (reward-set-indexes (match stacker-state
+                                       ;; if there's active stacker state, we need to extend the existing reward-set-indexes
+                                       old-state (let ((cur-cycle-index (- first-reward-cycle (get first-reward-cycle old-state)))
+                                                       (old-indexes (get reward-set-indexes old-state))
+                                                       (new-list (concat (default-to (list) (slice old-indexes cur-cycle-index (len old-indexes)))
+                                                                                   extended-reward-set-indexes)))
+                                            (unwrap-panic (as-max-len? new-list u12)))
+                                       extended-reward-set-indexes)))
           ;; update stacker record
           (map-set stacking-state
             { stacker: tx-sender }
             { pox-addr: pox-addr,
               reward-set-indexes: reward-set-indexes,
-              first-reward-cycle: cur-cycle,
+              first-reward-cycle: first-reward-cycle,
               lock-period: lock-period })
 
         ;; return lock-up information
