@@ -144,6 +144,125 @@ pub fn check_all_stacker_link_invariants(
     }
 }
 
+pub struct StackingStateCheckData {
+    pox_addr: PoxAddress,
+    /// this is a map from reward cycle number to the value in reward-set-indexes
+    cycle_indexes: HashMap<u128, u128>,
+}
+
+/// Check the stacking-state invariants of `stacker`
+/// Mostly that all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
+pub fn check_stacking_state_invariants(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    stacker: &PrincipalData,
+    expect_indexes: bool,
+) -> StackingStateCheckData {
+    let account_state = with_clarity_db_ro(peer, tip, |db| {
+        db.get_stx_balance_snapshot(stacker)
+            .canonical_balance_repr()
+    });
+
+    let stacking_state_entry = get_stacking_state_pox_2(peer, tip, stacker)
+        .expect("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state")
+        .expect_tuple();
+    let first_cycle = stacking_state_entry
+        .get("first-reward-cycle")
+        .unwrap()
+        .clone()
+        .expect_u128();
+    let lock_period = stacking_state_entry
+        .get("lock-period")
+        .unwrap()
+        .clone()
+        .expect_u128();
+    let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
+    let pox_addr =
+        PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr).unwrap();
+
+    let reward_indexes: Vec<u128> = stacking_state_entry
+        .get_owned("reward-set-indexes")
+        .unwrap()
+        .expect_list()
+        .into_iter()
+        .map(|x| x.expect_u128())
+        .collect();
+
+    let stacking_state_unlock_ht = peer
+        .config
+        .burnchain
+        .reward_cycle_to_block_height((first_cycle + lock_period) as u64);
+
+    assert_eq!(
+        account_state.unlock_height() + 1,
+        stacking_state_unlock_ht,
+        "Invariant violated: stacking-state and account state have different unlock heights"
+    );
+
+    let mut cycle_indexes = HashMap::new();
+
+    if reward_indexes.len() > 0 || expect_indexes {
+        assert_eq!(
+            reward_indexes.len() as u128,
+            lock_period,
+            "Invariant violated: lock-period should be equal to the reward indexes length"
+        );
+
+        for i in 0..lock_period {
+            let cycle_checked = first_cycle + i;
+            let reward_index = reward_indexes[i as usize];
+
+            let entry_key = Value::from(
+                TupleData::from_data(vec![
+                    ("reward-cycle".into(), Value::UInt(cycle_checked.into())),
+                    ("index".into(), Value::UInt(reward_index)),
+                ])
+                .unwrap(),
+            );
+            let entry_value = with_clarity_db_ro(peer, tip, |db| {
+                db.fetch_entry_unknown_descriptor(
+                    &boot_code_id(boot::POX_2_NAME, false),
+                    "reward-cycle-pox-address-list",
+                    &entry_key
+                )
+                    .unwrap()
+                    .expect_optional()
+                    .expect("Invariant violated: stacking-state.reward-set-indexes pointed at a non-existent entry")
+                    .expect_tuple()
+            });
+
+            let entry_stacker = entry_value.get("stacker")
+                .unwrap()
+                .clone()
+                .expect_optional()
+                .expect("Invariant violated: stacking-state.reward-set-indexes pointed at an entry without a stacker set")
+                .expect_principal();
+
+            assert_eq!(
+                &entry_stacker, stacker,
+                "Invariant violated: reward-set-index points to different stacker's entry"
+            );
+
+            let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
+            let entry_pox_addr =
+                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), &entry_pox_addr)
+                    .unwrap();
+
+            assert_eq!(
+                &entry_pox_addr, &pox_addr,
+                "Invariant violated: linked reward set entry has a different PoX address"
+            );
+
+            cycle_indexes.insert(cycle_checked, reward_index);
+        }
+    }
+
+    StackingStateCheckData {
+        cycle_indexes,
+        pox_addr,
+    }
+}
+
 /// Check that:
 ///  (1) `reward-cycle-pox-address-list.stacker` points to a real `stacking-state`
 ///  (2) `stacking-state.reward-set-indexes` matches the index of that `reward-cycle-pox-address-list`
@@ -180,92 +299,13 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
                 continue;
             }
 
-            let stacking_state_entry = get_stacking_state_pox_2(peer, tip, stacker)
-                .expect("Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state")
-                .expect_tuple();
-            let first_cycle = stacking_state_entry
-                .get("first-reward-cycle")
-                .unwrap()
-                .clone()
-                .expect_u128();
-            let lock_period = stacking_state_entry
-                .get("lock-period")
-                .unwrap()
-                .clone()
-                .expect_u128();
-            let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
-            let pox_addr =
-                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr)
-                    .unwrap();
-
-            let reward_indexes: Vec<u128> = stacking_state_entry
-                .get_owned("reward-set-indexes")
-                .unwrap()
-                .expect_list()
-                .into_iter()
-                .map(|x| x.expect_u128())
-                .collect();
+            let StackingStateCheckData {
+                pox_addr,
+                cycle_indexes,
+            } = check_stacking_state_invariants(peer, tip, stacker, true);
 
             assert_eq!(&entry.reward_address, &pox_addr, "Invariant violated: reward-cycle entry has a different PoX addr than in stacker-state");
-            assert_eq!(
-                reward_indexes.len() as u128,
-                lock_period,
-                "Invariant violated: lock-period should be equal to the reward indexes length"
-            );
-
-            let mut this_cycle_checked = false;
-            for i in 0..lock_period {
-                let cycle_checked = first_cycle + i;
-                let reward_index = reward_indexes[i as usize];
-
-                if cycle_checked == cycle_number as u128 {
-                    this_cycle_checked = true;
-                    assert_eq!(reward_index, actual_index as u128, "Invariant violated: stacking-state.reward-set-indexes entry at cycle_number must point to this stacker's entry");
-                }
-
-                let entry_key = Value::from(
-                    TupleData::from_data(vec![
-                        ("reward-cycle".into(), Value::UInt(cycle_checked.into())),
-                        ("index".into(), Value::UInt(reward_index)),
-                    ])
-                    .unwrap(),
-                );
-                let entry_value = with_clarity_db_ro(peer, tip, |db| {
-                    db.fetch_entry_unknown_descriptor(
-                        &boot_code_id(boot::POX_2_NAME, false),
-                        "reward-cycle-pox-address-list",
-                        &entry_key
-                    )
-                        .unwrap()
-                        .expect_optional()
-                        .expect("Invariant violated: stacking-state.reward-set-indexes pointed at a non-existent entry")
-                        .expect_tuple()
-                });
-
-                let entry_stacker = entry_value.get("stacker")
-                    .unwrap()
-                    .clone()
-                    .expect_optional()
-                    .expect("Invariant violated: stacking-state.reward-set-indexes pointed at an entry without a stacker set")
-                    .expect_principal();
-
-                assert_eq!(
-                    &entry_stacker, stacker,
-                    "Invariant violated: reward-set-index points to different stacker's entry"
-                );
-
-                let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
-                let entry_pox_addr = PoxAddress::try_from_pox_tuple(
-                    peer.config.burnchain.is_mainnet(),
-                    &entry_pox_addr,
-                )
-                .unwrap();
-
-                assert_eq!(
-                    &entry_pox_addr, &pox_addr,
-                    "Invariant violated: linked reward set entry has a different PoX address"
-                );
-            }
+            assert_eq!(cycle_indexes.get(&(cycle_number as u128)).cloned().unwrap(), actual_index as u128, "Invariant violated: stacking-state.reward-set-indexes entry at cycle_number must point to this stacker's entry");
         }
     }
     let expected_total = get_reward_cycle_total(peer, tip, cycle_number);
