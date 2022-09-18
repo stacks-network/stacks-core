@@ -6197,12 +6197,12 @@ impl StacksChainState {
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();
 
-        if fee < MINIMUM_TX_FEE || fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
-            return Err(MemPoolRejection::FeeTooLow(
-                fee,
-                cmp::max(MINIMUM_TX_FEE, tx_size * MINIMUM_TX_FEE_RATE_PER_BYTE),
-            ));
-        }
+        // if fee < MINIMUM_TX_FEE || fee / tx_size < MINIMUM_TX_FEE_RATE_PER_BYTE {
+        //     return Err(MemPoolRejection::FeeTooLow(
+        //         fee,
+        //         cmp::max(MINIMUM_TX_FEE, tx_size * MINIMUM_TX_FEE_RATE_PER_BYTE),
+        //     ));
+        // }
 
         // 4: the account nonces must be correct
         let (origin, payer) =

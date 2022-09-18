@@ -555,7 +555,7 @@ impl StacksTransaction {
 
     /// Get fee rate
     pub fn get_tx_fee(&self) -> u64 {
-        self.auth.get_tx_fee()
+        0u64
     }
 
     /// Set fee rate
