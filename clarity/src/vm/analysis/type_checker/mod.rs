@@ -301,24 +301,30 @@ impl FunctionType {
         }
     }
 
-    pub fn principal_to_callable_type(&self, value: &Value) -> TypeResult {
+    pub fn principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
+        if depth > MAX_TYPE_DEPTH {
+            return Err(CheckErrors::TypeSignatureTooDeep.into());
+        }
+
         Ok(match value {
             Value::Principal(PrincipalData::Contract(contract_identifier)) => {
                 TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier.clone()))
             }
             Value::Optional(OptionalData {
                 data: Some(inner_value),
-            }) => TypeSignature::new_option(self.principal_to_callable_type(inner_value)?)?,
+            }) => {
+                TypeSignature::new_option(self.principal_to_callable_type(inner_value, depth + 1)?)?
+            }
             Value::Response(ResponseData { committed, data }) => {
                 let (ok_type, err_type) = if *committed {
                     (
-                        self.principal_to_callable_type(data)?,
+                        self.principal_to_callable_type(data, depth + 1)?,
                         TypeSignature::NoType,
                     )
                 } else {
                     (
                         TypeSignature::NoType,
-                        self.principal_to_callable_type(data)?,
+                        self.principal_to_callable_type(data, depth + 1)?,
                     )
                 };
                 TypeSignature::new_response(ok_type, err_type)?
@@ -328,7 +334,7 @@ impl FunctionType {
                 type_signature: _,
             })) => {
                 let inner_type = match data.first() {
-                    Some(inner_val) => self.principal_to_callable_type(inner_val)?,
+                    Some(inner_val) => self.principal_to_callable_type(inner_val, depth + 1)?,
                     None => TypeSignature::NoType,
                 };
                 TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData::new_list(
@@ -342,7 +348,10 @@ impl FunctionType {
             }) => {
                 let mut type_map = BTreeMap::new();
                 for (name, field_value) in data_map {
-                    type_map.insert(name.clone(), self.principal_to_callable_type(field_value)?);
+                    type_map.insert(
+                        name.clone(),
+                        self.principal_to_callable_type(field_value, depth + 1)?,
+                    );
                 }
                 TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
             }
@@ -364,7 +373,7 @@ impl FunctionType {
 
         let mut arg_types = Vec::new();
         for arg in func_args {
-            arg_types.push(self.principal_to_callable_type(arg)?);
+            arg_types.push(self.principal_to_callable_type(arg, 1)?);
         }
 
         for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
