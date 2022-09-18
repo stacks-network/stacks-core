@@ -9566,7 +9566,7 @@ pub mod test {
             TransactionPayload::new_smart_contract(
                 &"transitive".to_string(),
                 &transitive_trait.to_string(),
-                Some(ClarityVersion::Clarity1),
+                Some(ClarityVersion::Clarity2),
             )
             .unwrap(),
         );
@@ -9673,7 +9673,7 @@ pub mod test {
             ContractName::from("trait-checkerror"),
         );
 
-        // in 2.0: this invalidates the block
+        // in 2.0: calling call-foo invalidates the block
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_20,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -9716,7 +9716,7 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.05: this invalidates the block
+        // in 2.05: calling call-foo invalidates the block
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_20,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -9758,7 +9758,7 @@ pub mod test {
 
         conn.commit_block();
 
-        // // in 2.1, using clarity 1 for both `transitive` and `call-foo`: this causes an analysis error
+        // in 2.1, using clarity 1 for both `transitive` and `call-foo`: calling call-foo causes an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -9806,7 +9806,7 @@ pub mod test {
 
         conn.commit_block();
 
-        // in 2.1, using clarity 1 for `transitive` and clarity 2 for `call-foo`: this causes an analysis error
+        // in 2.1, using clarity 1 for `transitive` and clarity 2 for `call-foo`: calling call-foo causes an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -9831,7 +9831,7 @@ pub mod test {
             StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
+        let (fee, tx_receipt) =
             StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
                 .unwrap();
         assert_eq!(fee, 1);
@@ -9854,7 +9854,7 @@ pub mod test {
 
         conn.commit_block();
 
-        // // in 2.1, using clarity 2 for both `transitive` and `call-foo`: this causes an analysis error
+        // in 2.1, using clarity 2 for both `transitive` and `call-foo`: publishing call-foo triggers an analysis error
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21,
             &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -9869,7 +9869,7 @@ pub mod test {
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
-            &signed_transitive_trait_clar1_tx,
+            &signed_transitive_trait_clar2_tx,
             false,
         )
         .unwrap();
@@ -9879,26 +9879,56 @@ pub mod test {
             StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
-                .unwrap();
-        assert_eq!(fee, 1);
-
         let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
                 .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
                 committed: false,
                 data,
-            }) => (),
-            _ => panic!("expected successful call"),
+            }) => assert_eq!(*data, Value::none()),
+            _ => panic!("expected error response"),
         }
-        assert_eq!(
-            tx_receipt.vm_error,
-            Some("TraitReferenceUnknown(\"foo\")".to_string())
+
+        conn.commit_block();
+
+        // in 2.1, using clarity 2 for `transitive` and clarity 1 for `call-foo`: publishing call-foo triggers an analysis error
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([6u8; 20]),
+            &BlockHeaderHash([6u8; 32]),
         );
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_transitive_trait_clar2_tx,
+            false,
+        )
+        .unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, _) =
+            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        assert_eq!(fee, 1);
+
+        let (fee, tx_receipt) =
+            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
+                .unwrap();
+        assert_eq!(fee, 1);
+        match tx_receipt.result {
+            Value::Response(ResponseData {
+                committed: false,
+                data,
+            }) => assert_eq!(*data, Value::none()),
+            _ => panic!("expected error response"),
+        }
 
         conn.commit_block();
     }
