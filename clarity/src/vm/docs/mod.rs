@@ -1695,10 +1695,23 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
     output_type: "Not Applicable",
     signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
     description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts
-can implement a given trait and then have their contract identifier being passed as function arguments in order to be called
+can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions defined with a name, a list of argument types, and return type.
+Traits are defined with a name, and a list functions, defined with a name, a list of argument types, and return type.
+
+In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
+be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
+may be passed as a trait parameter if the specified contract implements all of the functions specified by the trait.
+A trait value (originating from a parameter with trait type) may also be passed as a trait parameter if the types are the same.
+
+Beginning in Clarity 2, a trait can be used in all of the same ways that a builtin type can be used,
+except that it cannot be stored in a data var or map, since this would inhibit static analysis.
+This means that a trait type can be embedded in a compound type (e.g. `(optional <my-trait>)` or `(list 4 <my-trait>)`)
+and a trait value can be bound to a variable in a `let` or `match` expression. In addition to the principal literal
+and trait value with matching type allowed in Clarity 1, Clarity 2 also supports implicit casting from a
+compatible trait, meaning that a value of type `trait-a` may be passed to a parameter with type `trait-b` if `trait-a`
+includes all of the requirements of `trait-b` (and optionally additional functions).
 
 Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
