@@ -384,13 +384,14 @@ impl FunctionType {
                 &expected_arg.signature,
                 clarity_version,
                 1,
+                &mut LimitedCostTracker::new_free(),
             )?;
         }
         Ok(returns.clone())
     }
 }
 
-pub fn trait_check_trait_compliance(
+pub fn trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
@@ -398,6 +399,7 @@ pub fn trait_check_trait_compliance(
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
     clarity_version: ClarityVersion,
+    tracker: &mut T,
 ) -> CheckResult<()> {
     // Shortcut for the simple case when the two traits are the same.
     if actual_trait_identifier == expected_trait_identifier {
@@ -415,6 +417,7 @@ pub fn trait_check_trait_compliance(
                     expected_type,
                     clarity_version,
                     1,
+                    tracker,
                 )
                 .is_err()
                 {
@@ -432,6 +435,7 @@ pub fn trait_check_trait_compliance(
                 &expected_sig.returns,
                 clarity_version,
                 1,
+                tracker,
             )
             .is_err()
             {
@@ -452,13 +456,14 @@ pub fn trait_check_trait_compliance(
     Ok(())
 }
 
-fn inner_type_check_type(
+fn inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
     clarity_version: ClarityVersion,
     depth: u8,
+    tracker: &mut T,
 ) -> TypeResult {
     if depth > MAX_TYPE_DEPTH {
         return Err(CheckErrors::TypeSignatureTooDeep.into());
@@ -477,6 +482,7 @@ fn inner_type_check_type(
                 expected_inner_type,
                 clarity_version,
                 depth + 1,
+                tracker,
             )?;
         }
         (
@@ -490,6 +496,7 @@ fn inner_type_check_type(
                 &expected_inner_types.0,
                 clarity_version,
                 depth + 1,
+                tracker,
             )?;
             inner_type_check_type(
                 db,
@@ -498,6 +505,7 @@ fn inner_type_check_type(
                 &expected_inner_types.1,
                 clarity_version,
                 depth + 1,
+                tracker,
             )?;
         }
         (
@@ -511,6 +519,7 @@ fn inner_type_check_type(
                 expected_list_type.get_list_item_type(),
                 clarity_version,
                 depth + 1,
+                tracker,
             )?;
         }
         (
@@ -527,6 +536,7 @@ fn inner_type_check_type(
                             expected_field_type,
                             clarity_version,
                             depth + 1,
+                            tracker,
                         )?;
                     }
                     None => {
@@ -544,10 +554,20 @@ fn inner_type_check_type(
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             if atom_trait_id != expected_trait_id {
-                let atom_trait =
-                    lookup_trait(db, contract_context, &atom_trait_id, clarity_version)?;
-                let expected_trait =
-                    lookup_trait(db, contract_context, expected_trait_id, clarity_version)?;
+                let atom_trait = lookup_trait(
+                    db,
+                    contract_context,
+                    &atom_trait_id,
+                    clarity_version,
+                    tracker,
+                )?;
+                let expected_trait = lookup_trait(
+                    db,
+                    contract_context,
+                    expected_trait_id,
+                    clarity_version,
+                    tracker,
+                )?;
                 trait_check_trait_compliance(
                     db,
                     contract_context,
@@ -556,6 +576,7 @@ fn inner_type_check_type(
                     expected_trait_id,
                     &expected_trait,
                     clarity_version,
+                    tracker,
                 )?;
             }
         }
@@ -566,8 +587,14 @@ fn inner_type_check_type(
             let contract_to_check = db
                 .load_contract(&contract_identifier)
                 .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-            let expected_trait =
-                lookup_trait(db, contract_context, expected_trait_id, clarity_version)?;
+            runtime_cost(ClarityCostFunction::AnalysisFetchContractEntry, tracker, 1)?;
+            let expected_trait = lookup_trait(
+                db,
+                contract_context,
+                expected_trait_id,
+                clarity_version,
+                tracker,
+            )?;
             contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
         }
         (
@@ -583,6 +610,7 @@ fn inner_type_check_type(
                     expected_type,
                     clarity_version,
                     depth + 1,
+                    tracker,
                 )?;
             }
         }
@@ -598,11 +626,12 @@ fn inner_type_check_type(
     Ok(expected_type.clone())
 }
 
-fn lookup_trait(
+fn lookup_trait<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
     clarity_version: ClarityVersion,
+    tracker: &mut T,
 ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
     // If the trait is from the current contract, its not in the db yet.
     if let Some(contract_context) = contract_context {
@@ -620,14 +649,29 @@ fn lookup_trait(
         }
     }
 
-    db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name)?
+    match db
+        .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)?
         .ok_or(
             CheckErrors::NoSuchTrait(
                 trait_id.contract_identifier.to_string(),
                 trait_id.name.to_string(),
             )
             .into(),
-        )
+        ) {
+        Ok(found) => {
+            let type_size = trait_type_size(&found)?;
+            runtime_cost(
+                ClarityCostFunction::AnalysisUseTraitEntry,
+                tracker,
+                type_size,
+            )?;
+            Ok(found)
+        }
+        Err(e) => {
+            runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
+            Err(e)
+        }
+    }
 }
 
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
@@ -1023,22 +1067,21 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     .db
                     .load_contract(&contract_identifier)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                runtime_cost(
+                    ClarityCostFunction::AnalysisFetchContractEntry,
+                    &mut self.cost_track,
+                    1,
+                )?;
 
-                let contract_defining_trait = self
-                    .db
-                    .load_contract(&trait_identifier.contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(
-                        trait_identifier.contract_identifier.to_string(),
-                    ))?;
+                let trait_definition = lookup_trait(
+                    self.db,
+                    Some(&self.contract_context),
+                    trait_identifier,
+                    self.clarity_version,
+                    &mut self.cost_track,
+                )?;
 
-                let trait_definition = contract_defining_trait
-                    .get_defined_trait(&trait_identifier.name)
-                    .ok_or(CheckErrors::NoSuchTrait(
-                        trait_identifier.contract_identifier.to_string(),
-                        trait_identifier.name.to_string(),
-                    ))?;
-
-                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
+                contract_to_check.check_trait_compliance(trait_identifier, &trait_definition)?;
                 return Ok(expected_type.clone());
             }
             (_, _) => {}
@@ -1083,12 +1126,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     .db
                     .load_contract(&contract_identifier)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                runtime_cost(
+                    ClarityCostFunction::AnalysisFetchContractEntry,
+                    &mut self.cost_track,
+                    1,
+                )?;
 
                 let expected_trait = &lookup_trait(
                     self.db,
                     Some(&self.contract_context),
                     expected_trait_id,
                     self.clarity_version,
+                    &mut self.cost_track,
                 )?;
                 contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
             }
@@ -1109,12 +1158,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     Some(&self.contract_context),
                     &expr_trait_id,
                     self.clarity_version,
+                    &mut self.cost_track,
                 )?;
                 let expected_trait = lookup_trait(
                     self.db,
                     Some(&self.contract_context),
                     expected_trait_id,
                     self.clarity_version,
+                    &mut self.cost_track,
                 )?;
                 trait_check_trait_compliance(
                     self.db,
@@ -1124,6 +1175,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     expected_trait_id,
                     &expected_trait,
                     self.clarity_version,
+                    &mut self.cost_track,
                 )?;
             }
             (_, _) => {
@@ -1134,6 +1186,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     expected_type,
                     self.clarity_version,
                     1,
+                    &mut self.cost_track,
                 )?;
             }
         }
