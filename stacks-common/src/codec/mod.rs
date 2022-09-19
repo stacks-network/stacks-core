@@ -25,6 +25,10 @@ pub enum Error {
     OverflowError(String),
     /// Array is too big
     ArrayTooLong,
+    /// Failed to sign
+    SigningError(String),
+    /// Generic error
+    GenericError(String),
 }
 
 impl fmt::Display for Error {
@@ -37,6 +41,8 @@ impl fmt::Display for Error {
             Error::UnderflowError(ref s) => fmt::Display::fmt(s, f),
             Error::OverflowError(ref s) => fmt::Display::fmt(s, f),
             Error::ArrayTooLong => write!(f, "Array too long"),
+            Error::SigningError(ref s) => fmt::Display::fmt(s, f),
+            Error::GenericError(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -51,6 +57,8 @@ impl error::Error for Error {
             Error::UnderflowError(ref _s) => None,
             Error::OverflowError(ref _s) => None,
             Error::ArrayTooLong => None,
+            Error::SigningError(ref _s) => None,
+            Error::GenericError(ref _s) => None,
         }
     }
 }
