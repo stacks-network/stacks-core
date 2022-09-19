@@ -24,6 +24,7 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::types::signatures::SequenceSubtype::ListType;
 use crate::vm::{execute, execute_v2, ClarityVersion};
 use stacks_common::types::StacksEpochId;
 use std::convert::TryInto;
@@ -633,6 +634,279 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 (list 1))").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+}
+
+#[test]
+fn test_simple_list_replace_at() {
+    let tests = [
+        "(replace-at (list 1 2) u1 4)",
+        "(replace-at (list 1) u0 10)",
+        "(replace-at (list 1 9 0 5) u3 6)",
+        "(replace-at (list 4 5 6 7 8) u2 11)",
+        "(replace-at (list (list 1) (list 2)) u0 (list 33))",
+    ];
+
+    let expected = [
+        Value::list_from(vec![Value::Int(1), Value::Int(4)]).unwrap(),
+        Value::list_from(vec![Value::Int(10)]).unwrap(),
+        Value::list_from(vec![
+            Value::Int(1),
+            Value::Int(9),
+            Value::Int(0),
+            Value::Int(6),
+        ])
+        .unwrap(),
+        Value::list_from(vec![
+            Value::Int(4),
+            Value::Int(5),
+            Value::Int(11),
+            Value::Int(7),
+            Value::Int(8),
+        ])
+        .unwrap(),
+        Value::list_from(vec![
+            Value::list_from(vec![Value::Int(33)]).unwrap(),
+            Value::list_from(vec![Value::Int(2)]).unwrap(),
+        ])
+        .unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+
+    let bad_tests = [
+        // index is out of bounds
+        "(replace-at (list 1 2) u3 4)",
+        // the sequence is length 0, so the index is out of bounds
+        "(replace-at (list) u0 6)",
+    ];
+
+    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+
+    for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
+        assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
+    }
+
+    // The sequence input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 0 u0 (list 0))").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The type of the index should be uint.
+    assert_eq!(
+        execute_v2("(replace-at (list 1) 0 (list 0))").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at (list 2 3) u0 true)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at (list 2 3) u0 0x00)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+}
+
+#[test]
+fn test_simple_buff_replace_at() {
+    let tests = [
+        "(replace-at 0x3031 u1 0x44)",
+        "(replace-at 0x00 u0 0x11)",
+        "(replace-at 0x00112233 u3 0x44)",
+        "(replace-at 0x00112233 u1 0x44)",
+    ];
+
+    let expected = [
+        Value::buff_from(vec![48, 68]).unwrap(),
+        Value::buff_from(vec![17]).unwrap(),
+        Value::buff_from(vec![0, 17, 34, 68]).unwrap(),
+        Value::buff_from(vec![0, 68, 34, 51]).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+
+    let bad_tests = [
+        // index is out of bounds
+        "(replace-at 0x0022 u3 0x44)",
+        // the sequence is length 0, so the index is out of bounds
+        "(replace-at 0x u0 0x11)",
+    ];
+
+    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+
+    for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
+        assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
+    }
+
+    // The sequence input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 33 u0 0x00)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The type of the index should be uint.
+    assert_eq!(
+        execute_v2("(replace-at 0x002244 0 0x99)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 0x445522 u0 55)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 0x445522 u0 (list 5))").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type (not length 1)
+    assert_eq!(
+        execute_v2("(replace-at 0x445522 u0 0x0044)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+}
+
+#[test]
+fn test_simple_string_ascii_replace_at() {
+    let tests = [
+        "(replace-at \"ab\" u1 \"c\")",
+        "(replace-at \"a\" u0 \"c\")",
+        "(replace-at \"abcd\" u3 \"e\")",
+        "(replace-at \"abcd\" u1 \"e\")",
+    ];
+
+    let expected = [
+        Value::string_ascii_from_bytes("ac".into()).unwrap(),
+        Value::string_ascii_from_bytes("c".into()).unwrap(),
+        Value::string_ascii_from_bytes("abce".into()).unwrap(),
+        Value::string_ascii_from_bytes("aecd".into()).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+
+    let bad_tests = [
+        // index is out of bounds
+        "(replace-at \"ab\" u3 \"c\")",
+        // the sequence is length 0, so the index is out of bounds
+        "(replace-at \"\" u0 \"a\")",
+    ];
+
+    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+
+    for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
+        assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
+    }
+
+    // The sequence input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 33 u0 \"c\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The type of the index should be uint.
+    assert_eq!(
+        execute_v2("(replace-at \"abc\" 0 \"c\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at \"abc\" u0 55)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at \"abc\" u0 0x00)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at \"abc\" u0 \"de\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+}
+
+#[test]
+fn test_simple_string_utf8_replace_at() {
+    let tests = [
+        "(replace-at u\"ab\" u1 u\"c\")",
+        "(replace-at u\"a\" u0 u\"c\")",
+        "(replace-at u\"abcd\" u3 u\"e\")",
+        "(replace-at u\"abcd\" u1 u\"e\")",
+        "(replace-at u\"hello\\u{1F98A}\" u5 u\"e\")",
+        "(replace-at u\"hello\\u{1F98A}\" u2 u\"e\")",
+    ];
+
+    let expected = [
+        Value::string_utf8_from_bytes("ac".into()).unwrap(),
+        Value::string_utf8_from_bytes("c".into()).unwrap(),
+        Value::string_utf8_from_bytes("abce".into()).unwrap(),
+        Value::string_utf8_from_bytes("aecd".into()).unwrap(),
+        Value::string_utf8_from_bytes("helloe".into()).unwrap(),
+        Value::string_utf8_from_bytes("heelo🦊".into()).unwrap(),
+    ];
+
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(expected.clone(), execute_v2(test).unwrap().unwrap());
+    }
+
+    let bad_tests = [
+        // index is out of bounds
+        "(replace-at u\"ab\" u3 u\"c\")",
+        // the sequence is length 0, so the index is out of bounds
+        "(replace-at u\"\" u0 u\"a\")",
+    ];
+
+    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+
+    for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
+        assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
+    }
+
+    // The sequence input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at 33 u0 u\"c\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The type of the index should be uint.
+    assert_eq!(
+        execute_v2("(replace-at u\"abc\" 0 u\"c\")").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at u\"abc\" u0 55)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at u\"abc\" u0 0x00)").unwrap_err(),
+        RuntimeErrorType::BadTypeConstruction.into()
+    );
+
+    // The element input has the wrong type
+    assert_eq!(
+        execute_v2("(replace-at u\"abc\" u0 u\"de\")").unwrap_err(),
         RuntimeErrorType::BadTypeConstruction.into()
     );
 }

@@ -290,6 +290,9 @@ fn test_functions_clarity1() {
         ("(define-private (foo (a (list 3 uint)))
          (slice a u2 u3))",
          Ok(())),
+        ("(define-private (foo (a (list 3 uint)) (b uint))
+         (replace-at a u1 b))",
+         Ok(())),
     ];
 
     for (contract, result) in tests.iter() {
@@ -318,6 +321,9 @@ fn test_functions_clarity2() {
         ("(define-private (foo (a (list 3 uint)))
               (slice a u2 u3))",
          Err(FunctionNotPermitted(NativeFunctions::Slice))),
+        ("(define-private (foo (a (list 3 uint)))
+              (replace-at a u2 (list u3)))",
+         Err(FunctionNotPermitted(NativeFunctions::ReplaceAt))),
 
         // Clarity1 functions.
         ("(define-private (foo) (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (+ 1 2)))",

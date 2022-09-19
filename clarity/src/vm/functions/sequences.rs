@@ -383,3 +383,82 @@ pub fn special_slice(
     }?;
     Ok(sliced_seq)
 }
+
+pub fn special_replace_at(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    let seq = eval(&args[0], env, context)?;
+    let seq_type = TypeSignature::type_of(&seq);
+    let (expected_elem_type, seq_is_list_type) =
+        if let TypeSignature::SequenceType(seq_subtype) = seq_type {
+            (seq_subtype.unit_type(), seq_subtype.is_list_type())
+        } else {
+            return Err(RuntimeErrorType::BadTypeConstruction.into());
+        };
+    let index = eval(&args[1], env, context)?;
+    let new_element = eval(&args[2], env, context)?;
+
+    if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element) {
+        return Err(RuntimeErrorType::BadTypeConstruction.into());
+    }
+
+    match (seq, index) {
+        // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
+        (Value::Sequence(seq), Value::UInt(index)) => {
+            let seq_len = seq.len();
+            runtime_cost(ClarityCostFunction::Unimplemented, env, seq_len as u64)?;
+
+            let index = match u32::try_from(index) {
+                Ok(index) => index as usize,
+                _ => return Ok(Value::err_uint(1)),
+            };
+
+            // check that the index is in bounds
+            if index >= seq_len {
+                return Ok(Value::err_uint(1));
+            }
+
+            let left_seq_value = seq.clone().slice(0, index)?;
+            let right_seq_value = seq.slice(index + 1, seq_len)?;
+            match (left_seq_value, right_seq_value) {
+                (Value::Sequence(mut left_seq), Value::Sequence(mut right_seq)) => {
+                    let mut elem_seq_data = if !seq_is_list_type {
+                        match new_element {
+                            Value::Sequence(new_element) => {
+                                // check that the element has length 1
+                                if new_element.len() != 1 {
+                                    return Err(RuntimeErrorType::BadTypeConstruction.into());
+                                }
+
+                                new_element
+                            }
+                            _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
+                        }
+                    }
+                    // This is the list case
+                    else {
+                        if let Value::Sequence(seq_data) = Value::list_from(vec![new_element])? {
+                            seq_data
+                        } else {
+                            return Err(RuntimeErrorType::BadTypeConstruction.into());
+                        }
+                    };
+
+                    left_seq.append(&mut elem_seq_data)?;
+                    left_seq.append(&mut right_seq)?;
+                    Ok(Value::Sequence(left_seq))
+                }
+                _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
+            }
+        }
+        _ => {
+            // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
+            runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+            return Err(RuntimeErrorType::BadTypeConstruction.into());
+        }
+    }
+}
