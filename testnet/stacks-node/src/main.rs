@@ -120,8 +120,8 @@ fn main() {
                     process::exit(1);
                 }
             };
-            let conf = match Config::from_config_file(config_file) {
-                Ok(conf) => {
+            match Config::from_config_file(config_file) {
+                Ok(_) => {
                     info!("Loaded config!");
                     process::exit(0);
                 }
