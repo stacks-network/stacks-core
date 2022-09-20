@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
-use std::fs;
-use std::io::Write;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
@@ -68,7 +65,7 @@ use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
