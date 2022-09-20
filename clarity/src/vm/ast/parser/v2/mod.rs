@@ -105,6 +105,22 @@ impl<'a> Parser<'a> {
         Some(token)
     }
 
+    fn peek_next_token(&mut self) -> PlacedToken {
+        if self.next_token >= self.tokens.len() {
+            PlacedToken {
+                span: Span {
+                    start_line: 1,
+                    start_column: 1,
+                    end_line: 1,
+                    end_column: 1,
+                },
+                token: Token::Eof,
+            }
+        } else {
+            self.tokens[self.next_token].clone()
+        }
+    }
+
     fn skip_to_end(&mut self) {
         self.next_token = self.tokens.len();
     }
@@ -207,7 +223,7 @@ impl<'a> Parser<'a> {
             let mut comments = self.ignore_whitespace_and_comments();
             nodes.append(&mut comments);
 
-            let token = self.tokens[self.next_token].clone();
+            let token = self.peek_next_token();
             match token.token {
                 Token::Comma => {
                     if first {
@@ -237,7 +253,7 @@ impl<'a> Parser<'a> {
             nodes.append(&mut comments);
 
             // A comma is allowed after the last pair in the tuple -- check for this case.
-            let token = self.tokens[self.next_token].clone();
+            let token = self.peek_next_token();
             match token.token {
                 Token::Rbrace => {
                     span.end_line = token.span.end_line;
@@ -279,7 +295,7 @@ impl<'a> Parser<'a> {
             nodes.append(&mut comments);
 
             // Look for ':'
-            let token = self.tokens[self.next_token].clone();
+            let token = self.peek_next_token();
             match token.token {
                 Token::Colon => {
                     self.next_token();
@@ -349,7 +365,7 @@ impl<'a> Parser<'a> {
         };
 
         // Peek ahead for a '.', indicating a contract identifier
-        if self.tokens[self.next_token].token == Token::Dot {
+        if self.peek_next_token().token == Token::Dot {
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, contract_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -413,7 +429,7 @@ impl<'a> Parser<'a> {
             let contract_id = QualifiedContractIdentifier::new(principal, contract_name);
 
             // Peek ahead for a '.', indicating a trait identifier
-            if self.tokens[self.next_token].token == Token::Dot {
+            if self.peek_next_token().token == Token::Dot {
                 let dot = self.next_token().unwrap(); // skip over the dot
                 let (name, trait_span) = match self.next_token() {
                     Some(PlacedToken {
@@ -554,7 +570,7 @@ impl<'a> Parser<'a> {
         };
 
         // Peek ahead for a '.', indicating a trait identifier
-        if self.tokens[self.next_token].token == Token::Dot {
+        if self.peek_next_token().token == Token::Dot {
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, trait_span) = match self.next_token() {
                 Some(PlacedToken {
