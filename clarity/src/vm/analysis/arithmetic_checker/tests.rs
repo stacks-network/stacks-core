@@ -381,7 +381,7 @@ fn test_functions_clarity2() {
         ("(from-consensus-buff true 0x03)",
          Err(FunctionNotPermitted(NativeFunctions::FromConsensusBuff))),
 
-         // Clarity1 functions.
+        // Clarity1 functions.
         ("(define-private (foo) (at-block 0x0202020202020202020202020202020202020202020202020202020202020202 (+ 1 2)))",
          Err(FunctionNotPermitted(NativeFunctions::AtBlock))),
         ("(define-private (foo) (map-get? foo-map {a: u1}))",
