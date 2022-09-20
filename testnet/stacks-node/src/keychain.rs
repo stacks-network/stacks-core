@@ -11,6 +11,7 @@ use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use super::operations::BurnchainOpSigner;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Keychain {
     secret_keys: Vec<StacksPrivateKey>,

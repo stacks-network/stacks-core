@@ -19,6 +19,7 @@ use std::sync::{
 // network if your node is actualy waiting a day in-between reward cycles).
 const SYNC_WAIT_SECS: u64 = 24 * 3600;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct PoxSyncWatchdogComms {
     /// how many passes in the p2p state machine have taken place since startup?
