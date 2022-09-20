@@ -43,7 +43,7 @@ impl FromStr for ClarityVersion {
         if s == "clarity1" {
             Ok(ClarityVersion::Clarity1)
         } else if s == "clarity2" {
-            Ok(ClarityVersion::Clarity1)
+            Ok(ClarityVersion::Clarity2)
         } else {
             Err(RuntimeErrorType::ParseError(
                 "Invalid clarity version. Valid versions are: Clarity1, Clarity2.".to_string(),
