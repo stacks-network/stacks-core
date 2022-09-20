@@ -20,9 +20,9 @@ use std::convert::{TryFrom, TryInto};
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt};
 
-use crate::vm::ast::parser::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
+use crate::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
@@ -62,6 +62,10 @@ impl AssetIdentifier {
             ),
             asset_name: ClarityName::try_from("BURNED".to_string()).unwrap(),
         }
+    }
+
+    pub fn sugared(&self) -> String {
+        format!(".{}.{}", self.contract_identifier.name, self.asset_name)
     }
 }
 

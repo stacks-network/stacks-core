@@ -390,7 +390,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
-            CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
+            CheckErrors::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
