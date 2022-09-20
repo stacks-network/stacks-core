@@ -633,8 +633,8 @@ fn lookup_trait<T: CostTracker>(
     clarity_version: ClarityVersion,
     tracker: &mut T,
 ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
-    // If the trait is from the current contract, its not in the db yet.
     if let Some(contract_context) = contract_context {
+        // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
             return Ok(if clarity_version < ClarityVersion::Clarity2 {
                 contract_context.get_trait(&trait_id.name)
@@ -646,6 +646,11 @@ fn lookup_trait<T: CostTracker>(
                 trait_id.name.to_string(),
             ))?
             .clone());
+        }
+        if clarity_version >= ClarityVersion::Clarity2 {
+            if let Some(trait_sig) = contract_context.get_trait_by_id(trait_id) {
+                return Ok(trait_sig.clone());
+            }
         }
     }
 
@@ -1063,23 +1068,50 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
             ) => {
-                let contract_to_check = self
-                    .db
-                    .load_contract(&contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
                 runtime_cost(
                     ClarityCostFunction::AnalysisFetchContractEntry,
                     &mut self.cost_track,
                     1,
                 )?;
+                let contract_to_check = self
+                    .db
+                    .load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let trait_definition = lookup_trait(
-                    self.db,
-                    Some(&self.contract_context),
-                    trait_identifier,
-                    self.clarity_version,
-                    &mut self.cost_track,
-                )?;
+                let trait_definition = match self.db.get_defined_trait(
+                    &trait_identifier.contract_identifier,
+                    &trait_identifier.name,
+                ) {
+                    Ok(Some(trait_sig)) => {
+                        let type_size = trait_type_size(&trait_sig)?;
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisUseTraitEntry,
+                            &mut self.cost_track,
+                            type_size,
+                        )?;
+                        trait_sig
+                    }
+                    Ok(None) => {
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisUseTraitEntry,
+                            &mut self.cost_track,
+                            1,
+                        )?;
+                        return Err(CheckErrors::NoSuchTrait(
+                            trait_identifier.contract_identifier.to_string(),
+                            trait_identifier.name.to_string(),
+                        )
+                        .into());
+                    }
+                    Err(e) => {
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisUseTraitEntry,
+                            &mut self.cost_track,
+                            1,
+                        )?;
+                        return Err(e);
+                    }
+                };
 
                 contract_to_check.check_trait_compliance(trait_identifier, &trait_definition)?;
                 return Ok(expected_type.clone());
