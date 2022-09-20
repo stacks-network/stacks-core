@@ -1092,7 +1092,7 @@ fn delegate_stack_increase() {
             cycle_number,
             &bob_principal,
         );
-        assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
+        assert_eq!(partial_stacked, alice_first_lock_amount);
     }
 
     for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 4)..(EXPECTED_FIRST_V2_CYCLE + 6) {
@@ -1130,6 +1130,7 @@ fn delegate_stack_increase() {
     assert_eq!(alice_txs.len() as u64, 2);
     assert_eq!(bob_txs.len() as u64, 5);
 
+    // transaction should fail because Alice cannot increase her own stacking amount while delegating
     assert_eq!(
         &alice_txs[&fail_direct_increase_delegation]
             .result
@@ -1209,6 +1210,10 @@ fn stack_increase() {
 
     let mut coinbase_nonce = 0;
 
+    let first_lockup_amt = 512 * POX_THRESHOLD_STEPS_USTX;
+    let total_balance = 1024 * POX_THRESHOLD_STEPS_USTX;
+    let increase_amt = total_balance - first_lockup_amt;
+
     // produce blocks until the epoch switch
     for _i in 0..10 {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1219,13 +1224,13 @@ fn stack_increase() {
 
     // submit an increase: this should fail, because Alice is not yet locked
     let fail_no_lock_tx = alice_nonce;
-    let alice_increase = make_pox_2_increase(&alice, alice_nonce, 512 * POX_THRESHOLD_STEPS_USTX);
+    let alice_increase = make_pox_2_increase(&alice, alice_nonce, increase_amt);
     alice_nonce += 1;
 
     let alice_lockup = make_pox_2_lockup(
         &alice,
         alice_nonce,
-        512 * POX_THRESHOLD_STEPS_USTX,
+        first_lockup_amt,
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(&alice).bytes,
         6,
@@ -1241,12 +1246,12 @@ fn stack_increase() {
 
     assert_eq!(
         get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
-        512 * POX_THRESHOLD_STEPS_USTX,
+        first_lockup_amt,
     );
 
     assert_eq!(
         get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
-        1024 * POX_THRESHOLD_STEPS_USTX,
+        total_balance,
     );
 
     // check that the "raw" reward set will contain entries for alice at the cycle start
@@ -1258,10 +1263,7 @@ fn stack_increase() {
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(
-            reward_set_entries[0].amount_stacked,
-            512 * POX_THRESHOLD_STEPS_USTX
-        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
 
     // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
@@ -1281,10 +1283,7 @@ fn stack_increase() {
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(
-            reward_set_entries[0].amount_stacked,
-            512 * POX_THRESHOLD_STEPS_USTX
-        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
 
     let mut txs_to_submit = vec![];
@@ -1293,11 +1292,7 @@ fn stack_increase() {
     alice_nonce += 1;
 
     // this stack-increase tx should work
-    txs_to_submit.push(make_pox_2_increase(
-        &alice,
-        alice_nonce,
-        512 * POX_THRESHOLD_STEPS_USTX,
-    ));
+    txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, increase_amt));
     alice_nonce += 1;
 
     // increase by an amount we don't have!
@@ -1309,19 +1304,19 @@ fn stack_increase() {
 
     assert_eq!(
         get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
-        1024 * POX_THRESHOLD_STEPS_USTX,
+        first_lockup_amt + increase_amt,
     );
 
     assert_eq!(
         get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
-        1024 * POX_THRESHOLD_STEPS_USTX,
+        total_balance,
     );
 
     // check that the total reward cycle amounts have incremented correctly
     for cycle_number in (EXPECTED_FIRST_V2_CYCLE)..(EXPECTED_FIRST_V2_CYCLE + 4) {
         assert_eq!(
             get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
-            512 * POX_THRESHOLD_STEPS_USTX
+            first_lockup_amt,
         );
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -1330,16 +1325,13 @@ fn stack_increase() {
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(
-            reward_set_entries[0].amount_stacked,
-            512 * POX_THRESHOLD_STEPS_USTX
-        );
+        assert_eq!(reward_set_entries[0].amount_stacked, first_lockup_amt,);
     }
 
     for cycle_number in (EXPECTED_FIRST_V2_CYCLE + 4)..(EXPECTED_FIRST_V2_CYCLE + 6) {
         assert_eq!(
             get_reward_cycle_total(&mut peer, &latest_block, cycle_number),
-            1024 * POX_THRESHOLD_STEPS_USTX
+            first_lockup_amt + increase_amt,
         );
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
@@ -1350,7 +1342,7 @@ fn stack_increase() {
         );
         assert_eq!(
             reward_set_entries[0].amount_stacked,
-            1024 * POX_THRESHOLD_STEPS_USTX
+            first_lockup_amt + increase_amt,
         );
     }
 

@@ -768,21 +768,20 @@
         ;; not at first cycle to process yet
         (some { first-cycle: first-cycle, reward-cycle: (+ u1 reward-cycle), stacker: (get stacker data), add-amount: (get add-amount data) })
         (let ((existing-entry (unwrap-panic (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })))
-              (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle }))))
+              (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+              (total-ustx (+ (get total-ustx existing-total) (get add-amount data))))
             ;; stacker must match
             (asserts! (is-eq (get stacker existing-entry) (some (get stacker data))) none)
             ;; update the pox-address list
             (map-set reward-cycle-pox-address-list
                      { reward-cycle: reward-cycle, index: reward-cycle-index }
                      { pox-addr: (get pox-addr existing-entry),
-                       total-ustx: (+ (get total-ustx existing-entry)
-                                      (get add-amount data)),
+                       total-ustx: total-ustx,
                        stacker: (some (get stacker data)) })
             ;; update the total
             (map-set reward-cycle-total-stacked 
                      { reward-cycle: reward-cycle }
-                     { total-ustx: (+ (get total-ustx existing-total)
-                                      (get add-amount data)) })
+                     { total-ustx: total-ustx })
             (some { first-cycle: first-cycle,
                     reward-cycle: (+ u1 reward-cycle),
                     stacker: (get stacker data),
@@ -791,6 +790,7 @@
 (define-public (stack-increase (increase-by uint))
    (let ((stacker-info (stx-account tx-sender))
          (amount-stacked (get locked stacker-info))
+         (amount-unlocked (get unlocked stacker-info))
          (unlock-height (get unlock-height stacker-info))
          (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
          (cur-cycle (current-pox-reward-cycle))
@@ -802,7 +802,7 @@
                 (err ERR_STACK_EXTEND_NOT_LOCKED))
       (asserts! (>= increase-by u1)
                 (err ERR_STACKING_INVALID_AMOUNT))
-      (asserts! (>= (get unlocked stacker-info) increase-by)
+      (asserts! (>= amount-unlocked increase-by)
                 (err ERR_STACKING_INSUFFICIENT_FUNDS))
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
@@ -921,20 +921,24 @@
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
       ;; stacker must have delegated to the caller
-      (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED))))
+      (let ((delegation-info (unwrap! (get-check-delegation stacker) (err ERR_STACKING_PERMISSION_DENIED)))
+            (delegated-to (get delegated-to delegation-info))
+            (delegated-amount (get amount-ustx delegation-info))
+            (delegated-pox-addr (get pox-addr delegation-info))
+            (delegated-until (get until-burn-ht delegation-info)))
         ;; must have delegated to tx-sender
-        (asserts! (is-eq (get delegated-to delegation-info) tx-sender)
+        (asserts! (is-eq delegated-to tx-sender)
                   (err ERR_STACKING_PERMISSION_DENIED))
         ;; must have delegated enough stx
-        (asserts! (>= (get amount-ustx delegation-info) new-total-locked)
+        (asserts! (>= delegated-amount new-total-locked)
                   (err ERR_DELEGATION_TOO_MUCH_LOCKED))
         ;; if pox-addr is set, must be equal to pox-addr
-        (asserts! (match (get pox-addr delegation-info)
+        (asserts! (match delegated-pox-addr
                          specified-pox-addr (is-eq pox-addr specified-pox-addr)
                          true)
                   (err ERR_DELEGATION_POX_ADDR_REQUIRED))
         ;; delegation must not expire before lock period
-        (asserts! (match (get until-burn-ht delegation-info)
+        (asserts! (match delegated-until
                         until-burn-ht
                             (>= until-burn-ht unlock-height)
                         true)
