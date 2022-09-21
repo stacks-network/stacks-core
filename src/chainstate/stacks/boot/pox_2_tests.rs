@@ -148,6 +148,8 @@ pub struct StackingStateCheckData {
     pox_addr: PoxAddress,
     /// this is a map from reward cycle number to the value in reward-set-indexes
     cycle_indexes: HashMap<u128, u128>,
+    first_cycle: u128,
+    lock_period: u128,
 }
 
 /// Check the stacking-state invariants of `stacker`
@@ -260,6 +262,8 @@ pub fn check_stacking_state_invariants(
     StackingStateCheckData {
         cycle_indexes,
         pox_addr,
+        first_cycle,
+        lock_period,
     }
 }
 
@@ -302,6 +306,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
             let StackingStateCheckData {
                 pox_addr,
                 cycle_indexes,
+                ..
             } = check_stacking_state_invariants(peer, tip, stacker, true);
 
             assert_eq!(&entry.reward_address, &pox_addr, "Invariant violated: reward-cycle entry has a different PoX addr than in stacker-state");
@@ -2640,6 +2645,29 @@ fn test_delegate_extend_transition_pox_2() {
         &mut coinbase_nonce,
     );
     alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    let alice_principal = alice_address.clone().into();
+    let bob_principal = bob_address.clone().into();
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v2_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v2_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 3);
 
     // Extend bob's lockup via `delegate-stack-extend` for 1 more cycle
     let delegate_extend_tx = make_pox_2_contract_call(
@@ -2672,6 +2700,27 @@ fn test_delegate_extend_transition_pox_2() {
     let tip_index_block =
         peer.tenure_with_txs(&[delegate_extend_tx, agg_commit_tx], &mut coinbase_nonce);
     alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v2_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v2_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 4);
 
     // produce blocks until "tenure counter" is 15 -- this is where
     //  the v2 reward cycles start
@@ -2689,9 +2738,49 @@ fn test_delegate_extend_transition_pox_2() {
     // our "tenure counter" is now at 15
     assert_eq!(tip.block_height, 15 + EMPTY_SORTITIONS as u64);
 
+    // Extend bob's lockup via `delegate-stack-extend` for 1 more cycle
+    //  so that we can check the first-reward-cycle is correctly updated
+    let delegate_extend_tx = make_pox_2_contract_call(
+        &charlie,
+        12,
+        "delegate-stack-extend",
+        vec![
+            PrincipalData::from(bob_address.clone()).into(),
+            make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                charlie_address.bytes.clone(),
+            ),
+            Value::UInt(1),
+        ],
+    );
+
+    let tip_index_block = peer.tenure_with_txs(&[delegate_extend_tx], &mut coinbase_nonce);
+    v2_rewards_checks(tip_index_block, &mut peer);
+    let StackingStateCheckData {
+        first_cycle: alice_first_cycle,
+        lock_period: alice_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &alice_principal, false);
+    let StackingStateCheckData {
+        first_cycle: bob_first_cycle,
+        lock_period: bob_lock_period,
+        ..
+    } = check_stacking_state_invariants(&mut peer, &tip_index_block, &bob_principal, false);
+
+    assert_eq!(
+        alice_first_cycle as u64, first_v2_cycle,
+        "Alice's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(alice_lock_period, 6);
+    assert_eq!(
+        bob_first_cycle as u64, first_v2_cycle,
+        "Bob's first cycle in PoX-2 stacking state is the next cycle, which is 8"
+    );
+    assert_eq!(bob_lock_period, 5);
+
     // produce blocks until "tenure counter" is 32 -- this is where
     //  alice *would have been* unlocked under v1 rules
-    for _i in 0..17 {
+    for _i in 0..16 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 
         // alice is still locked, balance should be 0
@@ -2747,8 +2836,8 @@ fn test_delegate_extend_transition_pox_2() {
     assert_eq!(bob_txs.len(), 1, "Bob should have 1 confirmed tx");
     assert_eq!(
         charlie_txs.len(),
-        12,
-        "Charlie should have 12 confirmed txs"
+        13,
+        "Charlie should have 13 confirmed txs"
     );
 
     assert!(

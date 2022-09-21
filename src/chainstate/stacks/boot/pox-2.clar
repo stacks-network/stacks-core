@@ -55,12 +55,21 @@
 )
 
 ;; The Stacking lock-up state and associated metadata.
-;; Records can be inserted into this map via one of two ways:
-;; * via contract-call? to the (stack-stx) method, or
-;; * via a transaction in the underlying burnchain that encodes the same data.
-;; In the latter case, this map will be updated by the Stacks
-;; node itself, and transactions in the burnchain will take priority
-;; over transactions in the Stacks chain when processing this block.
+;; Records are inserted into this map via `stack-stx`, `delegate-stack-stx`, `stack-extend`
+;;  `delegate-stack-extend` and burnchain transactions for invoking `stack-stx`, etc.
+;; Records will be deleted from this map when auto-unlocks are processed
+;;
+;; This map de-normalizes some state from the `reward-cycle-pox-address-list` map
+;;  and the `pox-2` contract tries to keep this state in sync with the reward-cycle
+;;  state. The major invariants of this `stacking-state` map are:
+;;    (1) any entry in `reward-cycle-pox-address-list` with `some stacker` points to a real `stacking-state`
+;;    (2) `stacking-state.reward-set-indexes` matches the index of that `reward-cycle-pox-address-list`
+;;    (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
+;;    (4) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
+;;    (5) if set, (len reward-set-indexes) == lock-period
+;;    (6) (reward-cycle-to-burn-height (+ lock-period first-reward-cycle)) == (get unlock-height (stx-account stacker))
+;;  These invariants only hold while `cur-reward-cycle < (+ lock-period first-reward-cycle)`
+;;
 (define-map stacking-state
     { stacker: principal }
     {
@@ -990,21 +999,32 @@
     (let ((stacker-info (stx-account stacker))
           (stacker-state (get-stacker-info stacker))
           (amount-ustx (get locked stacker-info))
-          (unlock-height (get unlock-height stacker-info)))
+          (unlock-height (get unlock-height stacker-info))
+          (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+          ;; if the account unlocks *during* this cycle (should only occur during testing),
+          ;; set first-extend-cycle to the next cycle.
+          (cur-cycle (current-pox-reward-cycle))
+          (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
+                                     (+ cur-cycle u1) unlock-in-cycle))
+          ;; update stacker record
+          ;; maintaining valid stacking-state entries requires checking
+          ;;  whether there is an existing entry for the stacker in the state
+          ;; this would be the case if the stacker is extending a lockup from PoX-1
+          ;;  to PoX-2
+          (first-reward-cycle (match (get first-reward-cycle stacker-state)
+                                       ;; if stacker stacked in PoX2, then max(cur-cycle, stacker-state.first-reward-cycle) is valid
+                                       old-first-cycle (if (> cur-cycle old-first-cycle) cur-cycle old-first-cycle)
+                                       ;; otherwise, there aren't PoX2 entries until first-extend-cycle
+                                       first-extend-cycle)))
 
      ;; must be called with positive extend-count
      (asserts! (>= extend-count u1)
                (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
-     (let ((unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
-          ;; if the account unlocks *during* this cycle (should only occur during testing),
-          ;; set first-extend-cycle to the next cycle.
-           (cur-cycle (current-pox-reward-cycle))
-           (first-extend-cycle (if (> (+ cur-cycle u1) unlock-in-cycle)
-                                      (+ cur-cycle u1) unlock-in-cycle))
-           (last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
+     (let ((last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
            ;; this seems incorrect
-           (lock-period (- last-extend-cycle cur-cycle))
+           ;; (lock-period (- (print last-extend-cycle) (print cur-cycle)))
+           (lock-period (+ u1 (- last-extend-cycle first-reward-cycle)))
            (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
 
       ;; first cycle must be after the current cycle
@@ -1051,16 +1071,6 @@
       ;;   before it can be included in the reward set, this must be committed!
       (add-pox-partial-stacked pox-addr first-extend-cycle extend-count amount-ustx)
 
-      ;; update stacker record
-      ;; maintaining valid stacking-state entries requires checking
-      ;;  whether there is an existing entry for the stacker in the state
-      ;; this would be the case if the stacker is extending a lockup from PoX-1
-      ;;  to PoX-2
-      (let ((first-reward-cycle (match (get first-reward-cycle stacker-state)
-                                       ;; if stacker stacked in PoX2, then max(cur-cycle, stacker-state.first-reward-cycle) is valid
-                                       old-first-cycle (if (> cur-cycle old-first-cycle) cur-cycle old-first-cycle)
-                                       ;; otherwise, there aren't PoX2 entries until first-extend-cycle
-                                       first-extend-cycle)))
       (map-set stacking-state
         { stacker: stacker }
         { pox-addr: pox-addr,
@@ -1070,7 +1080,7 @@
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
-            unlock-burn-height: new-unlock-ht })))))
+            unlock-burn-height: new-unlock-ht }))))
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.
