@@ -253,6 +253,8 @@ impl From<codec_error> for Error {
             codec_error::UnderflowError(s) => Error::UnderflowError(s),
             codec_error::OverflowError(s) => Error::OverflowError(s),
             codec_error::ArrayTooLong => Error::ArrayTooLong,
+            codec_error::SigningError(s) => Error::SigningError(s),
+            codec_error::GenericError(_) => Error::InvalidMessage,
         }
     }
 }
@@ -1072,12 +1074,20 @@ pub struct RPCPoxNextCycleInfo {
     pub ustx_until_pox_rejection: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxContractVersion {
+    pub contract_id: String,
+    pub activation_burnchain_block_height: u64,
+    pub first_reward_cycle_id: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
     pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub current_burnchain_block_height: u64,
     pub prepare_phase_block_length: u64,
     pub reward_phase_block_length: u64,
     pub reward_slots: u64,
@@ -1093,6 +1103,9 @@ pub struct RPCPoxInfoData {
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
     pub next_reward_cycle_in: u64,
+
+    // Information specific to each PoX contract version
+    pub contract_versions: Vec<RPCPoxContractVersion>,
 }
 
 /// Headers response payload

@@ -6,9 +6,9 @@ use std::num::ParseIntError;
 use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::error::LexerError;
+use self::lexer::token::{PlacedToken, Token};
+use self::lexer::Lexer;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
-use crate::vm::ast::parser_v2::lexer::token::{PlacedToken, Token};
-use crate::vm::ast::parser_v2::lexer::Lexer;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{
     ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, Span,
