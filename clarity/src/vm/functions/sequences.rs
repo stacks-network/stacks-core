@@ -394,21 +394,27 @@ pub fn special_replace_at(
     let seq = eval(&args[0], env, context)?;
     let seq_type = TypeSignature::type_of(&seq);
     let (expected_elem_type, seq_is_list_type) =
-        if let TypeSignature::SequenceType(seq_subtype) = seq_type {
+        if let TypeSignature::SequenceType(seq_subtype) = seq_type.clone() {
             (seq_subtype.unit_type(), seq_subtype.is_list_type())
         } else {
-            return Err(RuntimeErrorType::BadTypeConstruction.into());
+            return Err(CheckErrors::ExpectedSequence(seq_type).into());
         };
-    let index = eval(&args[1], env, context)?;
+    let index_val = eval(&args[1], env, context)?;
     let new_element = eval(&args[2], env, context)?;
 
     if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element) {
-        return Err(RuntimeErrorType::BadTypeConstruction.into());
+        return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
     }
 
-    match (seq, index) {
+    let index = if let Value::UInt(index) = index_val {
+        index
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index_val).into());
+    };
+
+    match seq {
         // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
-        (Value::Sequence(seq), Value::UInt(index)) => {
+        Value::Sequence(seq) => {
             let seq_len = seq.len();
             runtime_cost(ClarityCostFunction::Unimplemented, env, seq_len as u64)?;
 
@@ -450,7 +456,7 @@ pub fn special_replace_at(
 
                     left_seq.append(&mut elem_seq_data)?;
                     left_seq.append(&mut right_seq)?;
-                    Ok(Value::Sequence(left_seq))
+                    Ok(Value::okay(Value::Sequence(left_seq))?)
                 }
                 _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
             }
@@ -458,7 +464,7 @@ pub fn special_replace_at(
         _ => {
             // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
             runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
-            return Err(RuntimeErrorType::BadTypeConstruction.into());
+            return Err(CheckErrors::ExpectedSequence(seq_type).into());
         }
     }
 }

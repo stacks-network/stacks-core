@@ -1463,16 +1463,13 @@ fn test_replace_at_list() {
         "(replace-at (list true) u0 false)",
         "(replace-at (list 2 3 4 5 6 7 8) u6 10)",
         "(replace-at (list (list 1) (list 2)) u0 (list 33))",
-        // length issues in the element will be caught at runtime
-        "(replace-at (list (list 1) (list 2)) u0 (list 33 44))",
     ];
     let expected = [
-        "(list 7 int)",
-        "(list 5 uint)",
-        "(list 1 bool)",
-        "(list 7 int)",
-        "(list 2 (list 1 int))",
-        "(list 2 (list 1 int))",
+        "(response (list 7 int) uint)",
+        "(response (list 5 uint) uint)",
+        "(response (list 1 bool) uint)",
+        "(response (list 7 int) uint)",
+        "(response (list 2 (list 1 int)) uint)",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1488,6 +1485,7 @@ fn test_replace_at_list() {
         "(replace-at (list 2 3) 0 4)",
         "(replace-at (list 2 3) u0 4 5)",
         "(replace-at (list u0) u0)",
+        "(replace-at (list (list 1) (list 2)) u0 (list 33 44))",
     ];
 
     let bad_expected = [
@@ -1499,6 +1497,10 @@ fn test_replace_at_list() {
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+            SequenceType(ListType(ListTypeData::new_list(IntType, 2).unwrap())),
+        ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
@@ -1512,10 +1514,13 @@ fn test_replace_at_buff() {
         "(replace-at 0x00112233 u3 0x66)",
         "(replace-at 0x00 u0 0x22)",
         "(replace-at 0x001122334455 u2 0x66)",
-        // length issues for the element will be found at runtime
-        "(replace-at 0x001122334455 u2 0x6677)",
     ];
-    let expected = ["(buff 4)", "(buff 4)", "(buff 1)", "(buff 6)", "(buff 6)"];
+    let expected = [
+        "(response (buff 4) uint)",
+        "(response (buff 4) uint)",
+        "(response (buff 1) uint)",
+        "(response (buff 6) uint)",
+    ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -1530,9 +1535,11 @@ fn test_replace_at_buff() {
         "(replace-at 0x0011 0 0x22)",
         "(replace-at 0x0011 u0 0x44 0x55)",
         "(replace-at 0x11 u0)",
+        "(replace-at 0x001122334455 u2 0x6677)",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_two = BufferLength::try_from(2u32).unwrap();
     let bad_expected = [
         CheckErrors::TypeError(
             SequenceType(BufferType(buff_len.clone())),
@@ -1545,6 +1552,10 @@ fn test_replace_at_buff() {
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(BufferType(buff_len_two.clone())),
+        ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
@@ -1558,15 +1569,13 @@ fn test_replace_at_ascii() {
         "(replace-at \"abcd\" u3 \"f\")",
         "(replace-at \"a\" u0 \"f\")",
         "(replace-at \"abcdefg\" u2 \"h\")",
-        // length issues for the element will be found at runtime
-        "(replace-at \"abcdefg\" u2 \"hi\")",
     ];
     let expected = [
-        "(string-ascii 4)",
-        "(string-ascii 4)",
-        "(string-ascii 1)",
-        "(string-ascii 7)",
-        "(string-ascii 7)",
+        "(response (string-ascii 4) uint)",
+        "(response (string-ascii 4) uint)",
+        "(response (string-ascii 1) uint)",
+        "(response (string-ascii 7) uint)",
+        "(response (string-ascii 7) uint)",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1582,9 +1591,11 @@ fn test_replace_at_ascii() {
         "(replace-at \"abcd\" 0 \"e\")",
         "(replace-at \"abcd\" u0 \"a\" \"d\")",
         "(replace-at \"abcd\" u0)",
+        "(replace-at \"abcdefg\" u2 \"hi\")",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_two = BufferLength::try_from(2u32).unwrap();
     let bad_expected = [
         CheckErrors::TypeError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
@@ -1597,6 +1608,10 @@ fn test_replace_at_ascii() {
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(StringType(ASCII(buff_len_two.clone()))),
+        ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
@@ -1610,15 +1625,12 @@ fn test_replace_at_utf8() {
         "(replace-at u\"abcd\" u3 u\"f\")",
         "(replace-at u\"a\" u0 u\"f\")",
         "(replace-at u\"abcdefg\" u2 u\"h\")",
-        // length issues for the element will be found at runtime
-        "(replace-at u\"abcdefg\" u2 u\"hi\")",
     ];
     let expected = [
-        "(string-utf8 4)",
-        "(string-utf8 4)",
-        "(string-utf8 1)",
-        "(string-utf8 7)",
-        "(string-utf8 7)",
+        "(response (string-utf8 4) uint)",
+        "(response (string-utf8 4) uint)",
+        "(response (string-utf8 1) uint)",
+        "(response (string-utf8 7) uint)",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1634,10 +1646,12 @@ fn test_replace_at_utf8() {
         "(replace-at u\"abcd\" 0 u\"a\")",
         "(replace-at u\"abcd\" u0 u\"a\" u\"d\")",
         "(replace-at u\"abcd\" u0)",
+        "(replace-at u\"abcdefg\" u2 u\"hi\")",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
     let str_len = StringUTF8Length::try_from(1u32).unwrap();
+    let str_len_two = StringUTF8Length::try_from(2u32).unwrap();
     let bad_expected = [
         CheckErrors::TypeError(
             SequenceType(StringType(UTF8(str_len.clone()))),
@@ -1650,6 +1664,10 @@ fn test_replace_at_utf8() {
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::IncorrectArgumentCount(3, 4),
         CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(str_len.clone()))),
+            SequenceType(StringType(UTF8(str_len_two.clone()))),
+        ),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);

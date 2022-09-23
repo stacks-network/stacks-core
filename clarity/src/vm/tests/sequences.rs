@@ -16,7 +16,7 @@
 
 use crate::vm::types::signatures::{ListTypeData, SequenceSubtype};
 use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use crate::vm::types::{TypeSignature, Value};
+use crate::vm::types::{StringSubtype, StringUTF8Length, TypeSignature, Value};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -24,10 +24,13 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::types::signatures::SequenceSubtype::ListType;
+use crate::vm::types::signatures::SequenceSubtype::{BufferType, ListType, StringType};
+use crate::vm::types::signatures::StringSubtype::ASCII;
+use crate::vm::types::BufferLength;
+use crate::vm::types::CharType::UTF8;
 use crate::vm::{execute, execute_v2, ClarityVersion};
 use stacks_common::types::StacksEpochId;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 #[template]
 #[rstest]
@@ -649,27 +652,36 @@ fn test_simple_list_replace_at() {
     ];
 
     let expected = [
-        Value::list_from(vec![Value::Int(1), Value::Int(4)]).unwrap(),
-        Value::list_from(vec![Value::Int(10)]).unwrap(),
-        Value::list_from(vec![
-            Value::Int(1),
-            Value::Int(9),
-            Value::Int(0),
-            Value::Int(6),
-        ])
+        Value::okay(Value::list_from(vec![Value::Int(1), Value::Int(4)]).unwrap()).unwrap(),
+        Value::okay(Value::list_from(vec![Value::Int(10)]).unwrap()).unwrap(),
+        Value::okay(
+            Value::list_from(vec![
+                Value::Int(1),
+                Value::Int(9),
+                Value::Int(0),
+                Value::Int(6),
+            ])
+            .unwrap(),
+        )
         .unwrap(),
-        Value::list_from(vec![
-            Value::Int(4),
-            Value::Int(5),
-            Value::Int(11),
-            Value::Int(7),
-            Value::Int(8),
-        ])
+        Value::okay(
+            Value::list_from(vec![
+                Value::Int(4),
+                Value::Int(5),
+                Value::Int(11),
+                Value::Int(7),
+                Value::Int(8),
+            ])
+            .unwrap(),
+        )
         .unwrap(),
-        Value::list_from(vec![
-            Value::list_from(vec![Value::Int(33)]).unwrap(),
-            Value::list_from(vec![Value::Int(2)]).unwrap(),
-        ])
+        Value::okay(
+            Value::list_from(vec![
+                Value::list_from(vec![Value::Int(33)]).unwrap(),
+                Value::list_from(vec![Value::Int(2)]).unwrap(),
+            ])
+            .unwrap(),
+        )
         .unwrap(),
     ];
 
@@ -693,25 +705,25 @@ fn test_simple_list_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at 0 u0 (list 0))").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
-        execute_v2("(replace-at (list 1) 0 (list 0))").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        execute_v2("(replace-at (list 1) 0 0)").unwrap_err(),
+        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at (list 2 3) u0 true)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(IntType, Value::Bool(true)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at (list 2 3) u0 0x00)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(IntType, Value::buff_from_byte(0)).into()
     );
 }
 
@@ -725,10 +737,10 @@ fn test_simple_buff_replace_at() {
     ];
 
     let expected = [
-        Value::buff_from(vec![48, 68]).unwrap(),
-        Value::buff_from(vec![17]).unwrap(),
-        Value::buff_from(vec![0, 17, 34, 68]).unwrap(),
-        Value::buff_from(vec![0, 68, 34, 51]).unwrap(),
+        Value::okay(Value::buff_from(vec![48, 68]).unwrap()).unwrap(),
+        Value::okay(Value::buff_from(vec![17]).unwrap()).unwrap(),
+        Value::okay(Value::buff_from(vec![0, 17, 34, 68]).unwrap()).unwrap(),
+        Value::okay(Value::buff_from(vec![0, 68, 34, 51]).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -751,31 +763,41 @@ fn test_simple_buff_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at 33 u0 0x00)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at 0x002244 0 0x99)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
+    let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at 0x445522 u0 55)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(SequenceType(BufferType(buff_len.clone())), Value::Int(55))
+            .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at 0x445522 u0 (list 5))").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(buff_len.clone())),
+            Value::list_from(vec![Value::Int(5)]).unwrap()
+        )
+        .into()
     );
 
     // The element input has the wrong type (not length 1)
     assert_eq!(
         execute_v2("(replace-at 0x445522 u0 0x0044)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            SequenceType(BufferType(buff_len.clone())),
+            Value::buff_from(vec![0, 68]).unwrap()
+        )
+        .into()
     );
 }
 
@@ -789,10 +811,10 @@ fn test_simple_string_ascii_replace_at() {
     ];
 
     let expected = [
-        Value::string_ascii_from_bytes("ac".into()).unwrap(),
-        Value::string_ascii_from_bytes("c".into()).unwrap(),
-        Value::string_ascii_from_bytes("abce".into()).unwrap(),
-        Value::string_ascii_from_bytes("aecd".into()).unwrap(),
+        Value::okay(Value::string_ascii_from_bytes("ac".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_ascii_from_bytes("c".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_ascii_from_bytes("abce".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_ascii_from_bytes("aecd".into()).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -815,31 +837,44 @@ fn test_simple_string_ascii_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at 33 u0 \"c\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at \"abc\" 0 \"c\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
+    let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at \"abc\" u0 55)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            Value::Int(55)
+        )
+        .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at \"abc\" u0 0x00)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            Value::buff_from_byte(0)
+        )
+        .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at \"abc\" u0 \"de\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            Value::string_ascii_from_bytes("de".into()).unwrap()
+        )
+        .into()
     );
 }
 
@@ -855,12 +890,12 @@ fn test_simple_string_utf8_replace_at() {
     ];
 
     let expected = [
-        Value::string_utf8_from_bytes("ac".into()).unwrap(),
-        Value::string_utf8_from_bytes("c".into()).unwrap(),
-        Value::string_utf8_from_bytes("abce".into()).unwrap(),
-        Value::string_utf8_from_bytes("aecd".into()).unwrap(),
-        Value::string_utf8_from_bytes("helloe".into()).unwrap(),
-        Value::string_utf8_from_bytes("heelo🦊".into()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("ac".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("c".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("abce".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("aecd".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("helloe".into()).unwrap()).unwrap(),
+        Value::okay(Value::string_utf8_from_bytes("heelo🦊".into()).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -883,31 +918,44 @@ fn test_simple_string_utf8_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at 33 u0 u\"c\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at u\"abc\" 0 u\"c\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
+    let str_len = StringUTF8Length::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at u\"abc\" u0 55)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
+            Value::Int(55)
+        )
+        .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at u\"abc\" u0 0x00)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
+            Value::buff_from_byte(0)
+        )
+        .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at u\"abc\" u0 u\"de\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        CheckErrors::TypeValueError(
+            TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
+            Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap()
+        )
+        .into()
     );
 }
 

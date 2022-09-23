@@ -434,17 +434,17 @@ pub fn check_special_replace_at(
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
     // Check sequence
-    let seq_type = checker.type_check(&args[0], context)?;
-    let unit_seq = match &seq_type {
-        TypeSignature::SequenceType(seq) => seq.unit_type(),
-        _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
+    let input_type = checker.type_check(&args[0], context)?;
+    let seq_type = match input_type.clone() {
+        TypeSignature::SequenceType(seq) => seq,
+        _ => return Err(CheckErrors::ExpectedSequence(input_type).into()),
     };
-
+    let unit_seq = seq_type.unit_type();
     // Check index argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check element argument
-    let elem_type = checker.type_check(&args[2], context)?;
-    TypeSignature::least_supertype(&unit_seq, &elem_type)?;
+    checker.type_check_expects(&args[2], context, &unit_seq)?;
 
-    Ok(seq_type)
+    let final_type = TypeSignature::new_response(input_type, TypeSignature::UIntType)?;
+    Ok(final_type)
 }

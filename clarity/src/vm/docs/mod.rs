@@ -2191,8 +2191,9 @@ to deserialize the type, the method returns `none`.
 
 const REPLACE_AT: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, A",
-    output_type: "sequence_A",
-    signature: "(replace-at sequence1 index element)",
+    output_type: "(response sequence_A uint)",
+    snippet: "replace-at ${1:sequence} ${2:index} ${3:element}",
+    signature: "(replace-at sequence index element)",
     description: "The `replace-at` function takes in a sequence, an index, and an element, 
 and returns a new sequence with the data at the index position replaced with the given element. 
 The given element's type must match the type of the sequence, and must correspond to a single 
@@ -2201,11 +2202,11 @@ index of the input sequence. The return type on success is the same type as the 
 If the provided index is out of bounds, this functions returns `(err u1)`.
 ",
     example: r#"
-(replace-at (list 1) u0 10) ;; Returns (list 10)
-(replace-at u"ab" u1 u"c") ;; Returns u"ac"
-(replace-at 0x00112233 u2 0x44) ;; Returns 0x00114433
-(replace-at "abcd" u3 "e") ;; Returns "abce"
-(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; returns (list (list 33) (list 2))
+(replace-at u"ab" u1 u"c") ;; Returns (ok u"ac")
+(replace-at 0x00112233 u2 0x44) ;; Returns (ok 0x00114433)
+(replace-at "abcd" u3 "e") ;; Returns (ok "abce")
+(replace-at (list 1) u0 10) ;; Returns (ok (10))
+(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; Returns (ok ((33) (2)))
 (replace-at (list 1 2) u3 4) ;; Returns (err u1)
 "#,
 };
