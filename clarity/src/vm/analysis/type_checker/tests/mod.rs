@@ -3181,3 +3181,35 @@ fn test_trait_same_contract() {
         assert!(mem_type_check(&good_test).is_ok());
     }
 }
+
+#[test]
+fn test_tuple_arg() {
+    let contract = "(define-private (add (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (add {a: 3, b: u5}))
+        ";
+
+    mem_type_check(contract).unwrap();
+
+    let bad_contracts = [
+        "(define-private (bad1 (value {a: int, b: uint}))
+            (get a value))
+        (define-private (test-call)
+            (bad1 {a: u3, b: u5}))
+        ",
+        "(define-private (bad2 (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (bad2 {a: 3}))
+        ",
+        "(define-private (bad3 (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (bad3 {a: 3, b: u5, c: 4}))
+        ",
+    ];
+    for bad_test in bad_contracts.iter() {
+        mem_type_check(&bad_test).unwrap_err();
+    }
+}

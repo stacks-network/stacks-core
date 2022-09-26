@@ -530,9 +530,15 @@ fn inner_type_check_type<T: CostTracker>(
             TypeSignature::TupleType(atom_tuple_type),
             TypeSignature::TupleType(expected_tuple_type),
         ) => {
-            for (name, atom_field_type) in atom_tuple_type.get_type_map() {
-                match expected_tuple_type.field_type(name) {
-                    Some(expected_field_type) => {
+            if expected_tuple_type.get_type_map().len() != atom_tuple_type.get_type_map().len() {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+
+            for (name, expected_field_type) in expected_tuple_type.get_type_map() {
+                match atom_tuple_type.field_type(name) {
+                    Some(atom_field_type) => {
                         inner_type_check_type(
                             db,
                             contract_context,
@@ -546,7 +552,7 @@ fn inner_type_check_type<T: CostTracker>(
                     None => {
                         return Err(CheckErrors::TypeError(
                             expected_type.clone(),
-                            atom_field_type.clone(),
+                            actual_type.clone(),
                         )
                         .into())
                     }
