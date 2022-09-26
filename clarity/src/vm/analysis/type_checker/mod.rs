@@ -301,6 +301,10 @@ impl FunctionType {
         }
     }
 
+    /// Returns the type of `value`, after converting any contract principal
+    /// types to callable types. In an initial transaction, arguments are typed
+    /// as contract principals, but they must be principal literals, so they
+    /// may be used to call into a contract.
     pub fn principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
         if depth > MAX_TYPE_DEPTH {
             return Err(CheckErrors::TypeSignatureTooDeep.into());
