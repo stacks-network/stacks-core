@@ -23,6 +23,7 @@ serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
 sha3 = "0.10.1"
+sha2 = "0.10"
 ripemd = "0.1.1"
 lazy_static = "1.4.0"
 percent-encoding = "2.1.0"
@@ -66,9 +67,3 @@ default = ["developer-mode"]
 developer-mode = []
 slog_json = ["slog-json"]
 testing = []
-
-[target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
-
-[target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), target_env = "msvc"))'.dependencies]
-sha2 = { version = "0.10" }
