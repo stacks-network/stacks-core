@@ -1660,10 +1660,6 @@ pub struct ParsedUTXO {
     script_pub_key: String,
     amount: Box<RawValue>,
     confirmations: u32,
-    _spendable: bool,
-    _solvable: bool,
-    _desc: Option<String>,
-    _safe: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
