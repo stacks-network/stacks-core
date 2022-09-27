@@ -39,8 +39,6 @@ async function main() {
         functionArgs: [
             uintCV(5), // ID
             standardPrincipalCV(addr), // recipient
-            uintCV(withdrawalId), // withdrawal-id
-            uintCV(withdrawalBlockHeight), // withdrawal-height
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-contract
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-mint-contract
             cv_merkle_entry.withdrawal_root, // withdrawal root
