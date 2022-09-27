@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::parser_v2::lexer::error::LexerError;
-use crate::vm::ast::parser_v2::lexer::token::Token;
+use crate::vm::ast::parser::v2::lexer::error::LexerError;
+use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{PreSymbolicExpression, Span};
