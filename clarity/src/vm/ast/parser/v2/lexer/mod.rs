@@ -8,9 +8,7 @@ use crate::vm::{
 use std::{char, str::Chars};
 use token::{PlacedToken, Token};
 
-use crate::vm::ast::parser_v2::lexer::error::LexerError;
-
-use self::error::PlacedError;
+use self::error::{LexerError, PlacedError};
 
 pub type LexResult<T> = Result<T, LexerError>;
 
