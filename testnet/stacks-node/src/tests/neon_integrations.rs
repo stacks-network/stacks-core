@@ -1,12 +1,9 @@
 use std::cmp;
-use std::fs;
-use std::path::Path;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{
     collections::HashMap,
-    collections::HashSet,
     sync::atomic::{AtomicU64, Ordering},
 };
 use std::{env, thread};
@@ -17,19 +14,16 @@ use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, TransferStxOp};
-use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205, CHAIN_ID_TESTNET,
-    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    StacksEpoch, StacksEpochId,CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0 
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
-    PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
-    UnconfirmedTransactionResponse,
+    PostTransactionRequestBody, RPCPeerInfoData, 
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -65,7 +59,7 @@ use stacks::{
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
     config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
+    BitcoinRegtestController, BurnchainController, Config,
     ConfigFile, Keychain,
 };
 
@@ -81,13 +75,8 @@ use super::{
     SK_2,
 };
 use crate::config::FeeEstimatorName;
-use crate::tests::SK_3;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::MAX_CALL_STACK_DEPTH;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::miner::{
-    TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
+    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 use stacks::net::RPCFeeEstimateResponse;
 use stacks::vm::ClarityName;
@@ -4444,7 +4433,7 @@ fn microblock_limit_hit_integration_test() {
         100,
     );
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: addr.clone().into(),

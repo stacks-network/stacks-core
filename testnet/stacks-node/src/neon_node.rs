@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::Path;
+use std::io::Write;
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
@@ -209,7 +212,7 @@ fn inner_process_tenure(
                         .expect(&format!("FATAL: could not create '{}'", &path));
                 }
 
-                let mut path = Path::new(&path);
+                let path = Path::new(&path);
                 let path = path.join(Path::new(&format!("{}", &anchored_block.block_hash())));
                 let mut file = fs::File::create(&path)
                     .expect(&format!("FATAL: could not create '{:?}'", &path));
@@ -499,7 +502,7 @@ fn mine_one_microblock(
                         .expect(&format!("FATAL: could not create '{}'", &path));
                 }
 
-                let mut path = Path::new(&path);
+                let path = Path::new(&path);
                 let path = path.join(Path::new(&format!("{}", &mined_microblock.block_hash())));
                 let mut file = fs::File::create(&path)
                     .expect(&format!("FATAL: could not create '{:?}'", &path));
