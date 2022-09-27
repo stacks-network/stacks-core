@@ -123,7 +123,7 @@ pub fn get_stacking_state_pox_2(
     })
 }
 
-/// Perform `check_stacker_link_invariants` on cycles [0, max_cycle_number]
+/// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
 pub fn check_all_stacker_link_invariants(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -139,6 +139,7 @@ pub fn check_all_stacker_link_invariants(
         eprintln!("Invariants being checked");
     }
 
+    info!("Invoked check all"; "tip" => %tip, "first" => first_cycle_number, "last" => max_cycle_number);
     for cycle in first_cycle_number..(max_cycle_number + 1) {
         check_stacker_link_invariants(peer, tip, cycle);
     }
@@ -447,6 +448,9 @@ fn test_simple_pox_lockup_transition_pox_2() {
         Some(&observer),
     );
 
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
     let num_blocks = 35;
 
     let alice = keys.pop().unwrap();
@@ -561,13 +565,6 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
 
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
-
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
     let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -655,13 +652,6 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &block_id,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
-
     // alice is still locked, balance should be 0
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
     assert_eq!(alice_balance, 0);
@@ -683,25 +673,11 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(tip.block_height, 11 + EMPTY_SORTITIONS as u64);
     let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &block_id,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
-
     // our "tenure counter" is now at 12
     let tip = get_tip(peer.sortdb.as_ref());
     assert_eq!(tip.block_height, 12 + EMPTY_SORTITIONS as u64);
     // One more empty tenure to reach the unlock height
     let block_id = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &block_id,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     // Auto unlock height is reached, Alice balance should be unlocked
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -753,13 +729,6 @@ fn test_simple_pox_lockup_transition_pox_2() {
         tip.block_height,
     );
     let block_id = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
-
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &block_id,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
 
@@ -934,6 +903,9 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         Some(&observer),
     );
 
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
     let num_blocks = 35;
 
     let alice = keys.pop().unwrap();
@@ -983,13 +955,6 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     };
     let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &latest_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
-
     // check that the "raw" reward set will contain entries for alice and bob
     //  at the cycle start
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
@@ -1021,12 +986,6 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        check_all_stacker_link_invariants(
-            &mut peer,
-            &latest_block,
-            EXPECTED_FIRST_V2_CYCLE,
-            EXPECTED_FIRST_V2_CYCLE + 10,
-        );
     }
 
     // check that the "raw" reward sets for all cycles just contains entries for alice
@@ -1178,6 +1137,9 @@ fn delegate_stack_increase() {
         Some(epochs.clone()),
         Some(&observer),
     );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
 
     let num_blocks = 35;
 
@@ -1465,6 +1427,9 @@ fn stack_increase() {
         Some(&observer),
     );
 
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
     let num_blocks = 35;
 
     let alice = keys.pop().unwrap();
@@ -1677,6 +1642,9 @@ fn test_lock_period_invariant_extend_transition() {
         Some(&observer),
     );
 
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
     let num_blocks = 35;
 
     let alice = keys.pop().unwrap();
@@ -1718,13 +1686,6 @@ fn test_lock_period_invariant_extend_transition() {
     assert_eq!(tip.block_height, 1 + EMPTY_SORTITIONS as u64);
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
-
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
@@ -1768,13 +1729,6 @@ fn test_lock_period_invariant_extend_transition() {
         // alice is still locked, balance should be 0
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
         assert_eq!(alice_balance, 0);
-
-        check_all_stacker_link_invariants(
-            &mut peer,
-            &tip_index_block,
-            EXPECTED_FIRST_V2_CYCLE,
-            EXPECTED_FIRST_V2_CYCLE + 10,
-        );
     }
 
     // in the next tenure, PoX 2 should now exist.
@@ -1796,12 +1750,6 @@ fn test_lock_period_invariant_extend_transition() {
     assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 }
 
 /// In this test case, two Stackers, Alice and Bob stack and interact with the
@@ -1851,6 +1799,9 @@ fn test_pox_extend_transition_pox_2() {
         Some(epochs.clone()),
         Some(&observer),
     );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
 
     let num_blocks = 35;
 
@@ -1984,13 +1935,6 @@ fn test_pox_extend_transition_pox_2() {
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
 
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
-
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
     let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
@@ -2035,13 +1979,6 @@ fn test_pox_extend_transition_pox_2() {
         assert_eq!(alice_balance, 0);
 
         alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
-
-        check_all_stacker_link_invariants(
-            &mut peer,
-            &tip_index_block,
-            EXPECTED_FIRST_V2_CYCLE,
-            EXPECTED_FIRST_V2_CYCLE + 10,
-        );
     }
 
     // in the next tenure, PoX 2 should now exist.
@@ -2073,12 +2010,6 @@ fn test_pox_extend_transition_pox_2() {
     assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
 
     let tip_index_block = peer.tenure_with_txs(&[bob_lockup, alice_lockup], &mut coinbase_nonce);
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
 
@@ -2092,12 +2023,6 @@ fn test_pox_extend_transition_pox_2() {
     );
 
     let tip_index_block = peer.tenure_with_txs(&[bob_extend], &mut coinbase_nonce);
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
 
@@ -2105,12 +2030,6 @@ fn test_pox_extend_transition_pox_2() {
     //  the v2 reward cycles start
     for _i in 0..3 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        check_all_stacker_link_invariants(
-            &mut peer,
-            &tip_index_block,
-            EXPECTED_FIRST_V2_CYCLE,
-            EXPECTED_FIRST_V2_CYCLE + 10,
-        );
 
         // alice is still locked, balance should be 0
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -2127,12 +2046,6 @@ fn test_pox_extend_transition_pox_2() {
     //  alice *would have been* unlocked under v1 rules
     for _i in 0..17 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        check_all_stacker_link_invariants(
-            &mut peer,
-            &tip_index_block,
-            EXPECTED_FIRST_V2_CYCLE,
-            EXPECTED_FIRST_V2_CYCLE + 10,
-        );
 
         // alice is still locked, balance should be 0
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -2158,12 +2071,6 @@ fn test_pox_extend_transition_pox_2() {
     );
 
     let tip_index_block = peer.tenure_with_txs(&[alice_lockup], &mut coinbase_nonce);
-    check_all_stacker_link_invariants(
-        &mut peer,
-        &tip_index_block,
-        EXPECTED_FIRST_V2_CYCLE,
-        EXPECTED_FIRST_V2_CYCLE + 10,
-    );
 
     v2_rewards_checks(tip_index_block, &mut peer);
 
@@ -2284,6 +2191,9 @@ fn test_delegate_extend_transition_pox_2() {
         Some(epochs.clone()),
         Some(&observer),
     );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
 
     let num_blocks = 35;
 
@@ -2915,6 +2825,10 @@ fn test_pox_2_getters() {
         Some(epochs.clone()),
         None,
     );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
     let mut coinbase_nonce = 0;
     let alice = keys.pop().unwrap();
     let bob = keys.pop().unwrap();

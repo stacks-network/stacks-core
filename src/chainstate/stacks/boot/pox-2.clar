@@ -901,10 +901,10 @@
           ;; update stacker record
           (map-set stacking-state
             { stacker: tx-sender }
-            (print { pox-addr: pox-addr,
+            { pox-addr: pox-addr,
               reward-set-indexes: reward-set-indexes,
               first-reward-cycle: first-reward-cycle,
-              lock-period: lock-period }))
+              lock-period: lock-period })
 
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
@@ -1022,8 +1022,6 @@
                (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
      (let ((last-extend-cycle  (- (+ first-extend-cycle extend-count) u1))
-           ;; this seems incorrect
-           ;; (lock-period (- (print last-extend-cycle) (print cur-cycle)))
            (lock-period (+ u1 (- last-extend-cycle first-reward-cycle)))
            (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle))))
 
