@@ -594,10 +594,20 @@ fn inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
-            let contract_to_check = db
-                .load_contract(&contract_identifier)
-                .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-            runtime_cost(ClarityCostFunction::AnalysisFetchContractEntry, tracker, 1)?;
+            let contract_to_check = match db.load_contract(&contract_identifier) {
+                Some(contract) => {
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisFetchContractEntry,
+                        tracker,
+                        contract_analysis_size(&contract)?,
+                    )?;
+                    contract
+                }
+                None => {
+                    runtime_cost(ClarityCostFunction::AnalysisFetchContractEntry, tracker, 1)?;
+                    return Err(CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
+                }
+            };
             let expected_trait = lookup_trait(
                 db,
                 contract_context,
@@ -664,23 +674,23 @@ fn lookup_trait<T: CostTracker>(
         }
     }
 
-    match db
-        .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)?
-        .ok_or(
-            CheckErrors::NoSuchTrait(
-                trait_id.contract_identifier.to_string(),
-                trait_id.name.to_string(),
-            )
-            .into(),
-        ) {
-        Ok(found) => {
-            let type_size = trait_type_size(&found)?;
+    match db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name) {
+        Ok(Some(trait_sig)) => {
+            let type_size = trait_type_size(&trait_sig)?;
             runtime_cost(
                 ClarityCostFunction::AnalysisUseTraitEntry,
                 tracker,
                 type_size,
             )?;
-            Ok(found)
+            Ok(trait_sig)
+        }
+        Ok(None) => {
+            runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
+            Err(CheckErrors::NoSuchTrait(
+                trait_id.contract_identifier.to_string(),
+                trait_id.name.to_string(),
+            )
+            .into())
         }
         Err(e) => {
             runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
@@ -694,6 +704,12 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()? as u64)?;
     }
+    Ok(total_size)
+}
+
+fn contract_analysis_size(contract: &ContractAnalysis) -> CheckResult<u64> {
+    let mut total_size = contract.public_function_types.len() as u64;
+    total_size = total_size.cost_overflow_add(contract.read_only_function_types.len() as u64)?;
     Ok(total_size)
 }
 
@@ -1138,15 +1154,26 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
             ) => {
                 // When a principal literal is used as a trait, make sure it implements the trait.
-                let contract_to_check = self
-                    .db
-                    .load_contract(&contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-                runtime_cost(
-                    ClarityCostFunction::AnalysisFetchContractEntry,
-                    &mut self.cost_track,
-                    1,
-                )?;
+                let contract_to_check = match self.db.load_contract(&contract_identifier) {
+                    Some(contract) => {
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisFetchContractEntry,
+                            &mut self.cost_track,
+                            contract_analysis_size(&contract)?,
+                        )?;
+                        contract
+                    }
+                    None => {
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisFetchContractEntry,
+                            &mut self.cost_track,
+                            1,
+                        )?;
+                        return Err(
+                            CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
+                        );
+                    }
+                };
 
                 let expected_trait = &lookup_trait(
                     self.db,
