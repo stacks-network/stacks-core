@@ -499,7 +499,7 @@ impl BitcoinIndexer {
                             start_block
                         );
 
-                        debug!("Copy headers 0-{}", interval_headers.len() as u64);
+                        debug!("Copy headers 1-{}", interval_headers.len() as u64);
                         reorg_spv_client.insert_block_headers_before(0, interval_headers)?;
                     }
 
