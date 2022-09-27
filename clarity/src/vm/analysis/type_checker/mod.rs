@@ -1078,50 +1078,24 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
                 TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
             ) => {
-                runtime_cost(
-                    ClarityCostFunction::AnalysisFetchContractEntry,
-                    &mut self.cost_track,
-                    1,
-                )?;
                 let contract_to_check = self
                     .db
                     .load_contract(&contract_identifier)
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
-                let trait_definition = match self.db.get_defined_trait(
-                    &trait_identifier.contract_identifier,
-                    &trait_identifier.name,
-                ) {
-                    Ok(Some(trait_sig)) => {
-                        let type_size = trait_type_size(&trait_sig)?;
-                        runtime_cost(
-                            ClarityCostFunction::AnalysisUseTraitEntry,
-                            &mut self.cost_track,
-                            type_size,
-                        )?;
-                        trait_sig
-                    }
-                    Ok(None) => {
-                        runtime_cost(
-                            ClarityCostFunction::AnalysisUseTraitEntry,
-                            &mut self.cost_track,
-                            1,
-                        )?;
-                        return Err(CheckErrors::NoSuchTrait(
-                            trait_identifier.contract_identifier.to_string(),
-                            trait_identifier.name.to_string(),
-                        )
-                        .into());
-                    }
-                    Err(e) => {
-                        runtime_cost(
-                            ClarityCostFunction::AnalysisUseTraitEntry,
-                            &mut self.cost_track,
-                            1,
-                        )?;
-                        return Err(e);
-                    }
-                };
+                let contract_defining_trait = self
+                    .db
+                    .load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(
+                        trait_identifier.contract_identifier.to_string(),
+                    ))?;
+
+                let trait_definition = contract_defining_trait
+                    .get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchTrait(
+                        trait_identifier.contract_identifier.to_string(),
+                        trait_identifier.name.to_string(),
+                    ))?;
 
                 contract_to_check.check_trait_compliance(trait_identifier, &trait_definition)?;
                 return Ok(expected_type.clone());
