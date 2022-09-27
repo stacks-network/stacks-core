@@ -9,7 +9,7 @@ WORKDIR /src/testnet/stacks-node
 RUN rustup component add llvm-tools-preview && \
     cargo install grcov
 
-ENV RUSTFLAGS="-Zinstrument-coverage" \
+ENV RUSTFLAGS="-Cinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
 
 RUN cargo test --no-run && \
