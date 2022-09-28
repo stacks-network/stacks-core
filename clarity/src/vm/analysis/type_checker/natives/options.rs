@@ -18,12 +18,12 @@ use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::TypeSignature;
 
 use crate::vm::analysis::type_checker::{
-    check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
-    TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, no_type, CheckErrors, TypeChecker, TypeResult,
+    TypingContext,
 };
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,

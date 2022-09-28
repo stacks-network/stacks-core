@@ -4,7 +4,7 @@ use crate::vm::execute as vm_execute;
 use crate::vm::execute_on_network as vm_execute_on_network;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::StandardPrincipalData;
-use crate::vm::types::{PrincipalData, ResponseData, TupleData, Value};
+use crate::vm::types::{PrincipalData, TupleData, Value};
 use crate::vm::StacksEpoch;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{

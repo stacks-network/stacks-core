@@ -227,7 +227,6 @@ pub fn public_keys_to_address_hash<K: PublicKey>(
 mod test {
     use super::*;
     use crate::util::hash::*;
-    use crate::util::log;
     use crate::util::secp256k1::Secp256k1PublicKey as PubKey;
 
     struct PubkeyFixture {

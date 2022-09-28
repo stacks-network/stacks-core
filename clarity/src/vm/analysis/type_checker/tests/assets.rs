@@ -29,7 +29,7 @@ fn test_clarity_versions_assets(#[case] version: ClarityVersion, #[case] epoch: 
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::tests::mem_type_check;
-use crate::vm::analysis::AnalysisDatabase;
+
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::{
@@ -138,8 +138,6 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
 
 #[test]
 fn test_bad_asset_usage() {
-    use crate::vm::analysis::type_check;
-
     let bad_scripts = [
         "(ft-get-balance stackoos tx-sender)",
         "(ft-get-balance u1234 tx-sender)",

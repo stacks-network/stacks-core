@@ -14,16 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckErrors, CheckResult};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::AnalysisDatabase;
-use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
-use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature, Value};
 
 pub struct TraitChecker {}
 

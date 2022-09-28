@@ -6,7 +6,6 @@ use std::{
 
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::SymbolicExpression;
-use serde_json::Value as JsonValue;
 
 use super::{functions::define::DefineFunctionsParsed, EvalHook};
 

@@ -14,36 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vm::contracts::Contract;
-use crate::vm::database::ClarityDatabase;
+use crate::vm::contexts::OwnedEnvironment;
+
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::Error;
-use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{PrincipalData, ResponseData, Value};
-use crate::vm::StacksEpoch;
-use stacks_common::util::hash::hex_bytes;
-
-use stacks_common::consts::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
-use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
-
-use crate::vm::{
-    analysis::AnalysisDatabase,
-    clarity::{ClarityConnection, TransactionConnection},
-    contexts::AssetMap,
-    costs::{ExecutionCost, LimitedCostTracker},
-};
 
 pub use crate::vm::database::BurnStateDB;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 
-use super::events::StacksTransactionEvent;
 pub use super::test_util::*;
 
 mod assets;

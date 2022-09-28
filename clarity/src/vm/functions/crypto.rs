@@ -14,22 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
-};
-use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error,
-    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
-};
-use crate::vm::representations::SymbolicExpressionType::{Atom, List};
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::costs::runtime_cost;
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
+
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::StacksAddressExtensions;
-use crate::vm::types::{
-    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
-    BUFF_33, BUFF_65,
-};
+use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::address::{

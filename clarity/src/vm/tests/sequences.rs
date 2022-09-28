@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::types::signatures::{ListTypeData, SequenceSubtype};
+use crate::vm::types::signatures::SequenceSubtype;
 use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::{TypeSignature, Value};
 #[cfg(test)]
@@ -22,7 +22,6 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
-use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::{execute, execute_v2, ClarityVersion};
 use stacks_common::types::StacksEpochId;

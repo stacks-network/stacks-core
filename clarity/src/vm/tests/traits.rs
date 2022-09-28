@@ -14,14 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::errors::CheckError;
-use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute as vm_execute;
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, ResponseData, TypeSignature, Value,
-};
-use std::convert::TryInto;
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::errors::{CheckErrors, Error};
+
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
 use crate::vm::tests::{execute, symbols_from_values, with_memory_environment};
 use crate::vm::version::ClarityVersion;

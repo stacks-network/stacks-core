@@ -15,12 +15,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::errors::RuntimeErrorType;
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::types::{TraitIdentifier, Value};
 use regex::Regex;
 use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use std::borrow::Borrow;
-use std::cmp::Ordering;
+
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};

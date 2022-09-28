@@ -14,23 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::convert::{TryFrom, TryInto};
-
-use crate::vm::functions::tuples;
+use std::convert::TryFrom;
 
 use crate::vm::callables::DefineType;
-use crate::vm::costs::{
-    constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
-};
+use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    RuntimeErrorType,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
-    BlockInfoProperty, BuffData, BurnBlockInfoProperty, OptionalData, PrincipalData, SequenceData,
-    TupleData, TypeSignature, Value, BUFF_32,
+    BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData, TupleData,
+    TypeSignature, Value, BUFF_32,
 };
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::types::chainstate::StacksBlockId;

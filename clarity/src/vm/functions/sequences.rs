@@ -15,20 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
+use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
-    TypeSignature::BoolType, Value,
+    signatures::ListTypeData, ListData, SequenceData, TypeSignature, TypeSignature::BoolType, Value,
 };
-use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use crate::vm::{apply, eval, lookup_function, Environment, LocalContext};
 use stacks_common::types::StacksEpochId;
 use std::cmp;
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryFrom;
 
 pub fn list_cons(
     args: &[SymbolicExpression],

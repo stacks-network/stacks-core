@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_check;
-use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;

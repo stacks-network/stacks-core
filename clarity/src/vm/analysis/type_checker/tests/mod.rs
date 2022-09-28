@@ -20,35 +20,32 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check as mem_run_analysis;
-use crate::vm::analysis::type_checker::{TypeChecker, TypeResult, TypingContext};
+use crate::vm::analysis::type_checker::TypeResult;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::tooling::mem_type_check as mem_run_analysis;
+
+use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
-use crate::vm::ast::{build_ast, parse};
-use crate::vm::contexts::OwnedEnvironment;
+
 use crate::vm::execute_v2;
-use crate::vm::representations::SymbolicExpression;
+
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, BUFF_1,
+    BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
-use crate::vm::types::Value::Sequence;
+
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use super::CheckResult;
 use crate::vm::ClarityVersion;
-
-use crate::vm::analysis::type_checker::SequenceSubtype;
 
 mod assets;
 pub mod contracts;
@@ -1884,8 +1881,6 @@ fn test_response_inference(#[case] version: ClarityVersion, #[case] epoch: Stack
 
 #[test]
 fn test_function_arg_names() {
-    use crate::vm::analysis::type_check;
-
     let functions = vec![
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))

@@ -13,11 +13,10 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::convert::TryFrom;
 
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use crate::vm::types::BuffData;
+
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 

@@ -1,28 +1,17 @@
 use crate::vm::execute_with_parameters;
-use crate::vm::types::BufferLength;
-use crate::vm::types::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::StringSubtype::ASCII;
-use crate::vm::types::TypeSignature::{PrincipalType, SequenceType};
+
+use crate::vm::types::TypeSignature::PrincipalType;
 use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
 use crate::vm::ClarityVersion;
 
-use crate::vm::callables::{DefineType, DefinedFunction};
-use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
-use crate::vm::eval;
-use crate::vm::execute;
+use crate::vm::errors::CheckErrors;
+
 use crate::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, TypeSignature, BUFF_1, BUFF_20,
 };
-use crate::vm::{
-    CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
-};
+
 use stacks_common::types::StacksEpochId;
-use std::collections::HashMap;
 
 use crate::vm::functions::principals::PrincipalConstructErrorCode;
 

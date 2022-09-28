@@ -15,12 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksAddress;
-use crate::vm::analysis::ContractAnalysis;
-use crate::vm::costs::ExecutionCost;
+
 use crate::vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-    Value,
+    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, Value,
 };
 
 #[derive(Debug, Clone, PartialEq)]

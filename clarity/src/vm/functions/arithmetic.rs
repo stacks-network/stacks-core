@@ -24,10 +24,10 @@ use std::convert::TryFrom;
 use crate::vm::costs::runtime_cost;
 use integer_sqrt::IntegerSquareRoot;
 
-use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{signatures::ListTypeData, ListData, TypeSignature::BoolType};
+use crate::vm::representations::SymbolicExpression;
+
 use crate::vm::version::ClarityVersion;
-use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
+use crate::vm::{eval, Environment, LocalContext};
 
 struct U128Ops();
 struct I128Ops();

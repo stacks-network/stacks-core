@@ -15,17 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+
 use crate::vm::representations::{
-    ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType,
-    CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, CONTRACT_NAME_REGEX_STRING,
+    ClarityName, ContractName, PreSymbolicExpression, CONTRACT_NAME_REGEX_STRING,
     CONTRACT_PRINCIPAL_REGEX_STRING, MAX_STRING_LEN, STANDARD_PRINCIPAL_REGEX_STRING,
 };
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TraitIdentifier, Value};
+use crate::vm::types::{PrincipalData, TraitIdentifier, Value};
 use regex::{Captures, Regex};
-use stacks_common::address::c32::c32_address_decode;
+
 use stacks_common::util::hash::hex_bytes;
-use std::cmp;
+
 use std::convert::TryInto;
 
 pub enum LexItem {
@@ -680,12 +679,10 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 #[cfg(test)]
 mod test {
     use crate::vm::ast;
-    use crate::vm::ast::errors::{ParseError, ParseErrors};
+    use crate::vm::ast::errors::ParseErrors;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
-    use crate::vm::types::TraitIdentifier;
-    use crate::vm::types::{
-        CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value,
-    };
+
+    use crate::vm::types::{CharType, PrincipalData, SequenceData, Value};
 
     fn make_atom(
         x: &str,
@@ -961,8 +958,6 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use crate::vm::errors::{Error, RuntimeErrorType};
-
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
         let middle_hash = "(let ((x 1) (y#not 2)) x)";

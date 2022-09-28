@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use assert_json_diff;
 use serde_json;
 
 use crate::vm::analysis::errors::CheckErrors;
@@ -543,7 +542,6 @@ fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: Stack
 
 #[test]
 fn test_expects() {
-    use crate::vm::analysis::type_check;
     let okay = "(define-map tokens { id: int } { balance: int })
          (define-private (my-get-token-balance)
             (let ((balance (unwrap!

@@ -14,28 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
-use regex::internal::Exec;
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::boot_util::boot_code_id;
-use crate::vm::ast::ContractAST;
-use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
+
+use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::{clarity_store::NullBackingStore, ClarityDatabase};
-use crate::vm::errors::{Error, InterpreterResult};
+use crate::vm::errors::InterpreterResult;
 use crate::vm::types::signatures::FunctionType::Fixed;
-use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
+use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
-    FunctionArg, FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData,
-    TypeSignature, NONE,
+    FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
-use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+use crate::vm::{eval_all, ClarityName, SymbolicExpression, Value};
 use stacks_common::types::StacksEpochId;
 
 pub mod constants;

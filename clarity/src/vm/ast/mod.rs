@@ -23,8 +23,8 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use crate::vm::errors::{Error, RuntimeErrorType};
+use crate::vm::costs::{runtime_cost, CostTracker};
+use crate::vm::errors::Error;
 
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;

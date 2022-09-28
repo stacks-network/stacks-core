@@ -19,8 +19,8 @@ pub mod contexts;
 pub mod natives;
 
 use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
-    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
+    analysis_typecheck_cost, runtime_cost, CostErrors, CostOverflowingMath, CostTracker,
+    ExecutionCost, LimitedCostTracker,
 };
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
@@ -28,15 +28,13 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature,
-    Value,
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature, Value,
 };
 use crate::vm::variables::NativeVariables;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
+use std::collections::BTreeMap;
 
 use crate::vm::ClarityVersion;
 
@@ -51,7 +49,7 @@ pub use super::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
     CheckErrors, CheckResult,
 };
-use crate::vm::contexts::Environment;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]

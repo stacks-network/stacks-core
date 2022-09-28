@@ -14,22 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::convert::TryInto;
 use std::fmt;
-use std::iter::FromIterator;
 
-use crate::vm::costs::{cost_functions, runtime_cost};
+use crate::vm::costs::runtime_cost;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
 use crate::vm::representations::{ClarityName, Span, SymbolicExpression};
-use crate::vm::types::Value::UInt;
-use crate::vm::types::{
-    FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
-};
+
+use crate::vm::types::{PrincipalData, TraitIdentifier, TypeSignature};
 use crate::vm::{eval, Environment, LocalContext, Value};
 
 use super::costs::CostOverflowingMath;
