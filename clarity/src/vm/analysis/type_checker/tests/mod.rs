@@ -3167,18 +3167,16 @@ fn test_let_bind_trait() {
     }
 }
 
-#[test]
-fn test_trait_same_contract() {
+#[apply(test_clarity_versions_type_checker)]
+fn test_trait_same_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = ["(define-trait trait-foo ((foo () (response uint uint))))
         (define-public (call-foo (f <trait-foo>))
-            (let ((g f))
-                (contract-call? g foo)
-            )
+            (contract-call? f foo)
         )
         (define-public (trigger (f <trait-foo>)) (call-foo f))"];
 
     for good_test in good.iter() {
-        assert!(mem_type_check(&good_test).is_ok());
+        assert!(mem_run_analysis(&good_test, version, epoch).is_ok());
     }
 }
 

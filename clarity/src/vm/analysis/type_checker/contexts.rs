@@ -209,28 +209,24 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_trait(
+    pub fn add_defined_trait(
         &mut self,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        clarity_version: ClarityVersion,
     ) -> CheckResult<()> {
-        self.traits.insert(trait_name, trait_signature);
-        Ok(())
-    }
-
-    pub fn add_defined_trait(
-        &mut self,
-        name: ClarityName,
-        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> CheckResult<()> {
-        self.defined_traits.insert(name.clone());
-        self.all_traits.insert(
-            TraitIdentifier {
-                name,
-                contract_identifier: self.contract_identifier.clone(),
-            },
-            trait_signature,
-        );
+        if clarity_version < ClarityVersion::Clarity2 {
+            self.traits.insert(trait_name, trait_signature);
+        } else {
+            self.defined_traits.insert(trait_name.clone());
+            self.all_traits.insert(
+                TraitIdentifier {
+                    name: trait_name,
+                    contract_identifier: self.contract_identifier.clone(),
+                },
+                trait_signature,
+            );
+        }
         Ok(())
     }
 
@@ -238,8 +234,13 @@ impl ContractContext {
         &mut self,
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+        clarity_version: ClarityVersion,
     ) -> CheckResult<()> {
-        self.all_traits.insert(trait_id, trait_signature);
+        if clarity_version < ClarityVersion::Clarity2 {
+            self.traits.insert(trait_id.name.clone(), trait_signature);
+        } else {
+            self.all_traits.insert(trait_id, trait_signature);
+        }
         Ok(())
     }
 
@@ -248,15 +249,16 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
-        self.traits.get(trait_name)
-    }
-
-    pub fn get_trait_by_id(
+    pub fn get_trait(
         &self,
         trait_id: &TraitIdentifier,
+        clarity_version: ClarityVersion,
     ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
-        self.all_traits.get(trait_id)
+        if clarity_version < ClarityVersion::Clarity2 {
+            self.traits.get(&trait_id.name)
+        } else {
+            self.all_traits.get(trait_id)
+        }
     }
 
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {

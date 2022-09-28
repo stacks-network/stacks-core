@@ -656,19 +656,16 @@ fn lookup_trait<T: CostTracker>(
     if let Some(contract_context) = contract_context {
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
-            return Ok(if clarity_version < ClarityVersion::Clarity2 {
-                contract_context.get_trait(&trait_id.name)
-            } else {
-                contract_context.get_trait_by_id(trait_id)
-            }
-            .ok_or(CheckErrors::NoSuchTrait(
-                trait_id.contract_identifier.to_string(),
-                trait_id.name.to_string(),
-            ))?
-            .clone());
+            return Ok(contract_context
+                .get_trait(&trait_id, clarity_version)
+                .ok_or(CheckErrors::NoSuchTrait(
+                    trait_id.contract_identifier.to_string(),
+                    trait_id.name.to_string(),
+                ))?
+                .clone());
         }
         if clarity_version >= ClarityVersion::Clarity2 {
-            if let Some(trait_sig) = contract_context.get_trait_by_id(trait_id) {
+            if let Some(trait_sig) = contract_context.get_trait(trait_id, clarity_version) {
                 return Ok(trait_sig.clone());
             }
         }
@@ -1455,13 +1452,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         self,
                         trait_type_size(&trait_signature)?,
                     )?;
-                    if self.clarity_version < ClarityVersion::Clarity2 {
-                        self.contract_context
-                            .add_trait(trait_name, trait_signature)?;
-                    } else {
-                        self.contract_context
-                            .add_defined_trait(name.clone(), trait_signature)?;
-                    }
+                    self.contract_context.add_defined_trait(
+                        trait_name,
+                        trait_signature,
+                        self.clarity_version,
+                    )?;
                 }
                 DefineFunctionsParsed::UseTrait {
                     name,
@@ -1480,13 +1475,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                                 type_size,
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
-                            if self.clarity_version < ClarityVersion::Clarity2 {
-                                self.contract_context
-                                    .add_trait(trait_identifier.name.clone(), trait_sig)?
-                            } else {
-                                self.contract_context
-                                    .add_used_trait(trait_identifier.clone(), trait_sig)?
-                            }
+                            self.contract_context.add_used_trait(
+                                trait_identifier.clone(),
+                                trait_sig,
+                                self.clarity_version,
+                            )?
                         }
                         None => {
                             // still had to do a db read, even if it didn't exist!
