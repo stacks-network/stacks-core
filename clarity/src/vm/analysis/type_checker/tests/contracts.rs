@@ -996,6 +996,66 @@ fn test_let3_trait() {
     });
 }
 
+/// Bind a trait transitively in multiple let expressions with compound types
+#[test]
+fn test_let3_compound_trait() {
+    let let3_compound_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-private (foo (a (response (optional <trait-1>) uint)))
+        (ok true)
+    )
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2-opt (some t1)))
+                (let ((t3-res (ok t2-opt)))
+                    (foo t3-res)
+                )
+            )
+        )
+    )";
+
+    mem_type_check(let3_compound_trait).unwrap();
+    mem_type_check_v1(let3_compound_trait).unwrap();
+}
+
+/// Bind a trait transitively in multiple let expressions with compound types,
+/// then unwrap it and use it to call the contract.
+#[test]
+fn test_let3_compound_trait_call() {
+    let let3_compound_trait_call = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-private (foo (a (response (optional <trait-1>) uint)))
+        (ok true)
+    )
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2-opt (some t1)))
+                (let ((t3-res (ok t2-opt)))
+                    (let ((t4 (unwrap! (unwrap! t3-res (err u1)) (err u2))))
+                        (contract-call? t4 echo u23)
+                    )
+                )
+            )
+        )
+    )";
+
+    mem_type_check(let3_compound_trait_call).unwrap();
+    let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t4");
+            true
+        }
+        _ => false,
+    });
+}
+
 /// Check for compatibility between traits where the function parameter type
 /// differs
 #[test]
