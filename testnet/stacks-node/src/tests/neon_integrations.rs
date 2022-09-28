@@ -17,13 +17,11 @@ use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, Tr
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
-use stacks::core::{
-    StacksEpoch, StacksEpochId,CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0 
-};
+use stacks::core::{StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0};
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
-    PostTransactionRequestBody, RPCPeerInfoData, 
+    PostTransactionRequestBody, RPCPeerInfoData,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -59,8 +57,7 @@ use stacks::{
 use crate::{
     burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
     config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
+    BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
 };
 
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
