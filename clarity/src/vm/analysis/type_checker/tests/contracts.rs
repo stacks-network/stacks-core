@@ -665,245 +665,805 @@ fn test_expects() {
     });
 }
 
+/// Pass a trait to a trait parameter with the same type
 #[test]
-fn test_traits() {
-    {
-        let trait_to_trait = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-get-1 (contract <trait-1>))
-            (internal-get-1 contract))
-        (define-public (internal-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u1))";
+fn test_trait_to_trait() {
+    let trait_to_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-1 (contract <trait-1>))
+        (internal-get-1 contract))
+    (define-public (internal-get-1 (contract <trait-1>))
+        (contract-call? contract get-1 u1))";
 
-        let trait_to_compatible_trait = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-1>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-2>))
-            (ok true))";
+    mem_type_check(trait_to_trait).unwrap();
+    mem_type_check_v1(trait_to_trait).unwrap();
+}
 
-        let bad_principal_to_trait = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-get-1 (contract principal))
-            (internal-get-1 contract))
-        (define-public (internal-get-1 (contract <trait-1>))
-            (contract-call? contract get-1 u1))";
+/// Pass a trait to a trait parameter with a compatible trait type
+#[test]
+fn test_trait_to_compatible_trait() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
 
-        let bad_other_trait = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (get-2 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-get-2 (contract <trait-1>))
-            (internal-get-2 contract))
-        (define-public (internal-get-2 (contract <trait-2>))
-            (contract-call? contract get-2 u1))";
+    mem_type_check(trait_to_compatible_trait).unwrap();
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
 
-        let embedded_trait = "(define-trait trait-12 (
-            (get-1 (uint) (response uint uint))
-            (get-2 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-opt-get-1 (contract <trait-12>))
-            (internal-get-1 (some contract)))
-        (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
-            (match opt-contract
-                contract (contract-call? contract get-1 u1)
-                (err u1)
-            )
-        )";
+/// Pass a principal to a trait parameter
+#[test]
+fn test_bad_principal_to_trait() {
+    let bad_principal_to_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-1 (contract principal))
+        (internal-get-1 contract))
+    (define-public (internal-get-1 (contract <trait-1>))
+        (contract-call? contract get-1 u1))";
 
-        let embedded_trait_compatible = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-trait trait-12 (
-            (get-1 (uint) (response uint uint))
-            (get-2 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-opt-get-1 (contract <trait-12>))
-            (internal-get-1 (some contract)))
-        (define-public (internal-get-1 (opt-contract (optional <trait-1>)))
-            (match opt-contract
-                contract (contract-call? contract get-1 u1)
-                (err u1)
-            )
-        )";
+    let err = mem_type_check(bad_principal_to_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::PrincipalType,
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::PrincipalType,
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
 
-        let bad_embedded_trait = "(define-trait trait-1 (
-            (get-1 (uint) (response uint uint))
-        ))
-        (define-trait trait-12 (
-            (get-1 (uint) (response uint uint))
-            (get-2 (uint) (response uint uint))
-        ))
-        (define-public (wrapped-opt-get-1 (contract <trait-1>))
-            ;; Passing (optional <trait-1>) as an (optional <trait-12>) should be an error
-            (wrapped-get-1 (some contract)))
-        (define-public (wrapped-get-1 (opt-contract (optional <trait-12>)))
-            (internal-get-1 opt-contract)
+/// Pass a trait to a trait parameter which is not compatible
+#[test]
+fn test_bad_other_trait() {
+    let bad_other_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-2 (contract <trait-1>))
+        (internal-get-2 contract))
+    (define-public (internal-get-2 (contract <trait-2>))
+        (contract-call? contract get-2 u1))";
+
+    let err = mem_type_check(bad_other_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_other_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait embedded in a compound type
+#[test]
+fn test_embedded_trait() {
+    let embedded_trait = "(define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-12>))
+        (internal-get-1 (some contract)))
+    (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
         )
-        (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
-            (match opt-contract
-                contract (contract-call? contract get-1 u1)
-                (err u1)
-            )
-        )";
+    )";
 
-        let let_trait = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-public (let-echo (t <trait-1>))
-            (let ((t1 t))
-                (contract-call? t1 echo u42)
-            )
-        )";
+    mem_type_check(embedded_trait).unwrap();
+    let err = mem_type_check_v1(embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
 
-        let let3_trait = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-public (let-echo (t <trait-1>))
-            (let ((t1 t))
-                (let ((t2 t1))
-                    (let ((t3 t2))
-                        (contract-call? t3 echo u42)
-                    )
+/// Pass a trait embedded in a compound type to a parameter with a compatible
+/// trait type
+#[test]
+fn test_embedded_trait_compatible() {
+    let embedded_trait_compatible = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-12>))
+        (internal-get-1 (some contract)))
+    (define-public (internal-get-1 (opt-contract (optional <trait-1>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
+        )
+    )";
+
+    mem_type_check(embedded_trait_compatible).unwrap();
+    let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait embedded in a compound type to a parameter with an
+/// incompatible trait type
+#[test]
+fn test_bad_embedded_trait() {
+    let bad_embedded_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-1>))
+        ;; Passing (optional <trait-1>) as an (optional <trait-12>) should be an error
+        (wrapped-get-1 (some contract)))
+    (define-public (wrapped-get-1 (opt-contract (optional <trait-12>)))
+        (internal-get-1 opt-contract)
+    )
+    (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
+        )
+    )";
+
+    let err = mem_type_check(bad_embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-12");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Bind a trait in a let expression
+#[test]
+fn test_let_trait() {
+    let let_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (contract-call? t1 echo u42)
+        )
+    )";
+
+    mem_type_check(let_trait).unwrap();
+    let err = mem_type_check_v1(let_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t1");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Bind a trait in transitively in multiple let expressions
+#[test]
+fn test_let3_trait() {
+    let let3_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2 t1))
+                (let ((t3 t2))
+                    (contract-call? t3 echo u42)
                 )
             )
-        )";
-
-        let trait_args_differ = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (int) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-1>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-2>))
-            (ok true))";
-
-        let trait_ret_ty_differ = "(define-trait trait-1 (
-            (echo (uint) (response int uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-1>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-2>))
-            (contract-call? contract echo u1))";
-
-        let trait_with_compatible_trait_arg = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-a (
-            (echo (<trait-1>) (response uint uint))
-        ))
-        (define-trait trait-b (
-            (echo (<trait-2>) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-a>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
-            (contract-call? contract echo callee))";
-
-        let trait_with_bad_trait_arg = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response int uint))
-        ))
-        (define-trait trait-a (
-            (echo (<trait-1>) (response uint uint))
-        ))
-        (define-trait trait-b (
-            (echo (<trait-2>) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-a>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
-            (contract-call? contract echo callee))";
-
-        let trait_with_superset_trait_arg = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-            (foo (uint) (response uint uint))
-        ))
-        (define-trait trait-a (
-            (echo (<trait-1>) (response uint uint))
-        ))
-        (define-trait trait-b (
-            (echo (<trait-2>) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-a>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
-            (contract-call? contract echo callee))";
-
-        let trait_with_subset_trait_arg = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-            (foo (uint) (response uint uint))
-        ))
-        (define-trait trait-a (
-            (echo (<trait-1>) (response uint uint))
-        ))
-        (define-trait trait-b (
-            (echo (<trait-2>) (response uint uint))
-        ))
-        (define-public (wrapped-echo (contract <trait-b>))
-            (internal-echo contract))
-        (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
-            (contract-call? contract echo callee))";
-
-        let trait_with_duplicate_method = "(define-trait double-method (
-            (foo (uint) (response uint uint))
-            (foo (bool) (response bool bool))
-          ))";
-
-        let trait_to_subtrait_and_back = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-            (foo (uint) (response uint uint))
-        ))
-        (define-private (foo-0 (impl-contract <trait-2>))
-            (foo-1 impl-contract))
-     
-        (define-private (foo-1 (impl-contract <trait-1>))
-            (foo-2 impl-contract))
-        
-        (define-private (foo-2 (impl-contract <trait-2>))
-            true)";
-
-        let trait_list_to_map = "(define-trait token-trait (
-            (echo (uint) (response uint uint))
-        ))
-        (define-public (send-many (data (list 10 {amount: uint, sender: principal, recipient: principal})) (token <token-trait>))
-            (ok (map my-iter data (list token token token token token token token token token token)))
         )
-        (define-private (my-iter (data {amount: uint, sender: principal, recipient: principal}) (token <token-trait>))
+    )";
+
+    mem_type_check(let3_trait).unwrap();
+    let err = mem_type_check_v1(let3_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t3");
             true
-        )";
+        }
+        _ => false,
+    });
+}
 
-        let if_branches_with_incompatible_trait_types = "(define-trait trait-1 (
+/// Check for compatibility between traits where the function parameter type
+/// differs
+#[test]
+fn test_trait_args_differ() {
+    let trait_args_differ = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (int) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_args_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_args_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility between traits where the response types differ
+#[test]
+fn test_trait_ret_ty_differ() {
+    let trait_ret_ty_differ = "(define-trait trait-1 (
+        (echo (uint) (response int uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (contract-call? contract echo u1))";
+
+    let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter has a
+/// compatible type
+#[test]
+fn test_trait_with_compatible_trait_arg() {
+    let trait_with_compatible_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    mem_type_check(trait_with_compatible_trait_arg).unwrap();
+    let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter has an
+/// incompatible trait type
+#[test]
+fn test_trait_with_bad_trait_arg() {
+    let trait_with_bad_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response int uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-b");
+            assert_eq!(actual.name.as_str(), "trait-a");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter from one trait
+/// has a trait type which is a superset of the corresponding trait
+#[test]
+fn test_trait_with_superset_trait_arg() {
+    let trait_with_superset_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-b");
+            assert_eq!(actual.name.as_str(), "trait-a");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter from one trait
+/// has a trait type which is a subset of the corresponding trait
+#[test]
+fn test_trait_with_subset_trait_arg() {
+    let trait_with_subset_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-b>) (callee <trait-1>))
+        (internal-echo contract callee))
+    (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
+        (contract-call? contract echo callee))";
+
+    mem_type_check(trait_with_subset_trait_arg).unwrap();
+    let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-a");
+                    assert_eq!(found_trait.name.as_str(), "trait-b");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Define a trait with a duplicated method name
+#[test]
+fn test_trait_with_duplicate_method() {
+    let trait_with_duplicate_method = "(define-trait double-method (
+        (foo (uint) (response uint uint))
+        (foo (bool) (response bool bool))
+      ))";
+
+    let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::DefineTraitDuplicateMethod(method_name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(method_name.as_str(), "foo");
+            true
+        }
+        _ => false,
+    });
+    mem_type_check_v1(trait_with_duplicate_method).unwrap();
+}
+
+/// Pass a trait to a subtrait, then back to the original trait
+#[test]
+fn test_trait_to_subtrait_and_back() {
+    let trait_to_subtrait_and_back = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-private (foo-0 (impl-contract <trait-2>))
+        (foo-1 impl-contract))
+ 
+    (define-private (foo-1 (impl-contract <trait-1>))
+        (foo-2 impl-contract))
+    
+    (define-private (foo-2 (impl-contract <trait-2>))
+        true)";
+
+    let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Use `map` on a list of traits
+#[test]
+fn test_trait_list_to_map() {
+    let trait_list_to_map = "(define-trait token-trait (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (send-many (data (list 10 {amount: uint, sender: principal, recipient: principal})) (token <token-trait>))
+        (ok (map my-iter data (list token token token token token token token token token token)))
+    )
+    (define-private (my-iter (data {amount: uint, sender: principal, recipient: principal}) (token <token-trait>))
+        true
+    )";
+
+    mem_type_check(trait_list_to_map).unwrap();
+    mem_type_check_v1(trait_list_to_map).unwrap();
+}
+
+/// If branches with incompatible trait types
+#[test]
+fn test_if_branches_with_incompatible_trait_types() {
+    let if_branches_with_incompatible_trait_types = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (foo (uint) (response uint uint))
+    ))
+    (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
+        (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
+            (contract-call? to-invoke method)
+        )
+    )";
+    let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// If branches with compatible trait types
+#[test]
+fn test_if_branches_with_compatible_trait_types() {
+    let if_branches_with_compatible_trait_types = "(define-trait trait-1 (
             (echo (uint) (response uint uint))
         ))
         (define-trait trait-2 (
+            (echo (uint) (response uint uint))
             (foo (uint) (response uint uint))
         ))
         (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
@@ -912,518 +1472,48 @@ fn test_traits() {
             )
         )";
 
-        let if_branches_with_compatible_trait_types = "(define-trait trait-1 (
-            (echo (uint) (response uint uint))
-        ))
-        (define-trait trait-2 (
-            (echo (uint) (response uint uint))
-            (foo (uint) (response uint uint))
-        ))
-        (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
-            (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
-                (contract-call? to-invoke method)
-            )
-        )";
-
-        mem_type_check(trait_to_trait).unwrap();
-        mem_type_check_v1(trait_to_trait).unwrap();
-
-        mem_type_check(trait_to_compatible_trait).unwrap();
-        let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
-        eprintln!("Clarity1: pass a compatible trait: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-2");
-                        assert_eq!(found_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
+    let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
                 }
+                _ => false,
             }
-            _ => false,
-        });
-
-        let err = mem_type_check(bad_principal_to_trait).unwrap_err();
-        eprintln!("pass principal value to trait param: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::PrincipalType,
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
                 }
+                _ => false,
             }
-            _ => false,
-        });
-        let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
-        eprintln!("Clarity1: pass principal value to trait param: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::PrincipalType,
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(bad_other_trait).unwrap_err();
-        eprintln!("pass incompatible trait to trait param: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-2");
-                assert_eq!(actual.name.as_str(), "trait-1");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(bad_other_trait).unwrap_err();
-        eprintln!(
-            "Clarity1: pass invalid embedded trait to trait param: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-2");
-                        assert_eq!(found_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        mem_type_check(embedded_trait).unwrap();
-        let err = mem_type_check_v1(embedded_trait).unwrap_err();
-        eprintln!("Clarity1: embed trait in optional: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TraitReferenceUnknown(name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(name.as_str(), "contract");
-                true
-            }
-            _ => false,
-        });
-
-        mem_type_check(embedded_trait_compatible).unwrap();
-        let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
-        eprintln!("Clarity1: embed compatible trait in optional: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TraitReferenceUnknown(name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(name.as_str(), "contract");
-                true
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(bad_embedded_trait).unwrap_err();
-        eprintln!("pass invalid embedded trait to trait param: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-12");
-                assert_eq!(actual.name.as_str(), "trait-1");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
-        eprintln!(
-            "Clarity1: pass invalid embedded trait to trait param: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TraitReferenceUnknown(name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(name.as_str(), "contract");
-                true
-            }
-            _ => false,
-        });
-
-        mem_type_check(let_trait).unwrap();
-        let err = mem_type_check_v1(let_trait).unwrap_err();
-        eprintln!("Clarity1: bind trait in let variable: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TraitReferenceUnknown(name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(name.as_str(), "t1");
-                true
-            }
-            _ => false,
-        });
-
-        mem_type_check(let3_trait).unwrap();
-        let err = mem_type_check_v1(let3_trait).unwrap_err();
-        eprintln!("Clarity1: bind trait in let variable nested: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TraitReferenceUnknown(name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(name.as_str(), "t3");
-                true
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(trait_args_differ).unwrap_err();
-        eprintln!("pass trait with different arg type to trait param: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-2");
-                assert_eq!(actual.name.as_str(), "trait-1");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(trait_args_differ).unwrap_err();
-        eprintln!(
-            "Clarity1: pass trait with different arg type to trait param: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-2");
-                        assert_eq!(found_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
-        eprintln!(
-            "pass trait with different return type to trait param: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-2");
-                assert_eq!(actual.name.as_str(), "trait-1");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
-        eprintln!(
-            "Clarity1: pass trait with different return type to trait param: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-2");
-                        assert_eq!(found_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        mem_type_check(trait_with_compatible_trait_arg).unwrap();
-        let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
-        eprintln!("Clarity1: trait with compatible trait arg: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-b");
-                        assert_eq!(found_trait.name.as_str(), "trait-a");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
-        eprintln!(
-            "trait with trait argument, pass incompatible trait: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-b");
-                assert_eq!(actual.name.as_str(), "trait-a");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
-        eprintln!(
-            "Clarity1: trait with trait argument, pass incompatible trait: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-b");
-                        assert_eq!(found_trait.name.as_str(), "trait-a");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
-        eprintln!("trait with duplicate methods: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::DefineTraitDuplicateMethod(method_name),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(method_name.as_str(), "foo");
-                true
-            }
-            _ => false,
-        });
-        mem_type_check_v1(trait_with_duplicate_method).unwrap();
-
-        let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
-        eprintln!("trait to subtrait and back: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IncompatibleTrait(expected, actual),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                assert_eq!(expected.name.as_str(), "trait-2");
-                assert_eq!(actual.name.as_str(), "trait-1");
-                true
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
-        eprintln!("Clarity1: trait to subtrait and back: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::TypeError(expected, found),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (expected, found) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                    ) => {
-                        assert_eq!(expected_trait.name.as_str(), "trait-2");
-                        assert_eq!(found_trait.name.as_str(), "trait-1");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        mem_type_check(trait_list_to_map).unwrap();
-        mem_type_check_v1(trait_list_to_map).unwrap();
-
-        let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
-        eprintln!("if branches with incompatible trait types: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IfArmsMustMatch(type1, type2),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (type1, type2) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                    ) => {
-                        assert_eq!(trait1.name.as_str(), "trait-1");
-                        assert_eq!(trait2.name.as_str(), "trait-2");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
-        eprintln!(
-            "Clarity1: if branches with incompatible trait types: {}",
-            err
-        );
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IfArmsMustMatch(type1, type2),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (type1, type2) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                    ) => {
-                        assert_eq!(trait1.name.as_str(), "trait-1");
-                        assert_eq!(trait2.name.as_str(), "trait-2");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-
-        let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
-        eprintln!("if branches with compatible trait types: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IfArmsMustMatch(type1, type2),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (type1, type2) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                    ) => {
-                        assert_eq!(trait1.name.as_str(), "trait-1");
-                        assert_eq!(trait2.name.as_str(), "trait-2");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-        let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
-        eprintln!("Clarity1: if branches with compatible trait types: {}", err);
-        assert!(match err {
-            CheckError {
-                err: CheckErrors::IfArmsMustMatch(type1, type2),
-                expressions: _,
-                diagnostic: _,
-            } => {
-                match (type1, type2) {
-                    (
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                        TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                    ) => {
-                        assert_eq!(trait1.name.as_str(), "trait-1");
-                        assert_eq!(trait2.name.as_str(), "trait-2");
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        });
-    }
+        }
+        _ => false,
+    });
 }
 
 /// Based on issue #3215 from sskeirik
