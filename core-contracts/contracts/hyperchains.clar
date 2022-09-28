@@ -101,14 +101,6 @@
     )
 )
 
-;; Helper function for fold: if a == b, return none; else return b
-;; Returns (optional principal)
-(define-private (is-principal-eq (miner-a principal) (search-for (optional principal)))
-    (if (is-eq (some miner-a) search-for)
-        none
-        search-for
-    )
-)
 ;; Helper function: returns a boolean indicating whether the given principal is a miner
 ;; Returns bool
 (define-private (is-miner (miner-to-check principal))
