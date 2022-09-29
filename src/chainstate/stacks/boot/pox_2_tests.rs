@@ -102,7 +102,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     eprintln!("First v2 cycle = {}", first_v2_cycle);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, EMPTY_SORTITIONS as u64 + 1000);
 
     let observer = TestEventObserver::new();
 
@@ -541,7 +541,7 @@ fn test_pox_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, EMPTY_SORTITIONS as u64 + 1000);
 
     let observer = TestEventObserver::new();
 
@@ -927,7 +927,7 @@ fn test_delegate_extend_transition_pox_2() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, EMPTY_SORTITIONS as u64 + 1000);
 
     let observer = TestEventObserver::new();
 
@@ -1476,7 +1476,7 @@ fn test_pox_2_getters() {
     eprintln!("First v2 cycle = {}", first_v2_cycle);
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
-    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10, EMPTY_SORTITIONS as u64 + 1000);
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
@@ -1745,7 +1745,7 @@ fn test_get_pox_addrs() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-    let epochs = StacksEpoch::all(1, 2, 3);
+    let epochs = StacksEpoch::all(1, 2, 3, 50);
 
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,

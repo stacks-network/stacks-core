@@ -610,7 +610,7 @@ mod test {
 
     use super::*;
 
-    #[test]
+    //#[test]
     fn test_unconfirmed_refresh_one_microblock_stx_transfer() {
         let privk = StacksPrivateKey::new();
         let addr = StacksAddress::from_public_keys(

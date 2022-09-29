@@ -69,6 +69,9 @@ fn helper_execute_epoch(
     if epoch > StacksEpochId::Epoch2_05 {
         genesis.initialize_epoch_2_1().unwrap();
     }
+    if epoch > StacksEpochId::Epoch21 {
+        genesis.initialize_epoch_2_2().unwrap();
+    }
 
     if let Some(epoch) = set_epoch {
         genesis.as_transaction(|tx_conn| {

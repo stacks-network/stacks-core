@@ -210,6 +210,15 @@ where
         tip = next_block.clone();
     }
 
+    if epoch >= StacksEpochId::Epoch22 {
+        let next_block = StacksBlockId([5 as u8; 32]);
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        clarity_conn.initialize_epoch_2_2().unwrap();
+        clarity_conn.commit_block();
+        tip = next_block.clone();
+    }
+
     let mut marf_kv = clarity_instance.destroy();
 
     let mut store = marf_kv.begin(&tip, &StacksBlockId([3 as u8; 32]));
