@@ -113,7 +113,7 @@ pub mod db_common {
             sleep_count = 5000;
         }
 
-        debug!(
+        crate::debug!(
             "Database is locked; sleeping {}ms and trying again",
             &sleep_count
         );

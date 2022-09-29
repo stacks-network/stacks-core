@@ -564,7 +564,7 @@ macro_rules! test_debug {
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
-                debug!($($arg)*);
+                crate::debug!($($arg)*);
             }
         }
     )
@@ -591,7 +591,7 @@ macro_rules! trace {
         #[cfg(test)]
         {
             if crate::util::macros::is_trace() {
-                debug!($($arg)*);
+                crate::debug!($($arg)*);
             }
         }
     )
