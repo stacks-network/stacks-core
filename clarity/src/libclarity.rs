@@ -24,7 +24,7 @@
 extern crate rand;
 extern crate rand_chacha;
 #[cfg(feature = "sqlite")]
-extern crate rusqlite;
+pub extern crate rusqlite;
 extern crate serde;
 #[macro_use]
 extern crate lazy_static;
