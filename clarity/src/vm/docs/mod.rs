@@ -1815,7 +1815,7 @@ be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `
 may be passed as a trait parameter if the specified contract implements all of the functions specified by the trait.
 A trait value (originating from a parameter with trait type) may also be passed as a trait parameter if the types are the same.
 
-Beginning in Clarity 2, a trait can be used in all of the same ways that a builtin type can be used,
+Beginning in Clarity 2, a trait can be used in all of the same ways that a built-in type can be used,
 except that it cannot be stored in a data var or map, since this would inhibit static analysis.
 This means that a trait type can be embedded in a compound type (e.g. `(optional <my-trait>)` or `(list 4 <my-trait>)`)
 and a trait value can be bound to a variable in a `let` or `match` expression. In addition to the principal literal
