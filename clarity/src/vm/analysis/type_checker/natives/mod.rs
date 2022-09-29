@@ -421,7 +421,7 @@ fn check_contract_call(
                 // Constant principal literal, static dispatch
                 Some(TypeSignature::CallableType(CallableSubtype::Principal(
                     contract_identifier,
-                ))) => {
+                ))) if checker.clarity_version >= ClarityVersion::Clarity2 => {
                     let contract_call_function = {
                         if let Some(FunctionType::Fixed(function)) = checker
                             .db
@@ -451,7 +451,7 @@ fn check_contract_call(
 
                     func_signature
                 }
-                Some(var_type) => {
+                Some(var_type) if checker.clarity_version >= ClarityVersion::Clarity2 => {
                     // Any other typed constant is an error
                     return Err(CheckErrors::ExpectedCallableType(var_type.clone()).into());
                 }
