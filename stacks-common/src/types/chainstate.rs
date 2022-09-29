@@ -3,14 +3,12 @@ use std::io::Read;
 use std::io::Write;
 use std::str::FromStr;
 
-use curve25519_dalek::digest::Digest;
 use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
 use crate::util::uint::Uint256;
-use crate::util::vrf::VRFProof;
 
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
@@ -19,7 +17,6 @@ use serde::Serialize;
 
 use crate::util::secp256k1::Secp256k1PrivateKey;
 use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 
@@ -75,7 +72,6 @@ impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
 impl_byte_array_serde!(VRFSeed);
-pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
 
 /// Identifier used to identify Proof-of-Transfer forks
 ///  (or Rewards Cycle forks). These identifiers are opaque
@@ -269,23 +265,6 @@ impl StacksWorkScore {
     }
 }
 
-impl StacksMessageCodec for VRFProof {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        fd.write_all(&self.to_bytes())
-            .map_err(CodecError::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, CodecError> {
-        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
-        fd.read_exact(&mut bytes).map_err(CodecError::ReadError)?;
-        let res = VRFProof::from_slice(&bytes).ok_or(CodecError::DeserializeError(
-            "Failed to parse VRF proof".to_string(),
-        ))?;
-
-        Ok(res)
-    }
-}
-
 impl StacksMessageCodec for StacksWorkScore {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.burn)?;
@@ -362,24 +341,6 @@ impl ToSql for Sha256dHash {
         Ok(hex_str.into())
     }
 }
-
-impl VRFSeed {
-    /// First-ever VRF seed from the genesis block.  It's all 0's
-    pub fn initial() -> VRFSeed {
-        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
-    }
-
-    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
-        let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
-        VRFSeed(h.0)
-    }
-
-    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
-        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
-    }
-}
-
 impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.0)?;
