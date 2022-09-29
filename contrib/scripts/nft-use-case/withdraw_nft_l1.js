@@ -11,6 +11,7 @@ import {
 import { StacksTestnet, HIRO_MOCKNET_DEFAULT } from '@stacks/network';
 
 
+// NOTE: The arguments to the `withdraw-nft-asset` function change with Stacks 2.1
 async function main() {
     const network = new StacksTestnet({url: HIRO_MOCKNET_DEFAULT});
     const hyperchainUrl = process.env.HYPERCHAIN_URL;
@@ -39,8 +40,6 @@ async function main() {
         functionArgs: [
             uintCV(5), // ID
             standardPrincipalCV(addr), // recipient
-            uintCV(withdrawalId), // withdrawal-id
-            uintCV(withdrawalBlockHeight), // withdrawal-height
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-contract
             contractPrincipalCV(contractAddr, 'simple-nft-l1'), // nft-mint-contract
             cv_merkle_entry.withdrawal_root, // withdrawal root
