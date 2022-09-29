@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use clarity::util::hash::Sha512Trunc256Sum;
 use rusqlite::Connection;
 
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
@@ -7,6 +8,10 @@ use crate::chainstate::stacks::index::{Error, MarfTrieId};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::IndexDBConn;
 use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::database::sqlite::{
+    sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
+    sqlite_insert_metadata,
+};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
 };
@@ -431,6 +436,34 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
 }
 
 impl<'a> WritableMarfStore<'a> {
@@ -659,5 +692,33 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         self.marf
             .insert_batch(&keys, values)
             .expect("ERROR: Unexpected MARF Failure");
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }

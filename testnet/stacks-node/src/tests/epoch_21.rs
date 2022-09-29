@@ -277,7 +277,7 @@ fn transition_fixes_utxo_chaining() {
         .conn()
         .query_row(
             "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
-            &[tip.sortition_id],
+            [tip.sortition_id],
             |row| {
                 let data_str: String = row.get_unwrap(0);
                 Ok(serde_json::from_str(&data_str).unwrap())

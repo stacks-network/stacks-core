@@ -1,3 +1,4 @@
+use clarity::util::hash::Sha512Trunc256Sum;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::chainstate::burn::db::sortdb::{
@@ -28,8 +29,12 @@ use crate::core::StacksEpochId;
 use std::ops::{Deref, DerefMut};
 
 use crate::clarity_vm::special::handle_contract_call_special_cases;
+use clarity::vm::database::sqlite::{
+    sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
+    sqlite_insert_metadata,
+};
 use clarity::vm::database::SpecialCaseHandler;
-use clarity::vm::types::TupleData;
+use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use stacks_common::types::chainstate::ConsensusHash;
 
 pub mod marf;
@@ -506,5 +511,33 @@ impl ClarityBackingStore for MemoryBackingStore {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value);
         }
+    }
+
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+        sqlite_get_contract_hash(self, contract)
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        sqlite_insert_metadata(self, contract, key, value)
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata(self, contract, key)
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> InterpreterResult<Option<String>> {
+        sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
