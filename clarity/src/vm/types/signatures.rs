@@ -550,6 +550,7 @@ impl TypeSignature {
                     Ok(TypeSignature::PrincipalType)
                 }
             }
+            CallableType(CallableSubtype::Principal(_)) => Ok(TypeSignature::PrincipalType),
             _ => Ok(self.clone()),
         }
     }

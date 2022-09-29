@@ -122,6 +122,7 @@ pub enum CheckErrors {
     PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
+    ExpectedCallableType(TypeSignature),
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
@@ -380,6 +381,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
+            CheckErrors::ExpectedCallableType(found_type) => format!("expected a callable contract, found {}", found_type),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),

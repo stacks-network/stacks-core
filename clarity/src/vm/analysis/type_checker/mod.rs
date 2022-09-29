@@ -968,6 +968,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     } else {
                         return_type
                     }
+                    .concretize()?
                 };
 
                 self.function_return_tracker = None;
@@ -1136,7 +1137,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expected_type: &TypeSignature,
     ) -> TypeResult {
         let mut expr_type = match expr.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
+            AtomValue(ref value) => TypeSignature::type_of(value),
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value),
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
@@ -1145,91 +1147,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         };
 
         analysis_typecheck_cost(self, expected_type, &expr_type)?;
-        match (expected_type, &expr.expr) {
-            (
-                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
-                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
-            ) => {
-                // When a principal literal is used as a trait, make sure it implements the trait.
-                let contract_to_check = match self.db.load_contract(&contract_identifier) {
-                    Some(contract) => {
-                        runtime_cost(
-                            ClarityCostFunction::AnalysisFetchContractEntry,
-                            &mut self.cost_track,
-                            contract_analysis_size(&contract)?,
-                        )?;
-                        contract
-                    }
-                    None => {
-                        runtime_cost(
-                            ClarityCostFunction::AnalysisFetchContractEntry,
-                            &mut self.cost_track,
-                            1,
-                        )?;
-                        return Err(
-                            CheckErrors::NoSuchContract(contract_identifier.to_string()).into()
-                        );
-                    }
-                };
-
-                let expected_trait = &lookup_trait(
-                    self.db,
-                    Some(&self.contract_context),
-                    expected_trait_id,
-                    self.clarity_version,
-                    &mut self.cost_track,
-                )?;
-                contract_to_check.check_trait_compliance(expected_trait_id, expected_trait)?;
-            }
-            (TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)), _) => {
-                // When any other expression is used as a trait, those with trait
-                // types should be checked for compatibility. Others should report
-                // an error.
-                let expr_trait_id =
-                    if let TypeSignature::CallableType(CallableSubtype::Trait(expr_trait_id)) =
-                        expr_type
-                    {
-                        expr_trait_id
-                    } else {
-                        return Err(CheckErrors::TypeError(expected_type.clone(), expr_type).into());
-                    };
-                let actual_trait = lookup_trait(
-                    self.db,
-                    Some(&self.contract_context),
-                    &expr_trait_id,
-                    self.clarity_version,
-                    &mut self.cost_track,
-                )?;
-                let expected_trait = lookup_trait(
-                    self.db,
-                    Some(&self.contract_context),
-                    expected_trait_id,
-                    self.clarity_version,
-                    &mut self.cost_track,
-                )?;
-                trait_check_trait_compliance(
-                    self.db,
-                    Some(&self.contract_context),
-                    &expr_trait_id,
-                    &actual_trait,
-                    expected_trait_id,
-                    &expected_trait,
-                    self.clarity_version,
-                    &mut self.cost_track,
-                )?;
-            }
-            (_, _) => {
-                inner_type_check_type(
-                    self.db,
-                    Some(&self.contract_context),
-                    &expr_type,
-                    expected_type,
-                    self.clarity_version,
-                    1,
-                    &mut self.cost_track,
-                )?;
-            }
-        }
+        inner_type_check_type(
+            self.db,
+            Some(&self.contract_context),
+            &expr_type,
+            expected_type,
+            self.clarity_version,
+            1,
+            &mut self.cost_track,
+        )?;
 
         // If we reach here with no errors, then the expression can be
         // treated as the expected type.
