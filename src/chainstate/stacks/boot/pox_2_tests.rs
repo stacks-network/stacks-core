@@ -1722,7 +1722,7 @@ fn test_lock_period_invariant_extend_transition() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    // produce blocks until immediately after the epoch switch (8 more blocks to block height 36)
+    // produce blocks until immediately after the epoch switch (4 more blocks to block height 36)
     for _i in 0..4 {
         let tip_index_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
 

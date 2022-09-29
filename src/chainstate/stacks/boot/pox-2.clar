@@ -894,6 +894,8 @@
                                        ;; if there's active stacker state, we need to extend the existing reward-set-indexes
                                        old-state (let ((cur-cycle-index (- first-reward-cycle (get first-reward-cycle old-state)))
                                                        (old-indexes (get reward-set-indexes old-state))
+                                                       ;; build index list by taking the old-indexes starting from cur cycle
+                                                       ;;  and adding the new indexes to it. this way, the index is valid starting from the current cycle
                                                        (new-list (concat (default-to (list) (slice old-indexes cur-cycle-index (len old-indexes)))
                                                                                    extended-reward-set-indexes)))
                                             (unwrap-panic (as-max-len? new-list u12)))
