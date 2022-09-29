@@ -196,10 +196,12 @@ pub struct DBConfig {
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
         match epoch_id {
-            StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
-            StacksEpochId::Epoch2_05 => self.version == "2",
-            StacksEpochId::Epoch21 => self.version == "2",
+            StacksEpochId::Epoch10 => true,
+            StacksEpochId::Epoch20 => {
+                self.version == "1" || self.version == "2" || self.version == "3"
+            }
+            StacksEpochId::Epoch2_05 => self.version == "2" || self.version == "3",
+            StacksEpochId::Epoch21 => self.version == "3",
         }
     }
 }

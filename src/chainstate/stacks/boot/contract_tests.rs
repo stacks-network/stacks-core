@@ -982,6 +982,7 @@ fn pox_2_lock_extend_units() {
                 } else {
                     &POX_ADDRS[1]
                 };
+                let expected_stacker = Value::from(&USER_KEYS[1]);
                 assert_eq!(
                     env.eval_read_only(
                         &POX_2_CONTRACT_TESTNET,
@@ -990,9 +991,10 @@ fn pox_2_lock_extend_units() {
                         .unwrap()
                         .0,
                     execute(&format!(
-                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: (some '{}) }}",
                         expected_pox_addr,
-                        1_000_000
+                        1_000_000,
+                        &expected_stacker,
                     ))
                 );
             }
@@ -1441,7 +1443,7 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0.to_string(), "(err 21)".to_string(),
             "Delegate cannot stack-extend for User0 for 10 cycles",
-);
+        );
 
         assert_eq!(
             env.execute_transaction(
@@ -1548,7 +1550,7 @@ fn pox_2_delegate_extend_units() {
                         .unwrap()
                         .0,
                     execute(&format!(
-                        "{{ pox-addr: {}, total-ustx: u{} }}",
+                        "{{ pox-addr: {}, total-ustx: u{}, stacker: none }}",
                         expected_pox_addr,
                         MIN_THRESHOLD.deref(),
                     ))

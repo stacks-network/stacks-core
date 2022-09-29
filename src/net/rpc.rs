@@ -89,7 +89,7 @@ use crate::net::{
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
 use crate::net::{RPCNeighbor, RPCNeighborsInfo};
-use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
+use crate::net::{RPCPeerInfoData, RPCPoxContractVersion, RPCPoxInfoData};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::clarity_store::make_contract_hash_key;
@@ -112,6 +112,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -268,10 +269,37 @@ impl RPCPoxInfoData {
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
-        let contract_identifier = boot_code_id("pox", mainnet);
+
+        let current_burn_height = chainstate
+            .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
+                clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                    clarity_db.get_current_burnchain_block_height() as u64
+                })
+            })
+            .ok_or(net_error::NotFoundError)?;
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(current_burn_height);
+
+        let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        // Note: should always be 0 unless somehow configured to start later
+        let pox_1_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-1 first reward cycle begins before first burn block height".to_string(),
+            ))?;
+
+        let pox_2_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-2 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
 
         let data = chainstate
             .maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
@@ -420,9 +448,10 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
+            current_burnchain_block_height: burnchain_tip.block_height,
             prepare_phase_block_length: prepare_cycle_length,
             reward_phase_block_length: reward_cycle_length - prepare_cycle_length,
             reward_slots,
@@ -451,6 +480,19 @@ impl RPCPoxInfoData {
             reward_cycle_length,
             rejection_votes_left_required,
             next_reward_cycle_in,
+            contract_versions: vec![
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_1_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.first_block_height,
+                    first_reward_cycle_id: pox_1_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_2_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
+                        as u64,
+                    first_reward_cycle_id: pox_2_first_cycle,
+                },
+            ],
         })
     }
 }
