@@ -1451,7 +1451,7 @@ fn test_trait_list_to_map() {
         (ok (map my-iter data (list token token token token token token token token token token)))
     )
     (define-private (my-iter (data {amount: uint, sender: principal, recipient: principal}) (token <token-trait>))
-        true
+        (contract-call? token echo u5)
     )";
 
     mem_type_check(trait_list_to_map).unwrap();
@@ -1729,11 +1729,10 @@ fn clarity_trait_experiments_use_undefined() {
     let mut db = marf.as_analysis_db();
 
     // Can we define traits that use traits in not-yet-deployed contracts?
-    let result = db.execute(|db| load(db, "no-trait"));
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db.execute(|db| load(db, "no-trait")).unwrap_err();
+    assert!(err.starts_with(
+        "ASTError(ParseError { err: TraitReferenceUnknown(\"trait-to-be-defined-later\")"
+    ));
 }
 
 #[test]
@@ -1744,14 +1743,13 @@ fn clarity_trait_experiments_circular() {
     let mut db = marf.as_analysis_db();
 
     // Can we define traits in a contract that are circular?
-    let result = db.execute(|db| {
-        load(db, "circular-trait-1")?;
-        load(db, "circular-trait-2")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "circular-trait-1")?;
+            load(db, "circular-trait-2")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"circular\"])"));
 }
 
 #[test]
@@ -1762,11 +1760,8 @@ fn clarity_trait_experiments_no_response() {
     let mut db = marf.as_analysis_db();
 
     // Can we define traits that do not return a response type?
-    let result = db.execute(|db| load(db, "no-response-trait"));
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db.execute(|db| load(db, "no-response-trait")).unwrap_err();
+    assert!(err.starts_with("DefineTraitBadSignature"));
 }
 
 #[test]
@@ -1792,11 +1787,8 @@ fn clarity_trait_experiments_double_trait() {
     let mut db = marf.as_analysis_db();
 
     // Can we define a trait with two methods with the same name and different types?
-    let result = db.execute(|db| load(db, "double-trait"));
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db.execute(|db| load(db, "double-trait")).unwrap_err();
+    assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"));
 
     // Since this test now fails, the others related to using this type of
     // trait are no longer useful tests.
@@ -1810,11 +1802,10 @@ fn clarity_trait_experiments_identical_double_trait() {
     let mut db = marf.as_analysis_db();
 
     // Can we define a trait with two methods with the same name and the same type?
-    let result = db.execute(|db| load(db, "identical-double-trait"));
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| load(db, "identical-double-trait"))
+        .unwrap_err();
+    assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"));
 
     // Since this test now fails, the others related to using this type of
     // trait are no longer useful tests.
@@ -1828,11 +1819,8 @@ fn clarity_trait_experiments_selfret_trait() {
     let mut db = marf.as_analysis_db();
 
     // Can we implement a trait that returns itself?
-    let result = db.execute(|db| load(db, "selfret-trait"));
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db.execute(|db| load(db, "selfret-trait")).unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"self-return\"])"));
 }
 
 #[test]
@@ -1844,15 +1832,14 @@ fn clarity_trait_experiments_use_math_trait_transitive_alias() {
 
     // Can we import a trait from a contract that uses but does not define the trait?
     // Does the transitive import use the trait alias or the trait name?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "use-math-trait-transitive-alias")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "use-math-trait-transitive-alias")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"));
 }
 
 #[test]
@@ -1864,15 +1851,14 @@ fn clarity_trait_experiments_use_math_trait_transitive_name() {
 
     // Can we import a trait from a contract that uses but does not define the trait?
     // Does the transitive import use the trait alias or the trait name?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "use-math-trait-transitive-name")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "use-math-trait-transitive-name")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"));
 }
 
 #[test]
@@ -1902,14 +1888,13 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait() {
 
     // Can we reference redefined trait and define trait with the same name in one contract?
     // Will this redefined trait also overwrite the trait alias?
-    let result = db.execute(|db| {
-        load(db, "a-trait")?;
-        load(db, "use-redefined-and-define-a-trait")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "a-trait")?;
+            load(db, "use-redefined-and-define-a-trait")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-that\")"));
 }
 
 #[test]
@@ -1920,15 +1905,14 @@ fn clarity_trait_experiments_use_a_trait_transitive_original() {
     let mut db = marf.as_analysis_db();
 
     // Can we use the original trait from a contract that redefines it?
-    let result = db.execute(|db| {
-        load(db, "a-trait")?;
-        load(db, "use-and-define-a-trait")?;
-        load(db, "use-a-trait-transitive-original")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "a-trait")?;
+            load(db, "use-and-define-a-trait")?;
+            load(db, "use-a-trait-transitive-original")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"));
 }
 
 #[test]
@@ -2008,14 +1992,13 @@ fn clarity_trait_experiments_impl_math_trait_incomplete() {
     let mut db = marf.as_analysis_db();
 
     // Can we use impl-trait on a partial trait implementation?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "impl-math-trait-incomplete")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait-incomplete")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
 #[test]
@@ -2063,15 +2046,14 @@ fn clarity_trait_experiments_trait_literal_incomplete() {
     let mut db = marf.as_analysis_db();
 
     // Can we pass a literal where a trait is expected with a partial implementation?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "partial-math-trait")?;
-        load(db, "trait-literal-incomplete")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "partial-math-trait")?;
+            load(db, "trait-literal-incomplete")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
 #[test]
@@ -2100,15 +2082,14 @@ fn clarity_trait_experiments_trait_data_1() {
     let mut db = marf.as_analysis_db();
 
     // Can we save trait in data-var or data-map?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "trait-data-1")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "trait-data-1")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
 }
 
 #[test]
@@ -2119,15 +2100,14 @@ fn clarity_trait_experiments_trait_data_2() {
     let mut db = marf.as_analysis_db();
 
     // Can we save trait in data-var or data-map?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "trait-data-2")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "trait-data-2")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
 }
 
 #[test]
@@ -2139,14 +2119,13 @@ fn clarity_trait_experiments_upcast_trait_1() {
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "upcast-trait-1")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "upcast-trait-1")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
 }
 
 #[test]
@@ -2158,14 +2137,13 @@ fn clarity_trait_experiments_upcast_trait_2() {
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "upcast-trait-2")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "upcast-trait-2")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(TupleType(TupleTypeSignature { \"val\": principal,}), TupleType(TupleTypeSignature { \"val\": <S1G2081040G2081040G2081040G208105NK8PE5.math-trait.math>,}))"));
 }
 
 #[test]
@@ -2177,14 +2155,13 @@ fn clarity_trait_experiments_upcast_trait_3() {
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "upcast-trait-3")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "upcast-trait-3")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
 }
 
 #[test]
@@ -2214,34 +2191,126 @@ fn clarity_trait_experiments_upcast_renamed() {
 
     // Can we use a let-renamed trait where a principal type is expected?
     // That is, does let-renaming affect the type?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "upcast-renamed")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "upcast-renamed")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
 }
 
 #[test]
-fn clarity_trait_experiments_downcast_trait_1() {
+fn clarity_trait_experiments_constant_call() {
     let version = ClarityVersion::latest();
     let epoch = StacksEpochId::latest();
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    // Can we use a principal exp where a trait type is expected?
-    // Principal can come from constant/var/map/function/keyword
+    // A principal literal in a constant should be callable.
     let result = db.execute(|db| {
         load(db, "math-trait")?;
         load(db, "impl-math-trait")?;
-        load(db, "downcast-trait-1")
+        load(db, "constant-call")
     });
     match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
     };
+}
+
+#[test]
+fn clarity_trait_experiments_constant_to_trait() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal in a constant should be callable.
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "constant-to-trait")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_constant_to_constant_call() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal from a constant should be treated as a principal
+    // literal (and therefore be callable)
+    let result = db.execute(|db| {
+        load(db, "math-trait")?;
+        load(db, "impl-math-trait")?;
+        load(db, "constant-to-constant-call")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_literal_1() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal returned from a function should not be castable to a
+    // trait
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait")?;
+            load(db, "downcast-literal-1")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_literal_2() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal returned from a function should not be callable
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait")?;
+            load(db, "downcast-literal-2")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ExpectedCallableType(PrincipalType)"));
+}
+
+#[test]
+fn clarity_trait_experiments_downcast_literal_3() {
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal saved in a let binding should not be callable
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait")?;
+            load(db, "downcast-literal-3")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitReferenceUnknown(\"p\")"));
 }
 
 #[test]
@@ -2253,15 +2322,14 @@ fn clarity_trait_experiments_downcast_trait_2() {
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "impl-math-trait")?;
-        load(db, "downcast-trait-2")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait")?;
+            load(db, "downcast-trait-2")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
 }
 
 #[test]
@@ -2273,14 +2341,13 @@ fn clarity_trait_experiments_downcast_trait_3() {
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "downcast-trait-3")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "downcast-trait-3")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
 }
 
 #[test]
@@ -2292,14 +2359,13 @@ fn clarity_trait_experiments_downcast_trait_4() {
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "downcast-trait-4")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "downcast-trait-4")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
 }
 
 #[test]
@@ -2311,14 +2377,13 @@ fn clarity_trait_experiments_downcast_trait_5() {
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "downcast-trait-5")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "downcast-trait-5")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
 }
 
 #[test]
@@ -2367,15 +2432,14 @@ fn clarity_trait_experiments_trait_cast_incompatible() {
     let mut db = marf.as_analysis_db();
 
     // Can we cast a trait to an incompatible trait?
-    let result = db.execute(|db| {
-        load(db, "empty-trait")?;
-        load(db, "math-trait")?;
-        load(db, "trait-cast-incompatible")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "empty-trait")?;
+            load(db, "math-trait")?;
+            load(db, "trait-cast-incompatible")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("IncompatibleTrait"));
 }
 
 #[test]
@@ -2441,14 +2505,13 @@ fn clarity_trait_experiments_readonly_call_trait() {
     let mut db = marf.as_analysis_db();
 
     // Can we dynamically call a trait in a read-only function?
-    let result = db.execute(|db| {
-        load(db, "empty-trait")?;
-        load(db, "readonly-call-trait")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "empty-trait")?;
+            load(db, "readonly-call-trait")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("WriteAttemptedInReadOnly"));
 }
 
 // TODO: This should be allowed
@@ -2479,15 +2542,14 @@ fn clarity_trait_experiments_readonly_static_call_trait() {
     let mut db = marf.as_analysis_db();
 
     // Can we call a function with traits from a read-only function statically?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "impl-math-trait")?;
-        load(db, "readonly-static-call-trait")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "impl-math-trait")?;
+            load(db, "readonly-static-call-trait")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("WriteAttemptedInReadOnly"));
 }
 
 #[test]
@@ -2518,21 +2580,20 @@ fn clarity_trait_experiments_dyn_call_trait_partial() {
     let mut db = marf.as_analysis_db();
 
     // Can we dynamically call a contract that just implements one function from a trait?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "partial-math-trait")?;
-        call(
-            db,
-            "use-math-trait",
-            "add-call",
-            ".partial-math-trait u3 u5",
-        )
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "partial-math-trait")?;
+            call(
+                db,
+                "use-math-trait",
+                "add-call",
+                ".partial-math-trait u3 u5",
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
 }
 
 #[test]
@@ -2543,16 +2604,15 @@ fn clarity_trait_experiments_dyn_call_not_implemented() {
     let mut db = marf.as_analysis_db();
 
     // Can we dynamically call a contract that doesn't implement the function call via the trait?
-    let result = db.execute(|db| {
-        load(db, "math-trait")?;
-        load(db, "use-math-trait")?;
-        load(db, "empty")?;
-        call(db, "use-math-trait", "add-call", ".empty u3 u5")
-    });
-    match result {
-        Err(_) => (),
-        res => panic!("expected error, got Ok"),
-    };
+    let err = db
+        .execute(|db| {
+            load(db, "math-trait")?;
+            load(db, "use-math-trait")?;
+            load(db, "empty")?;
+            call(db, "use-math-trait", "add-call", ".empty u3 u5")
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"add\")"));
 }
 
 #[test]
