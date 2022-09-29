@@ -649,6 +649,8 @@ fn test_simple_list_replace_at() {
         "(replace-at (list 1 9 0 5) u3 6)",
         "(replace-at (list 4 5 6 7 8) u2 11)",
         "(replace-at (list (list 1) (list 2)) u0 (list 33))",
+        "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
+        "(replace-at (list (list 1 2 3)) u0 (list 0))",
     ];
 
     let expected = [
@@ -679,6 +681,21 @@ fn test_simple_list_replace_at() {
             Value::list_from(vec![
                 Value::list_from(vec![Value::Int(33)]).unwrap(),
                 Value::list_from(vec![Value::Int(2)]).unwrap(),
+            ])
+            .unwrap(),
+        )
+        .unwrap(),
+        Value::okay(
+            Value::list_from(vec![
+                Value::list_from(vec![Value::Int(0)]).unwrap(),
+                Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),
+            ])
+            .unwrap(),
+        )
+        .unwrap(),
+        Value::okay(
+            Value::list_from(vec![
+                Value::list_from(vec![Value::Int(0)]).unwrap(),
             ])
             .unwrap(),
         )

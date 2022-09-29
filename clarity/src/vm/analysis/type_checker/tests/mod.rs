@@ -1463,6 +1463,8 @@ fn test_replace_at_list() {
         "(replace-at (list true) u0 false)",
         "(replace-at (list 2 3 4 5 6 7 8) u6 10)",
         "(replace-at (list (list 1) (list 2)) u0 (list 33))",
+        "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
+        "(replace-at (list (list 1 2 3)) u0 (list 0))",
     ];
     let expected = [
         "(response (list 7 int) uint)",
@@ -1470,6 +1472,8 @@ fn test_replace_at_list() {
         "(response (list 1 bool) uint)",
         "(response (list 7 int) uint)",
         "(response (list 2 (list 1 int)) uint)",
+        "(response (list 2 (list 2 int)) uint)",
+        "(response (list 1 (list 3 int)) uint)",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
