@@ -23,7 +23,6 @@ use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCode
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use rand::Rng;
 use rand::SeedableRng;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
@@ -65,7 +64,6 @@ pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
-impl_byte_array_rusqlite_only!(SortitionId);
 
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -225,7 +223,6 @@ pub struct StacksBlockId(pub [u8; 32]);
 impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
 impl_byte_array_newtype!(StacksBlockId, u8, 32);
-impl_byte_array_rusqlite_only!(StacksBlockId);
 impl_byte_array_serde!(StacksBlockId);
 
 pub struct ConsensusHash(pub [u8; 20]);
@@ -280,18 +277,6 @@ impl StacksMessageCodec for StacksWorkScore {
     }
 }
 
-// Implement rusqlite traits for a bunch of structs that used to be defined
-//  in the chainstate code
-impl_byte_array_rusqlite_only!(ConsensusHash);
-impl_byte_array_rusqlite_only!(Hash160);
-impl_byte_array_rusqlite_only!(BlockHeaderHash);
-impl_byte_array_rusqlite_only!(VRFSeed);
-impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
-impl_byte_array_rusqlite_only!(VRFProof);
-impl_byte_array_rusqlite_only!(TrieHash);
-impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
-impl_byte_array_rusqlite_only!(MessageSignature);
-
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
 
@@ -327,20 +312,6 @@ impl BurnchainHeaderHash {
     }
 }
 
-impl FromSql for Sha256dHash {
-    fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
-        let hex_str = value.as_str()?;
-        let hash = Sha256dHash::from_hex(hex_str).map_err(|_e| FromSqlError::InvalidType)?;
-        Ok(hash)
-    }
-}
-
-impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let hex_str = self.be_hex_string();
-        Ok(hex_str.into())
-    }
-}
 impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.0)?;

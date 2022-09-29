@@ -24,7 +24,6 @@ pub mod type_checker;
 pub mod types;
 
 use crate::types::StacksEpochId;
-use crate::vm::database::MemoryBackingStore;
 
 pub use self::types::{AnalysisPass, ContractAnalysis};
 
@@ -42,40 +41,6 @@ use self::contract_interface_builder::build_contract_interface;
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
-
-/// Used by CLI tools like the docs generator. Not used in production
-pub fn mem_type_check(
-    snippet: &str,
-    version: ClarityVersion,
-    epoch: StacksEpochId,
-) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    use crate::vm::ast::parse;
-    let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = parse(&contract_identifier, snippet, version, epoch).unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
-    match run_analysis(
-        &QualifiedContractIdentifier::transient(),
-        &mut contract,
-        &mut analysis_db,
-        false,
-        cost_tracker,
-        version,
-    ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-            let first_type = x
-                .type_map
-                .as_ref()
-                .unwrap()
-                .get_type(&x.expressions.last().unwrap())
-                .cloned();
-            Ok((first_type, x))
-        }
-        Err((e, _)) => Err(e),
-    }
-}
 
 // Legacy function
 // The analysis is not just checking type.

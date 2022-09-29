@@ -429,10 +429,10 @@ impl Value {
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
                 Ok(x) => x,
-                Err(e) => {
+                Err(_e) => {
                     warn!(
                         "Failed to determine max serialized size when checking expected_type argument";
-                        "err" => ?e
+                        "err" => ?_e
                     );
                     return Ok((value, bytes_read));
                 }

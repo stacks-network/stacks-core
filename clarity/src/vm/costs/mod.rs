@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 
 use crate::boot_util::boot_code_id;
@@ -733,10 +732,10 @@ impl TrackerData {
                 let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
                 {
                     Ok(contract) => contract.contract_context,
-                    Err(e) => {
+                    Err(_e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
-                               "error" => ?e);
+                               "error" => ?_e);
                         clarity_db.roll_back();
                         return Err(CostErrors::CostContractLoadFailure);
                     }
@@ -751,10 +750,10 @@ impl TrackerData {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
                 let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
                     Ok(contract) => contract.contract_context,
-                    Err(e) => {
+                    Err(_e) => {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
-                               "error" => %format!("{:?}", e));
+                               "error" => %format!("{:?}", _e));
                         clarity_db.roll_back();
                         return Err(CostErrors::CostContractLoadFailure);
                     }
@@ -1055,22 +1054,6 @@ impl fmt::Display for ExecutionCost {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",
                self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
-    }
-}
-
-impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
-        Ok(ToSqlOutput::from(val))
-    }
-}
-
-impl FromSql for ExecutionCost {
-    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
-        let str_val = String::column_result(value)?;
-        let parsed = serde_json::from_str(&str_val)
-            .expect("CORRUPTION: failed to parse ExecutionCost from DB");
-        Ok(parsed)
     }
 }
 
