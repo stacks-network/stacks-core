@@ -375,7 +375,7 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
                 type_signature,
             })),
         ) => {
-            let mut values = Vec::new();
+            let mut values = Vec::with_capacity(data.len());
             for elem in data {
                 values.push(implicit_cast(list_type.get_list_item_type(), elem)?);
             }
@@ -477,19 +477,19 @@ fn test_implicit_cast() {
     }
 
     // (ok principal) -> (ok <trait>)
-    let response_ty =
+    let response_ok_ty =
         TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
     let response_contract = Value::okay(contract.clone()).unwrap();
-    let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
+    let cast_response = implicit_cast(&response_ok_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_ok().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
     // (err principal) -> (err <trait>)
-    let response_ty =
+    let response_err_ty =
         TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
     let response_contract = Value::error(contract.clone()).unwrap();
-    let cast_response = implicit_cast(&response_ty, &response_contract).unwrap();
+    let cast_response = implicit_cast(&response_err_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_err().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
@@ -550,5 +550,75 @@ fn test_implicit_cast() {
             }
             None => (),
         }
+    }
+
+    // (list (response principal uint)) -> (list (response <trait> uint))
+    let list_res_ty = TypeSignature::list_of(response_ok_ty.clone(), 4).unwrap();
+    let list_res_contract = Value::list_from(vec![
+        Value::okay(contract.clone()).unwrap(),
+        Value::okay(contract2.clone()).unwrap(),
+        Value::okay(contract2.clone()).unwrap(),
+    ])
+    .unwrap();
+    let cast_list = implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+    let items = cast_list.expect_list();
+    for item in items {
+        let cast_trait = item.expect_result_ok().expect_callable();
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+    }
+
+    // (list (response uint principal)) -> (list (response uint <trait>))
+    let list_res_ty = TypeSignature::list_of(response_err_ty.clone(), 4).unwrap();
+    let list_res_contract = Value::list_from(vec![
+        Value::error(contract.clone()).unwrap(),
+        Value::error(contract2.clone()).unwrap(),
+        Value::error(contract2.clone()).unwrap(),
+    ])
+    .unwrap();
+    let cast_list = implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+    let items = cast_list.expect_list();
+    for item in items {
+        let cast_trait = item.expect_result_err().expect_callable();
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+    }
+
+    // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
+    let list_res_ty = TypeSignature::list_of(response_err_ty.clone(), 4).unwrap();
+    let opt_list_res_ty = TypeSignature::new_option(list_res_ty).unwrap();
+    let list_res_contract = Value::list_from(vec![
+        Value::error(contract.clone()).unwrap(),
+        Value::error(contract2.clone()).unwrap(),
+        Value::error(contract2.clone()).unwrap(),
+    ])
+    .unwrap();
+    let opt_list_res_contract = Value::some(list_res_contract).unwrap();
+    let cast_opt = implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
+    let inner = cast_opt.expect_optional().unwrap();
+    let items = inner.expect_list();
+    for item in items {
+        let cast_trait = item.expect_result_err().expect_callable();
+        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+    }
+
+    // (optional (optional principal)) -> (optional (optional <trait>))
+    let optional_optional_ty = TypeSignature::new_option(optional_ty.clone()).unwrap();
+    let optional_contract = Value::some(contract.clone()).unwrap();
+    let optional_optional_contract = Value::some(optional_contract.clone()).unwrap();
+    let cast_optional = implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
+
+    match &cast_optional
+        .expect_optional()
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+    {
+        Value::CallableContract(CallableData {
+            contract_identifier: contract_id,
+            trait_identifier: trait_id,
+        }) => {
+            assert_eq!(contract_id, &contract_identifier);
+            assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+        }
+        other => panic!("expected Value::CallableContract, got {:?}", other),
     }
 }
