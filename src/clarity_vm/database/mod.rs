@@ -1,5 +1,5 @@
-use clarity::vm::types::PrincipalData;
 use clarity::util::hash::Sha512Trunc256Sum;
+use clarity::vm::types::PrincipalData;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::chainstate::burn::db::sortdb::{
