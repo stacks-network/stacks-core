@@ -3146,6 +3146,16 @@ fn test_wrapped_trait() {
                 e (err u1)
             )
         )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (return-f (f <trait-foo>))
+            (if true (err f) (ok u1))
+        )
+        (define-public (call-foo (f <trait-foo>))
+            (match (return-f f)
+                v (ok v)
+                f-prime (contract-call? f-prime foo)
+            )
+        )",
     ];
 
     for good_test in good.iter() {
