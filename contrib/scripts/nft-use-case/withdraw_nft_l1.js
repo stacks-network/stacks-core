@@ -11,6 +11,7 @@ import {
 import { StacksTestnet, HIRO_MOCKNET_DEFAULT } from '@stacks/network';
 
 
+// NOTE: The arguments to the `withdraw-nft-asset` function change with Stacks 2.1
 async function main() {
     const network = new StacksTestnet({url: HIRO_MOCKNET_DEFAULT});
     const hyperchainUrl = process.env.HYPERCHAIN_URL;
