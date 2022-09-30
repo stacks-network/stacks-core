@@ -420,19 +420,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
     );
     "#];
 
-const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
-    r#"
-    ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
-    "#,
-    r#"
-    CREATE INDEX IF NOT EXISTS by_fee_rate ON mempool(fee_rate);    
-    "#,
-    r#"
-    UPDATE mempool
-    SET fee_rate = (SELECT f.fee_rate FROM fee_estimates as f WHERE f.txid = mempool.txid);
-    "#,
-];
-
 const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
     r#"
     CREATE TABLE fee_estimates(
@@ -513,6 +500,22 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (4)
+    "#,
+];
+
+const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
+    r#"
+    ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS by_fee_rate ON mempool(fee_rate);
+    "#,
+    r#"
+    UPDATE mempool
+    SET fee_rate = (SELECT f.fee_rate FROM fee_estimates as f WHERE f.txid = mempool.txid);
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (5)
     "#,
 ];
 
