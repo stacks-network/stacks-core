@@ -892,7 +892,7 @@ impl StacksChainState {
 
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
-                        info!("Contract-call successfully processed";
+                        debug!("Contract-call successfully processed";
                               "contract_name" => %contract_id,
                               "function_name" => %contract_call.function_name,
                               "function_args" => %VecDisplay(&contract_call.function_args),

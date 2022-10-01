@@ -252,7 +252,8 @@ pub struct MemPoolTxMinimalInfo {
     pub fee_rate: Option<f64>,
     pub origin_address: StacksAddress,
     pub origin_nonce: u64,
-    // TODO: Add sponsor nonces. Blocker was I wasn't initially sure how to handle the Option.
+    pub sponsor_address: StacksAddress,
+    pub sponsor_nonce: u64,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -369,12 +370,16 @@ impl FromRow<MemPoolTxMinimalInfo> for MemPoolTxMinimalInfo {
         };
         let origin_address = StacksAddress::from_column(row, "origin_address")?;
         let origin_nonce = u64::from_column(row, "origin_nonce")?;
+        let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
+        let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
 
         Ok(MemPoolTxMinimalInfo {
             txid,
             fee_rate,
             origin_address,
             origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
         })
     }
 }
@@ -1179,10 +1184,13 @@ impl MemPoolDB {
             let tx_read_start = Instant::now();
             let tx_info_option = MemPoolDB::get_tx(&self.conn(), &tx_reduced_info.txid)?;
             let tx_read_elapsed = tx_read_start.elapsed();
-            let tx_info = tx_info_option.expect(&format!(
-                "could not find a tx for id {:?}",
-                &tx_reduced_info.txid
-            ));
+            let tx_info = match tx_info_option {
+                Some(tx) => tx,
+                None => {
+                    warn!("could not find a tx for id {:?}", &tx_reduced_info.txid);
+                    continue
+                },
+            };
             let consider = ConsiderTransaction {
                 tx: tx_info,
                 update_estimate: false,
