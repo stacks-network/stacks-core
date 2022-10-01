@@ -1,0 +1,45 @@
+[node]
+name = "krypton-node"
+rpc_bind = "0.0.0.0:20443"
+p2p_bind = "0.0.0.0:20444"
+# working_dir = "$DATA_DIR"
+
+seed = "9e446f6b0c6a96cf2190e54bcd5a8569c3e386f091605499464389b8d4e0bfc201"
+local_peer_seed = "9e446f6b0c6a96cf2190e54bcd5a8569c3e386f091605499464389b8d4e0bfc201"
+
+miner = true
+use_test_genesis_chainstate = true
+pox_sync_sample_secs = 5
+wait_time_for_microblocks = 5000
+microblock_frequency = 5000
+# mine_microblocks = true
+# max_microblocks = 10
+
+[miner]
+first_attempt_time_ms = 30000
+subsequent_attempt_time_ms = 5000
+#block_reward_recipient = "ST9V4MGBMGHX0WR3MG6JA53HNKMJ2HF9VWRQNTKR"
+
+[connection_options]
+# inv_sync_interval = 10
+# download_interval = 10
+# walk_interval = 10
+disable_block_download = true
+disable_inbound_handshakes = true
+disable_inbound_walks = true
+public_ip_address = "1.1.1.1:1234"
+
+[burnchain]
+chain = "bitcoin"
+mode = "krypton"
+poll_time_secs = 1
+pox_2_activation = 100
+
+### bitcoind-regtest connection info
+peer_host = "127.0.0.1"
+peer_port = 18444
+rpc_port = 18443
+rpc_ssl = false
+username = "krypton"
+password = "krypton"
+timeout = 30
