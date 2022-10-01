@@ -16,9 +16,9 @@ use std::{env, io};
 const DEFAULT_ADDR: &str = "127.0.0.1:3700";
 
 fn main() {
-    let mut args = std::fmt::Arguments::from_env();
-    let addr = args.opt_value_from_str("--addr").unwrap_or(DEFAULT_ADDR);
-    let help = args.opt_value_from_str("--help").unwrap_or(false);
+    let mut args = pico_args::Arguments::from_env();
+    let addr: String = args.opt_value_from_str("--addr").expect("Failed to parse --addr argument").unwrap_or(DEFAULT_ADDR.into());
+    let help = args.opt_value_from_str("--help").expect("Failed to parse --help argument").unwrap_or(false);
 
     if help {
         println!("Usage: stacks-events [--addr=<addr>]");
@@ -29,10 +29,10 @@ fn main() {
         return;
     }
 
-    serve_for_events(addr);
+    serve_for_events(&addr);
 }
 
-fn serve_for_events(addr: &str) {
+fn serve_for_events(addr: &String) {
     let listener = TcpListener::bind(addr).unwrap();
     eprintln!("Listening on {}", addr);
     for stream in listener.incoming() {
