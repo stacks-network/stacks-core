@@ -1230,7 +1230,7 @@ impl MemPoolDB {
                     }
                 }
                 None => {
-                    debug!("Mempool iteration early exit from iterator");
+                    info!("Mempool iteration early exit from iterator");
                     break;
                 }
             }
