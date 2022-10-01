@@ -15,7 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::HashSet;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::hash::Hasher;
 use std::io::{Read, Write};
@@ -64,7 +65,7 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::net::MemPoolSyncData;
 
@@ -188,6 +189,7 @@ pub enum MemPoolDropReason {
     PROBLEMATIC,
 }
 
+#[derive(Debug)]
 pub struct ConsiderTransaction {
     /// Transaction to consider in block assembly
     pub tx: MemPoolTxInfo,
@@ -196,6 +198,7 @@ pub struct ConsiderTransaction {
     pub update_estimate: bool,
 }
 
+#[derive(Debug)]
 enum ConsiderTransactionResult {
     NoTransactions,
     UpdateNonces(Vec<StacksAddress>),
@@ -239,6 +242,17 @@ pub trait MemPoolEventDispatcher {
 pub struct MemPoolTxInfo {
     pub tx: StacksTransaction,
     pub metadata: MemPoolTxMetadata,
+}
+
+/// This class is a minimal version of `MemPoolTxInfo`. It contains
+/// just enough information to 1) filter by nonce readiness, 2) sort by fee rate.
+#[derive(Debug, PartialEq, Clone)]
+pub struct MemPoolTxMinimalInfo {
+    pub txid: Txid,
+    pub fee_rate: Option<f64>,
+    pub origin_address: StacksAddress,
+    pub origin_nonce: u64,
+    // TODO: Add sponsor nonces. Blocker was I wasn't initially sure how to handle the Option.
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -346,6 +360,25 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     }
 }
 
+impl FromRow<MemPoolTxMinimalInfo> for MemPoolTxMinimalInfo {
+    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxMinimalInfo, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let fee_rate: Option<f64> = match row.get("fee_rate") {
+            Ok(rate) => Some(rate),
+            Err(_) => None,
+        };
+        let origin_address = StacksAddress::from_column(row, "origin_address")?;
+        let origin_nonce = u64::from_column(row, "origin_nonce")?;
+
+        Ok(MemPoolTxMinimalInfo {
+            txid,
+            fee_rate,
+            origin_address,
+            origin_nonce,
+        })
+    }
+}
+
 impl FromRow<(u64, u64)> for (u64, u64) {
     fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), db_error> {
         let t1: i64 = row.get_unwrap(0);
@@ -365,6 +398,7 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
         tx_fee INTEGER NOT NULL,
+        fee_rate NUMBER,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
         block_header_hash TEXT NOT NULL,
@@ -1096,91 +1130,107 @@ impl MemPoolDB {
     {
         let start_time = Instant::now();
         let mut total_considered = 0;
+        let mut total_included = 0;
 
-        debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
+        info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let tx_consideration_sampler = Uniform::new(0, 100);
-        let mut rng = rand::thread_rng();
-        let mut remember_start_with_estimate = None;
+        // Read in all "minimal" mempool entries, and sort by fee rate.
+        let read_minimal_from_db_start = Instant::now();
+        let mut db_txs = MemPoolDB::get_all_txs_minimal(&self.conn())?;
+        let read_minimal_from_db_elapsed = read_minimal_from_db_start.elapsed();
+        let sort_db_results_start = Instant::now();
+        db_txs.sort_by(|a, b| {
+            let a_rate = a.fee_rate;
+            let b_rate = b.fee_rate;
+            if a_rate < b_rate {
+                Ordering::Greater
+            } else if a_rate > b_rate {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        });
+        let sort_db_results_elapsed = sort_db_results_start.elapsed();
 
-        loop {
+        info!(
+            "Read and sorted mempool. Total size: {:?}, time to read in minimal entries: {:?},  time to sort list: {:?}",
+            db_txs.len(),
+            read_minimal_from_db_elapsed,
+            sort_db_results_elapsed
+        );
+
+        // For each minimal info entry: check if its nonce is appropriate, and if so process it.
+        let mut total_effective_processing_time = Duration::ZERO;
+        let mut total_lookup_nonce_time = Duration::ZERO;
+        for tx_reduced_info in &db_txs {
+            // Check the nonce.
+            let lookup_nonce_start = Instant::now();
+            let expected_origin_nonce =
+                StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
+            if expected_origin_nonce != tx_reduced_info.origin_nonce {
+                continue;
+            }
+            // TODO: Add sponsor nonce check here, when it is added to the struct.
+            total_lookup_nonce_time += lookup_nonce_start.elapsed();
+
+            // Read in and deserialize the transaction.
+            let tx_read_start = Instant::now();
+            let tx_info_option = MemPoolDB::get_tx(&self.conn(), &tx_reduced_info.txid)?;
+            let tx_read_elapsed = tx_read_start.elapsed();
+            let tx_info = tx_info_option.expect(&format!(
+                "could not find a tx for id {:?}",
+                &tx_reduced_info.txid
+            ));
+            let consider = ConsiderTransaction {
+                tx: tx_info,
+                update_estimate: false,
+            };
+
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                debug!("Mempool iteration deadline exceeded";
+                info!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
 
-            let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
-            });
+            debug!("Consider mempool transaction";
+                   "txid" => %consider.tx.tx.txid(),
+                   "origin_addr" => %consider.tx.metadata.origin_address,
+                   "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+                   "accept_time" => consider.tx.metadata.accept_time,
+                   "tx_fee" => consider.tx.metadata.tx_fee,
+                   "size" => consider.tx.metadata.len);
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
-                ConsiderTransactionResult::NoTransactions => {
-                    debug!("No more transactions to consider in mempool");
+            total_considered += 1;
+
+            // Process the transaction by calling `todo`.
+            let processing_start = Instant::now();
+            let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+            total_effective_processing_time += Instant::now() - processing_start;
+            // Run `todo` on the transaction.
+            match inside_result? {
+                Some(tx_event) => {
+                    match tx_event {
+                        TransactionEvent::Skipped(_) => {
+                            // don't push `Skipped` events to the observer
+                        }
+                        _ => {
+                            output_events.push(tx_event);
+                        }
+                    }
+                }
+                None => {
+                    debug!("Mempool iteration early exit from iterator");
                     break;
-                }
-                ConsiderTransactionResult::UpdateNonces(addresses) => {
-                    // if we need to update the nonce for the considered transaction,
-                    //  use the last value of start_with_no_estimate on the next loop
-                    remember_start_with_estimate = Some(start_with_no_estimate);
-                    let mut last_addr = None;
-                    for address in addresses.into_iter() {
-                        debug!("Update nonce"; "address" => %address);
-                        // do not recheck nonces if the sponsor == origin
-                        if last_addr.as_ref() == Some(&address) {
-                            continue;
-                        }
-                        let min_nonce =
-                            StacksChainState::get_account(clarity_tx, &address.clone().into())
-                                .nonce;
-
-                        self.update_last_known_nonces(&address, min_nonce)?;
-                        last_addr = Some(address)
-                    }
-                }
-                ConsiderTransactionResult::Consider(consider) => {
-                    // if we actually consider the chosen transaction,
-                    //  compute a new start_with_no_estimate on the next loop
-                    remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
-                           "txid" => %consider.tx.tx.txid(),
-                           "origin_addr" => %consider.tx.metadata.origin_address,
-                           "sponsor_addr" => %consider.tx.metadata.sponsor_address,
-                           "accept_time" => consider.tx.metadata.accept_time,
-                           "tx_fee" => consider.tx.metadata.tx_fee,
-                           "size" => consider.tx.metadata.len);
-                    total_considered += 1;
-
-                    // Run `todo` on the transaction.
-                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        Some(tx_event) => {
-                            match tx_event {
-                                TransactionEvent::Skipped(_) => {
-                                    // don't push `Skipped` events to the observer
-                                }
-                                _ => {
-                                    output_events.push(tx_event);
-                                }
-                            }
-                        }
-                        None => {
-                            debug!("Mempool iteration early exit from iterator");
-                            break;
-                        }
-                    }
-
-                    self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
-                    if consider.tx.tx.auth.is_sponsored() {
-                        self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
-                    }
                 }
             }
         }
 
-        debug!(
+        info!(
             "Mempool iteration finished";
-            "considered_txs" => total_considered,
-            "elapsed_ms" => start_time.elapsed().as_millis()
+            "num_considered_txs" => total_considered,
+            "num_included_txs" => total_included,
+            "total_processing_time_ms" => start_time.elapsed().as_millis(),
+            "total_effective_processing_time_ms" => total_effective_processing_time.as_millis(),
         );
         Ok(total_considered)
     }
@@ -1220,6 +1270,14 @@ impl MemPoolDB {
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
+        Ok(rows)
+    }
+
+    // Return the results in a very "minimal", or "lazy", representation.
+    // Note: Delay deserialization until we know we want to process this.
+    pub fn get_all_txs_minimal(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let sql = "SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate FROM mempool";
+        let rows = query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)?;
         Ok(rows)
     }
 
@@ -1351,6 +1409,7 @@ impl MemPoolDB {
         txid: Txid,
         tx_bytes: Vec<u8>,
         tx_fee: u64,
+        fee_rate_estimate: Option<f64>,
         height: u64,
         origin_address: &StacksAddress,
         origin_nonce: u64,
@@ -1430,13 +1489,14 @@ impl MemPoolDB {
             sponsor_address,
             sponsor_nonce,
             tx_fee,
+            fee_rate,
             length,
             consensus_hash,
             block_header_hash,
             height,
             accept_time,
             tx)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
         let args: &[&dyn ToSql] = &[
             &txid,
@@ -1445,6 +1505,7 @@ impl MemPoolDB {
             &sponsor_address.to_string(),
             &u64_to_sql(sponsor_nonce)?,
             &u64_to_sql(tx_fee)?,
+            &fee_rate_estimate,
             &u64_to_sql(length)?,
             consensus_hash,
             block_header_hash,
@@ -1593,6 +1654,7 @@ impl MemPoolDB {
             txid.clone(),
             tx_data,
             tx_fee,
+            fee_rate_estimate,
             height,
             &origin_address,
             origin_nonce,

@@ -153,6 +153,10 @@ impl StacksChainState {
         })
     }
 
+    pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
+        clarity_tx.with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
+    }
+
     pub fn get_account_ft(
         clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
