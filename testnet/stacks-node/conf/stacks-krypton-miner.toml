@@ -53,3 +53,5 @@ events_keys = ["*"]
 [[ustx_balance]]
 address = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
 amount = 10000000000000000
+
+
