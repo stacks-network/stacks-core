@@ -1173,6 +1173,8 @@ impl MemPoolDB {
             // TODO: Add sponsor nonce check here, when it is added to the struct.
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
 
+            info!("Miner: will process {:?}", &tx_reduced_info);
+
             // Read in and deserialize the transaction.
             let tx_read_start = Instant::now();
             let tx_info_option = MemPoolDB::get_tx(&self.conn(), &tx_reduced_info.txid)?;
@@ -1214,6 +1216,7 @@ impl MemPoolDB {
                             // don't push `Skipped` events to the observer
                         }
                         _ => {
+                            total_included += 1;
                             output_events.push(tx_event);
                         }
                     }

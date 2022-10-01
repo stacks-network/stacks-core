@@ -1521,7 +1521,7 @@ impl StacksBlockBuilder {
                     }
                 }
             };
-            info!("Include tx";
+            debug!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
                   "origin" => %tx.origin_address());
