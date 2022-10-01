@@ -43,3 +43,13 @@ rpc_ssl = false
 username = "krypton"
 password = "krypton"
 timeout = 30
+
+# Used for sending events to a local stacks-blockchain-api service
+[[events_observer]]
+endpoint = "localhost:60303"
+retry_count = 255
+events_keys = ["*"]
+
+[[ustx_balance]]
+address = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+amount = 10000000000000000
