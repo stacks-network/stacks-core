@@ -242,6 +242,8 @@ pub enum TransactionResult {
     /// This error variant is a placeholder for fixing Clarity VM quirks in the next network
     /// upgrade.
     Problematic(TransactionProblematic),
+    /// The block is full. Just stop.
+    BlockFull,
 }
 
 /// This struct is used to transmit data about transaction results through either the `mined_block`
@@ -257,6 +259,7 @@ pub enum TransactionEvent {
     Skipped(TransactionSkippedEvent),
     /// Transaction is problematic and will be dropped
     Problematic(TransactionProblematicEvent),
+    BlockFull,
 }
 
 impl TransactionResult {
@@ -341,6 +344,10 @@ impl TransactionResult {
         })
     }
 
+    pub fn block_full(_transaction: &StacksTransaction) -> TransactionResult {
+        TransactionResult::BlockFull
+    }
+
     /// Creates a `TransactionResult` backed by `TransactionSkipped`.
     /// This method logs "transaction skipped" as a side effect.
     pub fn skipped_due_to_error(
@@ -391,6 +398,9 @@ impl TransactionResult {
                     txid: tx.txid(),
                     error: error.to_string(),
                 })
+            }
+            TransactionResult::BlockFull => {
+                TransactionEvent::BlockFull
             }
         }
     }
@@ -1060,6 +1070,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             Ok(tx_result) => {
                                 let result_event = tx_result.convert_to_event();
                                 match tx_result {
+                                    TransactionResult::BlockFull => {
+                                        info!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
+                                        return Ok(None);
+                                    }
                                     TransactionResult::Success(TransactionSuccess {
                                         receipt,
                                         ..
@@ -1102,20 +1116,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             Error::BlockTooBigError => {
                                                 // done mining -- our execution budget is exceeded.
                                                 // Make the block from the transactions we did manage to get
-                                                debug!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
-                                                if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                                    debug!("Block budget exceeded while mining microblock"; 
-                                                        "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Switch to mining stx-transfers only");
-                                                    block_limit_hit =
-                                                        BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                                } else if block_limit_hit
-                                                    == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                                {
-                                                    debug!("Block budget exceeded while mining microblock"; 
-                                                        "tx" => %mempool_tx.tx.txid(), "next_behavior" => "Stop mining microblock");
-                                                    block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                                    return Ok(None);
-                                                }
+                                                info!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
+                                                return Ok(None);
                                             }
                                             Error::TransactionTooBigError => {
                                                 invalidated_txs.push(mempool_tx.metadata.txid);
@@ -1403,6 +1405,7 @@ impl StacksBlockBuilder {
             TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
                 Err(Error::ProblematicTransaction(tx.txid()))
             }
+            TransactionResult::BlockFull => Err(Error::BlockTooBigError),
         }
     }
 
@@ -1417,36 +1420,16 @@ impl StacksBlockBuilder {
         ast_rules: ASTRules,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
-            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
+            return TransactionResult::block_full(tx);
         }
 
         match limit_behavior {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
-                match &tx.payload {
-                    TransactionPayload::ContractCall(cc) => {
-                        // once we've hit the runtime limit once, allow boot code contract calls, but do not try to eval
-                        //   other contract calls
-                        if !cc.address.is_boot_code_addr() {
-                            return TransactionResult::skipped(
-                                &tx,
-                                "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                            );
-                        }
-                    }
-                    TransactionPayload::SmartContract(_) => {
-                        return TransactionResult::skipped(
-                            &tx,
-                            "BlockLimitFunction::CONTRACT_LIMIT_HIT".to_string(),
-                        );
-                    }
-                    _ => {}
-                }
+                return TransactionResult::block_full(tx);
+
             }
             BlockLimitFunction::LIMIT_REACHED => {
-                return TransactionResult::skipped(
-                    &tx,
-                    "BlockLimitFunction::LIMIT_REACHED".to_string(),
-                )
+                return TransactionResult::block_full(tx);
             }
             BlockLimitFunction::NO_LIMIT_HIT => {}
         };
@@ -1510,10 +1493,7 @@ impl StacksBlockBuilder {
                                         &cost_after,
                                         &total_budget
                                     );
-                                    return TransactionResult::skipped_due_to_error(
-                                        &tx,
-                                        Error::BlockTooBigError,
-                                    );
+                                    return TransactionResult::block_full(tx);
                                 }
                             }
                             _ => return TransactionResult::error(&tx, e),
@@ -1589,10 +1569,8 @@ impl StacksBlockBuilder {
                                         &cost_after,
                                         &total_budget
                                     );
-                                    return TransactionResult::skipped_due_to_error(
-                                        &tx,
-                                        Error::BlockTooBigError,
-                                    );
+                                    return TransactionResult::block_full(tx);
+
                                 }
                             }
                             _ => return TransactionResult::error(&tx, e),
@@ -2194,6 +2172,7 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        info!("got block_limit {:?}", &block_limit);
         let mut tx_events = Vec::new();
         tx_events.push(
             builder
@@ -2332,20 +2311,8 @@ impl StacksBlockBuilder {
                                     Error::BlockTooBigError => {
                                         // done mining -- our execution budget is exceeded.
                                         // Make the block from the transactions we did manage to get
-                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
-                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
-                                            debug!("Switch to mining stx-transfers only");
-                                            block_limit_hit =
-                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
-                                        } else if block_limit_hit
-                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
-                                        {
-                                            debug!(
-                                                "Stop mining anchored block due to limit exceeded"
-                                            );
-                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
-                                            return Ok(None);
-                                        }
+                                        info!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                        return Ok(None);
                                     }
                                     Error::TransactionTooBigError => {
                                         invalidated_txs.push(txinfo.metadata.txid);
@@ -2358,6 +2325,10 @@ impl StacksBlockBuilder {
                                         return Ok(Some(result_event));
                                     }
                                 }
+                            }
+                            TransactionResult::BlockFull => {
+                                info!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                return Ok(None);
                             }
                             TransactionResult::Problematic(TransactionProblematic {
                                 tx, ..
