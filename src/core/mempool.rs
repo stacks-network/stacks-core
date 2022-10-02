@@ -446,7 +446,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
         tx_fee INTEGER NOT NULL,
-        fee_rate NUMBER,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
         block_header_hash TEXT NOT NULL,
