@@ -32,10 +32,6 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
-[[bin]]
-name = "stacks-events"
-path = "src/stacks_events.rs"
-
 [[bench]]
 name = "marf_bench"
 harness = false
@@ -53,7 +49,6 @@ name = "c32_bench"
 harness = false
 
 [dependencies]
-pico-args = "0.3.1"
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"

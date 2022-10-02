@@ -1,4 +1,3 @@
-use blockstack_lib::chainstate::stacks::StacksTransaction;
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;

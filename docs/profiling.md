@@ -86,7 +86,7 @@ Once the node is synchronized, terminate the `stacks-node` process so we can set
 
 Run `stacks-events` to receive and archive events:
 ```
-$ cargo run -r --bin stacks-events | tee $STACKS_DIR/events.log
+$ cargo run -r -p stacks-node --bin stacks-events | tee $STACKS_DIR/events.log
 ```
 
 Run `stacks-node` with an event observer:
