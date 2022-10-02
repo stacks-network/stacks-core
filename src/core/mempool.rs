@@ -1131,7 +1131,7 @@ impl MemPoolDB {
             &ConsiderTransaction,
             &mut dyn CostEstimator,
         ) -> Result<Option<TransactionEvent>, E>,
-        E: From<db_error> + From<ChainstateError>,
+        E: From<db_error> + From<ChainstateError> + std::fmt::Debug,
     {
         let start_time = Instant::now();
         let mut total_considered = 0;
@@ -1217,6 +1217,7 @@ impl MemPoolDB {
             let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
             total_effective_processing_time += Instant::now() - processing_start;
             // Run `todo` on the transaction.
+            info!("inside_result {:?}", &inside_result);
             match inside_result? {
                 Some(tx_event) => {
                     match tx_event {

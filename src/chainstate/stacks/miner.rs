@@ -2425,7 +2425,7 @@ impl StacksBlockBuilder {
             );
         }
 
-        debug!(
+        info!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,
