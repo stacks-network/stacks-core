@@ -1619,6 +1619,15 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
 
 // Tests below are derived from https://github.com/sskeirik/clarity-trait-experiments.
 fn load(db: &mut AnalysisDatabase, name: &str) -> Result<ContractAnalysis, String> {
+    load_versioned(db, name, ClarityVersion::latest(), StacksEpochId::latest())
+}
+
+fn load_versioned(
+    db: &mut AnalysisDatabase,
+    name: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<ContractAnalysis, String> {
     let source = read_to_string(format!(
         "{}/src/vm/analysis/type_checker/tests/contracts/{}.clar",
         env!("CARGO_MANIFEST_DIR"),
@@ -1626,14 +1635,9 @@ fn load(db: &mut AnalysisDatabase, name: &str) -> Result<ContractAnalysis, Strin
     ))
     .unwrap();
     let contract_id = QualifiedContractIdentifier::local(name).unwrap();
-    let mut contract = parse(
-        &contract_id,
-        source.as_str(),
-        ClarityVersion::latest(),
-        StacksEpochId::latest(),
-    )
-    .map_err(|e| e.to_string())?;
-    type_check(&contract_id, &mut contract, db, true).map_err(|e| e.to_string())
+    let mut contract =
+        parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
+    type_check_version(&contract_id, &mut contract, db, true, version).map_err(|e| e.to_string())
 }
 
 fn call(
@@ -2729,6 +2733,136 @@ fn clarity_trait_experiments_mixed_list_to_traits_list() {
         load(db, "math-trait")?;
         load(db, "impl-math-trait")?;
         load(db, "mixed-list")
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_double_trait_method1_v1() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use the first method in Clarity1?
+    let err = db
+        .execute(|db| {
+            load_versioned(
+                db,
+                "double-trait",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "impl-double-trait-2",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "use-partial-double-trait-1",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(BoolType, UIntType)"));
+}
+
+#[test]
+fn clarity_trait_experiments_double_trait_method2_v1() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use it in Clarity1?
+    let result = db.execute(|db| {
+        load_versioned(
+            db,
+            "double-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "impl-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "use-partial-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[test]
+fn clarity_trait_experiments_double_trait_method1_v1_v2() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use the first method in Clarity1?
+    let err = db
+        .execute(|db| {
+            load_versioned(
+                db,
+                "double-trait",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "impl-double-trait-2",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "use-partial-double-trait-1",
+                ClarityVersion::Clarity2,
+                StacksEpochId::Epoch21,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(BoolType, UIntType)"));
+}
+
+#[test]
+fn clarity_trait_experiments_double_trait_method2_v1_v2() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types in Clarity1, then use it in Clarity2?
+    let result = db.execute(|db| {
+        load_versioned(
+            db,
+            "double-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "impl-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "use-partial-double-trait-2",
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+        )
     });
     match result {
         Ok(_) => (),
