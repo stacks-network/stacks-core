@@ -16,8 +16,14 @@ const DEFAULT_ADDR: &str = "127.0.0.1:3700";
 
 fn main() {
     let mut args = pico_args::Arguments::from_env();
-    let addr: String = args.opt_value_from_str("--addr").expect("Failed to parse --addr argument").unwrap_or(DEFAULT_ADDR.into());
-    let help = args.opt_value_from_str("--help").expect("Failed to parse --help argument").unwrap_or(false);
+    let addr: String = args
+        .opt_value_from_str("--addr")
+        .expect("Failed to parse --addr argument")
+        .unwrap_or(DEFAULT_ADDR.into());
+    let help = args
+        .opt_value_from_str("--help")
+        .expect("Failed to parse --help argument")
+        .unwrap_or(false);
 
     if help {
         println!("Usage: stacks-events [--addr=<addr>]");
