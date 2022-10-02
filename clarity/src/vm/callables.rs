@@ -379,9 +379,13 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
             for elem in data {
                 values.push(implicit_cast(list_type.get_list_item_type(), elem)?);
             }
+            let cast_list_type_data = ListTypeData::new_list(
+                list_type.get_list_item_type().clone(),
+                type_signature.get_max_len(),
+            )?;
             Value::Sequence(SequenceData::List(ListData {
                 data: values,
-                type_signature: type_signature.clone(),
+                type_signature: cast_list_type_data,
             }))
         }
         (
