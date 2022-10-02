@@ -98,6 +98,8 @@ impl ContractContext {
         }
     }
 
+    /// Checks if the contract represented by this `ContractContext` is the
+    /// same contract referenced by `other`
     pub fn is_contract(&self, other: &QualifiedContractIdentifier) -> bool {
         &self.contract_identifier == other
     }
