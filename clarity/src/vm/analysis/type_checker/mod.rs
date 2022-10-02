@@ -363,6 +363,8 @@ impl FunctionType {
         })
     }
 
+    /// This method is only used by StacksChainState::can_include_tx. The
+    /// cost of evaluating these type checks are not tracked.
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
