@@ -2414,6 +2414,9 @@ pub mod test {
         pub spending_account: TestMiner,
         pub setup_code: String,
         pub epochs: Option<Vec<StacksEpoch>>,
+        /// If some(), TestPeer should check the PoX-2 invariants
+        /// on cycle numbers bounded (inclusive) by the supplied u64s
+        pub check_pox_invariants: Option<(u64, u64)>,
     }
 
     impl TestPeerConfig {
@@ -2461,6 +2464,7 @@ pub mod test {
                 spending_account: spending_account,
                 setup_code: "".into(),
                 epochs: None,
+                check_pox_invariants: None,
             }
         }
 
@@ -3408,7 +3412,18 @@ pub mod test {
 
             *coinbase_nonce += 1;
 
-            StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
+            let tip_id = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
+
+            if let Some((start_check_cycle, end_check_cycle)) = self.config.check_pox_invariants {
+                pox_2_tests::check_all_stacker_link_invariants(
+                    self,
+                    &tip_id,
+                    start_check_cycle,
+                    end_check_cycle,
+                );
+            }
+
+            tip_id
         }
 
         // Make a tenure

@@ -5075,7 +5075,7 @@ impl StacksChainState {
         chain_tip: &StacksHeaderInfo,
         parent_sortition_id: &SortitionId,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        let mut pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
             burn_tip_height,
             burn_dbconn.get_burn_start_height().into(),
             burn_dbconn.get_pox_reward_cycle_length().into(),
@@ -5084,12 +5084,14 @@ impl StacksChainState {
         // This cannot even occur in the mainchain, because 2.1 starts much
         //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
         if pox_reward_cycle > 1 {
+            // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
+            //  or written to the sortition db (at block = 1 of cycle)
             if Burnchain::is_before_reward_cycle(
                 burn_dbconn.get_burn_start_height().into(),
                 burn_tip_height,
                 burn_dbconn.get_pox_reward_cycle_length().into(),
             ) {
-                pox_reward_cycle -= 1;
+                return Ok(vec![]);
             }
             let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
                 Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)

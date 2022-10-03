@@ -124,6 +124,8 @@ pub enum Error {
     PoxInsufficientBalance,
     PoxNoRewardCycle,
     PoxExtendNotLocked,
+    PoxIncreaseOnV1,
+    PoxInvalidIncrease,
     DefunctPoxContract,
     ProblematicTransaction(Txid),
 }
@@ -207,6 +209,8 @@ impl fmt::Display for Error {
                 "Transaction {} is problematic and will not be mined again",
                 txid
             ),
+            Error::PoxIncreaseOnV1 => write!(f, "PoX increase only allowed for pox-2 locks"),
+            Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
         }
     }
 }
@@ -243,6 +247,8 @@ impl error::Error for Error {
             Error::DefunctPoxContract => None,
             Error::StacksTransactionSkipped(ref _r) => None,
             Error::ProblematicTransaction(ref _txid) => None,
+            Error::PoxIncreaseOnV1 => None,
+            Error::PoxInvalidIncrease => None,
         }
     }
 }
@@ -279,6 +285,8 @@ impl Error {
             Error::DefunctPoxContract => "DefunctPoxContract",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
             Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
+            Error::PoxIncreaseOnV1 => "PoxIncreaseOnV1",
+            Error::PoxInvalidIncrease => "PoxInvalidIncrease",
         }
     }
 
