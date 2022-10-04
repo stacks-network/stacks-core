@@ -23,6 +23,9 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+use std::ptr::null;
+
+use rand::Rng;
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -1103,6 +1106,48 @@ impl MemPoolDB {
         Ok(updated)
     }
 
+    fn get_fee_rate_transactions() -> Vec<MemPoolTxMinimalInfo> {
+        todo!()
+    }
+
+    fn get_null_fee_rate_transactions() -> Vec<MemPoolTxMinimalInfo> {
+        todo!()
+    }
+
+    /// Get a set of transactions to try. Select those that:
+    ///   1) have fee rate estimates
+    ///       -- in which case these are
+    ///             * sorted by fee_rate (descending order)
+    ///   2) do not have fee rate estimates
+    ///       -- just select randomly
+    ///
+    /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
+    /// percent of the time
+    fn get_transaction_to_process(null_estimate_fraction:f64) -> Vec<MemPoolTxMinimalInfo> {
+        let mut fee_rate_transactions = Self::get_fee_rate_transactions();
+        let mut null_rate_transactions = Self::get_null_fee_rate_transactions();
+
+        // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
+        // by pushing the reverse into the downstream logic, but that would make it harder
+        // to parse, and less modular, and the `reverse` should be cheap.
+        fee_rate_transactions.reverse();
+        null_rate_transactions.reverse();
+
+        let mut buffer = vec![];
+
+        let mut rng = rand::thread_rng();
+        while fee_rate_transactions.len() > 0 && null_rate_transactions.len() > 0 {
+            let f:f64 = rng.gen();
+            if (f < null_estimate_fraction && null_rate_transactions.len() > 0) || fee_rate_transactions.len() == 0 {
+                buffer.push(null_rate_transactions.pop());
+            } else if fee_rate_transactions.len() > 0 {
+                buffer.push(fee_rate_transactions.pop());
+            }
+        }
+
+        buffer
+    }
+
     ///
     /// Iterate over candidates in the mempool
     ///  `todo` will be called once for each transaction whose origin nonce is equal
@@ -1139,30 +1184,7 @@ impl MemPoolDB {
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        // Read in all "minimal" mempool entries, and sort by fee rate.
-        let read_minimal_from_db_start = Instant::now();
-        let mut db_txs = MemPoolDB::get_all_txs_minimal(&self.conn())?;
-        let read_minimal_from_db_elapsed = read_minimal_from_db_start.elapsed();
-        let sort_db_results_start = Instant::now();
-        db_txs.sort_by(|a, b| {
-            let a_rate = a.fee_rate;
-            let b_rate = b.fee_rate;
-            if a_rate < b_rate {
-                Ordering::Greater
-            } else if a_rate > b_rate {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        });
-        let sort_db_results_elapsed = sort_db_results_start.elapsed();
-
-        info!(
-            "Read and sorted mempool. Total size: {:?}, time to read in minimal entries: {:?},  time to sort list: {:?}",
-            db_txs.len(),
-            read_minimal_from_db_elapsed,
-            sort_db_results_elapsed
-        );
+        let db_txs = Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64);
 
         // For each minimal info entry: check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
@@ -1175,7 +1197,11 @@ impl MemPoolDB {
             if expected_origin_nonce != tx_reduced_info.origin_nonce {
                 continue;
             }
-            // TODO: Add sponsor nonce check here, when it is added to the struct.
+            let expected_sponsor_nonce =
+                StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
+            if expected_sponsor_nonce != tx_reduced_info.sponsor_nonce {
+                continue;
+            }
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
 
             info!("Miner: will process {:?}", &tx_reduced_info);
@@ -1225,6 +1251,8 @@ impl MemPoolDB {
                             // don't push `Skipped` events to the observer
                         }
                         TransactionEvent::BlockFull => {
+                            // TODO: Handle BlockFull more elegantly. E.g., try to find smaller transactions
+                            // to fill the block.
                             info!("BlockFull: Mempool iteration early exit from iterator");
                             break;
                         }
