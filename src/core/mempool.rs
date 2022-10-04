@@ -1129,22 +1129,24 @@ impl MemPoolDB {
 
         // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
         // by pushing the reverse into the downstream logic, but that would make it harder
-        // to parse, and less modular, and the `reverse` should be cheap.
+        // to parse, and less modular, and the `reverse` should be cheap. Could also use a deque.
         fee_rate_transactions.reverse();
         null_rate_transactions.reverse();
 
         let mut buffer = vec![];
-
         let mut rng = rand::thread_rng();
-        while fee_rate_transactions.len() > 0 && null_rate_transactions.len() > 0 {
+        let mut fee_cursor = fee_rate_transactions.pop();
+        let mut null_cursor = null_rate_transactions.pop();
+        while fee_cursor.is_some() && null_cursor.is_some() {
             let f:f64 = rng.gen();
-            if (f < null_estimate_fraction && null_rate_transactions.len() > 0) || fee_rate_transactions.len() == 0 {
-                buffer.push(null_rate_transactions.pop());
-            } else if fee_rate_transactions.len() > 0 {
-                buffer.push(fee_rate_transactions.pop());
+            if f < null_estimate_fraction && null_cursor.is_some() {
+                buffer.push(null_cursor.expect("`null_cursor` is null, but this should have been checked."));
+                null_cursor = null_rate_transactions.pop();
+            } else {
+                buffer.push(fee_cursor.expect("`fee_cursor` is null, but this should not have been possible."));
+                fee_cursor = fee_rate_transactions.pop();
             }
         }
-
         buffer
     }
 
