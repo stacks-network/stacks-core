@@ -1123,7 +1123,7 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_to_process(null_estimate_fraction:f64) -> Vec<MemPoolTxMinimalInfo> {
+    fn get_transaction_to_process(null_estimate_fraction: f64) -> Vec<MemPoolTxMinimalInfo> {
         let mut fee_rate_transactions = Self::get_fee_rate_transactions();
         let mut null_rate_transactions = Self::get_null_fee_rate_transactions();
 
@@ -1138,16 +1138,41 @@ impl MemPoolDB {
         let mut fee_cursor = fee_rate_transactions.pop();
         let mut null_cursor = null_rate_transactions.pop();
         while fee_cursor.is_some() && null_cursor.is_some() {
-            let f:f64 = rng.gen();
+            let f: f64 = rng.gen();
             if f < null_estimate_fraction && null_cursor.is_some() {
-                buffer.push(null_cursor.expect("`null_cursor` is null, but this should have been checked."));
+                buffer.push(
+                    null_cursor.expect("`null_cursor` is null, but this should have been checked."),
+                );
                 null_cursor = null_rate_transactions.pop();
             } else {
-                buffer.push(fee_cursor.expect("`fee_cursor` is null, but this should not have been possible."));
+                buffer.push(
+                    fee_cursor
+                        .expect("`fee_cursor` is null, but this should not have been possible."),
+                );
                 fee_cursor = fee_rate_transactions.pop();
             }
         }
         buffer
+    }
+
+    /// Returns true if the nonces are those expected based on the MARF, including:
+    ///   1) origin nonce
+    ///   2) sponsor nonce
+    fn nonces_match_expected<C>(clarity_tx: &mut C, tx_reduced_info: &MemPoolTxMinimalInfo) -> bool
+    where
+        C: ClarityConnection,
+    {
+        let expected_origin_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
+        if expected_origin_nonce != tx_reduced_info.origin_nonce {
+            return false;
+        }
+        let expected_sponsor_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
+        if expected_sponsor_nonce != tx_reduced_info.sponsor_nonce {
+            return false;
+        }
+        true
     }
 
     ///
@@ -1186,7 +1211,8 @@ impl MemPoolDB {
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let db_txs = Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64);
+        let db_txs =
+            Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64);
 
         // For each minimal info entry: check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
@@ -1194,19 +1220,11 @@ impl MemPoolDB {
         for tx_reduced_info in &db_txs {
             // Check the nonce.
             let lookup_nonce_start = Instant::now();
-            let expected_origin_nonce =
-                StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
-            if expected_origin_nonce != tx_reduced_info.origin_nonce {
-                continue;
-            }
-            let expected_sponsor_nonce =
-                StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
-            if expected_sponsor_nonce != tx_reduced_info.sponsor_nonce {
-                continue;
-            }
+            let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
-
-            info!("Miner: will process {:?}", &tx_reduced_info);
+            if !nonces_match {
+                continue;
+            }
 
             // Read in and deserialize the transaction.
             let tx_read_start = Instant::now();
@@ -1215,9 +1233,13 @@ impl MemPoolDB {
             let tx_info = match tx_info_option {
                 Some(tx) => tx,
                 None => {
-                    warn!("could not find a tx for id {:?}", &tx_reduced_info.txid);
-                    continue
-                },
+                    // Note: Don't panic here because maybe the state has changed from garbage collection.
+                    warn!(
+                        "Miner: could not find a tx for id {:?}",
+                        &tx_reduced_info.txid
+                    );
+                    continue;
+                }
             };
             let consider = ConsiderTransaction {
                 tx: tx_info,
@@ -1245,7 +1267,7 @@ impl MemPoolDB {
             let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
             total_effective_processing_time += Instant::now() - processing_start;
             // Run `todo` on the transaction.
-            info!("inside_result {:?}", &inside_result);
+            debug!("Miner: processing returns: {:?}", &inside_result);
             match inside_result? {
                 Some(tx_event) => {
                     match tx_event {
