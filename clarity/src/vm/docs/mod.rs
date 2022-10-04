@@ -855,7 +855,7 @@ The `func` argument must be a literal function name.
 
 const FOLD_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B) -> B, sequence_A, B",
-    snippet: "fold ${1:func} ${2:sequence} ${2:initial-value}",
+    snippet: "fold ${1:func} ${2:sequence} ${3:initial-value}",
     output_type: "B",
     signature: "(fold func sequence_A initial_B)",
     description: "The `fold` function condenses `sequence_A` into a value of type
@@ -1859,7 +1859,7 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 
 const IMPL_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "TraitIdentifier",
-    snippet: "impl-trait ${2:trait-identifier}",
+    snippet: "impl-trait ${1:trait-identifier}",
     output_type: "Not Applicable",
     signature: "(impl-trait trait-identifier)",
     description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait.
@@ -2059,7 +2059,7 @@ returns one of the following error codes:
 
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "stx-get-balance ${2:owner}",
+    snippet: "stx-get-balance ${1:owner}",
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 

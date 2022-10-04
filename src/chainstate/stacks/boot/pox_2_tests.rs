@@ -27,6 +27,7 @@ use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::eval;
+use crate::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
@@ -142,6 +143,21 @@ pub fn check_all_stacker_link_invariants(
     info!("Invoked check all"; "tip" => %tip, "first" => first_cycle_number, "last" => max_cycle_number);
     for cycle in first_cycle_number..(max_cycle_number + 1) {
         check_stacker_link_invariants(peer, tip, cycle);
+    }
+}
+
+fn check_pox_print_event(event: &StacksTransactionEvent, operation_name: &str) {
+    if let StacksTransactionEvent::SmartContractEvent(data) = event {
+        assert_eq!(data.key.1, "print"); 
+        let outer_tuple = data.value.clone().expect_tuple(); 
+        assert_eq!(outer_tuple.data_map.get("name").unwrap().clone().expect_ascii(), operation_name); 
+        assert!(outer_tuple.data_map.get("stacker").is_some()); 
+        assert!(outer_tuple.data_map.get("balance").is_some()); 
+        assert!(outer_tuple.data_map.get("locked").is_some()); 
+        assert!(outer_tuple.data_map.get("burnchain-unlock-height").is_some()); 
+        
+    } else {
+        panic!("Unexpected transaction event type.")
     }
 }
 
@@ -1381,6 +1397,10 @@ fn delegate_stack_increase() {
         &bob_txs[&fail_invalid_amount].result.to_string(),
         "(err 18)"
     );
+
+    // Check that the call to `delegate-stack-increase` has a print event.
+    let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0]; 
+    check_pox_print_event(delegate_stack_increase_tx, "delegate-stack-increase");
 }
 
 /// In this test case, Alice stacks and interacts with the
@@ -1521,6 +1541,7 @@ fn stack_increase() {
     alice_nonce += 1;
 
     // this stack-increase tx should work
+    let success_increase = alice_nonce; 
     txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, increase_amt));
     alice_nonce += 1;
 
@@ -1604,6 +1625,10 @@ fn stack_increase() {
 
     // transaction should fail because the amount supplied is invalid (i.e., 0)
     assert_eq!(&alice_txs[&fail_bad_amount].result.to_string(), "(err 18)");
+
+    // Check that the call to `stack-increase` has a print event.
+    let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0]; 
+    check_pox_print_event(stack_increase_tx, "stack-increase");
 }
 
 #[test]
@@ -2140,6 +2165,15 @@ fn test_pox_extend_transition_pox_2() {
         },
         "Bob tx1 should have committed okay"
     );
+
+
+     // Check that the call to `stack-stx` has a print event.
+     let stack_tx = &bob_txs.get(&0).unwrap().clone().events[0]; 
+     check_pox_print_event(stack_tx, "stack-stx");
+
+     // Check that the call to `stack-extend` has a print event.
+     let stack_extend_tx = &bob_txs.get(&1).unwrap().clone().events[0]; 
+     check_pox_print_event(stack_extend_tx, "stack-extend");
 }
 
 /// In this test case, two Stackers, Alice and Bob delegate stack and interact with the
@@ -2779,6 +2813,14 @@ fn test_delegate_extend_transition_pox_2() {
         },
         "Bob tx0 should have committed okay"
     );
+
+    // Check that the call to `delegate-stack-stx` has a print event.
+    let delegate_stack_tx = &charlie_txs.get(&5).unwrap().clone().events[0]; 
+    check_pox_print_event(delegate_stack_tx, "delegate-stack-stx");
+
+    // Check that the call to `delegate-stack-extend` has a print event.
+    let delegate_stack_extend_tx = &charlie_txs.get(&6).unwrap().clone().events[0]; 
+    check_pox_print_event(delegate_stack_extend_tx, "delegate-stack-extend");
 
     for (_nonce, tx) in charlie_txs.iter() {
         assert!(
