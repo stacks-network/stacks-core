@@ -1106,12 +1106,32 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    fn get_fee_rate_transactions() -> Vec<MemPoolTxMinimalInfo> {
-        todo!()
+    /// Return the mempool entries that do have a fee rate, sorted by fee rate.
+    /// Limit by 100_000. TODO: Limit by arbitrary amount.
+    fn get_fee_rate_transactions() -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let sql = "\
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate\
+        FROM mempool\
+        WHERE fee_rate IS NOT NULL\
+        ORDER BY fee_rate DESC\
+        LIMIT 100000
+        ";
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
     }
 
-    fn get_null_fee_rate_transactions() -> Vec<MemPoolTxMinimalInfo> {
-        todo!()
+    /// Take a batch of transactions *without* a fee rate estimate, in no particular order.
+    /// Just take the first 100_000. TODO: Limit by arbitrary amount.
+    ///
+    /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
+    /// in the mempool?
+    fn get_null_fee_rate_transactions() -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let sql = "\
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate\
+        FROM mempool\
+        WHERE fee_rate IS NULL
+        LIMIT 100000
+        ";
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
     }
 
     /// Get a set of transactions to try. Select those that:
@@ -1123,9 +1143,9 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_to_process(null_estimate_fraction: f64) -> Vec<MemPoolTxMinimalInfo> {
-        let mut fee_rate_transactions = Self::get_fee_rate_transactions();
-        let mut null_rate_transactions = Self::get_null_fee_rate_transactions();
+    fn get_transaction_to_process(null_estimate_fraction: f64) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let mut fee_rate_transactions = Self::get_fee_rate_transactions()?;
+        let mut null_rate_transactions = Self::get_null_fee_rate_transactions()?;
 
         // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
         // by pushing the reverse into the downstream logic, but that would make it harder
@@ -1152,7 +1172,7 @@ impl MemPoolDB {
                 fee_cursor = fee_rate_transactions.pop();
             }
         }
-        buffer
+        Ok(buffer)
     }
 
     /// Returns true if the nonces are those expected based on the MARF, including:
@@ -1212,7 +1232,7 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let db_txs =
-            Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64);
+            Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64)?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1226,7 +1246,7 @@ impl MemPoolDB {
                 break;
             }
 
-            // Check the nonce.
+            // Check the nonces.
             let lookup_nonce_start = Instant::now();
             let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
