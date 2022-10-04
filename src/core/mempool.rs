@@ -1109,7 +1109,7 @@ impl MemPoolDB {
 
     /// Return the mempool entries that do have a fee rate, sorted by fee rate.
     /// Limit by 100_000. TODO: Limit by arbitrary amount.
-    fn get_fee_rate_transactions(conn:&DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    fn get_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
@@ -1125,11 +1125,14 @@ impl MemPoolDB {
     ///
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
-    fn get_null_fee_rate_transactions(conn:&DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    fn get_null_fee_rate_transactions(
+        conn: &DBConn,
+    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
         WHERE fee_rate IS NULL
+        ORDER BY RANDOM()
         LIMIT 100000
         ";
         query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
@@ -1144,7 +1147,10 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_to_process(&self, null_estimate_fraction: f64) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    fn get_transaction_to_process(
+        &self,
+        null_estimate_fraction: f64,
+    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let conn = self.conn();
         let mut fee_rate_transactions = Self::get_fee_rate_transactions(&conn)?;
         let mut null_rate_transactions = Self::get_null_fee_rate_transactions(&conn)?;
