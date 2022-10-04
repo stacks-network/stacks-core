@@ -1239,11 +1239,13 @@ impl MemPoolDB {
                 &f, &fee_cursor, &null_cursor
             );
             if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
+                // Assume: null_cursor.is_some()
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
                 );
                 null_cursor = null_rate_transactions.pop();
             } else {
+                // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
                 buffer.push(
                     fee_cursor
                         .expect("`fee_cursor` is null, but this should not have been possible."),
