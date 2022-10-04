@@ -24,6 +24,7 @@ use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use clarity::types::chainstate::SortitionId;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
@@ -46,6 +47,7 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityConnection, ClarityInstance};
+use crate::clarity_vm::database::SortitionDBRef;
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::codec::{read_next, write_next};
 use crate::core::mempool::MemPoolDB;
@@ -5061,15 +5063,75 @@ impl StacksChainState {
         }
     }
 
+    /// Check if current PoX reward cycle (as of `burn_tip_height`) has handled any
+    ///  Clarity VM work necessary at the start of the cycle (i.e., processing of accelerated unlocks
+    ///  for failed stackers).
+    /// If it has not yet been handled, then perform that work now.
+    fn check_and_handle_reward_start(
+        burn_tip_height: u64,
+        burn_dbconn: &dyn BurnStateDB,
+        sortition_dbconn: &dyn SortitionDBRef,
+        clarity_tx: &mut ClarityTx,
+        chain_tip: &StacksHeaderInfo,
+        parent_sortition_id: &SortitionId,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
+            burn_tip_height,
+            burn_dbconn.get_burn_start_height().into(),
+            burn_dbconn.get_pox_reward_cycle_length().into(),
+        ).expect("FATAL: Unrecoverable chainstate corruption: Epoch 2.1 code evaluated before first burn block height");
+        // Do not try to handle auto-unlocks on pox_reward_cycle 0
+        // This cannot even occur in the mainchain, because 2.1 starts much
+        //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
+        if pox_reward_cycle > 1 {
+            // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
+            //  or written to the sortition db (at block = 1 of cycle)
+            if Burnchain::is_before_reward_cycle(
+                burn_dbconn.get_burn_start_height().into(),
+                burn_tip_height,
+                burn_dbconn.get_pox_reward_cycle_length().into(),
+            ) {
+                return Ok(vec![]);
+            }
+            let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
+            });
+
+            if !handled {
+                let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
+                    parent_sortition_id,
+                    chain_tip.burn_header_height.into(),
+                    pox_reward_cycle,
+                )?;
+                let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
+                    Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
+                })?;
+                return Ok(events);
+            }
+        }
+
+        Ok(vec![])
+    }
+
     /// Called in both follower and miner block assembly paths.
+    ///
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
+    ///
+    /// The `burn_dbconn`, `sortition_dbconn`, and `conn` arguments
+    ///  all reference the same sortition database through different
+    ///  interfaces. `burn_dbconn` and `sortition_dbconn` should
+    ///  reference the same object. The reason to provide both is that
+    ///  `SortitionDBRef` captures trait functions that Clarity does
+    ///  not need, and Rust does not support trait upcasting (even
+    ///  though it would theoretically be safe).
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &'b dyn BurnStateDB,
+        sortition_dbconn: &'b dyn SortitionDBRef,
         conn: &Connection, // connection to the sortition DB
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
@@ -5080,8 +5142,10 @@ impl StacksChainState {
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
-        let parent_index_hash =
-            StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
+        let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_sortition_id = burn_dbconn
+            .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
+            .expect("Failed to get parent SortitionID from ConsensusHash");
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
@@ -5215,6 +5279,18 @@ impl StacksChainState {
         // if we get here, then we need to reset the block-cost back to 0 since this begins the
         // epoch defined by this miner.
         clarity_tx.reset_cost(ExecutionCost::zero());
+
+        debug!("Evaluating block with epoch = {}", evaluated_epoch);
+        if evaluated_epoch >= StacksEpochId::Epoch21 {
+            Self::check_and_handle_reward_start(
+                burn_tip_height.into(),
+                burn_dbconn,
+                sortition_dbconn,
+                &mut clarity_tx,
+                chain_tip,
+                &parent_sortition_id,
+            )?;
+        }
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
@@ -5433,6 +5509,7 @@ impl StacksChainState {
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
+            burn_dbconn,
             burn_dbconn,
             &burn_dbconn.tx(),
             &parent_chain_tip,

@@ -8,7 +8,7 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::SymbolicExpression;
 use serde_json::Value as JsonValue;
 
-use super::functions::define::DefineFunctionsParsed;
+use super::{functions::define::DefineFunctionsParsed, EvalHook};
 
 pub struct CoverageReporter {
     executed_lines: HashMap<QualifiedContractIdentifier, HashMap<u32, u64>>,
@@ -220,5 +220,31 @@ impl CoverageReporter {
         }
 
         Ok(())
+    }
+}
+
+impl EvalHook for CoverageReporter {
+    fn will_begin_eval(
+        &mut self,
+        env: &mut crate::vm::contexts::Environment,
+        _context: &crate::vm::contexts::LocalContext,
+        expr: &SymbolicExpression,
+    ) {
+        self.report_eval(expr, &env.contract_context.contract_identifier);
+    }
+
+    fn did_finish_eval(
+        &mut self,
+        _env: &mut crate::vm::Environment,
+        _context: &crate::vm::LocalContext,
+        _expr: &SymbolicExpression,
+        _res: &core::result::Result<crate::vm::Value, crate::vm::errors::Error>,
+    ) {
+    }
+
+    fn did_complete(
+        &mut self,
+        _result: core::result::Result<&mut crate::vm::ExecutionResult, String>,
+    ) {
     }
 }
