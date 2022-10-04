@@ -1214,10 +1214,18 @@ impl MemPoolDB {
         let db_txs =
             Self::get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64);
 
-        // For each minimal info entry: check if its nonce is appropriate, and if so process it.
+        // For each minimal info entry in sorted order:
+        //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
         for tx_reduced_info in &db_txs {
+            // Consider timing out.
+            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
+                info!("Mempool iteration deadline exceeded";
+                       "deadline_ms" => settings.max_walk_time_ms);
+                break;
+            }
+
             // Check the nonce.
             let lookup_nonce_start = Instant::now();
             let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
@@ -1245,13 +1253,6 @@ impl MemPoolDB {
                 tx: tx_info,
                 update_estimate: false,
             };
-
-            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                info!("Mempool iteration deadline exceeded";
-                       "deadline_ms" => settings.max_walk_time_ms);
-                break;
-            }
-
             debug!("Consider mempool transaction";
                    "txid" => %consider.tx.tx.txid(),
                    "origin_addr" => %consider.tx.metadata.origin_address,
@@ -1259,14 +1260,12 @@ impl MemPoolDB {
                    "accept_time" => consider.tx.metadata.accept_time,
                    "tx_fee" => consider.tx.metadata.tx_fee,
                    "size" => consider.tx.metadata.len);
-
             total_considered += 1;
 
             // Process the transaction by calling `todo`.
             let processing_start = Instant::now();
             let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
             total_effective_processing_time += Instant::now() - processing_start;
-            // Run `todo` on the transaction.
             debug!("Miner: processing returns: {:?}", &inside_result);
             match inside_result? {
                 Some(tx_event) => {
