@@ -252,7 +252,7 @@ fn mempool_walk_over_fork() {
             txid,
             tx_bytes,
             tx_fee,
-            None,
+            Some(tx_fee as f64),
             height,
             &origin_address,
             origin_nonce,

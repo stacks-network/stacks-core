@@ -1318,6 +1318,7 @@ impl MemPoolDB {
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
+        info!("Miner: start walk over {} possible candidates.", db_txs.len());
         for tx_reduced_info in &db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1333,6 +1334,8 @@ impl MemPoolDB {
             if !nonces_match {
                 continue;
             }
+
+            debug!("Nonce check: for tx_reduced_info {:?}, nonces_match={}", tx_reduced_info, nonces_match);
 
             // Read in and deserialize the transaction.
             let tx_read_start = Instant::now();
@@ -1353,13 +1356,6 @@ impl MemPoolDB {
                 tx: tx_info,
                 update_estimate: false,
             };
-            debug!("Consider mempool transaction";
-                   "txid" => %consider.tx.tx.txid(),
-                   "origin_addr" => %consider.tx.metadata.origin_address,
-                   "sponsor_addr" => %consider.tx.metadata.sponsor_address,
-                   "accept_time" => consider.tx.metadata.accept_time,
-                   "tx_fee" => consider.tx.metadata.tx_fee,
-                   "size" => consider.tx.metadata.len);
             total_considered += 1;
 
             // Process the transaction by calling `todo`.
