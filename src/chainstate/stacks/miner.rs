@@ -949,6 +949,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             }
                             continue;
                         }
+                        TransactionResult::BlockFull => {
+                            test_debug!("Stop mining microblock block due to limit exceeded");
+                            break;
+                        }
                         TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
                             test_debug!("Exclude problematic tx {} from microblock", tx.txid());
                             continue;

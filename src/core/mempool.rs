@@ -1234,7 +1234,10 @@ impl MemPoolDB {
         let mut null_cursor = null_rate_transactions.pop();
         while fee_cursor.is_some() && null_cursor.is_some() {
             let f: f64 = rng.gen();
-            info!("f {} null_cursor {:?} fee_cursor {:?}", &f, &fee_cursor, &null_cursor);
+            info!(
+                "f {} null_cursor {:?} fee_cursor {:?}",
+                &f, &fee_cursor, &null_cursor
+            );
             if f < null_estimate_fraction && null_cursor.is_some() {
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
