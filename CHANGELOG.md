@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.4.0]
+
+### Fixed
+
+- Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
+  query for choosing transactions in order by estimated fee rate.  This
+drastically speeds up mempool transaction iteration in the miner (#3314)
+
+
 ## [2.05.0.3.0]
 
 ### Added
