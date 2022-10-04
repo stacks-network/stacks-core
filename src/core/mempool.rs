@@ -23,6 +23,9 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+use std::ptr::null;
+
+use rand::Rng;
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -1155,6 +1158,7 @@ impl MemPoolDB {
                 }
             };
 
+            // TODO: change this to update the mempool
             sql_tx.execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
                 rusqlite::params![fee_rate_f64, &txid],
@@ -1165,6 +1169,106 @@ impl MemPoolDB {
         sql_tx.commit()?;
 
         Ok(updated)
+    }
+
+    /// Return the mempool entries that do have a fee rate, sorted by fee rate.
+    /// Limit by 100_000. TODO: Limit by arbitrary amount.
+    fn sorted_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NOT NULL
+        ORDER BY fee_rate DESC
+        LIMIT 100000
+        ";
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
+    }
+
+    /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
+    /// Just take the first 100_000. TODO: Limit by arbitrary amount.
+    ///
+    /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
+    /// in the mempool?
+    fn randomized_null_fee_rate_transactions(
+        conn: &DBConn,
+    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NULL
+        ORDER BY RANDOM()
+        LIMIT 100000
+        ";
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
+    }
+
+    /// Get a set of transactions to try. Select those that:
+    ///   1) have fee rate estimates
+    ///       -- in which case these are
+    ///             * sorted by fee_rate (descending order)
+    ///   2) do not have fee rate estimates
+    ///       -- just select randomly
+    ///
+    /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
+    /// percent of the time
+    fn get_transaction_list_to_process(
+        &self,
+        null_estimate_fraction: f64,
+    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        let conn = self.conn();
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(&conn)?;
+        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(&conn)?;
+
+        // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
+        // by pushing the reverse into the downstream logic, but that would make it harder
+        // to parse, and less modular, and the `reverse` should be cheap. Could also use a deque.
+        fee_rate_transactions.reverse();
+        null_rate_transactions.reverse();
+
+        info!("fee_rate_transactions {:?}", &fee_rate_transactions);
+        info!("null_rate_transactions {:?}", &null_rate_transactions);
+
+        let mut buffer = vec![];
+        let mut rng = rand::thread_rng();
+        let mut fee_cursor = fee_rate_transactions.pop();
+        let mut null_cursor = null_rate_transactions.pop();
+        while fee_cursor.is_some() && null_cursor.is_some() {
+            let f: f64 = rng.gen();
+            info!("f {} null_cursor {:?} fee_cursor {:?}", &f, &fee_cursor, &null_cursor);
+            if f < null_estimate_fraction && null_cursor.is_some() {
+                buffer.push(
+                    null_cursor.expect("`null_cursor` is null, but this should have been checked."),
+                );
+                null_cursor = null_rate_transactions.pop();
+            } else {
+                buffer.push(
+                    fee_cursor
+                        .expect("`fee_cursor` is null, but this should not have been possible."),
+                );
+                fee_cursor = fee_rate_transactions.pop();
+            }
+        }
+        Ok(buffer)
+    }
+
+    /// Returns true if the nonces are those expected based on the MARF, including:
+    ///   1) origin nonce
+    ///   2) sponsor nonce
+    fn nonces_match_expected<C>(clarity_tx: &mut C, tx_reduced_info: &MemPoolTxMinimalInfo) -> bool
+    where
+        C: ClarityConnection,
+    {
+        let expected_origin_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
+        if expected_origin_nonce != tx_reduced_info.origin_nonce {
+            return false;
+        }
+        let expected_sponsor_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
+        if expected_sponsor_nonce != tx_reduced_info.sponsor_nonce {
+            return false;
+        }
+        true
     }
 
     ///
@@ -1203,46 +1307,29 @@ impl MemPoolDB {
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        // Read in all "minimal" mempool entries, and sort by fee rate.
-        let read_minimal_from_db_start = Instant::now();
-        let mut db_txs = MemPoolDB::get_all_txs_minimal(&self.conn())?;
-        let read_minimal_from_db_elapsed = read_minimal_from_db_start.elapsed();
-        let sort_db_results_start = Instant::now();
-        db_txs.sort_by(|a, b| {
-            let a_rate = a.fee_rate;
-            let b_rate = b.fee_rate;
-            if a_rate < b_rate {
-                Ordering::Greater
-            } else if a_rate > b_rate {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        });
-        let sort_db_results_elapsed = sort_db_results_start.elapsed();
+        let db_txs = self.get_transaction_list_to_process(
+            settings.consider_no_estimate_tx_prob as f64 / 100f64,
+        )?;
 
-        info!(
-            "Read and sorted mempool. Total size: {:?}, time to read in minimal entries: {:?},  time to sort list: {:?}",
-            db_txs.len(),
-            read_minimal_from_db_elapsed,
-            sort_db_results_elapsed
-        );
-
-        // For each minimal info entry: check if its nonce is appropriate, and if so process it.
+        // For each minimal info entry in sorted order:
+        //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
         for tx_reduced_info in &db_txs {
-            // Check the nonce.
+            // Consider timing out.
+            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
+                info!("Mempool iteration deadline exceeded";
+                       "deadline_ms" => settings.max_walk_time_ms);
+                break;
+            }
+
+            // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let expected_origin_nonce =
-                StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
-            if expected_origin_nonce != tx_reduced_info.origin_nonce {
+            let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
+            total_lookup_nonce_time += lookup_nonce_start.elapsed();
+            if !nonces_match {
                 continue;
             }
-            // TODO: Add sponsor nonce check here, when it is added to the struct.
-            total_lookup_nonce_time += lookup_nonce_start.elapsed();
-
-            info!("Miner: will process {:?}", &tx_reduced_info);
 
             // Read in and deserialize the transaction.
             let tx_read_start = Instant::now();
@@ -1251,21 +1338,18 @@ impl MemPoolDB {
             let tx_info = match tx_info_option {
                 Some(tx) => tx,
                 None => {
-                    warn!("could not find a tx for id {:?}", &tx_reduced_info.txid);
-                    continue
-                },
+                    // Note: Don't panic here because maybe the state has changed from garbage collection.
+                    warn!(
+                        "Miner: could not find a tx for id {:?}",
+                        &tx_reduced_info.txid
+                    );
+                    continue;
+                }
             };
             let consider = ConsiderTransaction {
                 tx: tx_info,
                 update_estimate: false,
             };
-
-            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                info!("Mempool iteration deadline exceeded";
-                       "deadline_ms" => settings.max_walk_time_ms);
-                break;
-            }
-
             debug!("Consider mempool transaction";
                    "txid" => %consider.tx.tx.txid(),
                    "origin_addr" => %consider.tx.metadata.origin_address,
@@ -1273,15 +1357,13 @@ impl MemPoolDB {
                    "accept_time" => consider.tx.metadata.accept_time,
                    "tx_fee" => consider.tx.metadata.tx_fee,
                    "size" => consider.tx.metadata.len);
-
             total_considered += 1;
 
             // Process the transaction by calling `todo`.
             let processing_start = Instant::now();
             let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
             total_effective_processing_time += Instant::now() - processing_start;
-            // Run `todo` on the transaction.
-            info!("inside_result {:?}", &inside_result);
+            debug!("Miner: processing returns: {:?}", &inside_result);
             match inside_result? {
                 Some(tx_event) => {
                     match tx_event {
@@ -1289,6 +1371,8 @@ impl MemPoolDB {
                             // don't push `Skipped` events to the observer
                         }
                         TransactionEvent::BlockFull => {
+                            // TODO: Handle BlockFull more elegantly. E.g., try to find smaller transactions
+                            // to fill the block.
                             info!("BlockFull: Mempool iteration early exit from iterator");
                             break;
                         }
@@ -1350,14 +1434,6 @@ impl MemPoolDB {
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
-        Ok(rows)
-    }
-
-    // Return the results in a very "minimal", or "lazy", representation.
-    // Note: Delay deserialization until we know we want to process this.
-    pub fn get_all_txs_minimal(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
-        let sql = "SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate FROM mempool";
-        let rows = query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)?;
         Ok(rows)
     }
 

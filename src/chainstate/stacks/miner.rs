@@ -399,9 +399,7 @@ impl TransactionResult {
                     error: error.to_string(),
                 })
             }
-            TransactionResult::BlockFull => {
-                TransactionEvent::BlockFull
-            }
+            TransactionResult::BlockFull => TransactionEvent::BlockFull,
         }
     }
 
@@ -1053,8 +1051,13 @@ impl<'a> StacksMicroblockBuilder<'a> {
                         }
 
                         if considered.contains(&mempool_tx.tx.txid()) {
-                            return Ok(Some(TransactionResult::skipped(
-                                &mempool_tx.tx, "Transaction already considered.".to_string()).convert_to_event()));
+                            return Ok(Some(
+                                TransactionResult::skipped(
+                                    &mempool_tx.tx,
+                                    "Transaction already considered.".to_string(),
+                                )
+                                .convert_to_event(),
+                            ));
                         } else {
                             considered.insert(mempool_tx.tx.txid());
                         }
@@ -1071,7 +1074,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                 let result_event = tx_result.convert_to_event();
                                 match tx_result {
                                     TransactionResult::BlockFull => {
-                                        info!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
+                                        info!(
+                                            "Block budget exceeded on tx {}",
+                                            &mempool_tx.tx.txid()
+                                        );
                                         return Ok(None);
                                     }
                                     TransactionResult::Success(TransactionSuccess {
@@ -1116,7 +1122,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             Error::BlockTooBigError => {
                                                 // done mining -- our execution budget is exceeded.
                                                 // Make the block from the transactions we did manage to get
-                                                info!("Block budget exceeded on tx {}", &mempool_tx.tx.txid());
+                                                info!(
+                                                    "Block budget exceeded on tx {}",
+                                                    &mempool_tx.tx.txid()
+                                                );
                                                 return Ok(None);
                                             }
                                             Error::TransactionTooBigError => {
@@ -1124,9 +1133,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             }
                                             _ => {}
                                         }
-                                        return Ok(Some(result_event))
+                                        return Ok(Some(result_event));
                                     }
-                                    TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
+                                    TransactionResult::Problematic(TransactionProblematic {
+                                        tx,
+                                        ..
+                                    }) => {
                                         debug!("Drop problematic transaction {}", &tx.txid());
                                         to_drop_and_blacklist.push(tx.txid());
                                         Ok(Some(result_event))
@@ -1426,7 +1438,6 @@ impl StacksBlockBuilder {
         match limit_behavior {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
                 return TransactionResult::block_full(tx);
-
             }
             BlockLimitFunction::LIMIT_REACHED => {
                 return TransactionResult::block_full(tx);
@@ -1570,7 +1581,6 @@ impl StacksBlockBuilder {
                                         &total_budget
                                     );
                                     return TransactionResult::block_full(tx);
-
                                 }
                             }
                             _ => return TransactionResult::error(&tx, e),
