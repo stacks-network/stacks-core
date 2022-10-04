@@ -406,7 +406,6 @@ const MEMPOOL_INITIAL_SCHEMA: &'static [&'static str] = &[r#"
         sponsor_address TEXT NOT NULL,
         sponsor_nonce INTEGER NOT NULL,
         tx_fee INTEGER NOT NULL,
-        fee_rate NUMBER,
         length INTEGER NOT NULL,
         consensus_hash TEXT NOT NULL,
         block_header_hash TEXT NOT NULL,
@@ -1167,6 +1166,7 @@ impl MemPoolDB {
         let mut null_cursor = null_rate_transactions.pop();
         while fee_cursor.is_some() && null_cursor.is_some() {
             let f: f64 = rng.gen();
+            info!("f {}", &f);
             if f < null_estimate_fraction && null_cursor.is_some() {
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
@@ -1239,8 +1239,9 @@ impl MemPoolDB {
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let db_txs =
-            self.get_transaction_list_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64)?;
+        let db_txs = self.get_transaction_list_to_process(
+            settings.consider_no_estimate_tx_prob as f64 / 100f64,
+        )?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1365,14 +1366,6 @@ impl MemPoolDB {
     pub fn get_all_txs(conn: &DBConn) -> Result<Vec<MemPoolTxInfo>, db_error> {
         let sql = "SELECT * FROM mempool";
         let rows = query_rows::<MemPoolTxInfo, _>(conn, &sql, NO_PARAMS)?;
-        Ok(rows)
-    }
-
-    // Return the results in a very "minimal", or "lazy", representation.
-    // Note: Delay deserialization until we know we want to process this.
-    pub fn get_all_txs_minimal(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
-        let sql = "SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate FROM mempool";
-        let rows = query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)?;
         Ok(rows)
     }
 

@@ -176,7 +176,7 @@ pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
     write_count: 5_0_000,
     read_length: 1_000_000_000,
-    read_count: 5_0_000, // note: this is the block limit in krypton mode
+    read_count: 5_0_000,
     // allow much more runtime in helium blocks than mainnet
     runtime: 100_000_000_000,
 };
