@@ -290,10 +290,11 @@ fn mempool_walk_over_fork() {
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
+                        info!("i'm running!");
                         Ok(Some(
                             TransactionResult::skipped(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                "XXX event not relevant to test".to_string(),
                             )
                             .convert_to_event(),
                         ))

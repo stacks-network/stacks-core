@@ -1232,13 +1232,13 @@ impl MemPoolDB {
         let mut rng = rand::thread_rng();
         let mut fee_cursor = fee_rate_transactions.pop();
         let mut null_cursor = null_rate_transactions.pop();
-        while fee_cursor.is_some() && null_cursor.is_some() {
+        while fee_cursor.is_some() || null_cursor.is_some() {
             let f: f64 = rng.gen();
             info!(
                 "f {} null_cursor {:?} fee_cursor {:?}",
                 &f, &fee_cursor, &null_cursor
             );
-            if f < null_estimate_fraction && null_cursor.is_some() {
+            if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
                 );
@@ -1331,11 +1331,10 @@ impl MemPoolDB {
             let lookup_nonce_start = Instant::now();
             let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
+            debug!("Nonce check: for tx_reduced_info {:?}, nonces_match={}", tx_reduced_info, nonces_match);
             if !nonces_match {
                 continue;
             }
-
-            debug!("Nonce check: for tx_reduced_info {:?}, nonces_match={}", tx_reduced_info, nonces_match);
 
             // Read in and deserialize the transaction.
             let tx_read_start = Instant::now();
