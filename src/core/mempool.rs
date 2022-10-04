@@ -791,6 +791,36 @@ impl MemPoolTxInfo {
     }
 }
 
+struct NonceCache {
+    cache: HashMap<StacksAddress, u64>,
+}
+
+impl NonceCache {
+    fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+        }
+    }
+
+    fn get<C>(&mut self, address: &StacksAddress, clarity_tx: &mut C) -> u64
+    where
+        C: ClarityConnection,
+    {
+        match self.cache.get(address) {
+            Some(nonce) => *nonce,
+            None => {
+                let nonce = StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+                self.cache.insert(address.clone(), nonce);
+                nonce
+            }
+        }
+    }
+
+    fn insert(&mut self, address: StacksAddress, nonce: u64) {
+        self.cache.insert(address, nonce);
+    }
+}
+
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
         let mut tx = tx_begin_immediate(conn)?;
@@ -1238,7 +1268,8 @@ impl MemPoolDB {
             if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
                 // Assume: null_cursor.is_some()
                 buffer.push(
-                    null_cursor.expect("`null_cursor` is null, but this should have been checked."),
+                    null_cursor
+                        .expect("`null_cursor` is null, but this should not have been possible."),
                 );
                 null_cursor = null_rate_transactions.pop();
             } else {
@@ -1353,6 +1384,7 @@ impl MemPoolDB {
         let start_time = Instant::now();
         let mut total_considered = 0;
         let mut total_included = 0;
+        let mut nonce_cache = NonceCache::new();
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
@@ -1379,13 +1411,18 @@ impl MemPoolDB {
 
             // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
+            let expected_origin_nonce = nonce_cache.get(&tx_reduced_info.origin_address, clarity_tx);
+            let expected_sponsor_nonce = nonce_cache.get(&tx_reduced_info.sponsor_address, clarity_tx);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
-            debug!(
-                "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
-                tx_reduced_info, nonces_match
+            test_debug!(
+                "Nonce check: for tx_reduced_info {:?}, nonces_match={}",
+                tx_reduced_info,
+                expected_origin_nonce != tx_reduced_info.origin_nonce
+                    || expected_sponsor_nonce != tx_reduced_info.sponsor_nonce
             );
-            if !nonces_match.is_eq() {
+            if expected_origin_nonce != tx_reduced_info.origin_nonce
+                || expected_sponsor_nonce != tx_reduced_info.sponsor_nonce
+            {
                 continue;
             }
 
@@ -1432,6 +1469,10 @@ impl MemPoolDB {
                     break;
                 }
             }
+
+            // Bump nonces in the cache for the executed transaction
+            nonce_cache.insert(tx_reduced_info.origin_address, expected_origin_nonce + 1);
+            nonce_cache.insert(tx_reduced_info.sponsor_address, expected_sponsor_nonce + 1);
         }
 
         info!(
