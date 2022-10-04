@@ -1225,13 +1225,16 @@ impl MemPoolDB {
         fee_rate_transactions.reverse();
         null_rate_transactions.reverse();
 
+        info!("fee_rate_transactions {:?}", &fee_rate_transactions);
+        info!("null_rate_transactions {:?}", &null_rate_transactions);
+
         let mut buffer = vec![];
         let mut rng = rand::thread_rng();
         let mut fee_cursor = fee_rate_transactions.pop();
         let mut null_cursor = null_rate_transactions.pop();
         while fee_cursor.is_some() && null_cursor.is_some() {
             let f: f64 = rng.gen();
-            info!("f {}", &f);
+            info!("f {} null_cursor {:?} fee_cursor {:?}", &f, &fee_cursor, &null_cursor);
             if f < null_estimate_fraction && null_cursor.is_some() {
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
