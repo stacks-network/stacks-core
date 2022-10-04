@@ -1109,7 +1109,7 @@ impl MemPoolDB {
 
     /// Return the mempool entries that do have a fee rate, sorted by fee rate.
     /// Limit by 100_000. TODO: Limit by arbitrary amount.
-    fn get_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    fn sorted_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
@@ -1120,12 +1120,12 @@ impl MemPoolDB {
         query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
     }
 
-    /// Take a batch of transactions *without* a fee rate estimate, in no particular order.
+    /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
     /// Just take the first 100_000. TODO: Limit by arbitrary amount.
     ///
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
-    fn get_null_fee_rate_transactions(
+    fn randomized_null_fee_rate_transactions(
         conn: &DBConn,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let sql = "
@@ -1147,13 +1147,13 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_to_process(
+    fn get_transaction_list_to_process(
         &self,
         null_estimate_fraction: f64,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let conn = self.conn();
-        let mut fee_rate_transactions = Self::get_fee_rate_transactions(&conn)?;
-        let mut null_rate_transactions = Self::get_null_fee_rate_transactions(&conn)?;
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(&conn)?;
+        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(&conn)?;
 
         // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
         // by pushing the reverse into the downstream logic, but that would make it harder
@@ -1240,7 +1240,7 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let db_txs =
-            self.get_transaction_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64)?;
+            self.get_transaction_list_to_process(settings.consider_no_estimate_tx_prob as f64 / 100f64)?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
