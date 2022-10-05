@@ -95,20 +95,12 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
     track.add_cost(cost)
 }
 
-pub fn analysis_typecheck_size(
-    t1: &TypeSignature,
-) -> Result<u32> {
+pub fn analysis_typecheck_size(t1: &TypeSignature) -> Result<u32> {
     Ok(t1.type_size().map_err(|_| CostErrors::CostOverflow)?)
 }
 
-pub fn analysis_typecheck_add_cost<T: CostTracker>(
-    track: &mut T,
-    t1: u32,
-) -> Result<()> {
-    let cost = track.compute_cost(
-        ClarityCostFunction::AnalysisTypeCheck,
-        &[t1 as u64],
-    )?;
+pub fn analysis_typecheck_add_cost<T: CostTracker>(track: &mut T, t1: u32) -> Result<()> {
+    let cost = track.compute_cost(ClarityCostFunction::AnalysisTypeCheck, &[t1 as u64])?;
     track.add_cost(cost)
 }
 

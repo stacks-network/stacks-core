@@ -51,7 +51,8 @@ impl FromStr for ClarityVersion {
             Ok(ClarityVersion::Clarity3)
         } else {
             Err(RuntimeErrorType::ParseError(
-                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, and Clarity3.".to_string(),
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, and Clarity3."
+                    .to_string(),
             )
             .into())
         }

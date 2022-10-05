@@ -45,7 +45,6 @@ macro_rules! switch_on_global_epoch {
             env: &mut Environment,
             context: &LocalContext,
         ) -> Result<Value> {
-
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -67,7 +66,6 @@ macro_rules! switch_on_global_clarity3 {
             env: &mut Environment,
             context: &LocalContext,
         ) -> Result<Value> {
-
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")

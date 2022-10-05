@@ -30,18 +30,14 @@ use stacks_common::util::hash::hex_bytes;
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         let wrong_type_test = "(is-standard u10)";
         assert_eq!(
-            execute_with_parameters(
-                wrong_type_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap_err(),
+            execute_with_parameters(wrong_type_test, version, epoch, true).unwrap_err(),
             CheckErrors::TypeValueError(PrincipalType, Value::UInt(10)).into()
         );
     }
@@ -49,205 +45,129 @@ fn test_simple_is_standard_check_inputs() {
 
 #[test]
 fn test_simple_is_standard_testnet_cases() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         let testnet_addr_test = "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.tokens)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         let testnet_addr_test = "(is-standard 'SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9.tokens)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                testnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(testnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
     }
 }
 
 fn test_simple_is_standard_mainnet_cases() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         let mainnet_addr_test = "(is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         let mainnet_addr_test = "(is-standard 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.tokens)";
         assert_eq!(
             Value::Bool(true),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                mainnet_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(mainnet_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -255,55 +175,37 @@ fn test_simple_is_standard_mainnet_cases() {
 #[test]
 fn test_simple_is_standard_undefined_cases() {
     // When an address is neither a testnet nor a mainnet address, the result should be false.
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5)";
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                invalid_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(invalid_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                invalid_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(invalid_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         let invalid_addr_test = "(is-standard 'S1G2081040G2081040G2081040G208105NK8PE5.tokens)";
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                invalid_addr_test,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(invalid_addr_test, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
         assert_eq!(
             Value::Bool(false),
-            execute_with_parameters(
-                invalid_addr_test,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(invalid_addr_test, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -349,9 +251,11 @@ fn create_principal_destruct_tuple_from_strings(
 #[test]
 // Test that we can parse well-formed principals.
 fn test_principal_destruct_good() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
         let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
         assert_eq!(
@@ -363,14 +267,9 @@ fn test_principal_destruct_good() {
                     None
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
@@ -384,14 +283,9 @@ fn test_principal_destruct_good() {
                     None,
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // ST is testnet single-sig. We run against testnet so should get an `ok` value.
@@ -405,14 +299,9 @@ fn test_principal_destruct_good() {
                     None,
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
@@ -426,14 +315,9 @@ fn test_principal_destruct_good() {
                     None
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
@@ -447,14 +331,9 @@ fn test_principal_destruct_good() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
@@ -468,14 +347,9 @@ fn test_principal_destruct_good() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // ST is testnet single-sig. We run against testnet so should get an `ok` value.
@@ -489,14 +363,9 @@ fn test_principal_destruct_good() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
@@ -510,14 +379,9 @@ fn test_principal_destruct_good() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -526,9 +390,11 @@ fn test_principal_destruct_good() {
 // Test that we notice principals that do not correspond to valid version bytes, and return them in
 // the error channel.
 fn test_principal_destruct_bad_version_byte() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
         let input = r#"(principal-destruct 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
         assert_eq!(
@@ -540,14 +406,9 @@ fn test_principal_destruct_bad_version_byte() {
                     None
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // SP is mainnet, but we run on testnet.
@@ -561,14 +422,9 @@ fn test_principal_destruct_bad_version_byte() {
                     None
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // ST is testet, but we run on mainnet.
@@ -582,14 +438,9 @@ fn test_principal_destruct_bad_version_byte() {
                     None
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
@@ -603,14 +454,9 @@ fn test_principal_destruct_bad_version_byte() {
                     Some("foo")
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // SP is mainnet, but we run on testnet.
@@ -624,14 +470,9 @@ fn test_principal_destruct_bad_version_byte() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // ST is testet, but we run on mainnet.
@@ -645,14 +486,9 @@ fn test_principal_destruct_bad_version_byte() {
                     Some("foo")
                 ))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -661,9 +497,11 @@ fn test_principal_destruct_bad_version_byte() {
 // Standard case where construction should work.  We compare the output of the
 // Clarity function to hand-built principals.
 fn test_principal_construct_good() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // We always use the the same bytes buffer.
         let mut transfer_buffer = [0u8; 20];
         transfer_buffer
@@ -678,14 +516,9 @@ fn test_principal_construct_good() {
                     StandardPrincipalData(22, transfer_buffer)
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // Mainnet multi-sig, on mainnet.
@@ -697,19 +530,13 @@ fn test_principal_construct_good() {
                     StandardPrincipalData(20, transfer_buffer)
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // Mainnet single-sig contract, on mainnet.
-        let input =
-            r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: true,
@@ -720,19 +547,13 @@ fn test_principal_construct_good() {
                     )
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // Mainnet multi-sig contract, on mainnet.
-        let input =
-            r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: true,
@@ -743,14 +564,9 @@ fn test_principal_construct_good() {
                     )
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                true
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, true)
+                .unwrap()
+                .unwrap()
         );
 
         // Testnet single-sig, run on testnet.
@@ -762,14 +578,9 @@ fn test_principal_construct_good() {
                     StandardPrincipalData(26, transfer_buffer)
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // Testnet multi-sig, run on testnet.
@@ -781,19 +592,13 @@ fn test_principal_construct_good() {
                     StandardPrincipalData(21, transfer_buffer)
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // Testnet single-sig contract, run on testnet.
-        let input =
-            r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: true,
@@ -804,19 +609,13 @@ fn test_principal_construct_good() {
                     )
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // Testnet multi-sig contract, run on testnet.
-        let input =
-            r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: true,
@@ -827,14 +626,9 @@ fn test_principal_construct_good() {
                     )
                 )))
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -870,9 +664,11 @@ fn create_principal_from_strings(
 // match a recognized network. This is meant for compatibility with "future" network bytes, so
 // is still valid.
 fn test_principal_construct_version_byte_future() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // The version byte 0x1f is unrecognized today, but is valid for the future.
         let input = r#"(principal-construct 0x1f 0x0102030405060708091011121314151617181920)"#;
         assert_eq!(
@@ -897,19 +693,13 @@ fn test_principal_construct_version_byte_future() {
                     .expect("FAIL: Failed to initialize tuple."),
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // The version byte 0x1f is unrecognized today, but is valid for the future.
-        let input =
-            r#"(principal-construct 0x1f 0x0102030405060708091011121314151617181920 "hello-world")"#;
+        let input = r#"(principal-construct 0x1f 0x0102030405060708091011121314151617181920 "hello-world")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: false,
@@ -932,14 +722,9 @@ fn test_principal_construct_version_byte_future() {
                     .expect("FAIL: Failed to initialize tuple."),
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }
@@ -948,9 +733,11 @@ fn test_principal_construct_version_byte_future() {
 // Test cases where the wrong type should be a `CheckErrors` error, because it should have been
 // caught by the type checker.
 fn test_principal_construct_check_errors() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
         // `CheckErrors`.
         let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
@@ -962,12 +749,7 @@ fn test_principal_construct_check_errors() {
                 }))
             )
             .into()),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
+            execute_with_parameters(input, version, epoch, false)
         );
 
         // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
@@ -975,25 +757,14 @@ fn test_principal_construct_check_errors() {
         let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
         assert_eq!(
             Err(CheckErrors::TypeValueError(BUFF_1.clone(), Value::UInt(22)).into()),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
+            execute_with_parameters(input, version, epoch, false)
         );
 
         // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
         // should have been caught by the type checker.
         let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
         assert_eq!(
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap_err(),
+            execute_with_parameters(input, version, epoch, false).unwrap_err(),
             CheckErrors::TypeValueError(
                 BUFF_20.clone(),
                 Value::Sequence(SequenceData::Buffer(BuffData {
@@ -1015,12 +786,7 @@ fn test_principal_construct_check_errors() {
                 })))
             )
             .into()),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
+            execute_with_parameters(input, version, epoch, false)
         );
     }
 }
@@ -1028,21 +794,18 @@ fn test_principal_construct_check_errors() {
 #[test]
 // Test cases where we return an "in response" error.
 fn test_principal_construct_response_errors() {
-    for (epoch, version) in [(StacksEpochId::Epoch21, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
-            (StacksEpochId::Epoch22, ClarityVersion::Clarity3)]{
+    for (epoch, version) in [
+        (StacksEpochId::Epoch21, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity2),
+        (StacksEpochId::Epoch22, ClarityVersion::Clarity3),
+    ] {
         // Hash key part is too small, should have length 20. This wasn't for the type checker, so the
         // error is signaled in the returned Response.
         let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
         assert_eq!(
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap(),
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap(),
             Value::Response(ResponseData {
                 committed: false,
                 data: Box::new(Value::Tuple(
@@ -1062,14 +825,9 @@ fn test_principal_construct_response_errors() {
         // Response.
         let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
         assert_eq!(
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap(),
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap(),
             Value::Response(ResponseData {
                 committed: false,
                 data: Box::new(Value::Tuple(
@@ -1101,14 +859,9 @@ fn test_principal_construct_response_errors() {
                     .expect("FAIL: Failed to initialize tuple."),
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // The contract name is too short
@@ -1127,18 +880,14 @@ fn test_principal_construct_response_errors() {
                     .expect("FAIL: Failed to initialize tuple."),
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
 
         // The contract name is not a valid contract name
-        let input = r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "foo[")"#;
+        let input =
+            r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "foo[")"#;
         assert_eq!(
             Value::Response(ResponseData {
                 committed: false,
@@ -1153,14 +902,9 @@ fn test_principal_construct_response_errors() {
                     .expect("FAIL: Failed to initialize tuple."),
                 )),
             }),
-            execute_with_parameters(
-                input,
-                version,
-                epoch,
-                false
-            )
-            .unwrap()
-            .unwrap()
+            execute_with_parameters(input, version, epoch, false)
+                .unwrap()
+                .unwrap()
         );
     }
 }

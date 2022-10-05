@@ -212,7 +212,11 @@ pub fn special_append(
     }
 }
 
-switch_on_global_clarity3!(special_concat(special_concat_v200, special_concat_v205, special_concat_v220));
+switch_on_global_clarity3!(special_concat(
+    special_concat_v200,
+    special_concat_v205,
+    special_concat_v220
+));
 
 pub fn special_concat_v200(
     args: &[SymbolicExpression],
@@ -276,8 +280,7 @@ pub fn special_concat_v220(
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
     if let Value::Sequence(ref mut seq) = wrapped_seq {
-
-        for arg in &args[1..]{
+        for arg in &args[1..] {
             let mut other_wrapped_seq = eval(&arg, env, context)?;
 
             if let Value::Sequence(ref mut other_seq) = other_wrapped_seq {

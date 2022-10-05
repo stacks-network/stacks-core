@@ -4603,7 +4603,7 @@ impl StacksChainState {
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
-                    }
+                    },
                     StacksEpochId::Epoch21 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
@@ -5070,14 +5070,16 @@ impl StacksChainState {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)
             }
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => StacksChainState::get_stacking_and_transfer_burn_ops_v210(
-                chainstate_tx,
-                parent_index_hash,
-                sortdb_conn,
-                burn_tip,
-                burn_tip_height,
-                cur_epoch.start_height,
-            ),
+            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 => {
+                StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                    chainstate_tx,
+                    parent_index_hash,
+                    sortdb_conn,
+                    burn_tip,
+                    burn_tip_height,
+                    cur_epoch.start_height,
+                )
+            }
         }
     }
 

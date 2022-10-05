@@ -407,10 +407,10 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
         use_mainnet,
     );
     let epoch_22_result = execute_with_parameters(
-            program,
-            ClarityVersion::Clarity3,
-            StacksEpochId::Epoch22,
-            use_mainnet,
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch22,
+        use_mainnet,
     );
     assert_eq!(
         epoch_200_result, epoch_205_result,

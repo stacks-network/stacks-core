@@ -24,7 +24,7 @@ use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::{execute, execute_v2, execute_v3, ClarityVersion, execute_with_parameters};
+use crate::vm::{execute, execute_v2, execute_v3, execute_with_parameters, ClarityVersion};
 use stacks_common::types::StacksEpochId;
 use std::convert::TryInto;
 
@@ -331,10 +331,8 @@ fn test_string_ascii_concat_v22() {
         Value::string_ascii_from_bytes("ABCDEFGHI".into()).unwrap(),
     ];
 
-    for (test, expected) in tests.iter().zip(expected.iter()){
-        assert_eq!(*expected, 
-            execute_v3(test).unwrap().unwrap()
-        );
+    for (test, expected) in tests.iter().zip(expected.iter()) {
+        assert_eq!(*expected, execute_v3(test).unwrap().unwrap());
     }
 }
 
@@ -347,8 +345,6 @@ fn test_string_utf8_concat_v22() {
 
     assert_eq!(expected, execute_v3(test1).unwrap().unwrap());
 }
-
-
 
 #[test]
 fn test_string_ascii_get_len() {
@@ -654,7 +650,7 @@ fn test_simple_list_concat_v22() {
         "(concat (list) (list) (list))",
         "(concat (list (list 1) (list 2)) (list (list 3)) (list (list 4)))",
     ];
-    
+
     let expected = [
         Value::list_from(vec![
             Value::Int(1),
@@ -675,11 +671,11 @@ fn test_simple_list_concat_v22() {
         ])
         .unwrap(),
     ];
-    
+
     for (test, expected) in tests.iter().zip(expected.iter()) {
         assert_eq!(expected.clone(), execute_v3(test).unwrap().unwrap());
     }
-    
+
     assert_eq!(
         execute_v3("(concat (list 1) (list u4 u8))").unwrap_err(),
         CheckErrors::TypeError(IntType, UIntType).into()
@@ -694,9 +690,7 @@ fn test_simple_list_concat_v22() {
         execute_v3("(concat (list 1) \"1\")").unwrap_err(),
         RuntimeErrorType::BadTypeConstruction.into()
     );
-    
 }
-
 
 #[test]
 fn test_simple_buff_concat() {
@@ -744,9 +738,7 @@ fn test_simple_buff_concat_v22() {
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected.clone(),
-                execute_v3(test).unwrap().unwrap()
-        );
+        assert_eq!(expected.clone(), execute_v3(test).unwrap().unwrap());
     }
 
     assert_eq!(

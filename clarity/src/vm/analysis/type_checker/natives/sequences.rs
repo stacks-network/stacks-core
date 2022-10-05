@@ -20,9 +20,9 @@ pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Len
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 use crate::vm::types::{Value, MAX_VALUE_SIZE};
+use std::cmp;
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use std::cmp;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::{
@@ -31,8 +31,10 @@ use crate::vm::analysis::type_checker::{
 };
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, analysis_typecheck_size, analysis_typecheck_add_cost,
-    cost_functions, runtime_cost};
+use crate::vm::costs::{
+    analysis_typecheck_add_cost, analysis_typecheck_cost, analysis_typecheck_size, cost_functions,
+    runtime_cost,
+};
 use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
@@ -285,10 +287,17 @@ pub fn check_special_concat_v3(
                         let (rhs_entry_type, rhs_max_len) =
                             (rhs_list.get_list_item_type(), rhs_list.get_max_len());
 
-                        list_entry_type = TypeSignature::least_supertype(&list_entry_type, rhs_entry_type)?;
-                        new_len = new_len.checked_add(rhs_max_len).ok_or(CheckErrors::MaxLengthOverflow)?;
+                        list_entry_type =
+                            TypeSignature::least_supertype(&list_entry_type, rhs_entry_type)?;
+                        new_len = new_len
+                            .checked_add(rhs_max_len)
+                            .ok_or(CheckErrors::MaxLengthOverflow)?;
                     }
-                    _ => return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()),
+                    _ => {
+                        return Err(
+                            CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()
+                        )
+                    }
                 };
             }
             let type_sig = TypeSignature::list_of(list_entry_type, new_len)?;
@@ -301,10 +310,16 @@ pub fn check_special_concat_v3(
                 let rhs_type = checker.type_check(&arg, context)?;
                 t_max_size = cmp::max(t_max_size, analysis_typecheck_size(&rhs_type)?);
                 match rhs_type {
-                    TypeSignature::SequenceType(BufferType(rhs_len)) =>
-                        size = size.checked_add(u32::from(rhs_len))
-                            .ok_or(CheckErrors::MaxLengthOverflow)?,
-                    _ => return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()),
+                    TypeSignature::SequenceType(BufferType(rhs_len)) => {
+                        size = size
+                            .checked_add(u32::from(rhs_len))
+                            .ok_or(CheckErrors::MaxLengthOverflow)?
+                    }
+                    _ => {
+                        return Err(
+                            CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()
+                        )
+                    }
                 };
             }
             TypeSignature::SequenceType(BufferType(size.try_into()?))
@@ -316,9 +331,16 @@ pub fn check_special_concat_v3(
                 let rhs_type = checker.type_check(&arg, context)?;
                 t_max_size = cmp::max(t_max_size, analysis_typecheck_size(&rhs_type)?);
                 match rhs_type {
-                    TypeSignature::SequenceType(StringType(ASCII(rhs_len))) =>
-                        size = size.checked_add(u32::from(rhs_len)).ok_or(CheckErrors::MaxLengthOverflow)?,
-                    _ => return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()),
+                    TypeSignature::SequenceType(StringType(ASCII(rhs_len))) => {
+                        size = size
+                            .checked_add(u32::from(rhs_len))
+                            .ok_or(CheckErrors::MaxLengthOverflow)?
+                    }
+                    _ => {
+                        return Err(
+                            CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()
+                        )
+                    }
                 };
             }
             TypeSignature::SequenceType(StringType(ASCII(size.try_into()?)))
@@ -330,9 +352,16 @@ pub fn check_special_concat_v3(
                 let rhs_type = checker.type_check(&arg, context)?;
                 t_max_size = cmp::max(t_max_size, analysis_typecheck_size(&rhs_type)?);
                 match rhs_type {
-                    TypeSignature::SequenceType(StringType(UTF8(rhs_len))) =>
-                        size = size.checked_add(u32::from(rhs_len)).ok_or(CheckErrors::MaxLengthOverflow)?,
-                    _ => return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()),
+                    TypeSignature::SequenceType(StringType(UTF8(rhs_len))) => {
+                        size = size
+                            .checked_add(u32::from(rhs_len))
+                            .ok_or(CheckErrors::MaxLengthOverflow)?
+                    }
+                    _ => {
+                        return Err(
+                            CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into()
+                        )
+                    }
                 };
             }
             TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))

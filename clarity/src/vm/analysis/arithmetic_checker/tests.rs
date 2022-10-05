@@ -444,7 +444,6 @@ fn test_functions_clarity2() {
             contract
         );
     }
-
 }
 
 #[test]

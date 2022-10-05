@@ -7740,7 +7740,6 @@ pub mod tests {
         }
     }
 
-
     #[test]
     #[should_panic]
     fn test_bad_epochs_discontinuous() {

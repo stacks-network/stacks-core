@@ -1554,23 +1554,20 @@ fn test_concat_append_supertypes() {
     }
 
     let good_v3 = [
-         "(concat (list) (list 4 5) (list 1) (list))",
-         "(concat (list (list 2) (list) (list 4 5))
+        "(concat (list) (list 4 5) (list 1) (list))",
+        "(concat (list (list 2) (list) (list 4 5))
                   (list (list) (list) (list 7 8 9))
                   (list (list 1) (list 2 3) (list)))",
-     ];
-     let expected_v3 = [
-         "(list 3 int)",
-         "(list 9 (list 3 int))",
-     ];
+    ];
+    let expected_v3 = ["(list 3 int)", "(list 9 (list 3 int))"];
 
-     for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
-         eprintln!("{}", good_test);
-         assert_eq!(
-             expected,
-             &format!("{}", type_check_helper_v3(&good_test).unwrap())
-         );
-     }
+    for (good_test, expected) in good_v3.iter().zip(expected_v3.iter()) {
+        eprintln!("{}", good_test);
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper_v3(&good_test).unwrap())
+        );
+    }
 }
 
 #[test]

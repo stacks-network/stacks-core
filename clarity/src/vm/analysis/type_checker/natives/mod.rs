@@ -893,4 +893,3 @@ impl TypedNativeFunction {
         }
     }
 }
-

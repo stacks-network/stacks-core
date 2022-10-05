@@ -32,8 +32,8 @@ use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifie
 use crate::vm::types::{PrincipalData, ResponseData, SequenceData, SequenceSubtype, StringSubtype};
 use crate::vm::ClarityVersion;
 use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2,
-    execute_v3 as vm_execute_v3, execute_with_parameters,
+    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_v3 as vm_execute_v3,
+    execute_with_parameters,
 };
 use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
 use stacks_common::address::c32;

@@ -340,7 +340,6 @@ pub static STACKS_EPOCH_2_05_MARKER: u8 = 0x05;
 pub static STACKS_EPOCH_2_1_MARKER: u8 = 0x06;
 pub static STACKS_EPOCH_2_2_MARKER: u8 = 0x07;
 
-
 #[test]
 fn test_ord_for_stacks_epoch() {
     let epochs = STACKS_EPOCHS_MAINNET.clone();
