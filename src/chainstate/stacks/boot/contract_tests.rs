@@ -563,14 +563,14 @@ fn pox_2_contract_caller_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
+        env.initialize_versioned_contract(POX_2_CONTRACT_TESTNET.clone(), ClarityVersion::Clarity2, &POX_2_TESTNET_CODE, None)
             .unwrap()
     });
 
     let cc = boot_code_id("stack-through", false);
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(cc.clone(),
+        env.initialize_versioned_contract(cc.clone(), ClarityVersion::Clarity2, 
                                 "(define-public (cc-stack-stx (amount-ustx uint)
                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                            (start-burn-ht uint)

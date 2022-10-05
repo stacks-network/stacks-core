@@ -364,7 +364,7 @@
         (print (merge event-info {
             name: "handle-unlock", 
             args: {
-                first-cycle-locked: first-cycle-locked
+                first-cycle-locked: first-cycle-locked,
                 first-unlocked-cycle: cycle-to-unlock,
             }
         }))
