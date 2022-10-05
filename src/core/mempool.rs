@@ -1421,12 +1421,6 @@ impl MemPoolDB {
                         TransactionEvent::Skipped(_) => {
                             // don't push `Skipped` events to the observer
                         }
-                        TransactionEvent::BlockFull => {
-                            // TODO: Handle BlockFull more elegantly. E.g., try to find smaller transactions
-                            // to fill the block.
-                            info!("BlockFull: Mempool iteration early exit from iterator");
-                            break;
-                        }
                         _ => {
                             total_included += 1;
                             output_events.push(tx_event);
