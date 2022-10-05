@@ -1830,7 +1830,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
         let size_hint = match self.data.uncommitted_writes {
             Some((_, ref trie_storage)) => 2 * trie_storage.size_hint(),
-            None => (1024), // don't try to guess _byte_ allocation here.
+            None => 1024, // don't try to guess _byte_ allocation here.
         };
 
         let trie_buf = TrieRAM::new(bhh, size_hint, &self.data.cur_block);
@@ -1872,7 +1872,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                 // new trie
                 let size_hint = match self.data.uncommitted_writes {
                     Some((_, ref trie_storage)) => 2 * trie_storage.size_hint(),
-                    None => (1024), // don't try to guess _byte_ allocation here.
+                    None => 1024, // don't try to guess _byte_ allocation here.
                 };
 
                 (
