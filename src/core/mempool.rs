@@ -1212,12 +1212,11 @@ impl MemPoolDB {
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
     fn get_transaction_list_to_process(
-        &self,
+        conn: &DBConn,
         null_estimate_fraction: f64,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
-        let conn = self.conn();
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(&conn)?;
-        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(&conn)?;
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn)?;
+        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(conn)?;
 
         // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
         // by pushing the reverse into the downstream logic, but that would make it harder
@@ -1274,17 +1273,17 @@ impl MemPoolDB {
     {
         let expected_origin_nonce =
             StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
-        if expected_origin_nonce < tx_reduced_info.origin_nonce {
+        if tx_reduced_info.origin_nonce < expected_origin_nonce {
             return Ordering::Less;
-        } else if expected_origin_nonce > tx_reduced_info.origin_nonce {
+        } else if tx_reduced_info.origin_nonce < expected_origin_nonce {
             return Ordering::Greater;
         }
 
         let expected_sponsor_nonce =
             StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
-        if expected_sponsor_nonce < tx_reduced_info.sponsor_nonce {
+        if tx_reduced_info.sponsor_nonce < expected_sponsor_nonce {
             return Ordering::Less;
-        } else if expected_sponsor_nonce > tx_reduced_info.sponsor_nonce {
+        } else if tx_reduced_info.sponsor_nonce > expected_sponsor_nonce {
             return Ordering::Greater;
         }
 
@@ -1292,14 +1291,14 @@ impl MemPoolDB {
     }
 
     fn characterize_mempool<C>(
-        &self,
+        conn: &DBConn,
         clarity_tx: &mut C,
         null_estimate_fraction: f64,
     ) -> Result<(), db_error>
     where
         C: ClarityConnection,
     {
-        let all_transactions = self.get_transaction_list_to_process(null_estimate_fraction)?;
+        let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction)?;
         let mut num_less = 0;
         let mut num_equal = 0;
         let mut num_greater = 0;
@@ -1358,8 +1357,9 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
-        self.characterize_mempool(clarity_tx, null_estimate_fraction)?;
-        let db_txs = self.get_transaction_list_to_process(null_estimate_fraction)?;
+        let connection = self.conn();
+        Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
+        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
