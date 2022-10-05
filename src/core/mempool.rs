@@ -1174,14 +1174,15 @@ impl MemPoolDB {
     /// Return the mempool entries that do have a fee rate, sorted by fee rate.
     /// Limit by 100_000. TODO: Limit by arbitrary amount.
     fn sorted_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
         WHERE fee_rate IS NOT NULL
         ORDER BY fee_rate DESC
-        LIMIT 100000
+        LIMIT ?
         ";
-        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000])
     }
 
     /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
@@ -2380,5 +2381,46 @@ impl MemPoolDB {
             }
         }
         Ok(num_written)
+    }
+}
+
+/// Reads in one query of the form of `base_query`, creating pages of size `page_size`.
+struct TransactionPageCursor {
+    base_query: String,
+    page_size: u64,
+    current_page_number:u64,
+    current_page_remaining:Vec<MemPoolTxMinimalInfo>,
+}
+
+impl TransactionPageCursor {
+    fn read_next_page(&self) {
+    }
+}
+impl Iterator for TransactionPageCursor {
+    type Item = MemPoolTxMinimalInfo;
+
+    fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
+        let popped = self.current_page_remaining.pop();
+        // See if we have more on this page.
+        match popped {
+            Some(tx_info) => {
+                // Return element from this page.
+                Some(tx_info)
+            }
+            None => {
+                // Page is empty, so read a page.
+                self.read_next_page();
+                let popped2 = self.current_page_remaining.pop();
+                match popped2 {
+                    Some(tx_info) => {
+                        Some(tx_info)
+                    }
+                    None => {
+                        // If there is nothing after reading a page, we are done.
+                        None
+                    }
+                }
+            }
+        }
     }
 }
