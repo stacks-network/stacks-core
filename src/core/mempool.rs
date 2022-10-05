@@ -2435,14 +2435,34 @@ impl MemPoolDB {
 
 /// Reads in one query of the form of `base_query`, creating pages of size `page_size`.
 struct TransactionPageCursor {
+    // TODO: Should this be a reference?
+    connection: Connection,
     base_query: String,
-    page_size: u64,
-    current_page_number:u64,
-    current_page_remaining:Vec<MemPoolTxMinimalInfo>,
+    page_size: i64,
+    current_offset: i64,
+    current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
 impl TransactionPageCursor {
-    fn read_next_page(&self) {
+    fn read_next_page(&mut self) {
+        let result = query_rows::<MemPoolTxMinimalInfo, _>(
+            &self.connection,
+            &self.base_query,
+            &[&self.page_size, &self.current_offset],
+        );
+        match result {
+            Ok(mut transaction_vector) => {
+                transaction_vector.reverse();
+                self.current_page_remaining = transaction_vector;
+                self.current_offset += self.page_size;
+                ()
+            }
+            Err(e) => {
+                warn!("Error reading batch of results: {:?}", &e);
+                // pass through
+                ()
+            }
+        }
     }
 }
 impl Iterator for TransactionPageCursor {
@@ -2461,9 +2481,7 @@ impl Iterator for TransactionPageCursor {
                 self.read_next_page();
                 let popped2 = self.current_page_remaining.pop();
                 match popped2 {
-                    Some(tx_info) => {
-                        Some(tx_info)
-                    }
+                    Some(tx_info) => Some(tx_info),
                     None => {
                         // If there is nothing after reading a page, we are done.
                         None
