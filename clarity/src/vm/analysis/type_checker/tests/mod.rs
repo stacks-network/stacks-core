@@ -1467,13 +1467,13 @@ fn test_replace_at_list() {
         "(replace-at (list (list 1 2 3)) u0 (list 0))",
     ];
     let expected = [
-        "(response (list 7 int) uint)",
-        "(response (list 5 uint) uint)",
-        "(response (list 1 bool) uint)",
-        "(response (list 7 int) uint)",
-        "(response (list 2 (list 1 int)) uint)",
-        "(response (list 2 (list 2 int)) uint)",
-        "(response (list 1 (list 3 int)) uint)",
+        "(optional (list 7 int))",
+        "(optional (list 5 uint))",
+        "(optional (list 1 bool))",
+        "(optional (list 7 int))",
+        "(optional (list 2 (list 1 int)))",
+        "(optional (list 2 (list 2 int)))",
+        "(optional (list 1 (list 3 int)))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1520,10 +1520,10 @@ fn test_replace_at_buff() {
         "(replace-at 0x001122334455 u2 0x66)",
     ];
     let expected = [
-        "(response (buff 4) uint)",
-        "(response (buff 4) uint)",
-        "(response (buff 1) uint)",
-        "(response (buff 6) uint)",
+        "(optional (buff 4))",
+        "(optional (buff 4))",
+        "(optional (buff 1))",
+        "(optional (buff 6))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1575,11 +1575,11 @@ fn test_replace_at_ascii() {
         "(replace-at \"abcdefg\" u2 \"h\")",
     ];
     let expected = [
-        "(response (string-ascii 4) uint)",
-        "(response (string-ascii 4) uint)",
-        "(response (string-ascii 1) uint)",
-        "(response (string-ascii 7) uint)",
-        "(response (string-ascii 7) uint)",
+        "(optional (string-ascii 4))",
+        "(optional (string-ascii 4))",
+        "(optional (string-ascii 1))",
+        "(optional (string-ascii 7))",
+        "(optional (string-ascii 7))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1631,10 +1631,10 @@ fn test_replace_at_utf8() {
         "(replace-at u\"abcdefg\" u2 u\"h\")",
     ];
     let expected = [
-        "(response (string-utf8 4) uint)",
-        "(response (string-utf8 4) uint)",
-        "(response (string-utf8 1) uint)",
-        "(response (string-utf8 7) uint)",
+        "(optional (string-utf8 4))",
+        "(optional (string-utf8 4))",
+        "(optional (string-utf8 1))",
+        "(optional (string-utf8 7))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

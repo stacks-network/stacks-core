@@ -654,9 +654,9 @@ fn test_simple_list_replace_at() {
     ];
 
     let expected = [
-        Value::okay(Value::list_from(vec![Value::Int(1), Value::Int(4)]).unwrap()).unwrap(),
-        Value::okay(Value::list_from(vec![Value::Int(10)]).unwrap()).unwrap(),
-        Value::okay(
+        Value::some(Value::list_from(vec![Value::Int(1), Value::Int(4)]).unwrap()).unwrap(),
+        Value::some(Value::list_from(vec![Value::Int(10)]).unwrap()).unwrap(),
+        Value::some(
             Value::list_from(vec![
                 Value::Int(1),
                 Value::Int(9),
@@ -666,7 +666,7 @@ fn test_simple_list_replace_at() {
             .unwrap(),
         )
         .unwrap(),
-        Value::okay(
+        Value::some(
             Value::list_from(vec![
                 Value::Int(4),
                 Value::Int(5),
@@ -677,7 +677,7 @@ fn test_simple_list_replace_at() {
             .unwrap(),
         )
         .unwrap(),
-        Value::okay(
+        Value::some(
             Value::list_from(vec![
                 Value::list_from(vec![Value::Int(33)]).unwrap(),
                 Value::list_from(vec![Value::Int(2)]).unwrap(),
@@ -685,7 +685,7 @@ fn test_simple_list_replace_at() {
             .unwrap(),
         )
         .unwrap(),
-        Value::okay(
+        Value::some(
             Value::list_from(vec![
                 Value::list_from(vec![Value::Int(0)]).unwrap(),
                 Value::list_from(vec![Value::Int(3), Value::Int(4)]).unwrap(),
@@ -693,7 +693,7 @@ fn test_simple_list_replace_at() {
             .unwrap(),
         )
         .unwrap(),
-        Value::okay(
+        Value::some(
             Value::list_from(vec![
                 Value::list_from(vec![Value::Int(0)]).unwrap(),
             ])
@@ -713,7 +713,7 @@ fn test_simple_list_replace_at() {
         "(replace-at (list) u0 6)",
     ];
 
-    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+    let bad_expected = [Value::none(), Value::none()];
 
     for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
         assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
@@ -754,10 +754,10 @@ fn test_simple_buff_replace_at() {
     ];
 
     let expected = [
-        Value::okay(Value::buff_from(vec![48, 68]).unwrap()).unwrap(),
-        Value::okay(Value::buff_from(vec![17]).unwrap()).unwrap(),
-        Value::okay(Value::buff_from(vec![0, 17, 34, 68]).unwrap()).unwrap(),
-        Value::okay(Value::buff_from(vec![0, 68, 34, 51]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![48, 68]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![17]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![0, 17, 34, 68]).unwrap()).unwrap(),
+        Value::some(Value::buff_from(vec![0, 68, 34, 51]).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -771,7 +771,7 @@ fn test_simple_buff_replace_at() {
         "(replace-at 0x u0 0x11)",
     ];
 
-    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+    let bad_expected = [Value::none(), Value::none()];
 
     for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
         assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
@@ -828,10 +828,10 @@ fn test_simple_string_ascii_replace_at() {
     ];
 
     let expected = [
-        Value::okay(Value::string_ascii_from_bytes("ac".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_ascii_from_bytes("c".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_ascii_from_bytes("abce".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_ascii_from_bytes("aecd".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("ac".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("c".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("abce".into()).unwrap()).unwrap(),
+        Value::some(Value::string_ascii_from_bytes("aecd".into()).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -845,7 +845,7 @@ fn test_simple_string_ascii_replace_at() {
         "(replace-at \"\" u0 \"a\")",
     ];
 
-    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+    let bad_expected = [Value::none(), Value::none()];
 
     for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
         assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());
@@ -907,12 +907,12 @@ fn test_simple_string_utf8_replace_at() {
     ];
 
     let expected = [
-        Value::okay(Value::string_utf8_from_bytes("ac".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_utf8_from_bytes("c".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_utf8_from_bytes("abce".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_utf8_from_bytes("aecd".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_utf8_from_bytes("helloe".into()).unwrap()).unwrap(),
-        Value::okay(Value::string_utf8_from_bytes("heelo🦊".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("ac".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("c".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("abce".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("aecd".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("helloe".into()).unwrap()).unwrap(),
+        Value::some(Value::string_utf8_from_bytes("heelo🦊".into()).unwrap()).unwrap(),
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
@@ -926,7 +926,7 @@ fn test_simple_string_utf8_replace_at() {
         "(replace-at u\"\" u0 u\"a\")",
     ];
 
-    let bad_expected = [Value::err_uint(1), Value::err_uint(1)];
+    let bad_expected = [Value::none(), Value::none()];
 
     for (bad_test, bad_expected) in bad_tests.iter().zip(bad_expected.iter()) {
         assert_eq!(bad_expected.clone(), execute_v2(bad_test).unwrap().unwrap());

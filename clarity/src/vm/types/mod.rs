@@ -282,6 +282,52 @@ impl SequenceData {
         Some(result)
     }
 
+    pub fn replace_at(self, index: usize, element: Value) -> Result<Value> {
+        let seq_length = self.len(); 
+
+        // Check that the length of the provided element is 1. In the case that SequenceData 
+        // is a list, we check that the provided element is the right type below. 
+        if !self.is_list() {
+            if let Value::Sequence(data) = &element {
+                let elem_length = data.len(); 
+                if elem_length != 1 {
+                    return Err(RuntimeErrorType::BadTypeConstruction.into())
+                }
+            } else {
+                return Err(RuntimeErrorType::BadTypeConstruction.into())
+            }
+        }
+        if index >= seq_length {
+            return Err(CheckErrors::ValueOutOfBounds.into())
+        }
+
+        let new_seq_data = match (self, element) {
+            (SequenceData::Buffer(mut data), Value::Sequence(SequenceData::Buffer(elem))) => {
+                data.data[index] = elem.data[0];
+                SequenceData::Buffer(data)
+            }
+            (SequenceData::List(mut data), elem) => {
+                let entry_type = data.type_signature.get_list_item_type();
+                if !entry_type.admits(&elem) {
+                    return Err(CheckErrors::ListTypesMustMatch.into())
+                }
+                data.data[index] = elem;
+                SequenceData::List(data)
+            }
+            (SequenceData::String(CharType::ASCII(mut data)), Value::Sequence(SequenceData::String(CharType::ASCII(elem)))) => {
+                data.data[index] = elem.data[0];
+                SequenceData::String(CharType::ASCII(data))
+            }
+            (SequenceData::String(CharType::UTF8(mut data)), Value::Sequence(SequenceData::String(CharType::UTF8(mut elem)))) => {
+                data.data[index] = elem.data.swap_remove(0);
+                SequenceData::String(CharType::UTF8(data))
+            }
+            _ => return Err(CheckErrors::ListTypesMustMatch.into())
+        }; 
+
+        Ok(Value::some(Value::Sequence(new_seq_data))?)
+    }
+
     pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
         match self {
             SequenceData::Buffer(ref data) => {
@@ -458,6 +504,14 @@ impl SequenceData {
         }?;
 
         Ok(result)
+    }
+
+    pub fn is_list(&self) -> bool {
+        if let SequenceData::List(x) = self {
+            true
+        } else {
+            false
+        }
     }
 }
 

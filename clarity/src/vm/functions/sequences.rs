@@ -391,11 +391,15 @@ pub fn special_replace_at(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
+    // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
+    // Set the input to runtime_cost to 0, since replacing an element at an index is an O(1) operation.
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
     let seq = eval(&args[0], env, context)?;
     let seq_type = TypeSignature::type_of(&seq);
-    let (expected_elem_type, seq_is_list_type) =
-        if let TypeSignature::SequenceType(seq_subtype) = seq_type.clone() {
-            (seq_subtype.unit_type(), seq_subtype.is_list_type())
+    let expected_elem_type =
+        if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
+            seq_subtype.unit_type()
         } else {
             return Err(CheckErrors::ExpectedSequence(seq_type).into());
         };
@@ -405,66 +409,24 @@ pub fn special_replace_at(
     if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element) {
         return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
     }
-
-    let index = if let Value::UInt(index) = index_val {
-        index
+    
+    let index = if let Value::UInt(index_u128) = index_val {
+        if let Ok(index_usize) = usize::try_from(index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
     } else {
         return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index_val).into());
     };
 
-    match seq {
-        // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
-        Value::Sequence(seq) => {
-            let seq_len = seq.len();
-            runtime_cost(ClarityCostFunction::Unimplemented, env, seq_len as u64)?;
-
-            let index = match u32::try_from(index) {
-                Ok(index) => index as usize,
-                _ => return Ok(Value::err_uint(1)),
-            };
-
-            // check that the index is in bounds
-            if index >= seq_len {
-                return Ok(Value::err_uint(1));
-            }
-
-            let left_seq_value = seq.clone().slice(0, index)?;
-            let right_seq_value = seq.slice(index + 1, seq_len)?;
-            match (left_seq_value, right_seq_value) {
-                (Value::Sequence(mut left_seq), Value::Sequence(mut right_seq)) => {
-                    let mut elem_seq_data = if !seq_is_list_type {
-                        match new_element {
-                            Value::Sequence(new_element) => {
-                                // check that the element has length 1
-                                if new_element.len() != 1 {
-                                    return Err(RuntimeErrorType::BadTypeConstruction.into());
-                                }
-
-                                new_element
-                            }
-                            _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
-                        }
-                    }
-                    // This is the list case
-                    else {
-                        if let Value::Sequence(seq_data) = Value::list_from(vec![new_element])? {
-                            seq_data
-                        } else {
-                            return Err(RuntimeErrorType::BadTypeConstruction.into());
-                        }
-                    };
-
-                    left_seq.append(&mut elem_seq_data)?;
-                    left_seq.append(&mut right_seq)?;
-                    Ok(Value::okay(Value::Sequence(left_seq))?)
-                }
-                _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
-            }
+    if let Value::Sequence(data) = seq {
+        let seq_len = data.len(); 
+        if index >= seq_len {
+            return Ok(Value::none())
         }
-        _ => {
-            // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
-            runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
-            return Err(CheckErrors::ExpectedSequence(seq_type).into());
-        }
+        data.replace_at(index, new_element)
+    } else {
+        return Err(CheckErrors::ExpectedSequence(seq_type).into());
     }
 }
