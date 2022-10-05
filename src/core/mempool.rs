@@ -1471,7 +1471,9 @@ impl MemPoolDB {
 
             // Bump nonces in the cache for the executed transaction
             nonce_cache.insert(tx_reduced_info.origin_address, expected_origin_nonce + 1);
-            nonce_cache.insert(tx_reduced_info.sponsor_address, expected_sponsor_nonce + 1);
+            if consider.tx.tx.auth.is_sponsored() {
+                nonce_cache.insert(tx_reduced_info.sponsor_address, expected_sponsor_nonce + 1);
+            }
         }
 
         debug!(
