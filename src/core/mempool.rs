@@ -1275,7 +1275,7 @@ impl MemPoolDB {
             StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
         if tx_reduced_info.origin_nonce < expected_origin_nonce {
             return Ordering::Less;
-        } else if tx_reduced_info.origin_nonce < expected_origin_nonce {
+        } else if tx_reduced_info.origin_nonce > expected_origin_nonce {
             return Ordering::Greater;
         }
 
