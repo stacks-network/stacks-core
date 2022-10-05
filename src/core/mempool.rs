@@ -1213,12 +1213,11 @@ impl MemPoolDB {
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
     fn get_transaction_list_to_process(
-        &self,
+        conn: &DBConn,
         null_estimate_fraction: f64,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
-        let conn = self.conn();
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(&conn)?;
-        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(&conn)?;
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn)?;
+        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(conn)?;
 
         // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
         // by pushing the reverse into the downstream logic, but that would make it harder
@@ -1226,19 +1225,17 @@ impl MemPoolDB {
         fee_rate_transactions.reverse();
         null_rate_transactions.reverse();
 
-        info!("fee_rate_transactions {:?}", &fee_rate_transactions);
-        info!("null_rate_transactions {:?}", &null_rate_transactions);
-
+        info!(
+            "get_transaction_list_to_process: fee_rate_transactions {} null_rate_transactions {}",
+            fee_rate_transactions.len(),
+            null_rate_transactions.len()
+        );
         let mut buffer = vec![];
         let mut rng = rand::thread_rng();
         let mut fee_cursor = fee_rate_transactions.pop();
         let mut null_cursor = null_rate_transactions.pop();
         while fee_cursor.is_some() || null_cursor.is_some() {
             let f: f64 = rng.gen();
-            info!(
-                "f {} null_cursor {:?} fee_cursor {:?}",
-                &f, &fee_cursor, &null_cursor
-            );
             if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
                 // Assume: null_cursor.is_some()
                 buffer.push(
@@ -1254,27 +1251,74 @@ impl MemPoolDB {
                 fee_cursor = fee_rate_transactions.pop();
             }
         }
+        info!("get_transaction_list_to_process:  {}", buffer.len());
+
         Ok(buffer)
     }
 
-    /// Returns true if the nonces are those expected based on the MARF, including:
-    ///   1) origin nonce
-    ///   2) sponsor nonce
-    fn nonces_match_expected<C>(clarity_tx: &mut C, tx_reduced_info: &MemPoolTxMinimalInfo) -> bool
+    /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
+    /// in `clarity_tx`.
+    ///
+    /// Returns:
+    ///   `Equal` if both origin and sponsor nonces match expected
+    ///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
+    ///          sponsor nonce is less than expected
+    ///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
+    ///          and the sponsor nonce is greater than expected
+    fn check_nonces_match_expectations<C>(
+        clarity_tx: &mut C,
+        tx_reduced_info: &MemPoolTxMinimalInfo,
+    ) -> Ordering
     where
         C: ClarityConnection,
     {
         let expected_origin_nonce =
             StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
-        if expected_origin_nonce != tx_reduced_info.origin_nonce {
-            return false;
+        if tx_reduced_info.origin_nonce < expected_origin_nonce {
+            return Ordering::Less;
+        } else if tx_reduced_info.origin_nonce > expected_origin_nonce {
+            return Ordering::Greater;
         }
+
         let expected_sponsor_nonce =
             StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
-        if expected_sponsor_nonce != tx_reduced_info.sponsor_nonce {
-            return false;
+        if tx_reduced_info.sponsor_nonce < expected_sponsor_nonce {
+            return Ordering::Less;
+        } else if tx_reduced_info.sponsor_nonce > expected_sponsor_nonce {
+            return Ordering::Greater;
         }
-        true
+
+        Ordering::Equal
+    }
+
+    fn characterize_mempool<C>(
+        conn: &DBConn,
+        clarity_tx: &mut C,
+        null_estimate_fraction: f64,
+    ) -> Result<(), db_error>
+    where
+        C: ClarityConnection,
+    {
+        let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction)?;
+        let mut num_less = 0;
+        let mut num_equal = 0;
+        let mut num_greater = 0;
+        for tx_reduced_info in &all_transactions {
+            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
+
+            if nonces_match.is_lt() {
+                num_less += 1;
+            } else if nonces_match.is_eq() {
+                num_equal += 1;
+            } else if nonces_match.is_gt() {
+                num_greater += 1;
+            }
+        }
+
+        info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
+            all_transactions.len(), num_less, num_equal, num_greater,
+        );
+        Ok(())
     }
 
     ///
@@ -1313,15 +1357,19 @@ impl MemPoolDB {
 
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let db_txs = self.get_transaction_list_to_process(
-            settings.consider_no_estimate_tx_prob as f64 / 100f64,
-        )?;
+        let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
+        let connection = self.conn();
+        Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
+        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
-        info!("Miner: start walk over {} possible candidates.", db_txs.len());
+        info!(
+            "Miner: start walk over {} possible candidates.",
+            db_txs.len()
+        );
         for tx_reduced_info in &db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1332,10 +1380,13 @@ impl MemPoolDB {
 
             // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let nonces_match = Self::nonces_match_expected(clarity_tx, tx_reduced_info);
+            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
-            debug!("Nonce check: for tx_reduced_info {:?}, nonces_match={}", tx_reduced_info, nonces_match);
-            if !nonces_match {
+            debug!(
+                "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
+                tx_reduced_info, nonces_match
+            );
+            if !nonces_match.is_eq() {
                 continue;
             }
 
@@ -1370,12 +1421,6 @@ impl MemPoolDB {
                     match tx_event {
                         TransactionEvent::Skipped(_) => {
                             // don't push `Skipped` events to the observer
-                        }
-                        TransactionEvent::BlockFull => {
-                            // TODO: Handle BlockFull more elegantly. E.g., try to find smaller transactions
-                            // to fill the block.
-                            info!("BlockFull: Mempool iteration early exit from iterator");
-                            break;
                         }
                         _ => {
                             total_included += 1;

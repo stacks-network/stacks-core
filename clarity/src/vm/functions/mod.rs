@@ -466,9 +466,9 @@ fn special_print(
 
     runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 
-    if cfg!(feature = "developer-mode") {
-        info!("{}", &input);
-    }
+    // if cfg!(feature = "developer-mode") {
+    //     info!("{}", &input);
+    // }
 
     env.register_print_event(input.clone())?;
     Ok(input)
