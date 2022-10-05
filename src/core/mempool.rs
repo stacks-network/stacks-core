@@ -1181,8 +1181,9 @@ impl MemPoolDB {
         WHERE fee_rate IS NOT NULL
         ORDER BY fee_rate DESC
         LIMIT ?
+        OFFSET ?
         ";
-        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000])
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000, &0])
     }
 
     /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
@@ -1193,14 +1194,17 @@ impl MemPoolDB {
     fn randomized_null_fee_rate_transactions(
         conn: &DBConn,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+        info!("randomized_null_fee_rate_transactions");
+
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
         WHERE fee_rate IS NULL
         ORDER BY RANDOM()
-        LIMIT 100000
+        LIMIT ?
+        OFFSET ?
         ";
-        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, NO_PARAMS)
+        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000, &0])
     }
 
     /// Get a set of transactions to try. Select those that:
