@@ -1390,7 +1390,8 @@ impl MemPoolDB {
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = self.conn();
         Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
-        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
+        let mut db_txs =
+            Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1400,7 +1401,9 @@ impl MemPoolDB {
             "Miner: start walk over {} possible candidates.",
             db_txs.len()
         );
-        for tx_reduced_info in &db_txs {
+
+        let mut tx_index = 0;
+        while tx_index < db_txs.len() {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 debug!("Mempool iteration deadline exceeded";
@@ -1410,22 +1413,26 @@ impl MemPoolDB {
 
             // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let expected_origin_nonce = nonce_cache.get(&tx_reduced_info.origin_address, clarity_tx);
-            let expected_sponsor_nonce = nonce_cache.get(&tx_reduced_info.sponsor_address, clarity_tx);
+            let expected_origin_nonce =
+                nonce_cache.get(&db_txs[tx_index].origin_address, clarity_tx);
+            let expected_sponsor_nonce =
+                nonce_cache.get(&db_txs[tx_index].sponsor_address, clarity_tx);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
             test_debug!(
                 "Nonce check: for tx_reduced_info {:?}, nonces_match={}",
-                tx_reduced_info,
-                expected_origin_nonce != tx_reduced_info.origin_nonce
-                    || expected_sponsor_nonce != tx_reduced_info.sponsor_nonce
+                db_txs[tx_index],
+                expected_origin_nonce != db_txs[tx_index].origin_nonce
+                    || expected_sponsor_nonce != db_txs[tx_index].sponsor_nonce
             );
-            if expected_origin_nonce != tx_reduced_info.origin_nonce
-                || expected_sponsor_nonce != tx_reduced_info.sponsor_nonce
+            if expected_origin_nonce != db_txs[tx_index].origin_nonce
+                || expected_sponsor_nonce != db_txs[tx_index].sponsor_nonce
             {
+                tx_index += 1;
                 continue;
             }
 
             // Read in and deserialize the transaction.
+            let tx_reduced_info = db_txs.remove(tx_index);
             let tx_read_start = Instant::now();
             let tx_info_option = MemPoolDB::get_tx(&self.conn(), &tx_reduced_info.txid)?;
             let tx_read_elapsed = tx_read_start.elapsed();
@@ -1437,6 +1444,7 @@ impl MemPoolDB {
                         "Miner: could not find a tx for id {:?}",
                         &tx_reduced_info.txid
                     );
+                    tx_index += 1;
                     continue;
                 }
             };
@@ -1468,6 +1476,10 @@ impl MemPoolDB {
                     break;
                 }
             }
+
+            // After successfully processing a tx, jump back to the beginning
+            // of the list for the next round.
+            tx_index = 0;
 
             // Bump nonces in the cache for the executed transaction
             nonce_cache.insert(tx_reduced_info.origin_address, expected_origin_nonce + 1);
