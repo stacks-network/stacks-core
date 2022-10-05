@@ -1406,7 +1406,7 @@ impl MemPoolDB {
             };
             let consider = ConsiderTransaction {
                 tx: tx_info,
-                update_estimate: false,
+                update_estimate: true,
             };
             total_considered += 1;
 
