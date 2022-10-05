@@ -1381,7 +1381,7 @@ impl MemPoolDB {
             let lookup_nonce_start = Instant::now();
             let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
-            info!(
+            debug!(
                 "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
                 tx_reduced_info, nonces_match
             );
@@ -1414,7 +1414,7 @@ impl MemPoolDB {
             let processing_start = Instant::now();
             let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
             total_effective_processing_time += Instant::now() - processing_start;
-            info!("Miner: processing returns: {:?}", &inside_result);
+            debug!("Miner: processing returns: {:?}", &inside_result);
             match inside_result? {
                 Some(tx_event) => {
                     match tx_event {
