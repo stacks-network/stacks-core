@@ -1920,7 +1920,7 @@ impl ConversationHttp {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let (response, accepted) = if mempool.has_tx(&txid) {
-            info!("Mempool already has POSTed transaction {}", &txid);
+            debug!("Mempool already has POSTed transaction {}", &txid);
             (
                 HttpResponseType::TransactionID(response_metadata, txid),
                 false,
@@ -1930,7 +1930,7 @@ impl ConversationHttp {
                 && !Relayer::static_check_problematic_relayed_tx(chainstate.mainnet, &tx, ast_rules)
                     .is_ok()
             {
-                info!(
+                debug!(
                     "Transaction {} is problematic in rules {:?}; will not store or relay",
                     &tx.txid(),
                     ast_rules
@@ -1962,14 +1962,14 @@ impl ConversationHttp {
                     &stacks_epoch.epoch_id,
                 ) {
                     Ok(_) => {
-                        info!("Mempool accepted POSTed transaction {}", &txid);
+                        debug!("Mempool accepted POSTed transaction {}", &txid);
                         (
                             HttpResponseType::TransactionID(response_metadata, txid),
                             true,
                         )
                     }
                     Err(e) => {
-                        info!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                        debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
                         (
                             HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
                             false,

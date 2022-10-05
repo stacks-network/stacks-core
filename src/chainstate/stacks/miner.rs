@@ -1521,7 +1521,7 @@ impl StacksBlockBuilder {
                     }
                 }
             };
-            debug!("Include tx";
+            info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
                   "origin" => %tx.origin_address());
@@ -2194,7 +2194,6 @@ impl StacksBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        info!("got block_limit {:?}", &block_limit);
         let mut tx_events = Vec::new();
         tx_events.push(
             builder
@@ -2333,7 +2332,7 @@ impl StacksBlockBuilder {
                                     Error::BlockTooBigError => {
                                         // done mining -- our execution budget is exceeded.
                                         // Make the block from the transactions we did manage to get
-                                        info!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
                                         if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
                                             debug!("Switch to mining stx-transfers only");
                                             block_limit_hit =
@@ -2426,7 +2425,7 @@ impl StacksBlockBuilder {
             );
         }
 
-        info!(
+        debug!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,

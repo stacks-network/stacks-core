@@ -1188,7 +1188,6 @@ impl MemPoolDB {
                 }
             };
 
-            // TODO: change this to update the mempool
             sql_tx.execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
                 rusqlite::params![fee_rate_f64, &txid],
@@ -1386,7 +1385,7 @@ impl MemPoolDB {
         let mut total_included = 0;
         let mut nonce_cache = NonceCache::new();
 
-        info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
+        debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = self.conn();
@@ -1397,14 +1396,14 @@ impl MemPoolDB {
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
-        info!(
+        debug!(
             "Miner: start walk over {} possible candidates.",
             db_txs.len()
         );
         for tx_reduced_info in &db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                info!("Mempool iteration deadline exceeded";
+                debug!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
@@ -1475,7 +1474,7 @@ impl MemPoolDB {
             nonce_cache.insert(tx_reduced_info.sponsor_address, expected_sponsor_nonce + 1);
         }
 
-        info!(
+        debug!(
             "Mempool iteration finished";
             "num_considered_txs" => total_considered,
             "num_included_txs" => total_included,
