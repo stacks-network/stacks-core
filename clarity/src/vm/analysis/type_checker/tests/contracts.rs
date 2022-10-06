@@ -1107,6 +1107,106 @@ fn test_trait_args_differ() {
     });
 }
 
+/// Pass a trait to a trait parameter with an compatible trait type
+#[test]
+fn test_trait_arg_counts_differ1() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(found.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait to a trait parameter with an compatible trait type
+#[test]
+fn test_trait_arg_counts_differ2() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(found.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
 /// Check for compatibility between traits where the response types differ
 #[test]
 fn test_trait_ret_ty_differ() {

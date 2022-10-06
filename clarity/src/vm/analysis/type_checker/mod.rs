@@ -414,6 +414,13 @@ pub fn trait_check_trait_compliance<T: CostTracker>(
 
     for (func_name, expected_sig) in expected_trait.iter() {
         if let Some(func) = actual_trait.get(func_name) {
+            if expected_sig.args.len() != func.args.len() {
+                return Err(CheckErrors::IncompatibleTrait(
+                    expected_trait_identifier.clone(),
+                    actual_trait_identifier.clone(),
+                )
+                .into());
+            }
             let args_iter = expected_sig.args.iter().zip(func.args.iter());
             for (expected_type, actual_type) in args_iter {
                 if inner_type_check_type(
