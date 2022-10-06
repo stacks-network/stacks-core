@@ -120,6 +120,7 @@ pub enum Error {
     PoxInsufficientBalance,
     PoxNoRewardCycle,
     ProblematicTransaction(Txid),
+    MinerAborted,
 }
 
 impl From<marf_error> for Error {
@@ -195,6 +196,7 @@ impl fmt::Display for Error {
                 "Transaction {} is problematic and will not be mined again",
                 txid
             ),
+            Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
         }
     }
 }
@@ -229,6 +231,7 @@ impl error::Error for Error {
             Error::PoxNoRewardCycle => None,
             Error::StacksTransactionSkipped(ref _r) => None,
             Error::ProblematicTransaction(ref _txid) => None,
+            Error::MinerAborted => None,
         }
     }
 }
@@ -263,6 +266,7 @@ impl Error {
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
             Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
+            Error::MinerAborted => "MinerAborted",
         }
     }
 
