@@ -24,7 +24,6 @@ use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use clarity::vm::ast::build_ast;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::serialization::SerializationError as clarity_serialization_error;
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};

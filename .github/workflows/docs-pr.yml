@@ -19,7 +19,7 @@ on:
   push:
     branches: [master]
 
-jobs:      
+jobs:
   dist:
     runs-on: ubuntu-latest
     env:

@@ -16,6 +16,7 @@
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::clarity_vm::clarity::ClarityInstance;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -117,7 +118,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, contract_trait)
+                .analyze_smart_contract(&trait_contract_id, contract_trait, ASTRules::PrecheckSize)
                 .unwrap();
             conn.initialize_smart_contract(&trait_contract_id, &ct_ast, contract_trait, |_, _| {
                 false
@@ -139,7 +140,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
         );
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, contract_other)
+                .analyze_smart_contract(&other_contract_id, contract_other, ASTRules::PrecheckSize)
                 .unwrap();
             conn.initialize_smart_contract(&other_contract_id, &ct_ast, contract_other, |_, _| {
                 false
@@ -162,7 +163,7 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, &contract_self)
+                .analyze_smart_contract(&self_contract_id, &contract_self, ASTRules::PrecheckSize)
                 .unwrap();
             conn.initialize_smart_contract(&self_contract_id, &ct_ast, &contract_self, |_, _| {
                 false

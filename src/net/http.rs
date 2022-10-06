@@ -171,9 +171,9 @@ pub(crate) enum HttpReservedHeader {
 
 /// Stacks block accepted struct
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct StacksBlockAcceptedData {
-    stacks_block_id: StacksBlockId,
-    accepted: bool,
+pub struct StacksBlockAcceptedData {
+    pub stacks_block_id: StacksBlockId,
+    pub accepted: bool,
 }
 
 impl FromStr for PeerHost {

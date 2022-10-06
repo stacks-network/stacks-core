@@ -26,6 +26,9 @@ use stacks_common::util::hash::hex_bytes;
 use std::cmp;
 use std::convert::TryInto;
 
+use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use crate::vm::MAX_CALL_STACK_DEPTH;
+
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 
@@ -183,7 +186,8 @@ lazy_static! {
     ];
 }
 
-pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
+/// Lex the contract, permitting nesting of lists and tuples up to `max_nesting`.
+fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let mut context = LexContext::ExpectNothing;
 
     let mut line_indices = get_lines_at(input);
@@ -194,6 +198,9 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     let mut munch_index = 0;
     let mut column_pos: u32 = 1;
     let mut did_match = true;
+
+    let mut nesting_depth = 0;
+
     while did_match && munch_index < input.len() {
         if let Some(next_line_ix) = next_line_break {
             if munch_index > next_line_ix {
@@ -251,9 +258,19 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                 let token = match matcher.handler {
                     TokenType::LParens => {
                         context = LexContext::ExpectNothing;
+                        nesting_depth += 1;
+                        if nesting_depth > max_nesting {
+                            return Err(ParseError::new(
+                                ParseErrors::VaryExpressionStackDepthTooDeep,
+                            ));
+                        }
                         Ok(LexItem::LeftParen)
                     }
-                    TokenType::RParens => Ok(LexItem::RightParen),
+                    TokenType::RParens => {
+                        // if this underflows, the contract is invalid anyway
+                        nesting_depth = nesting_depth.saturating_sub(1);
+                        Ok(LexItem::RightParen)
+                    }
                     TokenType::Whitespace => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::Whitespace)
@@ -270,9 +287,19 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     }
                     TokenType::LCurly => {
                         context = LexContext::ExpectNothing;
+                        nesting_depth += 1;
+                        if nesting_depth > max_nesting {
+                            return Err(ParseError::new(
+                                ParseErrors::VaryExpressionStackDepthTooDeep,
+                            ));
+                        }
                         Ok(LexItem::LeftCurly)
                     }
-                    TokenType::RCurly => Ok(LexItem::RightCurly),
+                    TokenType::RCurly => {
+                        // if this underflows, the contract is invalid anyway
+                        nesting_depth = nesting_depth.saturating_sub(1);
+                        Ok(LexItem::RightCurly)
+                    }
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
@@ -421,6 +448,13 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
             input[munch_index..].to_string(),
         )))
     }
+}
+
+pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
+    inner_lex(
+        input,
+        AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1,
+    )
 }
 
 fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> ParseResult<String> {
@@ -685,7 +719,15 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSy
 }
 
 pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
-    let lexed = lex(input)?;
+    let lexed = inner_lex(
+        input,
+        AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1,
+    )?;
+    parse_lexed(lexed)
+}
+
+pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
+    let lexed = inner_lex(input, u64::MAX)?;
     parse_lexed(lexed)
 }
 
@@ -693,11 +735,13 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
 mod test {
     use crate::vm::ast;
     use crate::vm::ast::errors::{ParseError, ParseErrors};
+    use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use crate::vm::types::TraitIdentifier;
     use crate::vm::types::{
         CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value,
     };
+    use crate::vm::MAX_CALL_STACK_DEPTH;
 
     fn make_atom(
         x: &str,

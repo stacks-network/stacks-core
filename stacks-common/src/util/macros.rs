@@ -209,7 +209,7 @@ macro_rules! guarded_string {
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
-        #[derive(Debug, Clone, PartialEq)]
+        #[derive(Debug, Clone, PartialEq, Copy)]
         #[repr(u8)]
         pub enum $Name {
             $($Variant = $Val),*,

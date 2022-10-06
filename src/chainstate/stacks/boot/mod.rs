@@ -28,6 +28,7 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
@@ -153,6 +154,7 @@ impl StacksChainState {
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
+                ASTRules::PrecheckSize,
             )
             .map_err(Error::ClarityError)
     }

@@ -86,6 +86,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::{PoxId, SortitionId};
 
+use clarity::vm::ast::ASTRules;
+
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
 pub enum NetworkRequest {
@@ -236,6 +238,7 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
+    pub ast_rules: ASTRules,
 
     // handles to p2p databases
     pub peerdb: PeerDB,
@@ -306,6 +309,8 @@ pub struct PeerNetwork {
     mempool_state: MempoolSyncState,
     mempool_sync_deadline: u64,
     mempool_sync_timeout: u64,
+    mempool_sync_completions: u64,
+    mempool_sync_txs: u64,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -385,6 +390,7 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
+            ast_rules: ASTRules::Typical,
             burnchain_tip: BlockSnapshot::initial(
                 first_block_height,
                 &first_burn_header_hash,
@@ -435,6 +441,8 @@ impl PeerNetwork {
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
             mempool_sync_timeout: 0,
+            mempool_sync_completions: 0,
+            mempool_sync_txs: 0,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -2173,6 +2181,8 @@ impl PeerNetwork {
 
                     self.mempool_sync_deadline =
                         get_epoch_time_secs() + self.connection_opts.mempool_sync_interval;
+                    self.mempool_sync_completions = self.mempool_sync_completions.saturating_add(1);
+                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
                     return Some(txs);
                 } else {
                     return None;
@@ -2187,6 +2197,7 @@ impl PeerNetwork {
                         txs.len()
                     );
 
+                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
                     return Some(txs);
                 } else {
                     return None;
@@ -4951,6 +4962,9 @@ impl PeerNetwork {
             // update cached burnchain view for /v2/info
             self.chain_view = new_chain_view;
             self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
+
+            // update tx validation information
+            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
         }
 
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
@@ -5357,6 +5371,9 @@ mod test {
     use clarity::vm::types::StacksAddressExtensions;
     use stacks_common::util::log;
     use stacks_common::util::sleep_ms;
+
+    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use clarity::vm::MAX_CALL_STACK_DEPTH;
 
     use super::*;
 
@@ -6170,9 +6187,9 @@ mod test {
             // peer 1 gets some transactions; peer 2 blacklists some of them;
             // verify peer 2 gets only the non-blacklisted ones.
             let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2218, 2219);
+                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2218, 2219);
             let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2220, 2221);
+                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2220, 2221);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());

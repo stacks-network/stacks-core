@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'The tag to create (optional)'
+        description: "The tag to create (optional)"
         required: false
 
 concurrency:
@@ -110,7 +110,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform:
+          [
+            windows-x64,
+            macos-x64,
+            macos-arm64,
+            linux-x64,
+            linux-musl-x64,
+            linux-armv7,
+            linux-arm64,
+          ]
 
     steps:
       - uses: actions/checkout@v2
@@ -131,7 +140,7 @@ jobs:
             STACKS_NODE_VERSION=${{ github.event.inputs.tag || env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-          
+
       - name: Compress artifact
         run: zip --junk-paths ${{ matrix.platform }} ./dist/${{ matrix.platform }}/*
 
@@ -290,7 +299,16 @@ jobs:
       - create-release
     strategy:
       matrix:
-        platform: [ windows-x64, macos-x64, macos-arm64, linux-x64, linux-musl-x64, linux-armv7, linux-arm64 ]
+        platform:
+          [
+            windows-x64,
+            macos-x64,
+            macos-arm64,
+            linux-x64,
+            linux-musl-x64,
+            linux-armv7,
+            linux-arm64,
+          ]
 
     steps:
       - uses: actions/checkout@v2

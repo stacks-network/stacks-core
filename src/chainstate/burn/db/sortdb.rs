@@ -59,6 +59,7 @@ use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::chainstate::stacks::*;
 use crate::chainstate::ChainstateDB;
+use crate::core::AST_RULES_PRECHECK_SIZE;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
@@ -72,6 +73,7 @@ use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
+use clarity::vm::ast::ASTRules;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::Value;
 use stacks_common::address::AddressHashMode;
@@ -385,6 +387,22 @@ impl FromRow<TransferStxOp> for TransferStxOp {
     }
 }
 
+impl FromColumn<ASTRules> for ASTRules {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ASTRules, db_error> {
+        let x: u8 = row.get_unwrap(column_name);
+        let ast_rules = ASTRules::from_u8(x).ok_or(db_error::ParseError)?;
+        Ok(ast_rules)
+    }
+}
+
+impl FromRow<(ASTRules, u64)> for (ASTRules, u64) {
+    fn from_row<'a>(row: &'a Row) -> Result<(ASTRules, u64), db_error> {
+        let ast_rules = ASTRules::from_column(row, "ast_rule_id")?;
+        let height = u64::from_column(row, "block_height")?;
+        Ok((ast_rules, height))
+    }
+}
+
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
@@ -434,7 +452,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "3";
+pub const SORTITION_DB_VERSION: &'static str = "4";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -610,6 +628,12 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
 
         PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
+    );"#];
+
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
+    CREATE TABLE ast_rule_heights (
+        ast_rule_id INTEGER PRIMAR KEY NOT NULL,
+        block_height INTEGER NOT NULL
     );"#];
 
 // update this to add new indexes
@@ -2288,19 +2312,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
         }
-        for row_text in SORTITION_DB_SCHEMA_2 {
-            db_tx.execute_batch(row_text)?;
-        }
-        for row_text in SORTITION_DB_SCHEMA_3 {
-            db_tx.execute_batch(row_text)?;
-        }
-
-        SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
-
-        db_tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &[&SORTITION_DB_VERSION],
-        )?;
+        SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
+        SortitionDB::apply_schema_3(&db_tx)?;
+        SortitionDB::apply_schema_4(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -2462,7 +2476,7 @@ impl SortitionDB {
         match epoch {
             StacksEpochId::Epoch10 => false,
             StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
-            StacksEpochId::Epoch2_05 => (version == "2" || version == "3"),
+            StacksEpochId::Epoch2_05 => (version == "2" || version == "3" || version == "4"),
         }
     }
 
@@ -2504,6 +2518,33 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_4(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_4 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        let typical_rules: &[&dyn ToSql] = &[&(ASTRules::Typical as u8), &0i64];
+
+        let precheck_size_rules: &[&dyn ToSql] = &[
+            &(ASTRules::PrecheckSize as u8),
+            &u64_to_sql(AST_RULES_PRECHECK_SIZE)?,
+        ];
+
+        tx.execute(
+            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
+            typical_rules,
+        )?;
+        tx.execute(
+            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
+            precheck_size_rules,
+        )?;
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["4"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2537,6 +2578,10 @@ impl SortitionDB {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_3(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "3" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -2586,6 +2631,52 @@ impl SortitionDB {
             tx.commit()?;
         }
         Ok(())
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn override_ast_rule_height<'a>(
+        tx: &mut DBTx<'a>,
+        ast_rules: ASTRules,
+        height: u64,
+    ) -> Result<(), db_error> {
+        let rules: &[&dyn ToSql] = &[&u64_to_sql(height)?, &(ast_rules as u8)];
+
+        tx.execute(
+            "UPDATE ast_rule_heights SET block_height = ?1 WHERE ast_rule_id = ?2",
+            rules,
+        )?;
+        Ok(())
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn override_ast_rule_height<'a>(
+        _tx: &mut DBTx<'a>,
+        _ast_rules: ASTRules,
+        _height: u64,
+    ) -> Result<(), db_error> {
+        Ok(())
+    }
+
+    /// What's the default AST rules at the given block height?
+    pub fn get_ast_rules(conn: &DBConn, height: u64) -> Result<ASTRules, db_error> {
+        let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
+            conn,
+            "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
+            NO_PARAMS,
+        )?;
+
+        assert!(ast_rule_sets.len() > 0);
+        let mut last_height = ast_rule_sets[0].1;
+        let mut last_rules = ast_rule_sets[0].0;
+        for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
+            if last_height <= height && height < ast_rule_height {
+                return Ok(last_rules);
+            }
+            last_height = ast_rule_height;
+            last_rules = ast_rules;
+        }
+
+        return Ok(last_rules);
     }
 }
 

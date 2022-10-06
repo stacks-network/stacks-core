@@ -20,6 +20,7 @@ use std::fmt;
 use std::mem::replace;
 
 use crate::vm::ast;
+use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -43,7 +44,6 @@ use crate::vm::types::{
     Value,
 };
 use crate::vm::{eval, is_reserved};
-
 use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -635,9 +635,10 @@ impl<'a> OwnedEnvironment<'a> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
+        ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(contract_identifier.issuer.clone().into(), |exec_env| {
-            exec_env.initialize_contract(contract_identifier, contract_content)
+            exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
         })
     }
 
@@ -712,15 +713,25 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
+    pub fn eval_read_only_with_rules(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        program: &str,
+        ast_rules: ast::ASTRules,
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+        self.execute_in_env(
+            QualifiedContractIdentifier::transient().issuer.into(),
+            |exec_env| exec_env.eval_read_only_with_rules(contract, program, ast_rules),
+        )
+    }
+
+    #[cfg(any(test, feature = "testing"))]
     pub fn eval_read_only(
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(
-            QualifiedContractIdentifier::transient().issuer.into(),
-            |exec_env| exec_env.eval_read_only(contract, program),
-        )
+        self.eval_read_only_with_rules(contract, program, ast::ASTRules::Typical)
     }
 
     pub fn begin(&mut self) {
@@ -857,12 +868,14 @@ impl<'a, 'b> Environment<'a, 'b> {
         )
     }
 
-    pub fn eval_read_only(
+    pub fn eval_read_only_with_rules(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
+        rules: ast::ASTRules,
     ) -> Result<Value> {
-        let parsed = ast::build_ast(contract_identifier, program, self)?.expressions;
+        let parsed =
+            ast::build_ast_with_rules(contract_identifier, program, self, rules)?.expressions;
 
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError(
@@ -895,10 +908,19 @@ impl<'a, 'b> Environment<'a, 'b> {
         result
     }
 
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn eval_read_only(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Result<Value> {
+        self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::Typical)
+    }
+
+    pub fn eval_raw_with_rules(&mut self, program: &str, rules: ast::ASTRules) -> Result<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
 
-        let parsed = ast::build_ast(&contract_id, program, self)?.expressions;
+        let parsed = ast::build_ast_with_rules(&contract_id, program, self, rules)?.expressions;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError(
                 "Expected a program of at least length 1".to_string(),
@@ -908,6 +930,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         let local_context = LocalContext::new();
         let result = { eval(&parsed[0], self, &local_context) };
         result
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
+        self.eval_raw_with_rules(program, ast::ASTRules::Typical)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1061,8 +1088,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
+        ast_rules: ASTRules,
     ) -> Result<()> {
-        let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
+        let contract_ast =
+            ast::build_ast_with_rules(&contract_identifier, contract_content, self, ast_rules)?;
         self.initialize_contract_from_ast(contract_identifier, &contract_ast, &contract_content)
     }
 
