@@ -397,6 +397,49 @@ impl FunctionType {
     }
 }
 
+pub fn check_functions_compatible<T: CostTracker>(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    expected_sig: &FunctionSignature,
+    actual_sig: &FunctionSignature,
+    clarity_version: ClarityVersion,
+    tracker: &mut T,
+) -> bool {
+    if expected_sig.args.len() != actual_sig.args.len() {
+        return false;
+    }
+    let args_iter = expected_sig.args.iter().zip(actual_sig.args.iter());
+    for (expected_type, actual_type) in args_iter {
+        if inner_type_check_type(
+            db,
+            contract_context,
+            actual_type,
+            expected_type,
+            clarity_version,
+            1,
+            tracker,
+        )
+        .is_err()
+        {
+            return false;
+        }
+    }
+    if inner_type_check_type(
+        db,
+        contract_context,
+        &actual_sig.returns,
+        &expected_sig.returns,
+        clarity_version,
+        1,
+        tracker,
+    )
+    .is_err()
+    {
+        return false;
+    }
+    true
+}
+
 pub fn trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
@@ -414,44 +457,14 @@ pub fn trait_check_trait_compliance<T: CostTracker>(
 
     for (func_name, expected_sig) in expected_trait.iter() {
         if let Some(func) = actual_trait.get(func_name) {
-            if expected_sig.args.len() != func.args.len() {
-                return Err(CheckErrors::IncompatibleTrait(
-                    expected_trait_identifier.clone(),
-                    actual_trait_identifier.clone(),
-                )
-                .into());
-            }
-            let args_iter = expected_sig.args.iter().zip(func.args.iter());
-            for (expected_type, actual_type) in args_iter {
-                if inner_type_check_type(
-                    db,
-                    contract_context,
-                    actual_type,
-                    expected_type,
-                    clarity_version,
-                    1,
-                    tracker,
-                )
-                .is_err()
-                {
-                    return Err(CheckErrors::IncompatibleTrait(
-                        expected_trait_identifier.clone(),
-                        actual_trait_identifier.clone(),
-                    )
-                    .into());
-                }
-            }
-            if inner_type_check_type(
+            if !check_functions_compatible(
                 db,
                 contract_context,
-                &func.returns,
-                &expected_sig.returns,
+                expected_sig,
+                func,
                 clarity_version,
-                1,
                 tracker,
-            )
-            .is_err()
-            {
+            ) {
                 return Err(CheckErrors::IncompatibleTrait(
                     expected_trait_identifier.clone(),
                     actual_trait_identifier.clone(),
