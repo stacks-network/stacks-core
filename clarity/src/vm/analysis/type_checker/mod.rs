@@ -482,6 +482,8 @@ pub fn trait_check_trait_compliance<T: CostTracker>(
     Ok(())
 }
 
+/// Check if `expected_type` admits `actual_type`, handling traits and callable types
+/// through invoking trait compliance checks.
 fn inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
