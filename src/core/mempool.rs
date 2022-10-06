@@ -1732,6 +1732,34 @@ impl MemPoolDB {
         Ok(())
     }
 
+    /// Miner-driven submit (e.g. for poison microblocks), where no checks are performed
+    pub fn miner_submit(
+        &mut self,
+        chainstate: &mut StacksChainState,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+        tx: &StacksTransaction,
+        event_observer: Option<&dyn MemPoolEventDispatcher>,
+        miner_estimate: f64,
+    ) -> Result<(), MemPoolRejection> {
+        let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
+
+        let fee_estimate = Some(miner_estimate);
+
+        MemPoolDB::tx_submit(
+            &mut mempool_tx,
+            chainstate,
+            consensus_hash,
+            block_hash,
+            tx,
+            false,
+            event_observer,
+            fee_estimate,
+        )?;
+        mempool_tx.commit().map_err(MemPoolRejection::DBError)?;
+        Ok(())
+    }
+
     /// Directly submit to the mempool, and don't do any admissions checks.
     /// This method is only used during testing, but because it is used by the
     ///  integration tests, it cannot be marked #[cfg(test)].
