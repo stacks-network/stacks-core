@@ -1196,11 +1196,9 @@ impl MemPoolDB {
         })
     }
 
-    /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
-    /// Just take the first 100_000. TODO: Limit by arbitrary amount.
-    ///
-    /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
-    /// in the mempool?
+    /// Take a batch of transactions *without* a fee rate estimate, in *arbitrary* order.
+    /// Page size is 10_000. TODO: Make this configurable.
+    /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
     fn null_fee_rate_transactions(
         connection: Arc<Mutex<Connection>>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
