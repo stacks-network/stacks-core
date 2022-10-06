@@ -64,12 +64,13 @@ use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::{query_row, Error};
 use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 use clarity::vm::types::PrincipalData;
+use rand::rngs::ThreadRng;
+use sha2::digest::typenum::Minimum;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use std::time::{Duration, Instant};
-use sha2::digest::typenum::Minimum;
 
 use crate::net::MemPoolSyncData;
 
@@ -1174,7 +1175,9 @@ impl MemPoolDB {
 
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
-    fn sorted_fee_rate_transactions(conn: &DBConn) -> Box<dyn Iterator<Item=MemPoolTxMinimalInfo> + '_> {
+    fn sorted_fee_rate_transactions(
+        conn: &DBConn,
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + '_> {
         info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1198,7 +1201,9 @@ impl MemPoolDB {
     ///
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
-    fn null_fee_rate_transactions(conn: &DBConn) -> Box<dyn Iterator<Item=MemPoolTxMinimalInfo> + '_> {
+    fn null_fee_rate_transactions(
+        conn: &DBConn,
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + '_> {
         info!("randomized_null_fee_rate_transactions");
 
         let sql = "
@@ -1229,38 +1234,15 @@ impl MemPoolDB {
     fn get_transaction_list_to_process(
         conn: &DBConn,
         null_estimate_fraction: f64,
-    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + '_> {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
         let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
-        let mut buffer = vec![];
-        let mut rng = rand::thread_rng();
-        let mut fee_cursor = fee_rate_transactions.next();
-        let mut null_cursor = null_rate_transactions.next();
-        let mut fee_included = 0;
-        let mut null_included = 0;
-        while fee_cursor.is_some() || null_cursor.is_some() {
-            let f: f64 = rng.gen();
-            if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
-                // Assume: null_cursor.is_some()
-                buffer.push(
-                    null_cursor.expect("`null_cursor` is null, but this should have been checked."),
-                );
-                null_cursor = null_rate_transactions.next();
-                null_included += 1;
-            } else {
-                // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
-                buffer.push(
-                    fee_cursor
-                        .expect("`fee_cursor` is null, but this should not have been possible."),
-                );
-                fee_cursor = fee_rate_transactions.next();
-                fee_included += 1;
-            }
-        }
-        info!("get_transaction_list_to_process:  {}", buffer.len());
-
-        Ok(buffer)
+        Box::new(IteratorMixer::create_from(
+            fee_rate_transactions,
+            null_rate_transactions,
+            null_estimate_fraction,
+        ))
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -1306,12 +1288,15 @@ impl MemPoolDB {
     where
         C: ClarityConnection,
     {
-        let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction)?;
+        let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction);
         let mut num_less = 0;
         let mut num_equal = 0;
         let mut num_greater = 0;
-        for tx_reduced_info in &all_transactions {
-            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
+        let mut total = 0;
+        for tx_reduced_info in all_transactions {
+            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
+
+            total += 1;
 
             if nonces_match.is_lt() {
                 num_less += 1;
@@ -1323,7 +1308,7 @@ impl MemPoolDB {
         }
 
         info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
-            all_transactions.len(), num_less, num_equal, num_greater,
+            total, num_less, num_equal, num_greater,
         );
         Ok(())
     }
@@ -1367,17 +1352,14 @@ impl MemPoolDB {
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = self.conn();
         Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
-        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
+        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
-        info!(
-            "Miner: start walk over {} possible candidates.",
-            db_txs.len()
-        );
-        for tx_reduced_info in &db_txs {
+
+        for tx_reduced_info in db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 info!("Mempool iteration deadline exceeded";
@@ -1387,7 +1369,7 @@ impl MemPoolDB {
 
             // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, tx_reduced_info);
+            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
             debug!(
                 "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
@@ -2499,6 +2481,73 @@ impl Iterator for TransactionPageCursor<'_> {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Mixes two iterators together, roughly choosing an item `null_iterator` `null_fraction` of the time,
+/// and from `fee_iterator` the rest of the time. See comment on `next()` for more details.
+struct IteratorMixer {
+    fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+    null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+    fee_cursor: Option<MemPoolTxMinimalInfo>,
+    null_cursor: Option<MemPoolTxMinimalInfo>,
+    null_fraction: f64,
+    fee_included: u64,
+    null_included: u64,
+    rng: ThreadRng,
+}
+
+impl IteratorMixer {
+    pub fn create_from(
+        mut fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+        mut null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+        null_fraction: f64,
+    ) -> IteratorMixer {
+        let fee_cursor = fee_iterator.next();
+        let null_cursor = null_iterator.next();
+        IteratorMixer {
+            fee_iterator,
+            null_iterator,
+            fee_cursor,
+            null_cursor,
+            null_fraction,
+            fee_included: 0,
+            null_included: 0,
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+impl Iterator for IteratorMixer {
+    type Item = MemPoolTxMinimalInfo;
+    /// Loop until both fee_iterator and null_iterator are empty.
+    /// If either iterator is exhausted, take from the other.
+    /// If both iterators have something, take from null iterator `null_fraction` of the time.
+    fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
+        let mut buffer = vec![];
+        if self.fee_cursor.is_some() || self.null_cursor.is_some() {
+            let f: f64 = self.rng.gen();
+            if (f < self.null_fraction && self.null_cursor.is_some()) || self.fee_cursor.is_none() {
+                // Assume: null_cursor.is_some()
+                let return_value = self.null_cursor.take();
+                self.null_cursor = self.null_iterator.next();
+                self.null_included += 1;
+                return_value
+            } else {
+                // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
+                let return_value = self.fee_iterator.take();
+                self.fee_cursor = self.fee_iterator.next();
+                self.fee_included += 1;
+                return_value
+            }
+        } else {
+            // both are empty
+            info!(
+                "Finished mixing iterators. fee_included {}, null_included {}",
+                self.fee_included, self.null_included
+            );
+            None
         }
     }
 }
