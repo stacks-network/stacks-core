@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
 use std::cmp;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -24,6 +25,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::ptr::null;
+use std::rc::Rc;
 
 use rand::Rng;
 
@@ -578,6 +580,7 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 
 pub struct MemPoolDB {
     pub db: DBConn,
+    db2: Rc<RefCell<DBConn>>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -969,6 +972,7 @@ impl MemPoolDB {
         };
 
         let mut conn = sqlite_open(&db_path, open_flags, true)?;
+        let mut conn2 = sqlite_open(&db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -984,6 +988,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
+            db2: Rc::new(RefCell::new(conn2)),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -1232,17 +1237,18 @@ impl MemPoolDB {
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
     fn get_transaction_list_to_process(
-        conn: &DBConn,
+        conn: Rc<RefCell<DBConn>>,
         null_estimate_fraction: f64,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + '_> {
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
-        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
-
-        Box::new(IteratorMixer::create_from(
-            fee_rate_transactions,
-            null_rate_transactions,
-            null_estimate_fraction,
-        ))
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+        todo!()
+        // let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
+        // let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
+        //
+        // Box::new(IteratorMixer::create_from(
+        //     fee_rate_transactions,
+        //     null_rate_transactions,
+        //     null_estimate_fraction,
+        // ))
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -1288,29 +1294,30 @@ impl MemPoolDB {
     where
         C: ClarityConnection,
     {
-        let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction);
-        let mut num_less = 0;
-        let mut num_equal = 0;
-        let mut num_greater = 0;
-        let mut total = 0;
-        for tx_reduced_info in all_transactions {
-            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
-
-            total += 1;
-
-            if nonces_match.is_lt() {
-                num_less += 1;
-            } else if nonces_match.is_eq() {
-                num_equal += 1;
-            } else if nonces_match.is_gt() {
-                num_greater += 1;
-            }
-        }
-
-        info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
-            total, num_less, num_equal, num_greater,
-        );
-        Ok(())
+        todo!()
+        // let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction);
+        // let mut num_less = 0;
+        // let mut num_equal = 0;
+        // let mut num_greater = 0;
+        // let mut total = 0;
+        // for tx_reduced_info in all_transactions {
+        //     let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
+        //
+        //     total += 1;
+        //
+        //     if nonces_match.is_lt() {
+        //         num_less += 1;
+        //     } else if nonces_match.is_eq() {
+        //         num_equal += 1;
+        //     } else if nonces_match.is_gt() {
+        //         num_greater += 1;
+        //     }
+        // }
+        //
+        // info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
+        //     total, num_less, num_equal, num_greater,
+        // );
+        // Ok(())
     }
 
     ///
@@ -1350,9 +1357,9 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
-        let connection = self.conn();
-        Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
-        let db_txs = Self::get_transaction_list_to_process(&connection, null_estimate_fraction);
+        let connection = self.rc_conn();
+        // Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
+        let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1438,6 +1445,9 @@ impl MemPoolDB {
         &self.db
     }
 
+    pub fn rc_conn(&self) -> Rc<RefCell<DBConn>> {
+        self.db2.clone()
+    }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(
