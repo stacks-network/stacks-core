@@ -80,7 +80,8 @@ pub struct BitcoinRegtestController {
     should_keep_running: Option<Arc<AtomicBool>>,
 }
 
-struct OngoingBlockCommit {
+#[derive(Clone)]
+pub struct OngoingBlockCommit {
     payload: LeaderBlockCommitOp,
     utxos: UTXOSet,
     fees: LeaderBlockCommitFees,
@@ -307,6 +308,23 @@ impl BitcoinRegtestController {
             ongoing_block_commit: None,
             should_keep_running: None,
         }
+    }
+
+    /// Creates a dummy bitcoin regtest controller, with the given ongoing block-commits
+    pub fn new_ongoing_dummy(config: Config, ongoing: Option<OngoingBlockCommit>) -> Self {
+        let mut ret = Self::new_dummy(config);
+        ret.ongoing_block_commit = ongoing;
+        ret
+    }
+
+    /// Get an owned copy of the ongoing block commit state
+    pub fn get_ongoing_commit(&self) -> Option<OngoingBlockCommit> {
+        self.ongoing_block_commit.clone()
+    }
+
+    /// Set the ongoing block commit state
+    pub fn set_ongoing_commit(&mut self, ongoing: Option<OngoingBlockCommit>) {
+        self.ongoing_block_commit = ongoing;
     }
 
     fn default_burnchain(&self) -> Burnchain {
@@ -1445,6 +1463,18 @@ impl BitcoinRegtestController {
                 panic!();
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn get_mining_pubkey(&self) -> Option<String> {
+        self.config.burnchain.local_mining_public_key.clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_mining_pubkey(&mut self, pubkey: String) -> Option<String> {
+        let old_key = self.config.burnchain.local_mining_public_key.take();
+        self.config.burnchain.local_mining_public_key = Some(pubkey);
+        old_key
     }
 }
 
