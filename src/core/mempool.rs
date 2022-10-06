@@ -1349,7 +1349,7 @@ impl MemPoolDB {
         Ordering::Equal
     }
 
-    fn characterize_mempool<C>(
+    pub fn characterize_mempool<C>(
         conn: &DBConn,
         clarity_tx: &mut C,
         null_estimate_fraction: f64,
@@ -1418,7 +1418,6 @@ impl MemPoolDB {
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = self.conn();
-        Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
         let mut db_txs =
             Self::get_transaction_list_to_process(&connection, null_estimate_fraction)?;
 
