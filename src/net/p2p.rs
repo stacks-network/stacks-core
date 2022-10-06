@@ -5282,12 +5282,6 @@ impl PeerNetwork {
             .remove(&self.http_network_handle)
             .expect("BUG: no poll state for http network handle");
 
-        let mut network_result = NetworkResult::new(
-            self.num_state_machine_passes,
-            self.num_inv_sync_passes,
-            self.num_downloader_passes,
-        );
-
         // update local-peer state
         self.refresh_local_peer()
             .expect("FATAL: failed to read local peer from the peer DB");
@@ -5296,6 +5290,13 @@ impl PeerNetwork {
         let unsolicited_buffered_messages = self
             .refresh_burnchain_view(sortdb, chainstate, ibd)
             .expect("FATAL: failed to refresh burnchain view");
+
+        let mut network_result = NetworkResult::new(
+            self.num_state_machine_passes,
+            self.num_inv_sync_passes,
+            self.num_downloader_passes,
+            self.chain_view.burn_block_height,
+        );
 
         network_result.consume_unsolicited(unsolicited_buffered_messages);
 
