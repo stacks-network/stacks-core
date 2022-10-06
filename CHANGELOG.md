@@ -9,6 +9,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Improved mempool iteration. Adds an "iterator" framework for traversing the
+  mempool. Can now fill a block in around 12.5 seconds. (#3326)
 - Added prometheus output for "transactions in last block" (#3138).
 - Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
   stacks-node uses for logging. (#3219)
