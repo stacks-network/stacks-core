@@ -821,6 +821,35 @@ impl NonceCache {
     }
 }
 
+/// Evaluates the pair of nonces, to determine an order
+///
+/// Returns:
+///   `Equal` if both origin and sponsor nonces match expected
+///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
+///          sponsor nonce is less than expected
+///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
+///          and the sponsor nonce is greater than expected
+fn order_nonces(
+    origin_actual: u64,
+    origin_expected: u64,
+    sponsor_actual: u64,
+    sponsor_expected: u64,
+) -> Ordering {
+    if origin_actual < origin_expected {
+        return Ordering::Less;
+    } else if origin_actual > origin_expected {
+        return Ordering::Greater;
+    }
+
+    if sponsor_actual < sponsor_expected {
+        return Ordering::Less;
+    } else if sponsor_actual > sponsor_expected {
+        return Ordering::Greater;
+    }
+
+    Ordering::Equal
+}
+
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
         let mut tx = tx_begin_immediate(conn)?;
@@ -1418,17 +1447,38 @@ impl MemPoolDB {
             let expected_sponsor_nonce =
                 nonce_cache.get(&db_txs[tx_index].sponsor_address, clarity_tx);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
-            test_debug!(
-                "Nonce check: for tx_reduced_info {:?}, nonces_match={}",
-                db_txs[tx_index],
-                expected_origin_nonce != db_txs[tx_index].origin_nonce
-                    || expected_sponsor_nonce != db_txs[tx_index].sponsor_nonce
-            );
-            if expected_origin_nonce != db_txs[tx_index].origin_nonce
-                || expected_sponsor_nonce != db_txs[tx_index].sponsor_nonce
+
             {
-                tx_index += 1;
-                continue;
+                let tx = &db_txs[tx_index];
+                test_debug!(
+                    "Nonce check: for tx_reduced_info {:?}, nonces_match={}",
+                    tx,
+                    order_nonces(
+                        tx.origin_nonce,
+                        expected_origin_nonce,
+                        tx.sponsor_nonce,
+                        expected_sponsor_nonce
+                    )
+                );
+                match order_nonces(
+                    tx.origin_nonce,
+                    expected_origin_nonce,
+                    tx.sponsor_nonce,
+                    expected_sponsor_nonce,
+                ) {
+                    Ordering::Less => {
+                        // This transaction cannot execute in this pass, remove it from the list.
+                        db_txs.remove(tx_index);
+                        continue;
+                    }
+                    Ordering::Greater => {
+                        tx_index += 1;
+                        continue;
+                    }
+                    Ordering::Equal => {
+                        // This transaction is able to be processed
+                    }
+                };
             }
 
             // Read in and deserialize the transaction.
