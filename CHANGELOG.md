@@ -17,6 +17,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
 - Added mock-miner sample config (#3225)
 
+## [2.05.0.4.0]
+
+### Fixed
+
+- Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
+  query for choosing transactions in order by estimated fee rate.  This
+drastically speeds up mempool transaction iteration in the miner (#3314)
+
 ### Changed
 
 - Updates to the logging of transaction events (#3139).
