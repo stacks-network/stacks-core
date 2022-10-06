@@ -1182,7 +1182,7 @@ impl MemPoolDB {
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions(
-        connection: Arc<Connection>,
+        connection: Arc<Mutex<Connection>>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("sorted_fee_rate_transactions");
         let sql = "
@@ -1208,7 +1208,7 @@ impl MemPoolDB {
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
     fn null_fee_rate_transactions(
-        connection: Arc<Connection>,
+        connection: Arc<Mutex<Connection>>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("randomized_null_fee_rate_transactions");
 
@@ -1241,15 +1241,14 @@ impl MemPoolDB {
         conn: Arc<Mutex<DBConn>>,
         null_estimate_fraction: f64,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
-        todo!()
-        // let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
-        // let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
-        //
-        // Box::new(IteratorMixer::create_from(
-        //     fee_rate_transactions,
-        //     null_rate_transactions,
-        //     null_estimate_fraction,
-        // ))
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
+        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
+
+        Box::new(IteratorMixer::create_from(
+            fee_rate_transactions,
+            null_rate_transactions,
+            null_estimate_fraction,
+        ))
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -2432,7 +2431,7 @@ impl MemPoolDB {
 /// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
 #[derive(Debug)]
 struct TransactionPageCursor {
-    connection: Arc<Connection>,
+    connection: Arc<Mutex<Connection>>,
     base_query: String,
     page_size: i64,
     current_offset: i64,
@@ -2445,7 +2444,7 @@ impl TransactionPageCursor {
     /// If we can't read a page, leave `current_remaining_page` empty.
     fn read_next_page(&mut self) {
         let result = query_rows::<MemPoolTxMinimalInfo, _>(
-            &self.connection,
+            &(*self.connection.lock().unwrap()),
             &self.base_query,
             &[&self.page_size, &self.current_offset],
         );
