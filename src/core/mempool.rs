@@ -69,6 +69,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use std::time::{Duration, Instant};
+use sha2::digest::typenum::Minimum;
 
 use crate::net::MemPoolSyncData;
 
@@ -249,7 +250,7 @@ pub struct MemPoolTxInfo {
 
 /// This class is a minimal version of `MemPoolTxInfo`. It contains
 /// just enough information to 1) filter by nonce readiness, 2) sort by fee rate.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct MemPoolTxMinimalInfo {
     pub txid: Txid,
     pub fee_rate: Option<f64>,
@@ -1197,24 +1198,23 @@ impl MemPoolDB {
     ///
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
-    fn randomized_null_fee_rate_transactions(conn: &DBConn) -> TransactionPageCursor {
+    fn null_fee_rate_transactions(conn: &DBConn) -> Box<dyn Iterator<Item=MemPoolTxMinimalInfo> + '_> {
         info!("randomized_null_fee_rate_transactions");
 
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
         WHERE fee_rate IS NULL
-        ORDER BY RANDOM()
         LIMIT ?
         OFFSET ?
         ";
-        TransactionPageCursor {
+        Box::new(TransactionPageCursor {
             connection: conn,
             base_query: sql.to_string(),
             current_offset: 0,
             page_size: 10_000,
             current_page_remaining: vec![],
-        }
+        })
     }
 
     /// Get a set of transactions to try. Select those that:
@@ -1231,12 +1231,14 @@ impl MemPoolDB {
         null_estimate_fraction: f64,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
-        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(conn);
+        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
         let mut buffer = vec![];
         let mut rng = rand::thread_rng();
         let mut fee_cursor = fee_rate_transactions.next();
         let mut null_cursor = null_rate_transactions.next();
+        let mut fee_included = 0;
+        let mut null_included = 0;
         while fee_cursor.is_some() || null_cursor.is_some() {
             let f: f64 = rng.gen();
             if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
@@ -1245,6 +1247,7 @@ impl MemPoolDB {
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
                 );
                 null_cursor = null_rate_transactions.next();
+                null_included += 1;
             } else {
                 // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
                 buffer.push(
@@ -1252,6 +1255,7 @@ impl MemPoolDB {
                         .expect("`fee_cursor` is null, but this should not have been possible."),
                 );
                 fee_cursor = fee_rate_transactions.next();
+                fee_included += 1;
             }
         }
         info!("get_transaction_list_to_process:  {}", buffer.len());
@@ -2432,7 +2436,7 @@ impl MemPoolDB {
     }
 }
 
-/// Reads in one query of the form of `base_query`, creating pages of size `page_size`.
+/// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
 #[derive(Debug)]
 struct TransactionPageCursor<'a> {
     // TODO: Should this be a reference?
