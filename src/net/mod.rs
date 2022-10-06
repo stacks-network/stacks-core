@@ -1901,6 +1901,7 @@ pub struct NetworkResult {
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
+    pub burn_height: u64,
 }
 
 impl NetworkResult {
@@ -1908,6 +1909,7 @@ impl NetworkResult {
         num_state_machine_passes: u64,
         num_inv_sync_passes: u64,
         num_download_passes: u64,
+        burn_height: u64,
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
@@ -1925,6 +1927,7 @@ impl NetworkResult {
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
+            burn_height,
         }
     }
 
