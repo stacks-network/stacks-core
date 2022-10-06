@@ -2525,18 +2525,17 @@ impl Iterator for IteratorMixer {
     /// If either iterator is exhausted, take from the other.
     /// If both iterators have something, take from null iterator `null_fraction` of the time.
     fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
-        let mut buffer = vec![];
         if self.fee_cursor.is_some() || self.null_cursor.is_some() {
             let f: f64 = self.rng.gen();
             if (f < self.null_fraction && self.null_cursor.is_some()) || self.fee_cursor.is_none() {
                 // Assume: null_cursor.is_some()
-                let return_value = self.null_cursor.take();
+                let return_value = self.null_cursor.clone();  // TODO: replace clone
                 self.null_cursor = self.null_iterator.next();
                 self.null_included += 1;
                 return_value
             } else {
                 // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
-                let return_value = self.fee_iterator.take();
+                let return_value = self.fee_cursor.clone();  // TODO: replace clone
                 self.fee_cursor = self.fee_iterator.next();
                 self.fee_included += 1;
                 return_value
