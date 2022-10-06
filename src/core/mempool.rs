@@ -1171,9 +1171,9 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    /// Return the mempool entries that do have a fee rate, sorted by fee rate.
-    /// Limit by 100_000. TODO: Limit by arbitrary amount.
-    fn sorted_fee_rate_transactions(conn: &DBConn) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
+    /// Page size is 10_000. TODO: Make this configurable.
+    fn sorted_fee_rate_transactions(conn: &DBConn) -> TransactionPageCursor {
         info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1183,7 +1183,13 @@ impl MemPoolDB {
         LIMIT ?
         OFFSET ?
         ";
-        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000, &0])
+        TransactionPageCursor {
+            connection: conn,
+            base_query: sql.to_string(),
+            current_offset: 0,
+            page_size: 10_000,
+            current_page_remaining: vec![],
+        }
     }
 
     /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
@@ -1191,9 +1197,7 @@ impl MemPoolDB {
     ///
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
-    fn randomized_null_fee_rate_transactions(
-        conn: &DBConn,
-    ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
+    fn randomized_null_fee_rate_transactions(conn: &DBConn) -> TransactionPageCursor {
         info!("randomized_null_fee_rate_transactions");
 
         let sql = "
@@ -1204,7 +1208,13 @@ impl MemPoolDB {
         LIMIT ?
         OFFSET ?
         ";
-        query_rows::<MemPoolTxMinimalInfo, _>(conn, &sql, &[&100_000, &0])
+        TransactionPageCursor {
+            connection: conn,
+            base_query: sql.to_string(),
+            current_offset: 0,
+            page_size: 10_000,
+            current_page_remaining: vec![],
+        }
     }
 
     /// Get a set of transactions to try. Select those that:
@@ -1220,24 +1230,13 @@ impl MemPoolDB {
         conn: &DBConn,
         null_estimate_fraction: f64,
     ) -> Result<Vec<MemPoolTxMinimalInfo>, db_error> {
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn)?;
-        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(conn)?;
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
+        let mut null_rate_transactions = Self::randomized_null_fee_rate_transactions(conn);
 
-        // Note: Reverse each component list, so we can `pop()` from it later. This could be optimized
-        // by pushing the reverse into the downstream logic, but that would make it harder
-        // to parse, and less modular, and the `reverse` should be cheap. Could also use a deque.
-        fee_rate_transactions.reverse();
-        null_rate_transactions.reverse();
-
-        info!(
-            "get_transaction_list_to_process: fee_rate_transactions {} null_rate_transactions {}",
-            fee_rate_transactions.len(),
-            null_rate_transactions.len()
-        );
         let mut buffer = vec![];
         let mut rng = rand::thread_rng();
-        let mut fee_cursor = fee_rate_transactions.pop();
-        let mut null_cursor = null_rate_transactions.pop();
+        let mut fee_cursor = fee_rate_transactions.next();
+        let mut null_cursor = null_rate_transactions.next();
         while fee_cursor.is_some() || null_cursor.is_some() {
             let f: f64 = rng.gen();
             if (f < null_estimate_fraction && null_cursor.is_some()) || fee_cursor.is_none() {
@@ -1245,14 +1244,14 @@ impl MemPoolDB {
                 buffer.push(
                     null_cursor.expect("`null_cursor` is null, but this should have been checked."),
                 );
-                null_cursor = null_rate_transactions.pop();
+                null_cursor = null_rate_transactions.next();
             } else {
                 // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
                 buffer.push(
                     fee_cursor
                         .expect("`fee_cursor` is null, but this should not have been possible."),
                 );
-                fee_cursor = fee_rate_transactions.pop();
+                fee_cursor = fee_rate_transactions.next();
             }
         }
         info!("get_transaction_list_to_process:  {}", buffer.len());
@@ -2434,16 +2433,20 @@ impl MemPoolDB {
 }
 
 /// Reads in one query of the form of `base_query`, creating pages of size `page_size`.
-struct TransactionPageCursor {
+#[derive(Debug)]
+struct TransactionPageCursor<'a> {
     // TODO: Should this be a reference?
-    connection: Connection,
+    connection: &'a Connection,
     base_query: String,
     page_size: i64,
     current_offset: i64,
     current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
-impl TransactionPageCursor {
+impl TransactionPageCursor<'_> {
+    /// Read in one page of size `page_size`, starting at `current_offset`.
+    /// If we can read a page, load this into `current_remaining_page` and update `current_offset`.
+    /// If we can't read a page, leave `current_remaining_page` empty.
     fn read_next_page(&mut self) {
         let result = query_rows::<MemPoolTxMinimalInfo, _>(
             &self.connection,
@@ -2452,22 +2455,26 @@ impl TransactionPageCursor {
         );
         match result {
             Ok(mut transaction_vector) => {
+                // reverse so we can `pop()` results in O(1) time
                 transaction_vector.reverse();
                 self.current_page_remaining = transaction_vector;
                 self.current_offset += self.page_size;
                 ()
             }
             Err(e) => {
-                warn!("Error reading batch of results: {:?}", &e);
+                warn!("Error reading batch of results: {:?}. Suppressing error because inside Iterator.", &e);
                 // pass through
                 ()
             }
         }
     }
 }
-impl Iterator for TransactionPageCursor {
+impl Iterator for TransactionPageCursor<'_> {
     type Item = MemPoolTxMinimalInfo;
 
+    /// Return lead element of `current_remaining_page` if another element exists.
+    /// Otherwise, try to read a page, and then try to return the head of `current_remaining_page`
+    /// again.
     fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
         let popped = self.current_page_remaining.pop();
         // See if we have more on this page.
