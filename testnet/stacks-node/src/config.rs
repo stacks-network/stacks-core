@@ -2,6 +2,8 @@ use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use rand::RngCore;
 
@@ -10,6 +12,7 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
@@ -595,6 +598,7 @@ impl Config {
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
+                wait_for_block_download: miner_default_config.wait_for_block_download,
             },
             None => miner_default_config,
         };
@@ -947,6 +951,7 @@ impl Config {
         &self,
         attempt: u64,
         microblocks: bool,
+        miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
@@ -971,6 +976,7 @@ impl Config {
                 },
                 consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
             },
+            miner_status,
         }
     }
 }
@@ -1327,7 +1333,7 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1345,7 +1351,7 @@ impl FeeEstimationConfig {
 
     // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
     // is uniform with bounds [+/- 0.5].
-    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1450,6 +1456,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
+        debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -1514,6 +1521,9 @@ pub struct MinerConfig {
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
+    /// Wait for a downloader pass before mining.
+    /// This can only be disabled in testing; it can't be changed in the config file.
+    pub wait_for_block_download: bool,
 }
 
 impl MinerConfig {
@@ -1524,6 +1534,7 @@ impl MinerConfig {
             subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
+            wait_for_block_download: true,
         }
     }
 }
