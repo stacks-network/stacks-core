@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use rand::Rng;
 use std::cmp;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs;
 use std::hash::Hasher;
@@ -22,6 +24,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -60,11 +63,12 @@ use crate::util_lib::db::FromColumn;
 use crate::util_lib::db::{query_row, Error};
 use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
 use clarity::vm::types::PrincipalData;
+use rand::rngs::ThreadRng;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::Sha512Trunc256Sum;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::net::MemPoolSyncData;
 
@@ -241,6 +245,24 @@ pub struct MemPoolTxInfo {
     pub metadata: MemPoolTxMetadata,
 }
 
+/// This class is a minimal version of `MemPoolTxInfo`. It contains
+/// just enough information to 1) filter by nonce readiness, 2) sort by fee rate.
+#[derive(Debug, Clone)]
+pub struct MemPoolTxMinimalInfo {
+    pub txid: Txid,
+    pub fee_rate: Option<f64>,
+    pub origin_address: StacksAddress,
+    pub origin_nonce: u64,
+    pub sponsor_address: StacksAddress,
+    pub sponsor_nonce: u64,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum MemPoolTxInfoPartial {
+    NeedsNonces { addrs_needed: Vec<StacksAddress> },
+    HasNonces(MemPoolTxInfo),
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct MemPoolTxMetadata {
     pub txid: Txid,
@@ -256,6 +278,19 @@ pub struct MemPoolTxMetadata {
     pub last_known_origin_nonce: Option<u64>,
     pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
+}
+
+impl MemPoolTxMetadata {
+    pub fn get_unknown_nonces(&self) -> Vec<StacksAddress> {
+        let mut needs_nonces = vec![];
+        if self.last_known_origin_nonce.is_none() {
+            needs_nonces.push(self.origin_address);
+        }
+        if self.last_known_sponsor_nonce.is_none() {
+            needs_nonces.push(self.sponsor_address);
+        }
+        needs_nonces
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -343,6 +378,53 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
             tx: tx,
             metadata: md,
         })
+    }
+}
+
+impl FromRow<MemPoolTxMinimalInfo> for MemPoolTxMinimalInfo {
+    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxMinimalInfo, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let fee_rate: Option<f64> = match row.get("fee_rate") {
+            Ok(rate) => Some(rate),
+            Err(_) => None,
+        };
+        let origin_address = StacksAddress::from_column(row, "origin_address")?;
+        let origin_nonce = u64::from_column(row, "origin_nonce")?;
+        let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
+        let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
+
+        Ok(MemPoolTxMinimalInfo {
+            txid,
+            fee_rate,
+            origin_address,
+            origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
+        })
+    }
+}
+
+impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
+    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
+        let md = MemPoolTxMetadata::from_row(row)?;
+        let needs_nonces = md.get_unknown_nonces();
+        let consider = if !needs_nonces.is_empty() {
+            MemPoolTxInfoPartial::NeedsNonces {
+                addrs_needed: needs_nonces,
+            }
+        } else {
+            let tx_bytes: Vec<u8> = row.get_unwrap("tx");
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
+                .map_err(|_e| db_error::ParseError)?;
+
+            if tx.txid() != md.txid {
+                return Err(db_error::ParseError);
+            }
+
+            MemPoolTxInfoPartial::HasNonces(MemPoolTxInfo { tx, metadata: md })
+        };
+
+        Ok(consider)
     }
 }
 
@@ -460,6 +542,22 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     "#,
 ];
 
+const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
+    r#"
+    ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS by_fee_rate ON mempool(fee_rate);
+    "#,
+    r#"
+    UPDATE mempool
+    SET fee_rate = (SELECT f.fee_rate FROM fee_estimates as f WHERE f.txid = mempool.txid);
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (5)
+    "#,
+];
+
 const MEMPOOL_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
@@ -476,6 +574,7 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 
 pub struct MemPoolDB {
     pub db: DBConn,
+    db2: Arc<Mutex<DBConn>>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -744,6 +843,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_tx_blacklist(tx)?;
                 }
                 4 => {
+                    MemPoolDB::denormalize_fee_rate(tx)?;
+                }
+                5 => {
                     break;
                 }
                 _ => {
@@ -782,6 +884,15 @@ impl MemPoolDB {
     /// Instantiate the cost estimator schema
     fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Denormalize fee rate schema 5
+    fn denormalize_fee_rate(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_5 {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -855,6 +966,7 @@ impl MemPoolDB {
         };
 
         let mut conn = sqlite_open(&db_path, open_flags, true)?;
+        let mut conn2 = sqlite_open(&db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -870,6 +982,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
+            db2: Arc::new(Mutex::new(conn2)),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -925,11 +1038,11 @@ impl MemPoolDB {
     ///  whether or not the miner should propagate transaction receipts back to the estimator.
     fn get_next_tx_to_consider_no_estimate(
         &self,
-    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
-        let select_no_estimate = "SELECT * FROM mempool LEFT JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
+        let select_no_estimate = "SELECT * FROM mempool WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
+                   AND fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
         query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
             .map(|opt_tx| opt_tx.map(|tx| (tx, true)))
     }
@@ -939,11 +1052,11 @@ impl MemPoolDB {
     ///  whether or not the miner should propagate transaction receipts back to the estimator.
     fn get_next_tx_to_consider_with_estimate(
         &self,
-    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
-        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
+        let select_estimate = "SELECT * FROM mempool WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
+                   AND fee_rate IS NOT NULL ORDER BY fee_rate DESC LIMIT 1";
         query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)
             .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
     }
@@ -956,7 +1069,7 @@ impl MemPoolDB {
         &self,
         start_with_no_estimate: bool,
     ) -> Result<ConsiderTransactionResult, db_error> {
-        let (next_tx, update_estimate): (MemPoolTxInfo, bool) = if start_with_no_estimate {
+        let (next_tx, update_estimate): (MemPoolTxInfoPartial, bool) = if start_with_no_estimate {
             match self.get_next_tx_to_consider_no_estimate()? {
                 Some(result) => result,
                 None => match self.get_next_tx_to_consider_with_estimate()? {
@@ -974,21 +1087,16 @@ impl MemPoolDB {
             }
         };
 
-        let mut needs_nonces = vec![];
-        if next_tx.metadata.last_known_origin_nonce.is_none() {
-            needs_nonces.push(next_tx.metadata.origin_address);
-        }
-        if next_tx.metadata.last_known_sponsor_nonce.is_none() {
-            needs_nonces.push(next_tx.metadata.sponsor_address);
-        }
-
-        if !needs_nonces.is_empty() {
-            Ok(ConsiderTransactionResult::UpdateNonces(needs_nonces))
-        } else {
-            Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
-                tx: next_tx,
-                update_estimate,
-            }))
+        match next_tx {
+            MemPoolTxInfoPartial::NeedsNonces { addrs_needed } => {
+                Ok(ConsiderTransactionResult::UpdateNonces(addrs_needed))
+            }
+            MemPoolTxInfoPartial::HasNonces(tx) => {
+                Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
+                    tx,
+                    update_estimate,
+                }))
+            }
         }
     }
 
@@ -1027,8 +1135,7 @@ impl MemPoolDB {
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
-            "SELECT * FROM mempool as m LEFT OUTER JOIN fee_estimates as f ON
-                               m.txid = f.txid WHERE f.fee_rate IS NULL LIMIT ?",
+            "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
             &[max_updates],
         )?;
         let mut updated = 0;
@@ -1053,8 +1160,8 @@ impl MemPoolDB {
             };
 
             sql_tx.execute(
-                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
-                rusqlite::params![&txid, fee_rate_f64],
+                "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                rusqlite::params![fee_rate_f64, &txid],
             )?;
             updated += 1;
         }
@@ -1062,6 +1169,147 @@ impl MemPoolDB {
         sql_tx.commit()?;
 
         Ok(updated)
+    }
+
+    /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
+    /// Page size is 10_000. TODO: Make this configurable.
+    fn sorted_fee_rate_transactions(
+        connection: Arc<Mutex<Connection>>,
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+        info!("sorted_fee_rate_transactions");
+        let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NOT NULL
+        ORDER BY fee_rate DESC
+        LIMIT ?
+        OFFSET ?
+        ";
+        Box::new(TransactionPageCursor {
+            connection,
+            base_query: sql.to_string(),
+            current_offset: 0,
+            page_size: 10_000,
+            current_page_remaining: vec![],
+        })
+    }
+
+    /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
+    /// Just take the first 100_000. TODO: Limit by arbitrary amount.
+    ///
+    /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
+    /// in the mempool?
+    fn null_fee_rate_transactions(
+        connection: Arc<Mutex<Connection>>,
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+        info!("null_fee_rate_transactions");
+
+        let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NULL
+        LIMIT ?
+        OFFSET ?
+        ";
+        Box::new(TransactionPageCursor {
+            connection,
+            base_query: sql.to_string(),
+            current_offset: 0,
+            page_size: 10_000,
+            current_page_remaining: vec![],
+        })
+    }
+
+    /// Get a set of transactions to try. Select those that:
+    ///   1) have fee rate estimates
+    ///       -- in which case these are
+    ///             * sorted by fee_rate (descending order)
+    ///   2) do not have fee rate estimates
+    ///       -- just select randomly
+    ///
+    /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
+    /// percent of the time
+    fn get_transaction_list_to_process(
+        conn: Arc<Mutex<DBConn>>,
+        null_estimate_fraction: f64,
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
+        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
+
+        Box::new(IteratorMixer::create_from(
+            fee_rate_transactions,
+            null_rate_transactions,
+            null_estimate_fraction,
+        ))
+    }
+
+    /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
+    /// in `clarity_tx`.
+    ///
+    /// Returns:
+    ///   `Equal` if both origin and sponsor nonces match expected
+    ///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
+    ///          sponsor nonce is less than expected
+    ///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
+    ///          and the sponsor nonce is greater than expected
+    fn check_nonces_match_expectations<C>(
+        clarity_tx: &mut C,
+        tx_reduced_info: &MemPoolTxMinimalInfo,
+    ) -> Ordering
+    where
+        C: ClarityConnection,
+    {
+        let expected_origin_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
+        if tx_reduced_info.origin_nonce < expected_origin_nonce {
+            return Ordering::Less;
+        } else if tx_reduced_info.origin_nonce > expected_origin_nonce {
+            return Ordering::Greater;
+        }
+
+        let expected_sponsor_nonce =
+            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
+        if tx_reduced_info.sponsor_nonce < expected_sponsor_nonce {
+            return Ordering::Less;
+        } else if tx_reduced_info.sponsor_nonce > expected_sponsor_nonce {
+            return Ordering::Greater;
+        }
+
+        Ordering::Equal
+    }
+
+    fn characterize_mempool<C>(
+        conn: &DBConn,
+        clarity_tx: &mut C,
+        null_estimate_fraction: f64,
+    ) -> Result<(), db_error>
+    where
+        C: ClarityConnection,
+    {
+        todo!()
+        // let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction);
+        // let mut num_less = 0;
+        // let mut num_equal = 0;
+        // let mut num_greater = 0;
+        // let mut total = 0;
+        // for tx_reduced_info in all_transactions {
+        //     let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
+        //
+        //     total += 1;
+        //
+        //     if nonces_match.is_lt() {
+        //         num_less += 1;
+        //     } else if nonces_match.is_eq() {
+        //         num_equal += 1;
+        //     } else if nonces_match.is_gt() {
+        //         num_greater += 1;
+        //     }
+        // }
+        //
+        // info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
+        //     total, num_less, num_equal, num_greater,
+        // );
+        // Ok(())
     }
 
     ///
@@ -1092,95 +1340,95 @@ impl MemPoolDB {
             &ConsiderTransaction,
             &mut dyn CostEstimator,
         ) -> Result<Option<TransactionEvent>, E>,
-        E: From<db_error> + From<ChainstateError>,
+        E: From<db_error> + From<ChainstateError> + std::fmt::Debug,
     {
         let start_time = Instant::now();
         let mut total_considered = 0;
+        let mut total_included = 0;
 
-        debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
+        info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
-        let tx_consideration_sampler = Uniform::new(0, 100);
-        let mut rng = rand::thread_rng();
-        let mut remember_start_with_estimate = None;
+        let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
+        let connection = self.rc_conn();
+        // Self::characterize_mempool(&connection, clarity_tx, null_estimate_fraction)?;
+        let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
-        loop {
+        // For each minimal info entry in sorted order:
+        //   * check if its nonce is appropriate, and if so process it.
+        let mut total_effective_processing_time = Duration::ZERO;
+        let mut total_lookup_nonce_time = Duration::ZERO;
+
+        for tx_reduced_info in db_txs {
+            // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                debug!("Mempool iteration deadline exceeded";
+                info!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
             }
 
-            let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
-            });
+            // Check the nonces.
+            let lookup_nonce_start = Instant::now();
+            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
+            total_lookup_nonce_time += lookup_nonce_start.elapsed();
+            debug!(
+                "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
+                tx_reduced_info, nonces_match
+            );
+            if !nonces_match.is_eq() {
+                continue;
+            }
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
-                ConsiderTransactionResult::NoTransactions => {
-                    debug!("No more transactions to consider in mempool");
+            // Read in and deserialize the transaction.
+            let tx_read_start = Instant::now();
+            let tx_info_option = MemPoolDB::get_tx(&self.conn(), &tx_reduced_info.txid)?;
+            let tx_read_elapsed = tx_read_start.elapsed();
+            let tx_info = match tx_info_option {
+                Some(tx) => tx,
+                None => {
+                    // Note: Don't panic here because maybe the state has changed from garbage collection.
+                    warn!(
+                        "Miner: could not find a tx for id {:?}",
+                        &tx_reduced_info.txid
+                    );
+                    continue;
+                }
+            };
+            let consider = ConsiderTransaction {
+                tx: tx_info,
+                update_estimate: false,
+            };
+            total_considered += 1;
+
+            // Process the transaction by calling `todo`.
+            let processing_start = Instant::now();
+            let inside_result = todo(clarity_tx, &consider, self.cost_estimator.as_mut());
+            total_effective_processing_time += Instant::now() - processing_start;
+            debug!("Miner: processing returns: {:?}", &inside_result);
+            match inside_result? {
+                Some(tx_event) => {
+                    match tx_event {
+                        TransactionEvent::Skipped(_) => {
+                            // don't push `Skipped` events to the observer
+                        }
+                        _ => {
+                            total_included += 1;
+                            output_events.push(tx_event);
+                        }
+                    }
+                }
+                None => {
+                    info!("Mempool iteration early exit from iterator");
                     break;
-                }
-                ConsiderTransactionResult::UpdateNonces(addresses) => {
-                    // if we need to update the nonce for the considered transaction,
-                    //  use the last value of start_with_no_estimate on the next loop
-                    remember_start_with_estimate = Some(start_with_no_estimate);
-                    let mut last_addr = None;
-                    for address in addresses.into_iter() {
-                        debug!("Update nonce"; "address" => %address);
-                        // do not recheck nonces if the sponsor == origin
-                        if last_addr.as_ref() == Some(&address) {
-                            continue;
-                        }
-                        let min_nonce =
-                            StacksChainState::get_account(clarity_tx, &address.clone().into())
-                                .nonce;
-
-                        self.update_last_known_nonces(&address, min_nonce)?;
-                        last_addr = Some(address)
-                    }
-                }
-                ConsiderTransactionResult::Consider(consider) => {
-                    // if we actually consider the chosen transaction,
-                    //  compute a new start_with_no_estimate on the next loop
-                    remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
-                           "txid" => %consider.tx.tx.txid(),
-                           "origin_addr" => %consider.tx.metadata.origin_address,
-                           "sponsor_addr" => %consider.tx.metadata.sponsor_address,
-                           "accept_time" => consider.tx.metadata.accept_time,
-                           "tx_fee" => consider.tx.metadata.tx_fee,
-                           "size" => consider.tx.metadata.len);
-                    total_considered += 1;
-
-                    // Run `todo` on the transaction.
-                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        Some(tx_event) => {
-                            match tx_event {
-                                TransactionEvent::Skipped(_) => {
-                                    // don't push `Skipped` events to the observer
-                                }
-                                _ => {
-                                    output_events.push(tx_event);
-                                }
-                            }
-                        }
-                        None => {
-                            debug!("Mempool iteration early exit from iterator");
-                            break;
-                        }
-                    }
-
-                    self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
-                    if consider.tx.tx.auth.is_sponsored() {
-                        self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
-                    }
                 }
             }
         }
 
-        debug!(
+        info!(
             "Mempool iteration finished";
-            "considered_txs" => total_considered,
-            "elapsed_ms" => start_time.elapsed().as_millis()
+            "num_considered_txs" => total_considered,
+            "num_included_txs" => total_included,
+            "total_processing_time_ms" => start_time.elapsed().as_millis(),
+            "total_effective_processing_time_ms" => total_effective_processing_time.as_millis(),
         );
         Ok(total_considered)
     }
@@ -1189,6 +1437,9 @@ impl MemPoolDB {
         &self.db
     }
 
+    pub fn rc_conn(&self) -> Arc<Mutex<DBConn>> {
+        self.db2.clone()
+    }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(
@@ -1351,6 +1602,7 @@ impl MemPoolDB {
         txid: Txid,
         tx_bytes: Vec<u8>,
         tx_fee: u64,
+        fee_rate_estimate: Option<f64>,
         height: u64,
         origin_address: &StacksAddress,
         origin_nonce: u64,
@@ -1430,13 +1682,14 @@ impl MemPoolDB {
             sponsor_address,
             sponsor_nonce,
             tx_fee,
+            fee_rate,
             length,
             consensus_hash,
             block_header_hash,
             height,
             accept_time,
             tx)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 
         let args: &[&dyn ToSql] = &[
             &txid,
@@ -1445,6 +1698,7 @@ impl MemPoolDB {
             &sponsor_address.to_string(),
             &u64_to_sql(sponsor_nonce)?,
             &u64_to_sql(tx_fee)?,
+            &fee_rate_estimate,
             &u64_to_sql(length)?,
             consensus_hash,
             block_header_hash,
@@ -1593,6 +1847,7 @@ impl MemPoolDB {
             txid.clone(),
             tx_data,
             tx_fee,
+            fee_rate_estimate,
             height,
             &origin_address,
             origin_nonce,
@@ -1603,8 +1858,8 @@ impl MemPoolDB {
 
         mempool_tx
             .execute(
-                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
-                rusqlite::params![&txid, fee_rate_estimate],
+                "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                rusqlite::params![fee_rate_estimate, &txid],
             )
             .map_err(db_error::from)?;
 
@@ -2162,5 +2417,137 @@ impl MemPoolDB {
             }
         }
         Ok(num_written)
+    }
+}
+
+/// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
+struct TransactionPageCursor {
+    connection: Arc<Mutex<Connection>>,
+    base_query: String,
+    page_size: i64,
+    current_offset: i64,
+    current_page_remaining: Vec<MemPoolTxMinimalInfo>,
+}
+
+impl TransactionPageCursor {
+    /// Read in one page of size `page_size`, starting at `current_offset`.
+    /// If we can read a page, load this into `current_remaining_page` and update `current_offset`.
+    /// If we can't read a page, leave `current_remaining_page` empty.
+    fn read_next_page(&mut self) {
+        let result = query_rows::<MemPoolTxMinimalInfo, _>(
+            &(*self.connection.lock().unwrap()),
+            &self.base_query,
+            &[&self.page_size, &self.current_offset],
+        );
+        match result {
+            Ok(mut transaction_vector) => {
+                // reverse so we can `pop()` results in O(1) time
+                transaction_vector.reverse();
+                self.current_page_remaining = transaction_vector;
+                self.current_offset += self.page_size;
+                ()
+            }
+            Err(e) => {
+                warn!("Error reading batch of results: {:?}. Suppressing error because inside Iterator.", &e);
+                // pass through
+                ()
+            }
+        }
+    }
+}
+
+impl Iterator for TransactionPageCursor {
+    type Item = MemPoolTxMinimalInfo;
+
+    /// Return lead element of `current_remaining_page` if another element exists.
+    /// Otherwise, try to read a page, and then try to return the head of `current_remaining_page`
+    /// again.
+    fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
+        let popped = self.current_page_remaining.pop();
+        // See if we have more on this page.
+        match popped {
+            Some(tx_info) => {
+                // Return element from this page.
+                Some(tx_info)
+            }
+            None => {
+                // Page is empty, so read a page.
+                self.read_next_page();
+                let popped2 = self.current_page_remaining.pop();
+                match popped2 {
+                    Some(tx_info) => Some(tx_info),
+                    None => {
+                        // If there is nothing after reading a page, we are done.
+                        None
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Mixes two iterators together, roughly choosing an item `null_iterator` `null_fraction` of the time,
+/// and from `fee_iterator` the rest of the time. See comment on `next()` for more details.
+struct IteratorMixer {
+    fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+    null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+    fee_cursor: Option<MemPoolTxMinimalInfo>,
+    null_cursor: Option<MemPoolTxMinimalInfo>,
+    null_fraction: f64,
+    fee_included: u64,
+    null_included: u64,
+    rng: ThreadRng,
+}
+
+impl IteratorMixer {
+    pub fn create_from(
+        mut fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+        mut null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+        null_fraction: f64,
+    ) -> IteratorMixer {
+        let fee_cursor = fee_iterator.next();
+        let null_cursor = null_iterator.next();
+        IteratorMixer {
+            fee_iterator,
+            null_iterator,
+            fee_cursor,
+            null_cursor,
+            null_fraction,
+            fee_included: 0,
+            null_included: 0,
+            rng: rand::thread_rng(),
+        }
+    }
+}
+
+impl Iterator for IteratorMixer {
+    type Item = MemPoolTxMinimalInfo;
+    /// Loop until both fee_iterator and null_iterator are empty.
+    /// If either iterator is exhausted, take from the other.
+    /// If both iterators have something, take from null iterator `null_fraction` of the time.
+    fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
+        if self.fee_cursor.is_some() || self.null_cursor.is_some() {
+            let f: f64 = self.rng.gen();
+            if (f < self.null_fraction && self.null_cursor.is_some()) || self.fee_cursor.is_none() {
+                // Assume: null_cursor.is_some()
+                let return_value = self.null_cursor.clone(); // TODO: replace clone
+                self.null_cursor = self.null_iterator.next();
+                self.null_included += 1;
+                return_value
+            } else {
+                // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
+                let return_value = self.fee_cursor.clone(); // TODO: replace clone
+                self.fee_cursor = self.fee_iterator.next();
+                self.fee_included += 1;
+                return_value
+            }
+        } else {
+            // both are empty
+            info!(
+                "Finished mixing iterators. fee_included {}, null_included {}",
+                self.fee_included, self.null_included
+            );
+            None
+        }
     }
 }

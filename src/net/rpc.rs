@@ -3817,6 +3817,7 @@ mod test {
                 txid.clone(),
                 tx_bytes,
                 tx_fee,
+                Some(tx_fee as f64),
                 stacks_block.header.total_work.work,
                 &origin_addr,
                 origin_nonce,
