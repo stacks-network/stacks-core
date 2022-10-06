@@ -1278,40 +1278,6 @@ impl MemPoolDB {
         Ordering::Equal
     }
 
-    fn characterize_mempool<C>(
-        conn: &DBConn,
-        clarity_tx: &mut C,
-        null_estimate_fraction: f64,
-    ) -> Result<(), db_error>
-    where
-        C: ClarityConnection,
-    {
-        todo!()
-        // let all_transactions = Self::get_transaction_list_to_process(conn, null_estimate_fraction);
-        // let mut num_less = 0;
-        // let mut num_equal = 0;
-        // let mut num_greater = 0;
-        // let mut total = 0;
-        // for tx_reduced_info in all_transactions {
-        //     let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
-        //
-        //     total += 1;
-        //
-        //     if nonces_match.is_lt() {
-        //         num_less += 1;
-        //     } else if nonces_match.is_eq() {
-        //         num_equal += 1;
-        //     } else if nonces_match.is_gt() {
-        //         num_greater += 1;
-        //     }
-        // }
-        //
-        // info!("Mempool breakdown: total_size {}, nonce less than expected {}, nonce is expected {}, nonce greater than expected {}",
-        //     total, num_less, num_equal, num_greater,
-        // );
-        // Ok(())
-    }
-
     ///
     /// Iterate over candidates in the mempool
     ///  `todo` will be called once for each transaction whose origin nonce is equal
