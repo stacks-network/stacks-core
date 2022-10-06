@@ -180,7 +180,7 @@ fn spawn_peer(
         let fee_estimator = config.make_fee_estimator();
 
         let handler_args = RPCHandlerArgs {
-            exit_at_block_height: exit_at_block_height.as_ref(),
+            exit_at_block_height: exit_at_block_height.clone(),
             cost_estimator: Some(cost_estimator.as_ref()),
             cost_metric: Some(metric.as_ref()),
             fee_estimator: fee_estimator.as_ref().map(|x| x.as_ref()),
