@@ -26,6 +26,7 @@ use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::ptr::null;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use rand::Rng;
 
@@ -580,7 +581,7 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 
 pub struct MemPoolDB {
     pub db: DBConn,
-    db2: Rc<RefCell<DBConn>>,
+    db2: Arc<Mutex<DBConn>>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -988,7 +989,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            db2: Rc::new(RefCell::new(conn2)),
+            db2: Arc::new(Mutex::new(conn2)),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -1181,7 +1182,7 @@ impl MemPoolDB {
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions(
-        connection: Rc<RefCell<Connection>>,
+        connection: Arc<Connection>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("sorted_fee_rate_transactions");
         let sql = "
@@ -1207,7 +1208,7 @@ impl MemPoolDB {
     /// Note: What happens when new fee rate estimate is available? Will it overwrite the nulls
     /// in the mempool?
     fn null_fee_rate_transactions(
-        connection: Rc<RefCell<Connection>>,
+        connection: Arc<Connection>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("randomized_null_fee_rate_transactions");
 
@@ -1237,17 +1238,18 @@ impl MemPoolDB {
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
     fn get_transaction_list_to_process(
-        conn: Rc<RefCell<DBConn>>,
+        conn: Arc<Mutex<DBConn>>,
         null_estimate_fraction: f64,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
-        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
-
-        Box::new(IteratorMixer::create_from(
-            fee_rate_transactions,
-            null_rate_transactions,
-            null_estimate_fraction,
-        ))
+        todo!()
+        // let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
+        // let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
+        //
+        // Box::new(IteratorMixer::create_from(
+        //     fee_rate_transactions,
+        //     null_rate_transactions,
+        //     null_estimate_fraction,
+        // ))
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -1444,7 +1446,7 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn rc_conn(&self) -> Rc<RefCell<DBConn>> {
+    pub fn rc_conn(&self) -> Arc<Mutex<DBConn>> {
         self.db2.clone()
     }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
@@ -2430,7 +2432,7 @@ impl MemPoolDB {
 /// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
 #[derive(Debug)]
 struct TransactionPageCursor {
-    connection: Rc<RefCell<Connection>>,
+    connection: Arc<Connection>,
     base_query: String,
     page_size: i64,
     current_offset: i64,
@@ -2443,7 +2445,7 @@ impl TransactionPageCursor {
     /// If we can't read a page, leave `current_remaining_page` empty.
     fn read_next_page(&mut self) {
         let result = query_rows::<MemPoolTxMinimalInfo, _>(
-            &self.connection.borrow(),
+            &self.connection,
             &self.base_query,
             &[&self.page_size, &self.current_offset],
         );
