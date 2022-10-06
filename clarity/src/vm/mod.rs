@@ -91,6 +91,7 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+use self::events::StacksTransactionEvent;
 
 const MAX_CALL_STACK_DEPTH: usize = 64;
 
@@ -123,7 +124,7 @@ pub enum EvaluationResult {
 #[derive(Debug, Clone)]
 pub struct ExecutionResult {
     pub result: EvaluationResult,
-    pub events: Vec<serde_json::Value>,
+    pub events: Vec<StacksTransactionEvent>,
     pub cost: Option<CostSynthesis>,
     pub diagnostics: Vec<Diagnostic>,
 }
