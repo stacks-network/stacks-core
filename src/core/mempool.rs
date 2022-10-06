@@ -1174,7 +1174,7 @@ impl MemPoolDB {
 
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
-    fn sorted_fee_rate_transactions(conn: &DBConn) -> TransactionPageCursor {
+    fn sorted_fee_rate_transactions(conn: &DBConn) -> Box<dyn Iterator<Item=MemPoolTxMinimalInfo> + '_> {
         info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1184,13 +1184,13 @@ impl MemPoolDB {
         LIMIT ?
         OFFSET ?
         ";
-        TransactionPageCursor {
+        Box::new(TransactionPageCursor {
             connection: conn,
             base_query: sql.to_string(),
             current_offset: 0,
             page_size: 10_000,
             current_page_remaining: vec![],
-        }
+        })
     }
 
     /// Take a batch of transactions *without* a fee rate estimate, in *random* order.
