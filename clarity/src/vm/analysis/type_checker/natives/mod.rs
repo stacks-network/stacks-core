@@ -207,7 +207,7 @@ pub fn check_special_tuple_cons(
     })?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
-        .map_err(|_| CheckErrors::BadTupleConstruction)?;
+        .map_err(|_e| CheckErrors::BadTupleConstruction)?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
 }

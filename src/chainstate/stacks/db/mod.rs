@@ -22,6 +22,7 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
+use clarity::vm::ast::ASTRules;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -68,7 +69,6 @@ use crate::util_lib::db::{
 };
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -1120,6 +1120,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        ASTRules::PrecheckSize,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1715,26 +1716,9 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
+            ASTRules::PrecheckSize,
         );
         result.unwrap()
-    }
-
-    pub fn clarity_eval_read_only_checked(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        code: &str,
-    ) -> Result<Value, Error> {
-        self.clarity_state
-            .eval_read_only(
-                parent_id_bhh,
-                &HeadersDBConn(self.state_index.sqlite_conn()),
-                burn_dbconn,
-                contract,
-                code,
-            )
-            .map_err(Error::ClarityError)
     }
 
     pub fn db(&self) -> &DBConn {

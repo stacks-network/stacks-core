@@ -1,3 +1,4 @@
+use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::execute as vm_execute;
@@ -19,12 +20,14 @@ use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
+    pub ast_rules: ASTRules,
 }
 pub struct UnitTestHeaderDB {}
 
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
+    ast_rules: ASTRules::Typical,
 };
 
 pub fn execute(s: &str) -> Value {
@@ -168,5 +171,9 @@ impl BurnStateDB for UnitTestBurnStateDB {
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
+    }
+
+    fn get_ast_rules(&self, _height: u32) -> ASTRules {
+        self.ast_rules
     }
 }
