@@ -1210,7 +1210,7 @@ impl MemPoolDB {
     fn null_fee_rate_transactions(
         connection: Arc<Mutex<Connection>>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
-        info!("randomized_null_fee_rate_transactions");
+        info!("null_fee_rate_transactions");
 
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
