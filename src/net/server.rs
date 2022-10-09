@@ -784,15 +784,17 @@ mod test {
         let mut peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);
         peer_config.connection_opts = conn_opts;
 
-        let mut peer = TestPeer::new(peer_config);
-        let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
 
-        let network_id = peer.config.network_id;
-        let chainstate_path = peer.chainstate_path.clone();
+        let mut peer = TestPeer::new(peer_config.clone());
 
         let (num_events_sx, num_events_rx) = sync_channel(1);
         let http_thread = thread::spawn(move || {
+            let mut peer = TestPeer::new(peer_config.clone());
+            let view = peer.get_burnchain_view().unwrap();
+            let network_id = peer.config.network_id;
+            let chainstate_path = peer.chainstate_path.clone();
+
             let view = peer.get_burnchain_view().unwrap();
             loop {
                 test_debug!("http wakeup");
@@ -812,6 +814,10 @@ mod test {
             let num_events = peer.network.network.as_ref().unwrap().num_events();
             let _ = num_events_sx.send(num_events);
         });
+
+        let view = peer.get_burnchain_view().unwrap();
+        let network_id = peer.config.network_id;
+        let chainstate_path = peer.chainstate_path.clone();
 
         let mut client_requests = vec![];
         let mut client_threads = vec![];
