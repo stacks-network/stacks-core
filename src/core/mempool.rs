@@ -573,9 +573,12 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 ];
 
 pub struct MemPoolDB {
+    /// A re-usable writeable database connection. This can be borrowed as mutable.
     pub db: DBConn,
-    /// A pool (of size 1), for use only in single-threaded mode.
-    db_connection_pool: Rc<DBConn>,
+    /// A re-usable read-only database connection. This is added in addition to `db` because it
+    /// allows us to create, e.g., iterators that reuse this database connection, without
+    /// needing to maintain an open reference to this.
+    read_only_db: Rc<DBConn>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -983,7 +986,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            db_connection_pool: Rc::new(conn2),
+            read_only_db: Rc::new(conn2),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -1314,7 +1317,7 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
-        let connection = self.db_connection_pool();
+        let connection = self.read_only_conn();
         let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
@@ -1401,8 +1404,8 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn db_connection_pool(&self) -> Rc<DBConn> {
-        self.db_connection_pool.clone()
+    pub fn read_only_conn(&self) -> Rc<DBConn> {
+        self.read_only_db.clone()
     }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
