@@ -24,7 +24,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -574,9 +574,8 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 
 pub struct MemPoolDB {
     pub db: DBConn,
-    /// A pool (of size 1) of Mutex guarded database connections. This is a hack until we decide
-    /// the most "rust"-consistent way of passing a db connection to each mempool Iterator.
-    db_connection_pool: Arc<Mutex<DBConn>>,
+    /// A pool (of size 1), for use only in single-threaded mode.
+    db_connection_pool: Rc<DBConn>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -984,7 +983,7 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            db_connection_pool: Arc::new(Mutex::new(conn2)),
+            db_connection_pool: Rc::new(conn2),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -1176,7 +1175,7 @@ impl MemPoolDB {
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions(
-        connection: Arc<Mutex<Connection>>,
+        connection: Rc<Connection>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("sorted_fee_rate_transactions");
         let sql = "
@@ -1200,7 +1199,7 @@ impl MemPoolDB {
     /// Page size is 10_000. TODO: Make this configurable.
     /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
     fn null_fee_rate_transactions(
-        connection: Arc<Mutex<Connection>>,
+        connection: Rc<Connection>,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         info!("null_fee_rate_transactions");
 
@@ -1230,7 +1229,7 @@ impl MemPoolDB {
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
     fn get_transaction_list_to_process(
-        conn: Arc<Mutex<DBConn>>,
+        conn: Rc<DBConn>,
         null_estimate_fraction: f64,
     ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
@@ -1402,7 +1401,7 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn db_connection_pool(&self) -> Arc<Mutex<DBConn>> {
+    pub fn db_connection_pool(&self) -> Rc<DBConn> {
         self.db_connection_pool.clone()
     }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
@@ -2387,7 +2386,7 @@ impl MemPoolDB {
 
 /// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
 struct TransactionPageCursor {
-    connection: Arc<Mutex<Connection>>,
+    connection: Rc<Connection>,
     base_query: String,
     page_size: i64,
     current_offset: i64,
@@ -2400,7 +2399,7 @@ impl TransactionPageCursor {
     /// If we can't read a page, leave `current_remaining_page` empty.
     fn read_next_page(&mut self) {
         let result = query_rows::<MemPoolTxMinimalInfo, _>(
-            &(*self.connection.lock().unwrap()),
+            &self.connection,
             &self.base_query,
             &[&self.page_size, &self.current_offset],
         );
