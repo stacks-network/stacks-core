@@ -1170,7 +1170,6 @@ impl MemPoolDB {
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions(connection: &Connection) -> TransactionPageCursor {
-        info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
@@ -1192,8 +1191,6 @@ impl MemPoolDB {
     /// Page size is 10_000. TODO: Make this configurable.
     /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
     fn null_fee_rate_transactions(connection: &Connection) -> TransactionPageCursor {
-        info!("null_fee_rate_transactions");
-
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
