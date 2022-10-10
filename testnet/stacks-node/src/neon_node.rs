@@ -2207,16 +2207,13 @@ impl RelayerThread {
                 }
 
                 // proceed to mine microblocks
-                miner_tip = Self::pick_higher_tip(
-                    miner_tip,
-                    Some(MinerTip::new(
-                        ch,
-                        bh,
-                        microblock_privkey,
-                        height,
-                        snapshot.block_height,
-                    )),
-                );
+                miner_tip = Some(MinerTip::new(
+                    ch,
+                    bh,
+                    microblock_privkey,
+                    height,
+                    snapshot.block_height,
+                ));
             }
 
             if has_new_data {
@@ -2231,7 +2228,7 @@ impl RelayerThread {
                 "Relayer: Did not win sortition in {}, winning block was {}/{}",
                 &burn_hash, &consensus_hash, &block_header_hash
             );
-            miner_tip = Self::pick_higher_tip(miner_tip, None);
+            miner_tip = None;
         }
 
         (true, miner_tip)
