@@ -437,6 +437,9 @@ impl Config {
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
+                    wait_time_for_blocks: node
+                        .wait_time_for_blocks
+                        .unwrap_or(default_node_config.wait_time_for_blocks),
                     prometheus_bind: node.prometheus_bind,
                     marf_cache_strategy: node.marf_cache_strategy,
                     marf_defer_hashing: node
@@ -1139,6 +1142,7 @@ pub struct NodeConfig {
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
+    pub wait_time_for_blocks: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1412,6 +1416,7 @@ impl NodeConfig {
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
+            wait_time_for_blocks: 30_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -1600,6 +1605,7 @@ pub struct NodeConfigFile {
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub wait_time_for_blocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
