@@ -68,7 +68,7 @@ use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
