@@ -121,6 +121,7 @@ pub enum Error {
     PoxNoRewardCycle,
     ProblematicTransaction(Txid),
     MinerAborted,
+    ChannelClosed(String),
 }
 
 impl From<marf_error> for Error {
@@ -197,6 +198,7 @@ impl fmt::Display for Error {
                 txid
             ),
             Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
+            Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
         }
     }
 }
@@ -232,6 +234,7 @@ impl error::Error for Error {
             Error::StacksTransactionSkipped(ref _r) => None,
             Error::ProblematicTransaction(ref _txid) => None,
             Error::MinerAborted => None,
+            Error::ChannelClosed(ref _s) => None,
         }
     }
 }
@@ -267,6 +270,7 @@ impl Error {
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
             Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
             Error::MinerAborted => "MinerAborted",
+            Error::ChannelClosed(ref _s) => "ChannelClosed",
         }
     }
 
