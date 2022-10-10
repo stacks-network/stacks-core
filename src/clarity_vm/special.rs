@@ -107,6 +107,33 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
     }
 }
 
+/// Parse the returned value from PoX2 `stack-increase` function
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
+fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u128), i128> {
+    match result.clone().expect_result() {
+        Ok(res) => {
+            // should have gotten back (ok { stacker: principal, total-locked: uint })
+            let tuple_data = res.expect_tuple();
+            let stacker = tuple_data
+                .get("stacker")
+                .expect(&format!("FATAL: no 'stacker'"))
+                .to_owned()
+                .expect_principal();
+
+            let total_locked = tuple_data
+                .get("total-locked")
+                .expect(&format!("FATAL: no 'total-locked'"))
+                .to_owned()
+                .expect_u128();
+
+            Ok((stacker, total_locked))
+        }
+        // in the error case, the function should have returned `int` error code
+        Err(e) => Err(e.expect_i128()),
+    }
+}
+
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_v1_api_contract_call(
     global_context: &mut GlobalContext,
@@ -289,6 +316,57 @@ fn handle_pox_v2_api_contract_call(
             //  error response type.
             return Ok(());
         }
+    } else if function_name == "stack-increase" || function_name == "delegate-stack-increase" {
+        // in this branch case, the PoX-2 contract has stored the increase information
+        //  and performed the increase checks. Now, the VM needs to update the account locks
+        //  (because the locks cannot be applied directly from the Clarity code itself)
+        // applying a pox lock at this point is equivalent to evaluating a transfer
+        debug!(
+            "Handle special-case contract-call";
+            "contract" => ?boot_code_id("pox-2", global_context.mainnet),
+            "function" => function_name,
+            "return-value" => %value,
+        );
+
+        runtime_cost(
+            ClarityCostFunction::StxTransfer,
+            &mut global_context.cost_track,
+            1,
+        )?;
+
+        if let Ok((stacker, total_locked)) = parse_pox_increase(value) {
+            match StacksChainState::pox_lock_increase_v2(
+                &mut global_context.database,
+                &stacker,
+                total_locked,
+            ) {
+                Ok(new_balance) => {
+                    if let Some(batch) = global_context.event_batches.last_mut() {
+                        batch.events.push(StacksTransactionEvent::STXEvent(
+                            STXEventType::STXLockEvent(STXLockEventData {
+                                locked_amount: new_balance.amount_locked(),
+                                unlock_height: new_balance.unlock_height(),
+                                locked_address: stacker,
+                            }),
+                        ));
+                    }
+                }
+                Err(ChainstateError::DefunctPoxContract) => {
+                    return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
+                }
+                Err(e) => {
+                    // Error results *other* than a DefunctPoxContract panic, because
+                    //  those errors should have been caught by the PoX contract before
+                    //  getting to this code path.
+                    panic!(
+                        "FATAL: failed to increase lock from {}: '{:?}'",
+                        stacker, &e
+                    );
+                }
+            }
+        }
+
+        return Ok(());
     }
     // nothing to do
     Ok(())

@@ -1023,7 +1023,7 @@ fn transition_adds_get_pox_addr_recipients() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    for i in 0..4 {
+    for _i in 0..4 {
         let spender_sk = StacksPrivateKey::new();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
@@ -1045,7 +1045,7 @@ fn transition_adds_get_pox_addr_recipients() {
             .to_vec(),
     );
 
-    let (conf, btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(initial_balances, None, Some(pox_constants.clone()));
 
     let mut sort_height = coord_channel.get_sortitions_processed();
@@ -1167,7 +1167,7 @@ fn transition_adds_get_pox_addr_recipients() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if parsed.txid() == cc_txid {
                 // check events for this block
-                for (i, event) in events.iter().enumerate() {
+                for (_i, event) in events.iter().enumerate() {
                     if let Some(cev) = event.get("contract_event") {
                         // strip leading `0x`
                         let clarity_serialized_value = hex_bytes(

@@ -73,7 +73,7 @@ use super::{
     SK_2,
 };
 use stacks::chainstate::stacks::miner::{
-    TransactionErrorEvent, TransactionEvent, TransactionSkippedEvent, TransactionSuccessEvent,
+    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 
 use crate::config::FeeEstimatorName;
