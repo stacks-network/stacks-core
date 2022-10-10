@@ -581,13 +581,21 @@ impl Relayer {
             return Ok(false);
         }
 
-        chainstate.preprocess_anchored_block(
+        let res = chainstate.preprocess_anchored_block(
             sort_ic,
             consensus_hash,
             block,
             &parent_block_snapshot.consensus_hash,
             download_time,
-        )
+        )?;
+        if res {
+            debug!(
+                "Stored incoming block {}/{}",
+                consensus_hash,
+                &block.block_hash()
+            );
+        }
+        Ok(res)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
