@@ -24,7 +24,6 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -573,12 +572,7 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
 ];
 
 pub struct MemPoolDB {
-    /// A re-usable writeable database connection. This can be borrowed as mutable.
     pub db: DBConn,
-    /// A re-usable read-only database connection. This is added in addition to `db` because it
-    /// allows us to create, e.g., iterators that reuse this database connection, without
-    /// needing to maintain an open reference to this.
-    read_only_db: Rc<DBConn>,
     path: String,
     admitter: MemPoolAdmitter,
     bloom_counter: BloomCounter<BloomNodeHasher>,
@@ -970,7 +964,6 @@ impl MemPoolDB {
         };
 
         let mut conn = sqlite_open(&db_path, open_flags, true)?;
-        let mut conn2 = sqlite_open(&db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -986,7 +979,6 @@ impl MemPoolDB {
 
         Ok(MemPoolDB {
             db: conn,
-            read_only_db: Rc::new(conn2),
             path: db_path,
             admitter: admitter,
             bloom_counter,
@@ -1177,9 +1169,7 @@ impl MemPoolDB {
 
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
-    fn sorted_fee_rate_transactions(
-        connection: Rc<Connection>,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+    fn sorted_fee_rate_transactions(connection: &Connection) -> TransactionPageCursor {
         info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1189,21 +1179,19 @@ impl MemPoolDB {
         LIMIT ?
         OFFSET ?
         ";
-        Box::new(TransactionPageCursor {
+        TransactionPageCursor {
             connection,
             base_query: sql.to_string(),
             current_offset: 0,
             page_size: 10_000,
             current_page_remaining: vec![],
-        })
+        }
     }
 
     /// Take a batch of transactions *without* a fee rate estimate, in *arbitrary* order.
     /// Page size is 10_000. TODO: Make this configurable.
     /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
-    fn null_fee_rate_transactions(
-        connection: Rc<Connection>,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
+    fn null_fee_rate_transactions(connection: &Connection) -> TransactionPageCursor {
         info!("null_fee_rate_transactions");
 
         let sql = "
@@ -1213,13 +1201,13 @@ impl MemPoolDB {
         LIMIT ?
         OFFSET ?
         ";
-        Box::new(TransactionPageCursor {
+        TransactionPageCursor {
             connection,
             base_query: sql.to_string(),
             current_offset: 0,
             page_size: 10_000,
             current_page_remaining: vec![],
-        })
+        }
     }
 
     /// Get a set of transactions to try. Select those that:
@@ -1231,18 +1219,18 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_list_to_process(
-        conn: Rc<DBConn>,
+    fn get_transaction_list_to_process<'a>(
+        conn: &'a DBConn,
         null_estimate_fraction: f64,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo>> {
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn.clone());
+    ) -> IteratorMixer<'a> {
+        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
         let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
-        Box::new(IteratorMixer::create_from(
+        IteratorMixer::create_from(
             fee_rate_transactions,
             null_rate_transactions,
             null_estimate_fraction,
-        ))
+        )
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -1317,7 +1305,7 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
-        let connection = self.read_only_conn();
+        let connection = &self.db;
         let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
@@ -1404,9 +1392,6 @@ impl MemPoolDB {
         &self.db
     }
 
-    pub fn read_only_conn(&self) -> Rc<DBConn> {
-        self.read_only_db.clone()
-    }
     pub fn tx_begin<'a>(&'a mut self) -> Result<MemPoolTx<'a>, db_error> {
         let tx = tx_begin_immediate(&mut self.db)?;
         Ok(MemPoolTx::new(
@@ -2388,15 +2373,15 @@ impl MemPoolDB {
 }
 
 /// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
-struct TransactionPageCursor {
-    connection: Rc<Connection>,
+struct TransactionPageCursor<'a> {
+    connection: &'a Connection,
     base_query: String,
     page_size: i64,
     current_offset: i64,
     current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
-impl TransactionPageCursor {
+impl TransactionPageCursor<'_> {
     /// Read in one page of size `page_size`, starting at `current_offset`.
     /// If we can read a page, load this into `current_remaining_page` and update `current_offset`.
     /// If we can't read a page, leave `current_remaining_page` empty.
@@ -2423,7 +2408,7 @@ impl TransactionPageCursor {
     }
 }
 
-impl Iterator for TransactionPageCursor {
+impl<'a> Iterator for TransactionPageCursor<'a> {
     type Item = MemPoolTxMinimalInfo;
 
     /// Return lead element of `current_remaining_page` if another element exists.
@@ -2455,9 +2440,9 @@ impl Iterator for TransactionPageCursor {
 
 /// Mixes two iterators together, roughly choosing an item `null_iterator` `null_fraction` of the time,
 /// and from `fee_iterator` the rest of the time. See comment on `next()` for more details.
-struct IteratorMixer {
-    fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
-    null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+struct IteratorMixer<'a> {
+    fee_iterator: TransactionPageCursor<'a>,
+    null_iterator: TransactionPageCursor<'a>,
     fee_cursor: Option<MemPoolTxMinimalInfo>,
     null_cursor: Option<MemPoolTxMinimalInfo>,
     null_fraction: f64,
@@ -2466,12 +2451,12 @@ struct IteratorMixer {
     rng: ThreadRng,
 }
 
-impl IteratorMixer {
-    pub fn create_from(
-        mut fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
-        mut null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo>>,
+impl IteratorMixer<'_> {
+    pub fn create_from<'a>(
+        mut fee_iterator: TransactionPageCursor<'a>,
+        mut null_iterator: TransactionPageCursor<'a>,
         null_fraction: f64,
-    ) -> IteratorMixer {
+    ) -> IteratorMixer<'a> {
         let fee_cursor = fee_iterator.next();
         let null_cursor = null_iterator.next();
         IteratorMixer {
@@ -2487,7 +2472,7 @@ impl IteratorMixer {
     }
 }
 
-impl Iterator for IteratorMixer {
+impl Iterator for IteratorMixer<'_> {
     type Item = MemPoolTxMinimalInfo;
     /// Loop until both fee_iterator and null_iterator are empty.
     /// If either iterator is exhausted, take from the other.
