@@ -4088,7 +4088,7 @@ mod test {
                 let peer_info = RPCPeerInfoData::from_network(
                     &peer_server.network,
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
-                    &None,
+                    None,
                     &Sha256Sum::zero(),
                 );
 
