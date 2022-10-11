@@ -1,3 +1,141 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+/// Main body of code for the Stacks node and miner.
+///
+/// System schematic.
+/// Legend:
+///    |------|    Thread
+///    /------\    Shared memory
+///    @------@    Database
+///    .------.    Code module
+///
+///
+///                           |------------------|
+///                           |  RunLoop thread  |   [1,7]
+///                           |   .----------.   |--------------------------------------.
+///                           |   .StacksNode.   |                                      |
+///                           |---.----------.---|                                      |
+///                    [1]        |     |    |     [1]                                  |
+///              .----------------*     |    *---------------.                          |
+///              |                  [3] |                    |                          |
+///              V                      |                    V                          V
+///      |----------------|             |    [9,10]   |---------------| [11] |--------------------------|
+/// .--- | Relayer thread | <-----------|-----------> |   P2P Thread  | <--- | ChainsCoordinator thread | <--.
+/// |    |----------------|             V             |---------------|      |--------------------------|    |
+/// |            |     |          /-------------\    [2,3]    |    |              |          |               |
+/// |        [1] |     *--------> /   Globals   \ <-----------*----|--------------*          | [4]           |
+/// |            |     [2,3,7]    /-------------\                  |                         |               |
+/// |            V                                                 V [5]                     V               |
+/// |    |----------------|                                 @--------------@        @------------------@     |
+/// |    |  Miner thread  | <------------------------------ @  Mempool DB  @        @  Chainstate DBs  @     |
+/// |    |----------------|             [6]                 @--------------@        @------------------@     |
+/// |                                                                                        ^               |
+/// |                                               [8]                                      |               |
+/// *----------------------------------------------------------------------------------------*               |
+/// |                                               [7]                                                      |
+/// *--------------------------------------------------------------------------------------------------------*
+///
+/// [1]  Spawns
+/// [2]  Synchronize unconfirmed state
+/// [3]  Enable/disable miner
+/// [4]  Processes block data
+/// [5]  Stores unconfirmed transactions
+/// [6]  Reads unconfirmed transactions
+/// [7]  Signals block arrival
+/// [8]  Store blocks and microblocks
+/// [9]  Pushes retrieved blocks and microblocks
+/// [10] Broadcasts new blocks, microblocks, and transactions
+/// [11] Notifies about new transaction attachment events
+///
+/// When the node is running, there are 4-5 active threads at once.  They are:
+///
+/// * **RunLoop Thread**:  This is the main thread, whose code body lives in src/run_loop/neon.rs.
+/// This thread is responsible for:
+///    * Bootup
+///    * Running the burnchain indexer
+///    * Notifying the ChainsCoordinator thread when there are new burnchain blocks to process
+///
+/// * **Relayer Thread**:  This is the thread that stores and relays blocks and microblocks.  Both
+/// it and the ChainsCoordinator thread are very I/O-heavy threads, and care has been taken to
+/// ensure that neither one attempts to acquire a write-lock in the underlying databases.
+/// Specifically, this thread directs the ChainsCoordinator thread when to process new Stacks
+/// blocks, and it directs the miner thread (if running) to stop when either it or the
+/// ChainsCoordinator thread needs to acquire the write-lock.
+/// This thread is responsible for:
+///    * Receiving new blocks and microblocks from the P2P thread via a shared channel
+///    * (Sychronously) requesting the CoordinatorThread to process newly-stored Stacks blocks and
+///    microblocks
+///    * Building up the node's unconfirmed microblock stream state, and sharing it with the P2P
+///    thread so it can answer queries about the unconfirmed microblock chain
+///    * Pushing newly-discovered blocks and microblocks to the P2P thread for broadcast
+///    * Registering the VRF public key for the miner
+///    * Spawning the block and microblock miner threads, and stopping them if their continued
+///    execution would inhibit block or microblock storage or processing.
+///    * Submitting the burnchain operation to commit to a freshly-mined block
+///
+/// * **Miner thread**:  This is the thread that actually produces new blocks and microblocks.  It
+/// is spawned only by the Relayer thread to carry out mining activity when the underlying
+/// chainstate is not needed by either the Relayer or ChainsCoordinator threeads.
+/// This thread does the following:
+///    * Walk the mempool DB to build a new block or microblock
+///    * Return the block or microblock to the Relayer thread
+///
+/// * **P2P Thread**:  This is the thread that communicates with the rest of the p2p network, and
+/// handles RPC requests.  It is meant to do as little storage-write I/O as possible to avoid lock
+/// contention with the Miner, Relayer, and ChainsCoordinator threads.  In particular, it forwards
+/// data it receives from the p2p thread to the Relayer thread for I/O-bound processing.  At the
+/// time of this writing, it still requires holding a write-lock to handle some RPC request, but
+/// future work will remove this so that this thread's execution will not interfere with the
+/// others.  This is the only thread that does socket I/O.
+/// This thread runs the PeerNetwork state machines, which include the following:
+///    * Learning the node's public IP address
+///    * Discovering neighbor nodes
+///    * Forwarding newly-discovered blocks, microblocks, and transactions from the Relayer thread to
+///    other neighbors
+///    * Synchronizing block and microblock inventory state with other neighbors
+///    * Downloading blocks and microblocks, and passing them to the Relayer for storage and processing
+///    * Downloading transaction attachments as their hashes are discovered during block processing
+///    * Synchronizing the local mempool database with other neighbors
+///    (notifications for new attachments come from a shared channel in the ChainsCoordinator thread)
+///    * Handling HTTP requests
+///
+/// * **ChainsCoordinator Thread**:  This thread process sortitions and Stacks blocks and
+/// microblocks, and handles PoX reorgs should they occur (this mainly happens in boot-up).  It,
+/// like the Relayer thread, is a very I/O-heavy thread, and it will hold a write-lock on the
+/// chainstate DBs while it works.  Its actions are controlled by a CoordinatorComms structure in
+/// the Globals shared state, which the Relayer thread and RunLoop thread both drive (the former
+/// drives Stacks blocks processing, the latter sortitions).
+/// This thread is responsible for:
+///    * Responding to requests from other threads to process sortitions
+///    * Responding to requests from other threads to process Stacks blocks and microblocks
+///    * Processing PoX chain reorgs, should they ever happen
+///    * Detecting attachment creation events, and informing the P2P thread of them so it can go
+///    and download them
+///
+/// In addition to the mempool and chainstate databases, these threads share access to a Globals
+/// singleton that contains soft state shared between threads.  Mainly, the Globals struct is meant
+/// to store inter-thread shared singleton communication media all in one convenient struct.  Each
+/// thread has a handle to the struct's shared state handles.  Global state includes:
+///    * The global flag as to whether or not the miner thread can be running
+///    * The global shutdown flag that, when set, causes all threads to terminate
+///    * Sender channel endpoints that can be shared between threads
+///    * Metrics about the node's behavior (e.g. number of blocks processed, etc.)
+///
+/// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
