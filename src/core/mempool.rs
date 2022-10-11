@@ -2383,11 +2383,14 @@ impl TransactionPageCursor<'_> {
     /// If we can read a page, load this into `current_remaining_page` and update `current_offset`.
     /// If we can't read a page, leave `current_remaining_page` empty.
     fn read_next_page(&mut self) {
+        let read_next_start = Instant::now();
         let result = query_rows::<MemPoolTxMinimalInfo, _>(
             &self.connection,
             &self.base_query,
             &[&self.page_size, &self.current_offset],
         );
+        let read_next_elapsed = read_next_start.elapsed();
+        info!("read_next_elapsed {:?}, page_size {}, current_offset {}", read_next_elapsed, self.page_size, self.current_offset);
         match result {
             Ok(mut transaction_vector) => {
                 // reverse so we can `pop()` results in O(1) time
