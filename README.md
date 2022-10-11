@@ -6,7 +6,8 @@ Subnets are a layer-2 scaling solution in the Stacks blockchain that offers low 
 
 Subnets are designed to transact on Stacks assets, meaning users can move assets in and out of subnets. While a user’s assets are in a subnet, they trust that subnet’s consensus rules. This subnet will interact with the Stacks chain using a smart contract specific to that subnet.
 
->[!Note]
+> **_NOTE:_**
+> 
 > The current implementation of subnets uses a 2-phase commit protocol amongst a fully-trusted pool of miners.
 
 Below are some of the features of subnets:
