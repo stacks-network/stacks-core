@@ -2,6 +2,7 @@ use crate::vm::analysis;
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::ast::ASTRules;
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::Environment;
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
@@ -164,9 +165,11 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_content: &str,
+        ast_rules: ASTRules,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast(identifier, contract_content, &mut cost_track);
+            let ast_result =
+                ast::build_ast_with_rules(identifier, contract_content, &mut cost_track, ast_rules);
 
             let mut contract_ast = match ast_result {
                 Ok(x) => x,

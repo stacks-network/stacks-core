@@ -22,6 +22,7 @@ use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, V
 
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::ast::ASTRules;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 
@@ -35,7 +36,7 @@ fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransaction
 
     {
         let mut env = owned_env.get_exec_environment(None);
-        env.initialize_contract(contract_id.clone(), contract)
+        env.initialize_contract(contract_id.clone(), contract, ASTRules::PrecheckSize)
             .unwrap();
     }
 
