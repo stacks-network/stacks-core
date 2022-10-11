@@ -10,6 +10,7 @@ use stacks::burnchains::Burnchain;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::TransactionPayload;
@@ -20,7 +21,6 @@ use stacks::core::{PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
-use stacks::types::chainstate::StacksBlockHeader;
 use stacks::util::hash::hex_bytes;
 use stacks::util::sleep_ms;
 use stacks::vm::types::PrincipalData;
@@ -559,6 +559,7 @@ fn transition_empty_blocks() {
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
+            None,
         )
         .unwrap();
         let res = StacksChainState::block_crosses_epoch_boundary(

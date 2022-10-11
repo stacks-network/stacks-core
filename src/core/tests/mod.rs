@@ -18,16 +18,16 @@ use std::cmp;
 use std::collections::HashSet;
 use std::io;
 
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Txid;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::test::chainstate_path;
-use chainstate::stacks::db::test::instantiate_chainstate;
-use chainstate::stacks::db::test::instantiate_chainstate_with_balances;
-use chainstate::stacks::db::StreamCursor;
-use chainstate::stacks::test::codec_all_transactions;
-use chainstate::stacks::{
+use crate::burnchains::Address;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::test::chainstate_path;
+use crate::chainstate::stacks::db::test::instantiate_chainstate;
+use crate::chainstate::stacks::db::test::instantiate_chainstate_with_balances;
+use crate::chainstate::stacks::db::StreamCursor;
+use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::test::codec_all_transactions;
+use crate::chainstate::stacks::{
     db::blocks::MemPoolRejection, db::StacksChainState, index::MarfTrieId, CoinbasePayload,
     Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition, StacksPrivateKey,
     StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
@@ -35,51 +35,53 @@ use chainstate::stacks::{
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
-use chainstate::stacks::{
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use core::mempool::MemPoolWalkSettings;
-use core::mempool::TxTag;
-use core::mempool::{BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
-use core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use core::FIRST_STACKS_BLOCK_HASH;
-use net::Error as NetError;
-use net::HttpResponseType;
-use net::MemPoolSyncData;
-use util::bloom::test::setup_bloom_counter;
-use util::bloom::*;
-use util::db::{tx_begin_immediate, DBConn, FromRow};
-use util::get_epoch_time_ms;
-use util::hash::Hash160;
-use util::secp256k1::MessageSignature;
-use util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*, strings::StacksString};
-use vm::{
+use crate::core::mempool::MemPoolWalkSettings;
+use crate::core::mempool::TxTag;
+use crate::core::mempool::{BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::net::Error as NetError;
+use crate::net::HttpResponseType;
+use crate::net::MemPoolSyncData;
+use crate::util_lib::bloom::test::setup_bloom_counter;
+use crate::util_lib::bloom::*;
+use crate::util_lib::db::{tx_begin_immediate, DBConn, FromRow};
+use crate::util_lib::strings::StacksString;
+use clarity::vm::{
     database::HeadersDB,
     errors::Error as ClarityError,
     errors::RuntimeErrorType,
-    tests::TEST_BURN_STATE_DB,
+    test_util::TEST_BURN_STATE_DB,
     types::{PrincipalData, QualifiedContractIdentifier},
     ClarityName, ContractName, Value,
 };
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
+use stacks_common::util::{hash::hex_bytes, hash::to_hex, hash::*, log, secp256k1::*};
 
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblockHeader};
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-use crate::types::chainstate::{
-    StacksAddress, StacksBlockHeader, StacksBlockId, StacksMicroblockHeader, StacksWorkScore,
-    VRFSeed,
-};
-use crate::types::proof::TrieHash;
+use crate::types::chainstate::{StacksAddress, StacksBlockId, StacksWorkScore, VRFSeed};
 use crate::{
     chainstate::stacks::db::StacksHeaderInfo, util::vrf::VRFProof, vm::costs::ExecutionCost,
 };
+use clarity::vm::types::StacksAddressExtensions;
 
 use super::MemPoolDB;
 
 use rand::prelude::*;
 use rand::thread_rng;
 
-use codec::read_next;
-use codec::Error as codec_error;
+use stacks_common::codec::read_next;
+use stacks_common::codec::Error as codec_error;
 
 const FOO_CONTRACT: &'static str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
@@ -134,7 +136,7 @@ fn make_block(
         anchored_header,
         microblock_tail: None,
         index_root: TrieHash::from_empty_data(),
-        block_height,
+        stacks_block_height: block_height,
         consensus_hash: block_consensus.clone(),
         burn_header_hash: BurnchainHeaderHash([0; 32]),
         burn_header_height: burn_height as u32,
@@ -146,8 +148,14 @@ fn make_block(
 
     let new_index_hash = StacksBlockId::new(&block_consensus, &block_hash);
 
+    // instantiate the inner MARF
     chainstate_tx
-        .put_indexed_begin(&StacksBlockId::new(&parent.0, &parent.1), &new_index_hash)
+        .put_indexed_all(
+            &StacksBlockId::new(&parent.0, &parent.1),
+            &new_index_hash,
+            &vec![],
+            &vec![],
+        )
         .unwrap();
 
     StacksChainState::insert_stacks_block_header(
@@ -267,7 +275,7 @@ fn mempool_walk_over_fork() {
 
     let mut mempool_settings = MemPoolWalkSettings::default();
     mempool_settings.min_tx_fee = 10;
-
+    let mut tx_events = Vec::new();
     chainstate.with_read_only_clarity_tx(
         &TEST_BURN_STATE_DB,
         &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
@@ -276,11 +284,18 @@ fn mempool_walk_over_fork() {
             mempool
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
+                    &mut tx_events,
                     2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -301,11 +316,18 @@ fn mempool_walk_over_fork() {
             mempool
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
+                    &mut tx_events,
                     2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -325,11 +347,18 @@ fn mempool_walk_over_fork() {
             mempool
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
+                    &mut tx_events,
                     3,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -354,11 +383,18 @@ fn mempool_walk_over_fork() {
             mempool
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
+                    &mut tx_events,
                     2,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -381,11 +417,18 @@ fn mempool_walk_over_fork() {
             mempool
                 .iterate_candidates::<_, ChainstateError, _>(
                     clarity_conn,
+                    &mut tx_events,
                     3,
                     mempool_settings.clone(),
                     |_, available_tx, _| {
                         count_txs += 1;
-                        Ok(true)
+                        Ok(Some(
+                            TransactionResult::skipped(
+                                &available_tx.tx.tx,
+                                "event not relevant to test".to_string(),
+                            )
+                            .convert_to_event(),
+                        ))
                     },
                 )
                 .unwrap();
@@ -2017,4 +2060,227 @@ fn test_decode_tx_stream() {
             panic!();
         }
     }
+}
+
+#[test]
+fn test_drop_and_blacklist_txs_by_time() {
+    let mut chainstate =
+        instantiate_chainstate(false, 0x80000000, "test_drop_and_blacklist_txs_by_time");
+    let chainstate_path = chainstate_path("test_drop_and_blacklist_txs_by_time");
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    let addr = StacksAddress {
+        version: 1,
+        bytes: Hash160([0xff; 20]),
+    };
+    let mut txs = vec![];
+    let block_height = 10;
+
+    let mut mempool_tx = mempool.tx_begin().unwrap();
+    for i in 0..10 {
+        let pk = StacksPrivateKey::new();
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        tx.set_tx_fee(1000);
+        tx.set_origin_nonce(0);
+
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let origin_addr = tx.origin_address();
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+        let tx_fee = tx.get_tx_fee();
+
+        // should succeed
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1 + (block_height as u8); 20]),
+            &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            txid.clone(),
+            tx_bytes,
+            tx_fee,
+            block_height as u64,
+            &origin_addr,
+            origin_nonce,
+            &sponsor_addr,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        eprintln!("Added {} {}", i, &txid);
+        txs.push(tx);
+    }
+    mempool_tx.commit().unwrap();
+    let txids: Vec<_> = txs.iter().map(|tx| tx.txid()).collect();
+
+    for tx in txs.iter() {
+        assert!(!mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    // blacklist some txs
+    let mempool_tx = mempool.tx_begin().unwrap();
+    MemPoolDB::inner_blacklist_txs(&mempool_tx, &txids, get_epoch_time_secs()).unwrap();
+    mempool_tx.commit().unwrap();
+
+    for tx in txs.iter() {
+        assert!(mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    // purge blacklisted txs by time
+    let mempool_tx = mempool.tx_begin().unwrap();
+    MemPoolDB::garbage_collect_tx_blacklist(
+        &mempool_tx,
+        get_epoch_time_secs() + 1,
+        0,
+        i64::MAX as u64,
+    )
+    .unwrap();
+    mempool_tx.commit().unwrap();
+
+    for tx in txs.iter() {
+        assert!(!mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    mempool.drop_and_blacklist_txs(&txids).unwrap();
+
+    for tx in txs.iter() {
+        assert!(mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(!mempool.has_tx(&tx.txid()));
+    }
+
+    // purge blacklisted txs by time
+    let mempool_tx = mempool.tx_begin().unwrap();
+    MemPoolDB::garbage_collect_tx_blacklist(
+        &mempool_tx,
+        get_epoch_time_secs() + 2,
+        0,
+        i64::MAX as u64,
+    )
+    .unwrap();
+    mempool_tx.commit().unwrap();
+
+    for tx in txs.iter() {
+        assert!(!mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(!mempool.has_tx(&tx.txid()));
+    }
+}
+
+#[test]
+fn test_drop_and_blacklist_txs_by_size() {
+    let mut chainstate =
+        instantiate_chainstate(false, 0x80000000, "test_drop_and_blacklist_txs_by_size");
+    let chainstate_path = chainstate_path("test_drop_and_blacklist_txs_by_size");
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    let addr = StacksAddress {
+        version: 1,
+        bytes: Hash160([0xff; 20]),
+    };
+    let mut txs = vec![];
+    let block_height = 10;
+
+    let mut mempool_tx = mempool.tx_begin().unwrap();
+    for i in 0..10 {
+        let pk = StacksPrivateKey::new();
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        tx.set_tx_fee(1000);
+        tx.set_origin_nonce(0);
+
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let origin_addr = tx.origin_address();
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+        let tx_fee = tx.get_tx_fee();
+
+        // should succeed
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &ConsensusHash([0x1 + (block_height as u8); 20]),
+            &BlockHeaderHash([0x2 + (block_height as u8); 32]),
+            txid.clone(),
+            tx_bytes,
+            tx_fee,
+            block_height as u64,
+            &origin_addr,
+            origin_nonce,
+            &sponsor_addr,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        eprintln!("Added {} {}", i, &txid);
+        txs.push(tx);
+    }
+    mempool_tx.commit().unwrap();
+    let txids: Vec<_> = txs.iter().map(|tx| tx.txid()).collect();
+
+    for tx in txs.iter() {
+        assert!(!mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    // blacklist some txs
+    let mempool_tx = mempool.tx_begin().unwrap();
+    MemPoolDB::inner_blacklist_txs(&mempool_tx, &txids, get_epoch_time_secs()).unwrap();
+    mempool_tx.commit().unwrap();
+
+    for tx in txs.iter() {
+        assert!(mempool.is_tx_blacklisted(&tx.txid()).unwrap());
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    // purge blacklisted txs by size
+    let mempool_tx = mempool.tx_begin().unwrap();
+    MemPoolDB::garbage_collect_tx_blacklist(
+        &mempool_tx,
+        get_epoch_time_secs() + 1,
+        i64::MAX as u64,
+        5,
+    )
+    .unwrap();
+    mempool_tx.commit().unwrap();
+
+    // 5 txs remain blacklisted
+    let mut num_blacklisted = 0;
+    for tx in txs.iter() {
+        if mempool.is_tx_blacklisted(&tx.txid()).unwrap() {
+            num_blacklisted += 1;
+        }
+        assert!(mempool.has_tx(&tx.txid()));
+    }
+
+    assert_eq!(num_blacklisted, 5);
 }

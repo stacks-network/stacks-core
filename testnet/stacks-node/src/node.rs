@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{atomic::AtomicBool, Arc};
 use std::{collections::HashSet, env};
 use std::{thread, thread::JoinHandle, time};
 
@@ -33,15 +32,13 @@ use stacks::net::{
     rpc::RPCHandlerArgs,
     Error as NetError, PeerAddress,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockHeader, VRFSeed,
-};
-use stacks::types::proof::TrieHash;
+use stacks::types::chainstate::TrieHash;
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::strings::UrlString;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util_lib::strings::UrlString;
 use stacks::{
     burnchains::{Burnchain, Txid},
     chainstate::stacks::db::{
@@ -200,15 +197,19 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let (mut chainstate, _) =
-                match StacksChainState::open(is_mainnet, chain_id, &stacks_chainstate_path) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        warn!("Error while connecting chainstate db in peer loop: {}", e);
-                        thread::sleep(time::Duration::from_secs(1));
-                        continue;
-                    }
-                };
+            let (mut chainstate, _) = match StacksChainState::open(
+                is_mainnet,
+                chain_id,
+                &stacks_chainstate_path,
+                Some(config.node.get_marf_opts()),
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    warn!("Error while connecting chainstate db in peer loop: {}", e);
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+            };
 
             let estimator = Box::new(UnitEstimator);
             let metric = Box::new(UnitMetric);
@@ -323,6 +324,7 @@ impl Node {
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
             Some(&mut boot_data),
+            Some(config.node.get_marf_opts()),
         );
 
         let (chain_state, receipts) = match chain_state_result {
@@ -350,7 +352,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         event_dispatcher.process_boot_receipts(receipts);
@@ -381,7 +383,7 @@ impl Node {
         let mut event_dispatcher = EventDispatcher::new();
 
         for observer in &config.events_observers {
-            event_dispatcher.register_observer(observer, Arc::new(AtomicBool::new(true)));
+            event_dispatcher.register_observer(observer);
         }
 
         let chainstate_path = config.get_chainstate_path_str();
@@ -391,6 +393,7 @@ impl Node {
             config.is_mainnet(),
             config.burnchain.chain_id,
             &chainstate_path,
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(x) => x,
             Err(_e) => panic!(),
@@ -763,7 +766,7 @@ impl Node {
         microblocks: Vec<StacksMicroblock>,
         db: &mut SortitionDB,
     ) -> ChainTip {
-        let parent_consensus_hash = {
+        let _parent_consensus_hash = {
             // look up parent consensus hash
             let ic = db.index_conn();
             let parent_consensus_hash = StacksChainState::get_parent_consensus_hash(
@@ -814,36 +817,13 @@ impl Node {
             parent_consensus_hash
         };
 
-        // get previous burn block stats
-        let (parent_burn_block_hash, parent_burn_block_height, parent_burn_block_timestamp) =
-            if anchored_block.is_first_mined() {
-                (BurnchainHeaderHash([0; 32]), 0, 0)
-            } else {
-                match SortitionDB::get_block_snapshot_consensus(db.conn(), &parent_consensus_hash)
-                    .unwrap()
-                {
-                    Some(sn) => (
-                        sn.burn_header_hash,
-                        sn.block_height as u32,
-                        sn.burn_header_timestamp,
-                    ),
-                    None => {
-                        // shouldn't happen
-                        warn!(
-                            "CORRUPTION: block {}/{} does not correspond to a burn block",
-                            &parent_consensus_hash, &anchored_block.header.parent_block
-                        );
-                        (BurnchainHeaderHash([0; 32]), 0, 0)
-                    }
-                }
-            };
-
         let atlas_config = AtlasConfig::default(false);
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state.process_blocks(tx, 1)
+                self.chain_state
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
@@ -899,7 +879,7 @@ impl Node {
             if let Err(e) = estimator.notify_block(&processed_block, &stacks_epoch.block_limit) {
                 warn!("FeeEstimator failed to process block receipt";
                       "stacks_block" => %processed_block.header.anchored_header.block_hash(),
-                      "stacks_height" => %processed_block.header.block_height,
+                      "stacks_height" => %processed_block.header.stacks_block_height,
                       "error" => %e);
             }
         }
@@ -917,30 +897,11 @@ impl Node {
             StacksChainState::consensus_load(&block_path).unwrap()
         };
 
-        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
-            &parent_consensus_hash,
-            &block.header.parent_block,
-        );
-
         let chain_tip = ChainTip {
             metadata,
             block,
             receipts,
         };
-
-        self.event_dispatcher.process_chain_tip(
-            &chain_tip,
-            &parent_index_hash,
-            Txid([0; 32]),
-            vec![],
-            None,
-            parent_burn_block_hash,
-            parent_burn_block_height,
-            parent_burn_block_timestamp,
-            &processed_block.anchored_block_cost,
-            &processed_block.parent_microblocks_cost,
-        );
-
         self.chain_tip = Some(chain_tip.clone());
 
         // Unset the `bootstraping_chain` flag.
@@ -970,8 +931,11 @@ impl Node {
                                     &event_data.value,
                                     &contract_id,
                                     epoch_receipt.header.index_block_hash(),
-                                    epoch_receipt.header.block_height,
+                                    epoch_receipt.header.stacks_block_height,
                                     receipt.transaction.txid(),
+                                    self.chain_tip
+                                        .as_ref()
+                                        .map(|t| t.metadata.stacks_block_height),
                                 );
                                 if let Some(attachment_instance) = res {
                                     attachments_instances.insert(attachment_instance);

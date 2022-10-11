@@ -5,6 +5,101 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.4.0]
+
+### Fixed
+
+- Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
+  query for choosing transactions in order by estimated fee rate.  This
+drastically speeds up mempool transaction iteration in the miner (#3314)
+
+
+## [2.05.0.3.0]
+
+### Added
+
+- Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+  stacks-node uses for logging. (#3219)
+  Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
+- Added mock-miner sample config (#3225)
+
+### Changed
+
+- Updates to the logging of transaction events (#3139).
+- Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
+
+### Fixed
+
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
+- Fixed default miner behavior regarding block assembly
+  attempts. Previously, the miner would only attempt to assemble a
+  larger block after their first attempt (by Bitcoin RBF) if new
+  microblock or block data arrived. This changes the miner to always
+  attempt a second block assembly (#3184).
+- Fixed a bug in the node whereby the node would encounter a deadlock when
+  processing attachment requests before the P2P thread had started (#3236).
+- Fixed a bug in the P2P state machine whereby it would not absorb all transient errors
+  from sockets, but instead propagate them to the outer caller. This would lead
+  to a node crash in nodes connected to event observers, which expect the P2P
+  state machine to only report fatal errors (#3228)
+- Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
+- Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+- Ignore blocks that include problematic transactions
+
+
+## [2.05.0.2.1]
+
+### Fixed
+- Fixed a security bug in the SPV client whereby the chain work was not being
+  considered at all when determining the canonical Bitcoin fork.  The SPV client
+  now only accepts a new Bitcoin fork if it has a higher chain work than any other
+  previously-seen chain (#3152).
+
+## [2.05.0.2.0]
+
+### IMPORTANT! READ THIS FIRST
+
+Please read the following **WARNINGs** in their entirety before upgrading.
+
+WARNING: Please be aware that using this node on chainstate prior to this release will cause
+the node to spend **up to 30 minutes** migrating the data to a new schema.
+Depending on the storage medium, this may take even longer.
+
+WARNING: This migration process cannot be interrupted. If it is, the chainstate
+will be **irrecovarably corrupted and require a sync from genesis.**
+
+WARNING: You will need **at least 2x the disk space** for the migration to work.
+This is because a copy of the chainstate will be made in the same directory in
+order to apply the new schema.
+
+It is highly recommended that you **back up your chainstate** before running
+this version of the software on it.
+
+### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+  calculations, and yields a performance improvement of anywhere between 10x and
+  200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+  Clarity database). This improves read performance by a factor of 10x to 14x
+  (#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
+- Sortition processing performance has been improved by about an order of
+  magnitude, by avoiding a slew of expensive database reads (#3045).
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
+- Reduced the default subsequent block attempt timeout from 180 seconds to 30
+  seconds, based on benchmarking the new MARF performance data during a period
+  of network congestion (#3098)
+- The `blockstack-core` binary has been renamed to `stacks-inspect`.
+  This binary provides CLI tools for chain and mempool inspection.
+
 ## [2.05.0.1.0]
 
 ### Added 
@@ -77,6 +172,8 @@ tests (#2989).
   key in the cost estimator. (#2984)
 - Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
   when polling data (#2987)
+- Fixed an error message from the type-checker that shows up when the type of a
+  parameter refers to a trait defined in the same contract (#3064).
 
 ## [2.05.0.0.0]
 

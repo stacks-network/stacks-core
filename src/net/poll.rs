@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
 
-use util::db::DBConn;
-use util::db::Error as db_error;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -34,8 +34,8 @@ use std::net::SocketAddr;
 use std::time;
 use std::time::Duration;
 
-use util::log;
-use util::sleep_ms;
+use stacks_common::util::log;
+use stacks_common::util::sleep_ms;
 
 use mio;
 use mio::net as mio_net;

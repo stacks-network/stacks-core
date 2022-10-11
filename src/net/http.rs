@@ -36,61 +36,64 @@ use serde_json;
 use time;
 use url::{form_urlencoded, Url};
 
-use burnchains::{Address, Txid};
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::{StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction};
-use deps::httparse;
-use net::atlas::Attachment;
-use net::ClientError;
-use net::Error as net_error;
-use net::Error::ClarityError;
-use net::ExtendedStacksHeader;
-use net::HttpContentType;
-use net::HttpRequestMetadata;
-use net::HttpRequestPreamble;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponsePreamble;
-use net::HttpResponseType;
-use net::HttpVersion;
-use net::MemPoolSyncData;
-use net::MessageSequence;
-use net::NeighborAddress;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttpMessage;
-use net::StacksHttpPreamble;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_HEADERS;
-use net::MAX_MICROBLOCKS_UNCONFIRMED;
-use net::{CallReadOnlyRequestBody, TipRequest};
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
-use util::hash::hex_bytes;
-use util::hash::to_hex;
-use util::hash::Hash160;
-use util::log;
-use util::retry::BoundReader;
-use util::retry::RetryReader;
-use vm::types::{StandardPrincipalData, TraitIdentifier};
-use vm::{
+use crate::burnchains::{Address, Txid};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::{
+    StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
+};
+use crate::deps::httparse;
+use crate::net::atlas::Attachment;
+use crate::net::ClientError;
+use crate::net::Error as net_error;
+use crate::net::Error::ClarityError;
+use crate::net::ExtendedStacksHeader;
+use crate::net::HttpContentType;
+use crate::net::HttpRequestMetadata;
+use crate::net::HttpRequestPreamble;
+use crate::net::HttpRequestType;
+use crate::net::HttpResponseMetadata;
+use crate::net::HttpResponsePreamble;
+use crate::net::HttpResponseType;
+use crate::net::HttpVersion;
+use crate::net::MemPoolSyncData;
+use crate::net::MessageSequence;
+use crate::net::NeighborAddress;
+use crate::net::PeerAddress;
+use crate::net::PeerHost;
+use crate::net::ProtocolFamily;
+use crate::net::StacksHttpMessage;
+use crate::net::StacksHttpPreamble;
+use crate::net::UnconfirmedTransactionResponse;
+use crate::net::UnconfirmedTransactionStatus;
+use crate::net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
+use crate::net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
+use crate::net::HTTP_REQUEST_ID_RESERVED;
+use crate::net::MAX_HEADERS;
+use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
+use crate::net::{CallReadOnlyRequestBody, TipRequest};
+use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
+use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
+use clarity::vm::{
     ast::parser::{
         CLARITY_NAME_REGEX, CONTRACT_NAME_REGEX, PRINCIPAL_DATA_REGEX, STANDARD_PRINCIPAL_REGEX,
     },
     types::{PrincipalData, BOUND_VALUE_SERIALIZATION_HEX},
     ClarityName, ContractName, Value,
 };
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::log;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::retry::RetryReader;
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::TransactionPayload;
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
 };
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 
 use super::FeeRateEstimateRequestBody;
 
@@ -158,18 +161,19 @@ lazy_static! {
 
 /// HTTP headers that we really care about
 #[derive(Debug, Clone, PartialEq)]
-enum HttpReservedHeader {
+pub(crate) enum HttpReservedHeader {
     ContentLength(u32),
     ContentType(HttpContentType),
     XRequestID(u32),
     Host(PeerHost),
+    CanonicalStacksTipHeight(u64),
 }
 
 /// Stacks block accepted struct
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct StacksBlockAcceptedData {
-    stacks_block_id: StacksBlockId,
-    accepted: bool,
+pub struct StacksBlockAcceptedData {
+    pub stacks_block_id: StacksBlockId,
+    pub accepted: bool,
 }
 
 impl FromStr for PeerHost {
@@ -251,7 +255,11 @@ impl HttpReservedHeader {
     pub fn is_reserved(header: &str) -> bool {
         let hdr = header.to_string();
         match hdr.as_str() {
-            "content-length" | "content-type" | "x-request-id" | "host" => true,
+            "content-length"
+            | "content-type"
+            | "x-request-id"
+            | "host"
+            | "x-canonical-stacks-tip-height" => true,
             _ => false,
         }
     }
@@ -273,6 +281,10 @@ impl HttpReservedHeader {
             },
             "host" => match value.parse::<PeerHost>() {
                 Ok(ph) => Some(HttpReservedHeader::Host(ph)),
+                Err(_) => None,
+            },
+            "x-canonical-stacks-tip-height" => match value.parse::<u64>() {
+                Ok(h) => Some(HttpReservedHeader::CanonicalStacksTipHeight(h)),
                 Err(_) => None,
             },
             _ => None,
@@ -863,6 +875,20 @@ fn empty_headers<W: Write>(_fd: &mut W) -> Result<(), codec_error> {
     Ok(())
 }
 
+fn stacks_height_headers<W: Write>(
+    fd: &mut W,
+    md: &HttpRequestMetadata,
+) -> Result<(), codec_error> {
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
     match md.client_version {
         HttpVersion::Http10 => {
@@ -882,6 +908,13 @@ fn keep_alive_headers<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result
                     .map_err(codec_error::WriteError)?;
             }
         }
+    }
+    match md.canonical_stacks_tip_height {
+        Some(height) => {
+            fd.write_all(format!("X-Canonical-Stacks-Tip-Height: {}\r\n", height).as_bytes())
+                .map_err(codec_error::WriteError)?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -2944,7 +2977,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     content_type,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
@@ -2962,7 +2995,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(block_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&block_bytes).map_err(net_error::WriteError)?;
             }
@@ -2979,7 +3012,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(mb_bytes.len() as u32),
                     Some(&HttpContentType::Bytes),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&mb_bytes).map_err(net_error::WriteError)?;
             }
@@ -3005,7 +3038,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_json.as_bytes().len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_json.as_bytes())
                     .map_err(net_error::WriteError)?;
@@ -3049,7 +3082,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     Some(request_body_bytes.len() as u32),
                     Some(&HttpContentType::JSON),
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
                 fd.write_all(&request_body_bytes)
                     .map_err(net_error::WriteError)?;
@@ -3082,7 +3115,7 @@ impl HttpRequestType {
                     md.keep_alive,
                     None,
                     None,
-                    empty_headers,
+                    |fd| stacks_height_headers(fd, md),
                 )?;
             }
         }
@@ -4949,29 +4982,28 @@ mod test {
     use rand;
     use rand::RngCore;
 
-    use burnchains::Txid;
-    use chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
-    use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::StacksBlock;
-    use chainstate::stacks::StacksMicroblock;
-    use chainstate::stacks::StacksPrivateKey;
-    use chainstate::stacks::StacksTransaction;
-    use chainstate::stacks::TokenTransferMemo;
-    use chainstate::stacks::TransactionAuth;
-    use chainstate::stacks::TransactionPayload;
-    use chainstate::stacks::TransactionPostConditionMode;
-    use chainstate::stacks::TransactionVersion;
-    use net::codec::test::check_codec_and_corruption;
-    use net::test::*;
-    use net::RPCNeighbor;
-    use net::RPCNeighborsInfo;
-    use util::hash::to_hex;
-    use util::hash::Hash160;
-    use util::hash::MerkleTree;
-    use util::hash::Sha512Trunc256Sum;
+    use crate::burnchains::Txid;
+    use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::chainstate::stacks::StacksBlock;
+    use crate::chainstate::stacks::StacksMicroblock;
+    use crate::chainstate::stacks::StacksPrivateKey;
+    use crate::chainstate::stacks::StacksTransaction;
+    use crate::chainstate::stacks::TokenTransferMemo;
+    use crate::chainstate::stacks::TransactionAuth;
+    use crate::chainstate::stacks::TransactionPayload;
+    use crate::chainstate::stacks::TransactionPostConditionMode;
+    use crate::chainstate::stacks::TransactionVersion;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::test::*;
+    use crate::net::RPCNeighbor;
+    use crate::net::RPCNeighborsInfo;
+    use stacks_common::util::hash::to_hex;
+    use stacks_common::util::hash::Hash160;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::hash::Sha512Trunc256Sum;
 
-    use crate::types::chainstate::StacksAddress;
-    use crate::types::chainstate::StacksBlockHeader;
+    use stacks_common::types::chainstate::StacksAddress;
 
     use super::*;
 
@@ -5909,11 +5941,13 @@ mod test {
                 12345,
             ),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
         let http_request_metadata_dns = HttpRequestMetadata {
             version: HttpVersion::Http11,
             peer: PeerHost::DNS("www.foo.com".to_string(), 80),
             keep_alive: true,
+            canonical_stacks_tip_height: None,
         };
 
         let tests = vec![
@@ -6124,6 +6158,7 @@ mod test {
                         123,
                         Some(serde_json::to_string(&test_neighbors_info).unwrap().len() as u32),
                         true,
+                        None,
                     ),
                     test_neighbors_info.clone(),
                 ),
@@ -6136,6 +6171,7 @@ mod test {
                         123,
                         Some(test_block_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_block_info.clone(),
                 ),
@@ -6148,6 +6184,7 @@ mod test {
                         123,
                         Some(test_microblock_info_bytes.len() as u32),
                         true,
+                        None,
                     ),
                     test_microblock_info.clone(),
                 ),
@@ -6163,6 +6200,7 @@ mod test {
                         123,
                         Some((Txid([0x1; 32]).to_hex().len() + 2) as u32),
                         true,
+                        None,
                     ),
                     Txid([0x1; 32]),
                 ),
@@ -6171,21 +6209,21 @@ mod test {
             // length is unknown
             (
                 HttpResponseType::Neighbors(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_neighbors_info.clone(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Block(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_block_info.clone(),
                 ),
                 format!("/v2/blocks/{}", test_block_info.block_hash().to_hex()),
             ),
             (
                 HttpResponseType::Microblocks(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     test_microblock_info.clone(),
                 ),
                 format!(
@@ -6195,7 +6233,7 @@ mod test {
             ),
             (
                 HttpResponseType::TransactionID(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, None, true, None),
                     Txid([0x1; 32]),
                 ),
                 "/v2/transactions".to_string(),
@@ -6203,56 +6241,56 @@ mod test {
             // errors without error messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     "".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(0), true, None),
                     502,
                     "".to_string(),
                 ),
@@ -6261,56 +6299,56 @@ mod test {
             // errors with specific messages
             (
                 HttpResponseType::BadRequest(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Unauthorized(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::PaymentRequired(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Forbidden(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::NotFound(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServerError(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::ServiceUnavailable(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     "foo".to_string(),
                 ),
                 "/v2/neighbors".to_string(),
             ),
             (
                 HttpResponseType::Error(
-                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true),
+                    HttpResponseMetadata::new(HttpVersion::Http11, 123, Some(3), true, None),
                     502,
                     "foo".to_string(),
                 ),
@@ -6824,7 +6862,7 @@ mod test {
         let mut responses = vec![];
         for res in responses_args.iter() {
             let mut bytes = vec![];
-            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1);
+            let md = HttpResponseMetadata::new(res.0.clone(), 123, None, res.1, None);
             HttpResponsePreamble::new_serialized(
                 &mut bytes,
                 200,

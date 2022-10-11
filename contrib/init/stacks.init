@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# # Modelled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.init
+#
+#  Stacks Blockchain
+#
+#
+# chkconfig: 345 80 20
+# description: stacks-blockchain
+# processname: stacks-node
+#
+### BEGIN INIT INFO
+# Provides:       stacks-blockchain
+# Required-Start: 
+# Required-Stop:
+# Should-Start:
+# Should-Stop:
+# Default-Start: 3 4 5
+# Default-Stop:  0 1 6
+# Short-Description: Stacks Blockchain
+# Description: Stacks Blockchain
+### END INIT INFO
+
+# Source function library.
+. /etc/init.d/functions
+
+# you can override defaults in /etc/sysconfig/stacks-blockchain, see below
+if [ -f /etc/sysconfig/stacks-blockchain ]; then
+        . /etc/sysconfig/stacks-blockchain
+fi
+
+RETVAL=0
+
+prog=stacks-node
+# you can override the lockfile via STACKS_BLOCKCHAIN_LOCKFILE in /etc/sysconfig/stacks-blockchain
+lockfile=${STACKS_BLOCKCHAIN_LOCKFILE-/var/lock/subsys/stacks-blockchain}
+
+# stacks-blockchain defaults to /usr/local/bin/stacks-node, override with STACKS_BLOCKCHAIN_BIN
+stacks_bin=${STACKS_BLOCKCHAIN_BIN-/usr/local/bin/stacks-node}
+
+# stacks-blockchain path to config toml, override with STACKS_BLOCKCHAIN_CONFIG
+stacks_config=${STACKS_BLOCKCHAIN_CONFIG-/etc/stacks-blockchain/Config.toml}
+
+# stacks-blockchain log file default to /var/log/stacks-blockchain.log, override with STACKS_BLOCKCHAIN_LOG
+stacks_log=${STACKS_BLOCKCHAIN_LOG-/stacks-blockchain/output.log}
+# Note: no logrotate is provided, you're encouraged to set something up like the following logrotate file:
+# cat <<EOF> /etc/logrotate.d/stacks-blockchain 
+# /stacks-blockchain/output.log
+# {
+#     missingok
+#     daily
+#     copytruncate
+#     rotate 7
+# }
+# EOF
+
+
+start() {
+    if [ ! -f "$stacks_config" ];then
+        echo -n "Missing config file: $stacks_config "
+        return 1
+    fi
+    echo -n $"Starting $prog: "
+    $stacks_bin start --config="$stacks_config" > "$stacks_log" 2>&1 &
+    RETVAL=$?
+    [ $RETVAL -eq 0 ] && touch "$lockfile"
+    echo
+    return $RETVAL
+}
+
+stop() {
+    echo -n $"Stopping $prog: "
+    killproc $prog -INT
+    RETVAL=$?
+    echo
+    [ $RETVAL -eq 0 ] && rm -f "$lockfile"
+    return $RETVAL
+}
+
+restart() {
+    stop
+    start
+}
+
+rh_status() {
+    status $prog
+}
+
+rh_status_q() {
+    rh_status >/dev/null 2>&1
+}
+
+case "$1" in
+    start)
+        rh_status_q && exit 1
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 1
+        $1
+        ;;
+    status)
+        rh_status
+        ;;
+    restart)
+        $1
+        ;;
+    *)
+        echo "Usage: service $prog {start|stop|status|restart}"
+        exit 2
+        ;;
+esac
+
+exit $?

@@ -38,6 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
+          - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::microblock_integration_test
           - tests::neon_integrations::size_check_integration_test
           - tests::neon_integrations::cost_voting_integration
@@ -59,6 +60,10 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
+          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
+          - tests::neon_integrations::block_large_tx_integration_test
+          - tests::neon_integrations::microblock_limit_hit_integration_test
+          - tests::neon_integrations::block_limit_hit_integration_test
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test

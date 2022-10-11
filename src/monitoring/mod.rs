@@ -18,24 +18,22 @@ use std::{fmt, fs, path::PathBuf};
 
 use rusqlite::{OpenFlags, OptionalExtension};
 
+use crate::burnchains::BurnchainSigner;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::Error as DatabaseError;
 use crate::{
     burnchains::Txid,
     core::MemPoolDB,
     net::{Error as net_error, HttpRequestType},
-    util::{
-        db::{tx_busy_handler, DBConn},
-        get_epoch_time_secs,
-    },
+    util::get_epoch_time_secs,
+    util_lib::db::{tx_busy_handler, DBConn},
 };
-use burnchains::BurnchainSigner;
+use clarity::vm::costs::ExecutionCost;
+use stacks_common::util::uint::{Uint256, Uint512};
 use std::convert::TryInto;
 use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use util::db::sqlite_open;
-use util::db::Error as DatabaseError;
-use util::uint::{Uint256, Uint512};
-use vm::costs::ExecutionCost;
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
@@ -125,6 +123,15 @@ pub fn set_last_execution_cost_observed(
         prometheus::LAST_BLOCK_RUNTIME
             .set(execution_cost.runtime as f64 / block_limit.runtime as f64);
     }
+}
+
+/// Log the number of transactions in the latest block.
+#[allow(unused_variables)]
+pub fn set_last_block_transaction_count(transactions_in_block: u64) {
+    // Saturating cast from u64 to i64
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::LAST_BLOCK_TRANSACTION_COUNT
+        .set(i64::try_from(transactions_in_block).unwrap_or_else(|_| i64::MAX));
 }
 
 pub fn increment_btc_ops_sent_counter() {

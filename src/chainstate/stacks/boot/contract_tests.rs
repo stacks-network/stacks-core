@@ -2,48 +2,61 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
-use address::AddressHashMode;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::boot::{
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
-use chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use chainstate::stacks::index::MarfTrieId;
-use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use chainstate::stacks::*;
-use clarity_vm::database::marf::MarfedKV;
-use core::{
+use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
+use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     POX_REWARD_CYCLE_LENGTH,
 };
-use util::db::{DBConn, FromRow};
-use util::hash::to_hex;
-use util::hash::{Sha256Sum, Sha512Trunc256Sum};
-use vm::contexts::OwnedEnvironment;
-use vm::contracts::Contract;
-use vm::costs::CostOverflowingMath;
-use vm::database::*;
-use vm::errors::{
+use crate::util_lib::db::{DBConn, FromRow};
+use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
+use clarity::vm::analysis::mem_type_check;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::contracts::Contract;
+use clarity::vm::costs::CostOverflowingMath;
+use clarity::vm::database::*;
+use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
-use vm::eval;
-use vm::representations::SymbolicExpression;
-use vm::tests::{
-    execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
-};
-use vm::types::Value::Response;
-use vm::types::{
+use clarity::vm::eval;
+use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::types::Value::Response;
+use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+use crate::util_lib::boot::boot_code_addr;
+use crate::util_lib::boot::boot_code_id;
+use crate::{
+    burnchains::PoxConstants,
+    clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
+    core::StacksEpoch,
 };
-use crate::types::proof::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::util::boot::boot_code_id;
+use crate::{
+    core::StacksEpochId,
+    types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+    },
+};
+
+use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::core::PEER_VERSION_EPOCH_1_0;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -75,32 +88,7 @@ lazy_static! {
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
-        )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
-}
-
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
-}
-
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
-    }
-}
-
-struct ClarityTestSim {
+pub struct ClarityTestSim {
     marf: MarfedKV,
     height: u64,
     fork: u64,
@@ -209,6 +197,23 @@ fn test_sim_hash_to_height(in_bytes: &[u8; 32]) -> Option<u64> {
     }
 }
 
+fn check_arithmetic_only(contract: &str) {
+    let analysis = mem_type_check(contract).unwrap().1;
+    ArithmeticOnlyChecker::run(&analysis).expect("Should pass arithmetic checks");
+}
+
+#[test]
+fn cost_contract_is_arithmetic_only() {
+    use crate::chainstate::stacks::boot::BOOT_CODE_COSTS;
+    check_arithmetic_only(BOOT_CODE_COSTS);
+}
+
+#[test]
+fn cost_2_contract_is_arithmetic_only() {
+    use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2;
+    check_arithmetic_only(BOOT_CODE_COSTS_2);
+}
+
 impl HeadersDB for TestSimHeadersDB {
     fn get_burn_header_hash_for_block(
         &self,
@@ -277,8 +282,12 @@ fn recency_tests() {
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
-            .unwrap()
+        env.initialize_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_POX_TESTNET,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         // try to issue a far future stacking tx
@@ -346,8 +355,12 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
-            .unwrap()
+        env.initialize_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_POX_TESTNET,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         assert_eq!(
@@ -895,8 +908,12 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1074,8 +1091,12 @@ fn test_vote_fail() {
 
     // Test voting in a proposal
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1275,8 +1296,12 @@ fn test_vote_confirm() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1388,8 +1413,12 @@ fn test_vote_too_many_confirms() {
 
     let MAX_CONFIRMATIONS_PER_BLOCK = 10;
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         for i in 0..(MAX_CONFIRMATIONS_PER_BLOCK + 1) {

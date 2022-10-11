@@ -18,39 +18,39 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
-use crate::codec::MAX_MESSAGE_LEN;
-use crate::types::StacksPublicKeyBuffer;
-use address::public_keys_to_address_hash;
-use address::AddressHashMode;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use chainstate::stacks::Error;
-use chainstate::stacks::MultisigHashMode;
-use chainstate::stacks::MultisigSpendingCondition;
-use chainstate::stacks::SinglesigHashMode;
-use chainstate::stacks::SinglesigSpendingCondition;
-use chainstate::stacks::StacksPrivateKey;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::TransactionAuth;
-use chainstate::stacks::TransactionAuthField;
-use chainstate::stacks::TransactionAuthFieldID;
-use chainstate::stacks::TransactionAuthFlags;
-use chainstate::stacks::TransactionPublicKeyEncoding;
-use chainstate::stacks::TransactionSpendingCondition;
-use chainstate::stacks::{
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::MultisigHashMode;
+use crate::chainstate::stacks::MultisigSpendingCondition;
+use crate::chainstate::stacks::SinglesigHashMode;
+use crate::chainstate::stacks::SinglesigSpendingCondition;
+use crate::chainstate::stacks::StacksPrivateKey;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::TransactionAuth;
+use crate::chainstate::stacks::TransactionAuthField;
+use crate::chainstate::stacks::TransactionAuthFieldID;
+use crate::chainstate::stacks::TransactionAuthFlags;
+use crate::chainstate::stacks::TransactionPublicKeyEncoding;
+use crate::chainstate::stacks::TransactionSpendingCondition;
+use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use net::Error as net_error;
-use net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
-use util::hash::to_hex;
-use util::hash::Hash160;
-use util::hash::Sha512Trunc256Sum;
-use util::retry::BoundReader;
-use util::retry::RetryReader;
-use util::secp256k1::MessageSignature;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use crate::codec::MAX_MESSAGE_LEN;
+use crate::net::Error as net_error;
+use crate::net::STACKS_PUBLIC_KEY_ENCODED_SIZE;
+use crate::types::StacksPublicKeyBuffer;
+use stacks_common::address::public_keys_to_address_hash;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::retry::RetryReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
@@ -89,14 +89,18 @@ impl StacksMessageCodec for TransactionAuthField {
         let field = match field_id {
             x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
                 let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf.to_public_key()?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
                 pubkey.set_compressed(true);
 
                 TransactionAuthField::PublicKey(pubkey)
             }
             x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
                 let pubkey_buf: StacksPublicKeyBuffer = read_next(fd)?;
-                let mut pubkey = pubkey_buf.to_public_key()?;
+                let mut pubkey = pubkey_buf
+                    .to_public_key()
+                    .map_err(|e| codec_error::DeserializeError(e.into()))?;
                 pubkey.set_compressed(false);
 
                 TransactionAuthField::PublicKey(pubkey)
@@ -1083,11 +1087,11 @@ impl TransactionAuth {
 
 #[cfg(test)]
 mod test {
-    use chainstate::stacks::StacksPublicKey as PubKey;
-    use chainstate::stacks::*;
-    use net::codec::test::check_codec_and_corruption;
-    use net::codec::*;
-    use net::*;
+    use crate::chainstate::stacks::StacksPublicKey as PubKey;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
 
     use super::*;
 

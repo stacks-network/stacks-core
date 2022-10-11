@@ -22,14 +22,14 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::Txid;
-use chainstate::burn::operations::BlockstackOperationType;
-use deps;
-use deps::bitcoin::network::serialize::Error as btc_serialize_error;
-use util::db::Error as db_error;
-use util::HexError as btc_hex_error;
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::deps;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
+use stacks_common::util::HexError as btc_hex_error;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
@@ -42,7 +42,7 @@ pub mod messages;
 pub mod network;
 pub mod spv;
 
-pub type PeerMessage = deps::bitcoin::network::message::NetworkMessage;
+pub type PeerMessage = stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin
 
@@ -77,8 +77,10 @@ pub enum Error {
     NoncontiguousHeader,
     /// Missing header
     MissingHeader,
-    /// Invalid target
+    /// Invalid header proof-of-work (i.e. due to a bad timestamp or a bad `bits` field)
     InvalidPoW,
+    /// Chainwork would decrease by including a given header
+    InvalidChainWork,
     /// Wrong number of bytes for constructing an address
     InvalidByteSequence,
     /// Configuration error
@@ -107,6 +109,7 @@ impl fmt::Display for Error {
             Error::NoncontiguousHeader => write!(f, "Non-contiguous header"),
             Error::MissingHeader => write!(f, "Missing header"),
             Error::InvalidPoW => write!(f, "Invalid proof of work"),
+            Error::InvalidChainWork => write!(f, "Chain difficulty cannot decrease"),
             Error::InvalidByteSequence => write!(f, "Invalid sequence of bytes"),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
             Error::BlockchainHeight => write!(f, "Value is beyond the end of the blockchain"),
@@ -133,6 +136,7 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => None,
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
+            Error::InvalidChainWork => None,
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,

@@ -26,30 +26,34 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256 as TrieHasher;
+use sha2::Sha512_256 as TrieHasher;
 
-use chainstate::stacks::index::bits::{
+use crate::chainstate::stacks::index::bits::{
     get_leaf_hash, get_node_hash, read_root_hash, write_path_to_bytes,
 };
-use chainstate::stacks::index::marf::MARF;
-use chainstate::stacks::index::node::{
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, ConsensusSerializable, CursorError, TrieCursor,
     TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48, TrieNodeID, TrieNodeType, TriePath,
     TriePtr,
 };
-use chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-use chainstate::stacks::index::trie::Trie;
-use chainstate::stacks::index::Error;
-use chainstate::stacks::index::{slice_partialeq, BlockMap, MarfTrieId};
-use util::{hash::to_hex, log};
+use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::trie::Trie;
+use crate::chainstate::stacks::index::Error;
+use crate::chainstate::stacks::index::{BlockMap, MarfTrieId};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::slice_partialeq;
 
-use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use crate::types::chainstate::{BlockHeaderHash, MARFValue};
-use crate::types::proof::{
-    ClarityMarfTrieId, ProofTrieNode, ProofTriePtr, TrieHash, TrieLeaf, TrieMerkleProof,
-    TrieMerkleProofType, TRIEHASH_ENCODED_SIZE,
+use crate::chainstate::stacks::index::TrieHashExtension;
+use crate::chainstate::stacks::index::{
+    ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
+    TrieMerkleProofType,
 };
+use crate::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
+
+use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(
@@ -117,7 +121,7 @@ define_u8_enum!( TrieMerkleProofTypeIndicator {
     Node4 = 0, Node16 = 1, Node48 = 2, Node256 = 3, Leaf = 4, Shunt = 5
 });
 
-impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
+impl<T: ClarityMarfTrieId> PartialEq for TrieMerkleProofType<T> {
     fn eq(&self, other: &TrieMerkleProofType<T>) -> bool {
         match (self, other) {
             (
@@ -145,6 +149,72 @@ impl<T: MarfTrieId> PartialEq for TrieMerkleProofType<T> {
                 TrieMerkleProofType::Shunt((ref idx_2, ref hashes_2)),
             ) => idx_1 == idx_2 && hashes_1 == hashes_2,
             (_, _) => false,
+        }
+    }
+}
+
+pub fn hashes_fmt(hashes: &[TrieHash]) -> String {
+    let mut strs = vec![];
+    if hashes.len() < 48 {
+        for i in 0..hashes.len() {
+            strs.push(format!("{:?}", hashes[i]));
+        }
+        strs.join(",")
+    } else {
+        for i in 0..hashes.len() / 4 {
+            strs.push(format!(
+                "{:?},{:?},{:?},{:?}",
+                hashes[4 * i],
+                hashes[4 * i + 1],
+                hashes[4 * i + 2],
+                hashes[4 * i + 3]
+            ));
+        }
+        format!("\n{}", strs.join("\n"))
+    }
+}
+
+impl<T: MarfTrieId> fmt::Debug for TrieMerkleProofType<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node4(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node16(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node48(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Node256(0x{:02x}, node={:?}, hashes={})",
+                chr,
+                node,
+                hashes_fmt(hashes)
+            ),
+            TrieMerkleProofType::Leaf((ref chr, ref node)) => write!(
+                f,
+                "TrieMerkleProofType::Leaf(0x{:02x}, node={:?})",
+                chr, node
+            ),
+            TrieMerkleProofType::Shunt((ref idx, ref hashes)) => write!(
+                f,
+                "TrieMerkleProofType::Shunt(idx={}, hashes={:?})",
+                idx, hashes
+            ),
         }
     }
 }
@@ -1067,6 +1137,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         root_to_block: &HashMap<TrieHash, T>,
     ) -> bool {
         if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
+            test_debug!("Invalid proof -- proof is not well-formed");
             return false;
         }
 
@@ -1077,7 +1148,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
         // proof must be for this value
         if node_data != *value {
-            trace!(
+            test_debug!(
                 "Invalid proof -- not for value hash {:?}",
                 value.to_value_hash()
             );
@@ -1103,13 +1174,16 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
             Some(h) => h,
             None => {
+                test_debug!("Unable to verify segment proof in range {}...{}", i, j);
                 return false;
             }
         };
 
         i = j;
         if i >= proof.len() {
-            trace!("Proof is too short -- needed at least one shunt proof for the first segment");
+            test_debug!(
+                "Proof is too short -- needed at least one shunt proof for the first segment"
+            );
             return false;
         }
 
@@ -1119,6 +1193,11 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             match TrieMerkleProof::verify_shunt_proof_head(&node_root_hash, &proof[i]) {
                 Some(h) => h,
                 None => {
+                    test_debug!(
+                        "Unable to verify shunt proof head at {}: {:?}",
+                        i,
+                        &proof[i]
+                    );
                     return false;
                 }
             };
@@ -1127,7 +1206,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         i += 1;
         if i >= proof.len() {
             // done -- no further shunts
-            trace!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+            test_debug!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
             return *root_hash == trie_hash;
         }
 
@@ -1140,7 +1219,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 TrieHash(bhh.clone().to_bytes())
             }
             None => {
-                trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                test_debug!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
                 trace!("root-to-block map: {:?}", &root_to_block);
                 return false;
             }
@@ -1149,7 +1228,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         // next proof item should be part of a segment proof
         match proof[i] {
             TrieMerkleProofType::Shunt(_) => {
-                trace!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
+                test_debug!("Malformed proof -- exepcted segment proof following first shunt proof head at {}", i);
                 return false;
             }
             _ => {}
@@ -1174,13 +1253,14 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
                     Some(h) => h,
                     None => {
+                        test_debug!("Unable to verify segment proof in range {}..{}", i, j);
                         return false;
                     }
                 };
 
             i = j;
             if i >= proof.len() {
-                trace!("Proof to short -- no shunt proof tail");
+                test_debug!("Proof to short -- no shunt proof tail");
                 return false;
             }
 
@@ -1202,7 +1282,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             j -= 1;
 
             if j < i {
-                trace!("Proof is malformed -- no tail or junction proof");
+                test_debug!("Proof is malformed -- no tail or junction proof");
                 return false;
             }
 
@@ -1217,6 +1297,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 match TrieMerkleProof::verify_shunt_proof_tail(&trie_hash, &proof[i..j]) {
                     Some(h) => h,
                     None => {
+                        test_debug!("Unable to verify shunt proof tail");
                         return false;
                     }
                 };
@@ -1229,7 +1310,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
 
             i = j;
             if i >= proof.len() {
-                trace!("Proof to short -- no junction proof");
+                test_debug!("Proof to short -- no junction proof");
                 return false;
             }
 
@@ -1241,6 +1322,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             ) {
                 Some(h) => h,
                 None => {
+                    test_debug!("Unable to verify shunt junction proof at {} next_node_root_hash = {:?} penultimate hash = {:?}: {:?}", i, &next_node_root_hash, &penultimate_trie_hash, &proof[i]);
                     return false;
                 }
             };
@@ -1255,8 +1337,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     TrieHash(bhh.clone().to_bytes())
                 }
                 None => {
-                    trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
-                    trace!("root-to-block map: {:?}", &root_to_block);
+                    test_debug!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                    test_debug!("root-to-block map: {:?}", &root_to_block);
                     return false;
                 }
             };
@@ -1272,7 +1354,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
             }
         }
 
-        trace!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
+        test_debug!("Verify proof: {:?} =?= {:?}", root_hash, &trie_hash);
         *root_hash == trie_hash
     }
 
@@ -1502,186 +1584,5 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
     ) -> Result<TrieMerkleProof<T>, Error> {
         let path = TriePath::from_key(key);
         TrieMerkleProof::from_path(storage, &path, value, root_block_header)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use chainstate::stacks::index::marf::*;
-    use chainstate::stacks::index::test::*;
-    use chainstate::stacks::index::*;
-
-    use super::*;
-
-    #[test]
-    fn verifier_catches_stale_proof() {
-        use std::env;
-        env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
-
-        let mut m = MARF::from_path(":memory:").unwrap();
-
-        let sentinel_block = BlockHeaderHash::sentinel();
-        let block_0 = BlockHeaderHash([0u8; 32]);
-        let block_1 = BlockHeaderHash([1u8; 32]);
-        let block_2 = BlockHeaderHash([2u8; 32]);
-
-        let k1 = "K1".to_string();
-        let old_v = "OLD".to_string();
-        let new_v = "NEW".to_string();
-
-        m.begin(&sentinel_block, &block_0).unwrap();
-        m.commit().unwrap();
-
-        // Block #1
-        m.begin(&block_0, &block_1).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&old_v));
-        let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        // Block #2
-        m.begin(&block_1, &block_2).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&new_v));
-        let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        let old_value = m.get(&block_1, &k1);
-        test_debug!("OLD: {:?}", old_value);
-
-        let new_value = m.get(&block_2, &k1).unwrap().unwrap();
-        test_debug!("NEW: {:?}", new_value);
-
-        let path = TriePath::from_key(&k1);
-
-        merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &new_v, None);
-
-        let root_to_block = m
-            .borrow_storage_backend()
-            .read_root_to_block_table()
-            .unwrap();
-
-        // create a proof from the current block to the old value.
-        // It should succeed
-        let proof_2 =
-            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2)
-                .unwrap();
-
-        // the verifier should not allow a proof from k1 to old_v from block_2
-        let triepath_2 = TriePath::from_key(&k1);
-        let marf_value_2 = MARFValue::from_value(&old_v);
-        assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block));
-
-        // create a proof from the previous block to the old value.
-        // It should succeed
-        let proof_1 =
-            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_1)
-                .unwrap();
-
-        // the verifier should allow a proof from k1 to old_v from block_1
-        let triepath_1 = TriePath::from_key(&k1);
-        let marf_value_1 = MARFValue::from_value(&old_v);
-        assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
-    }
-
-    #[test]
-    fn ncc_verifier_catches_stale_proof() {
-        // use std::env;
-        // env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
-        let mut m = MARF::from_path(":memory:").unwrap();
-
-        let sentinel_block = BlockHeaderHash::sentinel();
-        let block_0 = BlockHeaderHash([0u8; 32]);
-        let block_1 = BlockHeaderHash([1u8; 32]);
-        let block_2 = BlockHeaderHash([2u8; 32]);
-        let block_3 = BlockHeaderHash([3u8; 32]);
-        let block_4 = BlockHeaderHash([4u8; 32]);
-        let block_5 = BlockHeaderHash([5u8; 32]);
-
-        let k1 = "K1".to_string();
-        let old_v = "OLD".to_string();
-        let new_v = "NEW".to_string();
-        let new_new_v = "NEWNEW".to_string();
-        let new_new_new_v = "NEWNEWNEW".to_string();
-        let another_v = "ANOTHERV".to_string();
-
-        m.begin(&sentinel_block, &block_0).unwrap();
-        m.commit().unwrap();
-
-        // Block #1
-        m.begin(&block_0, &block_1).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&new_v));
-        let (_, root_hash_1) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        // Block #2
-        m.begin(&block_1, &block_2).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&old_v));
-        let (_, root_hash_2) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        // Block #3
-        m.begin(&block_2, &block_3).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&new_new_v));
-        let (_, root_hash_3) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        // Block #4
-        m.begin(&block_3, &block_4).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&new_v));
-        let (_, root_hash_4) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        // Block #5
-        m.begin(&block_4, &block_5).unwrap();
-        let r = m.insert(&k1, MARFValue::from_value(&another_v));
-        let (_, root_hash_5) = Trie::read_root(&mut m.borrow_storage_backend()).unwrap();
-        m.commit().unwrap();
-
-        merkle_test_marf_key_value(
-            &mut m.borrow_storage_backend(),
-            &block_5,
-            &k1,
-            &another_v,
-            None,
-        );
-        merkle_test_marf_key_value(&mut m.borrow_storage_backend(), &block_2, &k1, &old_v, None);
-
-        let root_to_block = {
-            m.borrow_storage_backend()
-                .read_root_to_block_table()
-                .unwrap()
-        };
-
-        // prove for latest k/v pair succeeds
-        let proof_5 =
-            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &another_v, &block_5)
-                .unwrap();
-
-        let triepath_4 = TriePath::from_key(&k1);
-        let marf_value_4 = MARFValue::from_value(&another_v);
-        let root_to_block = {
-            m.borrow_storage_backend()
-                .read_root_to_block_table()
-                .unwrap()
-        };
-
-        println!("DEBUG: verify(another_v)");
-        assert!(proof_5.verify(&triepath_4, &marf_value_4, &root_hash_5, &root_to_block));
-
-        // prepare a proof for the wrong root hash i.e. block2 instead of block5.
-        // Should fail
-        let proof_5 =
-            TrieMerkleProof::from_entry(&mut m.borrow_storage_backend(), &k1, &old_v, &block_2)
-                .unwrap();
-
-        let triepath_4 = TriePath::from_key(&k1);
-        let marf_value_4 = MARFValue::from_value(&old_v);
-        let root_to_block = {
-            m.borrow_storage_backend()
-                .read_root_to_block_table()
-                .unwrap()
-        };
-
-        println!("DEBUG: verify(old_v)");
-        assert!(!proof_5.verify(&triepath_4, &marf_value_4, &root_hash_5, &root_to_block));
     }
 }

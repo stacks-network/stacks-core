@@ -15,15 +15,15 @@ jobs:
             cargo build
       - run:
           command: |
-            ./target/debug/blockstack-core local initialize db &&
-            ./target/debug/blockstack-core local check sample-contracts/tokens.clar db &&
-            ./target/debug/blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-contracts/tokens.clar db &&
-            ./target/debug/blockstack-core local check sample-contracts/names.clar db &&
-            ./target/debug/blockstack-core local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-contracts/names.clar db &&
-            ./target/debug/blockstack-core local execute db S1G2081040G2081040G2081040G208105NK8PE5.tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u100000
+            ./target/debug/stacks-inspect local initialize db &&
+            ./target/debug/stacks-inspect local check sample-contracts/tokens.clar db &&
+            ./target/debug/stacks-inspect local launch S1G2081040G2081040G2081040G208105NK8PE5.tokens sample-contracts/tokens.clar db &&
+            ./target/debug/stacks-inspect local check sample-contracts/names.clar db &&
+            ./target/debug/stacks-inspect local launch S1G2081040G2081040G2081040G208105NK8PE5.names sample-contracts/names.clar db &&
+            ./target/debug/stacks-inspect local execute db S1G2081040G2081040G2081040G208105NK8PE5.tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u100000
       - run:
           command: |
-            echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | ./target/debug/blockstack-core local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
+            echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | ./target/debug/stacks-inspect local eval S1G2081040G2081040G2081040G208105NK8PE5.tokens db
   unit_tests_with_cov:
     machine: true
     working_directory: ~/blockstack

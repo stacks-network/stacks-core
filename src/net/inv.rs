@@ -31,40 +31,41 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::burn::db::sortdb::{
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use net::asn::ASEntry4;
-use net::chat::ConversationP2P;
-use net::codec::*;
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::db::PeerDB;
-use net::db::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::p2p::PeerNetwork;
-use net::Error as net_error;
-use net::GetBlocksInv;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::asn::ASEntry4;
+use crate::net::chat::ConversationP2P;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ConnectionP2P;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
+use crate::net::db::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::p2p::PeerNetwork;
+use crate::net::Error as net_error;
+use crate::net::GetBlocksInv;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::StacksMessage;
+use crate::net::StacksP2P;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
@@ -2248,7 +2249,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked",
@@ -2279,7 +2280,7 @@ impl PeerNetwork {
                     &network.local_peer,
                     inv_state.last_rescanned_at + inv_state.sync_interval
                 );
-                return Ok((true, true, vec![], vec![]));
+                return (true, true, vec![], vec![]);
             }
 
             for (nk, stats) in inv_state.block_stats.iter_mut() {
@@ -2475,16 +2476,17 @@ impl PeerNetwork {
                     network.connection_opts.num_neighbors as usize,
                 );
 
-                Ok((true, false, broken_peers, dead_peers))
+                (true, false, broken_peers, dead_peers)
             } else {
-                Ok((false, false, vec![], vec![]))
+                (false, false, vec![], vec![])
             }
         })
+        .expect("FATAL: network not connected")
     }
 
     pub fn with_inv_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut InvState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut InvState) -> R,
     {
         let mut inv_state = network.inv_state.take();
         let res = match inv_state {
@@ -2492,7 +2494,7 @@ impl PeerNetwork {
                 test_debug!("{:?}: inv state not connected", &network.local_peer);
                 Err(net_error::NotConnected)
             }
-            Some(ref mut invs) => handler(network, invs),
+            Some(ref mut invs) => Ok(handler(network, invs)),
         };
         network.inv_state = inv_state;
         res
@@ -2558,15 +2560,19 @@ impl PeerNetwork {
         func: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> R,
     {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        match PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
-                func(network, nstats)
+                Ok(func(network, nstats))
             } else {
                 Err(net_error::PeerNotConnected)
             }
-        })
+        }) {
+            Ok(Ok(x)) => Ok(x),
+            Ok(Err(x)) => Err(x),
+            Err(x) => Err(x),
+        }
     }
 
     /// Get the local block inventory for a reward cycle
@@ -2640,11 +2646,11 @@ impl PeerNetwork {
 mod test {
     use std::collections::HashMap;
 
-    use burnchains::PoxConstants;
-    use chainstate::stacks::*;
-    use net::test::*;
-    use net::*;
-    use util::test::*;
+    use crate::burnchains::PoxConstants;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
 
     use super::*;
 

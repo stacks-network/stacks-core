@@ -24,31 +24,31 @@ use std::mem;
 use rand;
 use rand::Rng;
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
-use burnchains::BurnchainView;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::StacksBlock;
-use chainstate::stacks::StacksMicroblock;
-use chainstate::stacks::StacksPublicKey;
-use chainstate::stacks::StacksTransaction;
-use chainstate::stacks::MAX_BLOCK_LEN;
-use codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
-use core::PEER_VERSION_TESTNET;
-use net::db::LocalPeer;
-use net::Error as net_error;
-use net::*;
-use util::hash::to_hex;
-use util::hash::DoubleSha256;
-use util::hash::Hash160;
-use util::hash::MerkleHashFunc;
-use util::log;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
-use util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::StacksBlock;
+use crate::chainstate::stacks::StacksMicroblock;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::StacksTransaction;
+use crate::chainstate::stacks::MAX_BLOCK_LEN;
+use crate::core::PEER_VERSION_TESTNET;
+use crate::net::db::LocalPeer;
+use crate::net::Error as net_error;
+use crate::net::*;
+use stacks_common::codec::{read_next_at_most, read_next_exact, MAX_MESSAGE_LEN};
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::MerkleHashFunc;
+use stacks_common::util::log;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_RELAYERS_LEN,
@@ -56,41 +56,7 @@ use crate::codec::{
 };
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
-
-impl_stacks_message_codec_for_int!(u8; [0; 1]);
-impl_stacks_message_codec_for_int!(u16; [0; 2]);
-impl_stacks_message_codec_for_int!(u32; [0; 4]);
-impl_stacks_message_codec_for_int!(u64; [0; 8]);
-impl_stacks_message_codec_for_int!(i64; [0; 8]);
-
-impl StacksMessageCodec for [u8; 32] {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        fd.write_all(self).map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<[u8; 32], codec_error> {
-        let mut buf = [0u8; 32];
-        fd.read_exact(&mut buf).map_err(codec_error::ReadError)?;
-        Ok(buf)
-    }
-}
-
-impl StacksPublicKeyBuffer {
-    pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
-        let pubkey_bytes_vec = pubkey.to_bytes_compressed();
-        let mut pubkey_bytes = [0u8; 33];
-        pubkey_bytes.copy_from_slice(&pubkey_bytes_vec[..]);
-        StacksPublicKeyBuffer(pubkey_bytes)
-    }
-
-    pub fn to_public_key(&self) -> Result<Secp256k1PublicKey, codec_error> {
-        Secp256k1PublicKey::from_slice(&self.0).map_err(|_e_str| {
-            codec_error::DeserializeError("Failed to decode Stacks public key".to_string())
-        })
-    }
-}
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
@@ -125,7 +91,7 @@ impl Preamble {
         privkey: &Secp256k1PrivateKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the premable with a blank signature
         let old_signature = self.signature.clone();
@@ -135,10 +101,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = old_signature;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privkey
             .sign(&digest_bits)
@@ -156,7 +122,7 @@ impl Preamble {
         pubkey: &Secp256k1PublicKey,
     ) -> Result<(), net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         // serialize the preamble with a blank signature
         let sig_bits = self.signature.clone();
@@ -166,10 +132,10 @@ impl Preamble {
         self.consensus_serialize(&mut preamble_bits)?;
         self.signature = sig_bits;
 
-        sha2.input(&preamble_bits[..]);
-        sha2.input(message_bits);
+        sha2.update(&preamble_bits[..]);
+        sha2.update(message_bits);
 
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let res = pubkey
             .verify(&digest_bits, &self.signature)
@@ -417,22 +383,6 @@ impl StacksMessageCodec for PoxInvData {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.0)?;
-        write_next(fd, &self.1)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, BurnchainHeaderHash), codec_error> {
-        let consensus_hash: ConsensusHash = read_next(fd)?;
-        let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
-        Ok((consensus_hash, burn_header_hash))
-    }
-}
-
 impl StacksMessageCodec for BlocksAvailableData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.available)?;
@@ -470,23 +420,21 @@ impl BlocksAvailableData {
     }
 }
 
-impl StacksMessageCodec for (ConsensusHash, StacksBlock) {
+impl StacksMessageCodec for BlocksDatum {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.0)?;
         write_next(fd, &self.1)?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(
-        fd: &mut R,
-    ) -> Result<(ConsensusHash, StacksBlock), codec_error> {
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksDatum, codec_error> {
         let ch: ConsensusHash = read_next(fd)?;
         let block = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_BLOCK_LEN as u64);
             read_next(&mut bound_read)
         }?;
 
-        Ok((ch, block))
+        Ok(BlocksDatum(ch, block))
     }
 }
 
@@ -496,7 +444,7 @@ impl BlocksData {
     }
 
     pub fn push(&mut self, ch: ConsensusHash, block: StacksBlock) -> () {
-        self.blocks.push((ch, block))
+        self.blocks.push(BlocksDatum(ch, block))
     }
 }
 
@@ -507,15 +455,15 @@ impl StacksMessageCodec for BlocksData {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<BlocksData, codec_error> {
-        let blocks: Vec<(ConsensusHash, StacksBlock)> = {
+        let blocks: Vec<BlocksDatum> = {
             // loose upper-bound
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next_at_most::<_, (ConsensusHash, StacksBlock)>(&mut bound_read, BLOCKS_PUSHED_MAX)
+            read_next_at_most::<_, BlocksDatum>(&mut bound_read, BLOCKS_PUSHED_MAX)
         }?;
 
         // only valid if there are no dups
         let mut present = HashSet::new();
-        for (consensus_hash, _block) in blocks.iter() {
+        for BlocksDatum(consensus_hash, _block) in blocks.iter() {
             if present.contains(consensus_hash) {
                 // no dups allowed
                 return Err(codec_error::DeserializeError(
@@ -523,7 +471,7 @@ impl StacksMessageCodec for BlocksData {
                 ));
             }
 
-            present.insert((*consensus_hash).clone());
+            present.insert(consensus_hash.clone());
         }
 
         Ok(BlocksData { blocks })
@@ -902,7 +850,7 @@ impl StacksMessageType {
                 "Blocks({:?})",
                 m.blocks
                     .iter()
-                    .map(|(ch, blk)| (ch.clone(), blk.block_hash()))
+                    .map(|BlocksDatum(ch, blk)| (ch.clone(), blk.block_hash()))
                     .collect::<Vec<(ConsensusHash, BlockHeaderHash)>>()
             ),
             StacksMessageType::Microblocks(ref m) => format!(
@@ -1228,7 +1176,9 @@ impl StacksMessage {
     /// * the signature doesn't match
     /// * the buffer doesn't encode a secp256k1 public key
     pub fn verify_secp256k1(&self, public_key: &StacksPublicKeyBuffer) -> Result<(), net_error> {
-        let secp256k1_pubkey = public_key.to_public_key()?;
+        let secp256k1_pubkey = public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let mut message_bits = vec![];
         self.relayers.consensus_serialize(&mut message_bits)?;
@@ -1339,9 +1289,9 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
-    use codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
-    use util::hash::hex_bytes;
-    use util::secp256k1::*;
+    use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::secp256k1::*;
 
     use super::*;
 

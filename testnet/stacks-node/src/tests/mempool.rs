@@ -3,10 +3,10 @@ use std::convert::TryFrom;
 use std::sync::Mutex;
 
 use stacks::chainstate::stacks::{
-    db::blocks::MemPoolRejection, Error as ChainstateError, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAuth,
-    TransactionPayload, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    db::blocks::MemPoolRejection, Error as ChainstateError, StacksBlockHeader,
+    StacksMicroblockHeader, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAuth, TransactionPayload,
+    TransactionSpendingCondition, TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
@@ -14,9 +14,7 @@ use stacks::core::CHAIN_ID_TESTNET;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
-use stacks::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksBlockHeader, StacksMicroblockHeader,
-};
+use stacks::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks::util::{hash::*, secp256k1::*};
 use stacks::vm::{
     representations::ContractName, types::PrincipalData, types::QualifiedContractIdentifier,

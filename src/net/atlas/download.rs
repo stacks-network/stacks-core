@@ -21,25 +21,26 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::atlas::MAX_RETRY_DELAY;
+use crate::net::connection::ConnectionOptions;
+use crate::net::dns::*;
+use crate::net::p2p::PeerNetwork;
+use crate::net::server::HttpPeer;
+use crate::net::Error as net_error;
+use crate::net::NeighborKey;
+use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
+use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use crate::types::chainstate::StacksBlockId;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::StacksChainState;
-use net::atlas::MAX_RETRY_DELAY;
-use net::connection::ConnectionOptions;
-use net::dns::*;
-use net::p2p::PeerNetwork;
-use net::server::HttpPeer;
-use net::Error as net_error;
-use net::NeighborKey;
-use net::{GetAttachmentResponse, GetAttachmentsInvResponse};
-use net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
-use util::hash::{Hash160, MerkleHashFunc};
-use util::strings;
-use util::{get_epoch_time_ms, get_epoch_time_secs};
-use vm::representations::UrlString;
-use vm::types::QualifiedContractIdentifier;
+use crate::util_lib::db::Error as DBError;
+use crate::util_lib::strings;
+use crate::util_lib::strings::UrlString;
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::util::hash::{Hash160, MerkleHashFunc};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::types::chainstate::{BlockHeaderHash, StacksBlockHeader};
+use crate::types::chainstate::BlockHeaderHash;
 
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 
@@ -47,7 +48,7 @@ use rand::thread_rng;
 use rand::Rng;
 use std::cmp;
 
-use core::mempool::MemPoolDB;
+use crate::core::mempool::MemPoolDB;
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
@@ -99,6 +100,8 @@ impl AttachmentsDownloader {
         }
     }
 
+    /// This function executes `AttachmentsBatchStateMachine` for one step.
+    /// It handles initializing and setting the batch to be processed by the machine.
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
@@ -148,6 +151,7 @@ impl AttachmentsDownloader {
                     Some(ready_batch) => ready_batch,
                     None => {
                         // unreachable
+                        warn!("BUG: Atlas; no batch ready although logic checking for ready batches found one");
                         return Ok((vec![], vec![]));
                     }
                 };
@@ -237,7 +241,7 @@ impl AttachmentsDownloader {
         new_attachments: &mut HashSet<AttachmentInstance>,
         atlasdb: &mut AtlasDB,
         initial_batch: bool,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, DBError> {
         if new_attachments.is_empty() {
             return Ok(vec![]);
         }
@@ -248,9 +252,7 @@ impl AttachmentsDownloader {
             // Are we dealing with an empty hash - allowed for undoing onchain binding
             if attachment_instance.content_hash == Hash160::empty() {
                 // todo(ludo) insert or update ?
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
                 resolved_attachments.push((attachment_instance, Attachment::empty()));
                 continue;
@@ -258,9 +260,7 @@ impl AttachmentsDownloader {
 
             // Do we already have a matching validated attachment
             if let Ok(Some(entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
                 );
@@ -272,12 +272,8 @@ impl AttachmentsDownloader {
             if let Ok(Some(attachment)) =
                 atlasdb.find_uninstantiated_attachment(&attachment_instance.content_hash)
             {
-                atlasdb
-                    .insert_instantiated_attachment(&attachment)
-                    .map_err(|e| net_error::DBError(e))?;
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_instantiated_attachment(&attachment)?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
                 resolved_attachments.push((attachment_instance, attachment));
                 continue;
@@ -297,9 +293,7 @@ impl AttachmentsDownloader {
             };
 
             if !initial_batch {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, false)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, false)?;
             }
         }
 
@@ -361,8 +355,11 @@ impl AttachmentsBatchStateContext {
                         reliability_report: reliability_report.clone(),
                         contract_id: contract_id.clone(),
                         pages: pages.clone(),
-                        block_height: self.attachments_batch.block_height,
+                        stacks_block_height: self.attachments_batch.stacks_block_height,
                         index_block_hash: self.attachments_batch.index_block_hash,
+                        canonical_stacks_tip_height: self
+                            .attachments_batch
+                            .canonical_stacks_tip_height,
                     };
                     queue.push(request);
                 }
@@ -401,11 +398,9 @@ impl AttachmentsBatchStateContext {
                 let position_in_page =
                     attachment_index % AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE;
 
-                let mut peers_urls = vec![];
                 for (peer_url, response) in peers_responses.iter() {
                     // Considering the response, look for the page with the index
                     // we're looking for.
-                    peers_urls.push(format!("{}", peer_url));
                     let index = response
                         .pages
                         .iter()
@@ -446,6 +441,8 @@ impl AttachmentsBatchStateContext {
                 let request = AttachmentRequest {
                     sources,
                     content_hash: content_hash.clone(),
+                    stacks_block_height: self.attachments_batch.stacks_block_height,
+                    canonical_stacks_tip_height: self.attachments_batch.canonical_stacks_tip_height,
                 };
                 enqueued.insert(content_hash);
                 queue.push(request);
@@ -551,6 +548,9 @@ impl AttachmentsBatchStateMachine {
         AttachmentsBatchStateMachine::Initialized(ctx)
     }
 
+    /// Runs the state machine one step. The machine transitions through the states sequentially:
+    /// `Initialized`, `DNSLookup` (which invokes a sub state machine, `BatchedDNSLookupsState`),
+    /// `DownloadingAttachmentsInv`, `DownloadingAttachment`, and `Done`.
     fn try_proceed(
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
@@ -632,6 +632,8 @@ impl AttachmentsBatchStateMachine {
     }
 }
 
+/// State machine for doing DNS lookups for a list of URLs. The machine progresses linearly through
+/// the states, and advances through calls to `try_proceed`.
 #[derive(Debug)]
 enum BatchedDNSLookupsState {
     Initialized(Vec<UrlString>),
@@ -723,6 +725,7 @@ impl BatchedDNSLookupsState {
                 };
 
                 let mut inflight = 0;
+                let mut completed_lookups = Vec::new();
                 for (url_str, request) in state.parsed_urls.iter() {
                     match dns_client.poll_lookup(&request.host, request.port) {
                         Ok(Some(query_result)) => {
@@ -731,6 +734,7 @@ impl BatchedDNSLookupsState {
                                 match query_result.result {
                                     Ok(addrs) => {
                                         *dns_result = Some(addrs);
+                                        completed_lookups.push(url_str.clone());
                                     }
                                     Err(msg) => {
                                         warn!(
@@ -749,6 +753,16 @@ impl BatchedDNSLookupsState {
                             state.errors.insert(url_str.clone(), e);
                         }
                     }
+                }
+
+                // Remove urls that have successfully been looked up by the DNS client.
+                // If not removed, `poll_lookup` will return an error in successive calls of this
+                // function, when trying to process remaining inflight requests.
+                for url_str in completed_lookups.iter() {
+                    state
+                        .parsed_urls
+                        .remove(url_str)
+                        .expect("BUG: had key but then didn't");
                 }
 
                 if inflight > 0 {
@@ -954,9 +968,10 @@ pub struct AttachmentsInventoryRequest {
     pub url: UrlString,
     pub contract_id: QualifiedContractIdentifier,
     pub pages: Vec<u32>,
-    pub block_height: u64,
+    pub stacks_block_height: u64,
     pub index_block_hash: StacksBlockId,
     pub reliability_report: ReliabilityReport,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl Hash for AttachmentsInventoryRequest {
@@ -964,7 +979,7 @@ impl Hash for AttachmentsInventoryRequest {
         self.contract_id.hash(state);
         self.pages.hash(state);
         self.index_block_hash.hash(state);
-        self.block_height.hash(state);
+        self.stacks_block_height.hash(state);
     }
 }
 
@@ -1001,7 +1016,7 @@ impl Requestable for AttachmentsInventoryRequest {
             pages_indexes.insert(*page);
         }
         HttpRequestType::GetAttachmentsInv(
-            HttpRequestMetadata::from_host(peer_host),
+            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
             self.index_block_hash,
             pages_indexes,
         )
@@ -1019,6 +1034,8 @@ impl std::fmt::Display for AttachmentsInventoryRequest {
 pub struct AttachmentRequest {
     pub content_hash: Hash160,
     pub sources: HashMap<UrlString, ReliabilityReport>,
+    pub stacks_block_height: u64,
+    pub canonical_stacks_tip_height: Option<u64>,
 }
 
 impl AttachmentRequest {
@@ -1059,7 +1076,10 @@ impl Requestable for AttachmentRequest {
     }
 
     fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetAttachment(HttpRequestMetadata::from_host(peer_host), self.content_hash)
+        HttpRequestType::GetAttachment(
+            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
+            self.content_hash,
+        )
     }
 }
 
@@ -1072,7 +1092,8 @@ impl std::fmt::Display for AttachmentRequest {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttachmentsBatch {
-    pub block_height: u64,
+    pub stacks_block_height: u64,
+    pub canonical_stacks_tip_height: Option<u64>,
     pub index_block_hash: StacksBlockId,
     pub attachments_instances: HashMap<QualifiedContractIdentifier, HashMap<u32, Hash160>>,
     pub retry_count: u64,
@@ -1082,7 +1103,8 @@ pub struct AttachmentsBatch {
 impl AttachmentsBatch {
     pub fn new() -> AttachmentsBatch {
         AttachmentsBatch {
-            block_height: 0,
+            stacks_block_height: 0,
+            canonical_stacks_tip_height: None,
             index_block_hash: StacksBlockId([0u8; 32]),
             attachments_instances: HashMap::new(),
             retry_count: 0,
@@ -1092,10 +1114,11 @@ impl AttachmentsBatch {
 
     pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
-            self.block_height = attachment.block_height.clone();
+            self.stacks_block_height = attachment.stacks_block_height.clone();
             self.index_block_hash = attachment.index_block_hash.clone();
+            self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
         } else {
-            if self.block_height != attachment.block_height
+            if self.stacks_block_height != attachment.stacks_block_height
                 || self.index_block_hash != attachment.index_block_hash
             {
                 warn!("Atlas: attempt to add unrelated AttachmentInstance ({}, {}) to AttachmentsBatch", attachment.attachment_index, attachment.index_block_hash);
@@ -1195,7 +1218,7 @@ impl Ord for AttachmentsBatch {
                 self.attachments_instances_count()
                     .cmp(&other.attachments_instances_count())
             })
-            .then_with(|| other.block_height.cmp(&self.block_height))
+            .then_with(|| other.stacks_block_height.cmp(&self.stacks_block_height))
     }
 }
 

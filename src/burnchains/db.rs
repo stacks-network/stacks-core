@@ -22,17 +22,17 @@ use rusqlite::{
 };
 use serde_json;
 
-use burnchains::Txid;
-use burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::stacks::index::MarfTrieId;
-use util::db::{
+use crate::burnchains::Txid;
+use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
+use crate::chainstate::burn::operations::BlockstackOperationType;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::util_lib::db::{
     query_row, query_rows, sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler,
     u64_to_sql, Error as DBError, FromColumn, FromRow,
 };
 
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::proof::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub struct BurnchainDB {
     conn: Connection,
@@ -395,18 +395,19 @@ impl BurnchainDB {
 
 #[cfg(test)]
 mod tests {
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
     use std::convert::TryInto;
 
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::blocks::*;
-    use burnchains::bitcoin::*;
-    use burnchains::PoxConstants;
-    use burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use chainstate::burn::*;
-    use chainstate::stacks::*;
-    use deps::bitcoin::blockdata::transaction::Transaction as BtcTx;
-    use deps::bitcoin::network::serialize::deserialize;
-    use util::hash::*;
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::blocks::*;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::PoxConstants;
+    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::*;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
 

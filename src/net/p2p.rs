@@ -39,51 +39,54 @@ use rand::thread_rng;
 
 use url;
 
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
-use monitoring::{update_inbound_neighbors, update_outbound_neighbors};
-use net::asn::ASEntry4;
-use net::atlas::AtlasDB;
-use net::atlas::{AttachmentInstance, AttachmentsDownloader};
-use net::chat::ConversationP2P;
-use net::chat::NeighborStats;
-use net::connection::ConnectionOptions;
-use net::connection::NetworkReplyHandle;
-use net::connection::ReplyHandleP2P;
-use net::db::LocalPeer;
-use net::db::PeerDB;
-use net::download::BlockDownloader;
-use net::inv::*;
-use net::neighbors::*;
-use net::poll::NetworkPollState;
-use net::poll::NetworkState;
-use net::prune::*;
-use net::relay::RelayerStats;
-use net::relay::*;
-use net::relay::*;
-use net::rpc::RPCHandlerArgs;
-use net::server::*;
-use net::Error as net_error;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PublicKey;
-use vm::database::BurnStateDB;
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::{MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
+use crate::net::asn::ASEntry4;
+use crate::net::atlas::AtlasDB;
+use crate::net::atlas::{AttachmentInstance, AttachmentsDownloader};
+use crate::net::chat::ConversationP2P;
+use crate::net::chat::NeighborStats;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::NetworkReplyHandle;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::LocalPeer;
+use crate::net::db::PeerDB;
+use crate::net::download::BlockDownloader;
+use crate::net::inv::*;
+use crate::net::neighbors::*;
+use crate::net::poll::NetworkPollState;
+use crate::net::poll::NetworkState;
+use crate::net::prune::*;
+use crate::net::relay::RelayerStats;
+use crate::net::relay::*;
+use crate::net::relay::*;
+use crate::net::rpc::RPCHandlerArgs;
+use crate::net::server::*;
+use crate::net::Error as net_error;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::database::BurnStateDB;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::types::chainstate::{PoxId, SortitionId, StacksBlockHeader};
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::types::chainstate::{PoxId, SortitionId};
+
+use clarity::vm::ast::ASTRules;
 
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
@@ -235,6 +238,7 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
+    pub ast_rules: ASTRules,
 
     // handles to p2p databases
     pub peerdb: PeerDB,
@@ -305,6 +309,8 @@ pub struct PeerNetwork {
     mempool_state: MempoolSyncState,
     mempool_sync_deadline: u64,
     mempool_sync_timeout: u64,
+    mempool_sync_completions: u64,
+    mempool_sync_txs: u64,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -384,6 +390,7 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
+            ast_rules: ASTRules::Typical,
             burnchain_tip: BlockSnapshot::initial(
                 first_block_height,
                 &first_burn_header_hash,
@@ -434,6 +441,8 @@ impl PeerNetwork {
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
             mempool_sync_timeout: 0,
+            mempool_sync_completions: 0,
+            mempool_sync_txs: 0,
 
             prune_outbound_counts: HashMap::new(),
             prune_inbound_counts: HashMap::new(),
@@ -1052,7 +1061,7 @@ impl PeerNetwork {
                     StacksMessageType::Blocks(ref data) => {
                         // send to each neighbor that needs one
                         let mut all_neighbors = HashSet::new();
-                        for (_, block) in data.blocks.iter() {
+                        for BlocksDatum(_, block) in data.blocks.iter() {
                             let mut neighbors = self.sample_broadcast_peers(&relay_hints, block)?;
                             for nk in neighbors.drain(..) {
                                 all_neighbors.insert(nk);
@@ -1600,14 +1609,11 @@ impl PeerNetwork {
     }
 
     /// Process new inbound TCP connections we just accepted.
-    /// Returns the event IDs of sockets we need to register
-    fn process_new_sockets(
-        &mut self,
-        poll_state: &mut NetworkPollState,
-    ) -> Result<Vec<usize>, net_error> {
+    /// Returns the event IDs of sockets we need to register.
+    fn process_new_sockets(&mut self, poll_state: &mut NetworkPollState) -> Vec<usize> {
         if self.network.is_none() {
-            test_debug!("{:?}: network not connected", &self.local_peer);
-            return Err(net_error::NotConnected);
+            warn!("{:?}: network not connected", &self.local_peer);
+            return vec![];
         }
 
         let mut registered = vec![];
@@ -1643,7 +1649,7 @@ impl PeerNetwork {
                 }
                 None => {
                     debug!("{:?}: network not connected", &self.local_peer);
-                    return Err(net_error::NotConnected);
+                    return vec![];
                 }
             };
 
@@ -1655,7 +1661,7 @@ impl PeerNetwork {
             registered.push(event_id);
         }
 
-        Ok(registered)
+        registered
     }
 
     /// Process network traffic on a p2p conversation.
@@ -1926,7 +1932,7 @@ impl PeerNetwork {
         }
 
         for (event_id, convo) in self.peers.iter() {
-            if convo.is_authenticated() {
+            if convo.is_authenticated() && convo.stats.last_contact_time > 0 {
                 // have handshaked with this remote peer
                 if convo.stats.last_contact_time
                     + (convo.peer_heartbeat as u64)
@@ -2023,7 +2029,7 @@ impl PeerNetwork {
     }
 
     /// Regenerate our session private key and re-handshake with everyone.
-    fn rekey(&mut self, old_local_peer_opt: Option<&LocalPeer>) -> () {
+    fn rekey(&mut self, old_local_peer_opt: Option<&LocalPeer>) {
         assert!(old_local_peer_opt.is_some());
         let _old_local_peer = old_local_peer_opt.unwrap();
 
@@ -2131,10 +2137,10 @@ impl PeerNetwork {
 
     /// Update the state of our neighbor walk.
     /// Return true if we finish, and true if we're throttled
-    fn do_network_neighbor_walk(&mut self, ibd: bool) -> Result<bool, net_error> {
+    fn do_network_neighbor_walk(&mut self, ibd: bool) -> bool {
         if cfg!(test) && self.connection_opts.disable_neighbor_walk {
             test_debug!("neighbor walk is disabled");
-            return Ok(true);
+            return true;
         }
 
         debug!("{:?}: walk peer graph", &self.local_peer);
@@ -2148,7 +2154,7 @@ impl PeerNetwork {
                 self.process_neighbor_walk(walk_result);
             }
         }
-        Ok(done)
+        done
     }
 
     /// Do a mempool sync. Return any transactions we might receive.
@@ -2158,12 +2164,12 @@ impl PeerNetwork {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
-    ) -> Result<Option<Vec<StacksTransaction>>, net_error> {
+    ) -> Option<Vec<StacksTransaction>> {
         if ibd {
-            return Ok(None);
+            return None;
         }
 
-        match self.do_mempool_sync(dns_client_opt, mempool, chainstate)? {
+        match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -2175,9 +2181,11 @@ impl PeerNetwork {
 
                     self.mempool_sync_deadline =
                         get_epoch_time_secs() + self.connection_opts.mempool_sync_interval;
-                    return Ok(Some(txs));
+                    self.mempool_sync_completions = self.mempool_sync_completions.saturating_add(1);
+                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
+                    return Some(txs);
                 } else {
-                    return Ok(None);
+                    return None;
                 }
             }
             (false, txs_opt) => {
@@ -2189,9 +2197,10 @@ impl PeerNetwork {
                         txs.len()
                     );
 
-                    return Ok(Some(txs));
+                    self.mempool_sync_txs = self.mempool_sync_txs.saturating_add(txs.len() as u64);
+                    return Some(txs);
                 } else {
-                    return Ok(None);
+                    return None;
                 }
             }
         }
@@ -2426,9 +2435,10 @@ impl PeerNetwork {
     }
 
     /// Learn our publicly-routable IP address
-    fn do_get_public_ip(&mut self) -> Result<bool, net_error> {
+    /// return true if we're done with this state machine
+    fn do_get_public_ip(&mut self) -> bool {
         if !self.need_public_ip() {
-            return Ok(true);
+            return true;
         }
         if self.local_peer.public_ip_address.is_some()
             && self.public_ip_requested_at + self.connection_opts.public_ip_request_timeout
@@ -2440,48 +2450,34 @@ impl PeerNetwork {
                 &self.local_peer,
                 self.public_ip_requested_at + self.connection_opts.public_ip_request_timeout
             );
-            return Ok(true);
+            return true;
         }
 
         match self.do_learn_public_ip() {
             Ok(b) => {
                 if !b {
                     test_debug!("{:?}: try do_learn_public_ip again", &self.local_peer);
-                    return Ok(false);
+                    return false;
                 }
             }
             Err(e) => {
-                test_debug!(
+                warn!(
                     "{:?}: failed to learn public IP: {:?}",
-                    &self.local_peer,
-                    &e
+                    &self.local_peer, &e
                 );
                 self.public_ip_reset();
-
-                match e {
-                    net_error::NoSuchNeighbor => {
-                        // haven't connected to anyone yet
-                        return Ok(true);
-                    }
-                    _ => {
-                        return Err(e);
-                    }
-                };
+                return true;
             }
         }
-        Ok(true)
+        true
     }
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(
-        &mut self,
-        sortdb: &SortitionDB,
-        ibd: bool,
-    ) -> Result<(bool, bool), net_error> {
+    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB, ibd: bool) -> (bool, bool) {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
-            return Ok((true, false));
+            return (true, false);
         }
 
         debug!("{:?}: network inventory sync", &self.local_peer);
@@ -2492,7 +2488,7 @@ impl PeerNetwork {
 
         // synchronize peer block inventories
         let (done, throttled, broken_neighbors, dead_neighbors) =
-            self.sync_inventories(sortdb, ibd)?;
+            self.sync_inventories(sortdb, ibd);
 
         // disconnect and ban broken peers
         for broken in broken_neighbors.into_iter() {
@@ -2504,7 +2500,7 @@ impl PeerNetwork {
             self.deregister_neighbor(&dead);
         }
 
-        Ok((done, throttled))
+        (done, throttled)
     }
 
     /// Download blocks, and add them to our network result.
@@ -2516,10 +2512,10 @@ impl PeerNetwork {
         dns_client: &mut DNSClient,
         ibd: bool,
         network_result: &mut NetworkResult,
-    ) -> Result<bool, net_error> {
+    ) -> bool {
         if self.connection_opts.disable_block_download {
             debug!("{:?}: block download is disabled", &self.local_peer);
-            return Ok(true);
+            return true;
         }
 
         if self.block_downloader.is_none() {
@@ -2542,19 +2538,20 @@ impl PeerNetwork {
                     "{:?}: no progress can be made on the block downloader -- not connected",
                     &self.local_peer
                 );
-                return Ok(true);
+                return true;
             }
             Err(net_error::Transient(s)) => {
                 // not fatal, but just skip and try again
                 info!("Transient network error while downloading blocks: {}", &s);
-                return Ok(true);
+                return true;
             }
             Err(e) => {
                 warn!(
                     "{:?}: Failed to download blocks: {:?}",
                     &self.local_peer, &e
                 );
-                return Err(e);
+                // done
+                return true;
             }
         };
 
@@ -2615,10 +2612,11 @@ impl PeerNetwork {
             self.num_downloader_passes += 1;
         }
 
-        Ok(done && at_chain_tip)
+        done && at_chain_tip
     }
 
-    /// Find the next block to push
+    /// Find the next block to push.
+    /// Mask database errors if they occur
     fn find_next_push_block(
         &mut self,
         nk: &NeighborKey,
@@ -2628,10 +2626,10 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
-    ) -> Result<Option<(ConsensusHash, StacksBlock)>, net_error> {
+    ) -> Option<(ConsensusHash, StacksBlock)> {
         let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
         if !local_blocks_inv.has_ith_block((height - start_block_height) as u16) {
-            return Ok(None);
+            return None;
         }
         if block_stats.inv.get_block_height() >= height && !block_stats.inv.has_ith_block(height) {
             let ancestor_sn = match self.get_ancestor_sortition_snapshot(sortdb, height) {
@@ -2641,7 +2639,7 @@ impl PeerNetwork {
                         "{:?}: AntiEntropy: Failed to query ancestor block height {}: {:?}",
                         &self.local_peer, height, &e
                     );
-                    return Ok(None);
+                    return None;
                 }
             };
 
@@ -2653,14 +2651,21 @@ impl PeerNetwork {
                 &chainstate.blocks_path,
                 &ancestor_sn.consensus_hash,
                 &ancestor_sn.winning_stacks_block_hash,
-            )? {
-                Some(block) => block,
-                None => {
+            ) {
+                Ok(Some(block)) => block,
+                Ok(None) => {
                     debug!(
                         "{:?}: AntiEntropy: No such block {}",
                         &self.local_peer, &index_block_hash
                     );
-                    return Ok(None);
+                    return None;
+                }
+                Err(e) => {
+                    warn!(
+                        "{:?}: AntiEntropy: failed to load block {}: {:?}",
+                        &self.local_peer, &index_block_hash, &e
+                    );
+                    return None;
                 }
             };
 
@@ -2668,13 +2673,14 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks block {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Ok(Some((ancestor_sn.consensus_hash, block)));
+            return Some((ancestor_sn.consensus_hash, block));
         } else {
-            return Ok(None);
+            return None;
         }
     }
 
     /// Find the next confirmed microblock stream to push.
+    /// Mask database errors
     fn find_next_push_microblocks(
         &mut self,
         nk: &NeighborKey,
@@ -2684,10 +2690,10 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)>, net_error> {
+    ) -> Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)> {
         let start_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
         if !local_blocks_inv.has_ith_microblock_stream((height - start_block_height) as u16) {
-            return Ok(None);
+            return None;
         }
         if block_stats.inv.get_block_height() >= height
             && !block_stats.inv.has_ith_microblock_stream(height)
@@ -2699,7 +2705,7 @@ impl PeerNetwork {
                         "{:?}: AntiEntropy: Failed to query ancestor block height {}: {:?}",
                         &self.local_peer, height, &e
                     );
-                    return Ok(None);
+                    return None;
                 }
             };
 
@@ -2718,7 +2724,7 @@ impl PeerNetwork {
                         &ancestor_sn.consensus_hash,
                         &ancestor_sn.winning_stacks_block_hash,
                     );
-                    return Ok(None);
+                    return None;
                 }
                 Err(e) => {
                     debug!(
@@ -2728,7 +2734,7 @@ impl PeerNetwork {
                         &ancestor_sn.winning_stacks_block_hash,
                         &e
                     );
-                    return Ok(None);
+                    return None;
                 }
             };
 
@@ -2748,7 +2754,7 @@ impl PeerNetwork {
                         &block_info.consensus_hash,
                         &block_info.anchored_block_hash,
                     );
-                    return Ok(None);
+                    return None;
                 }
                 Err(e) => {
                     debug!("{:?}: AntiEntropy: Failed to load processed microblocks in-between {}/{} and {}/{}: {:?}",
@@ -2759,7 +2765,7 @@ impl PeerNetwork {
                            &block_info.anchored_block_hash,
                            &e
                     );
-                    return Ok(None);
+                    return None;
                 }
             };
 
@@ -2771,28 +2777,24 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Ok(Some((
+            return Some((
                 block_info.parent_consensus_hash,
                 block_info.parent_anchored_block_hash,
                 microblocks,
-            )));
+            ));
         } else {
-            return Ok(None);
+            return None;
         }
     }
 
     /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
     /// Start with the most-recently-arrived data, since this node is likely to have already
     /// fetched older data via the block-downloader.
-    fn try_push_local_data(
-        &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
-    ) -> Result<(), net_error> {
+    fn try_push_local_data(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
         {
-            return Ok(());
+            return;
         }
 
         self.antientropy_last_push_ts = get_epoch_time_secs();
@@ -2805,7 +2807,7 @@ impl PeerNetwork {
 
         if num_public_inbound > 0 && !self.connection_opts.antientropy_public {
             // we're likely not NAT'ed, and we're not supposed to push blocks to the public.
-            return Ok(());
+            return;
         }
 
         if self.relay_handles.len() as u64
@@ -2817,12 +2819,12 @@ impl PeerNetwork {
                 &self.local_peer,
                 self.relay_handles.len()
             );
-            return Ok(());
+            return;
         }
 
         if self.inv_state.is_none() {
             // nothing to do
-            return Ok(());
+            return;
         }
 
         let mut total_blocks_to_broadcast = 0;
@@ -2851,7 +2853,7 @@ impl PeerNetwork {
         self.antientropy_start_reward_cycle = reward_cycle_finish;
 
         if neighbor_keys.len() == 0 {
-            return Ok(());
+            return;
         }
 
         debug!(
@@ -2915,7 +2917,7 @@ impl PeerNetwork {
                                         chainstate,
                                         &local_blocks_inv,
                                         block_stats,
-                                    )?
+                                    )
                                 {
                                     let index_block_hash = StacksBlockHeader::make_index_block_hash(
                                         &consensus_hash,
@@ -2951,7 +2953,7 @@ impl PeerNetwork {
                                         network.antientropy_blocks.insert(nk.clone(), pushed);
                                     }
 
-                                    local_blocks.push((consensus_hash, block));
+                                    local_blocks.push(BlocksDatum(consensus_hash, block));
 
                                     if !lowest_reward_cycle_with_missing_block.contains_key(nk) {
                                         lowest_reward_cycle_with_missing_block
@@ -2974,7 +2976,7 @@ impl PeerNetwork {
                                         chainstate,
                                         &local_blocks_inv,
                                         block_stats,
-                                    )?
+                                    )
                                 {
                                     let index_block_hash = StacksBlockHeader::make_index_block_hash(
                                         &parent_consensus_hash,
@@ -3023,7 +3025,7 @@ impl PeerNetwork {
                                 }
                             }
                         }
-                        Ok((local_blocks, local_microblocks))
+                        (local_blocks, local_microblocks)
                     },
                 ) {
                     Ok(x) => x,
@@ -3032,11 +3034,12 @@ impl PeerNetwork {
                         continue;
                     }
                     Err(e) => {
+                        // should be unreachable, but why tempt fate?
                         debug!(
                             "{:?}: AntiEntropy: Failed to push blocks to {:?}: {:?}",
                             &self.local_peer, &nk, &e
                         );
-                        return Err(e);
+                        break;
                     }
                 };
 
@@ -3064,7 +3067,7 @@ impl PeerNetwork {
                     );
                 }
 
-                let blocks_data = BlocksData { blocks: blocks };
+                let blocks_data = BlocksData { blocks };
 
                 self.broadcast_message(
                     vec![nk.clone()],
@@ -3117,10 +3120,9 @@ impl PeerNetwork {
                         .inv
                         .truncate_pox_inventory(&network.burnchain, reward_cycle);
                 }
-                Ok(())
-            })?;
+            })
+            .expect("FATAL: with_inv_state() should be infallible (not connected)");
         }
-        Ok(())
     }
 
     /// Extract an IP address from a UrlString if it exists
@@ -3337,7 +3339,10 @@ impl PeerNetwork {
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
         let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(PeerHost::from_socketaddr(addr)),
+            HttpRequestMetadata::from_host(
+                PeerHost::from_socketaddr(addr),
+                Some(self.burnchain_tip.canonical_stacks_tip_height),
+            ),
             sync_data,
             Some(page_id),
         );
@@ -3412,13 +3417,13 @@ impl PeerNetwork {
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<(bool, Option<Vec<StacksTransaction>>), net_error> {
+    ) -> (bool, Option<Vec<StacksTransaction>>) {
         if get_epoch_time_secs() <= self.mempool_sync_deadline {
             debug!(
                 "{:?}: Wait until {} to do a mempool sync",
                 &self.local_peer, self.mempool_sync_deadline
             );
-            return Ok((true, None));
+            return (true, None);
         }
 
         if self.mempool_sync_timeout == 0 {
@@ -3432,7 +3437,7 @@ impl PeerNetwork {
                     &self.local_peer
                 );
                 self.mempool_sync_reset();
-                return Ok((true, None));
+                return (true, None);
             }
         }
 
@@ -3447,37 +3452,49 @@ impl PeerNetwork {
             match cur_state {
                 MempoolSyncState::PickOutboundPeer => {
                     // 1. pick a random outbound conversation.
-                    if let Some(next_state) =
-                        self.mempool_sync_pick_outbound_peer(dns_client_opt, &Txid([0u8; 32]))?
-                    {
-                        // success! can advance to either resolve a URL or to send a query
-                        self.mempool_state = next_state;
-                    } else {
-                        // done
-                        self.mempool_sync_reset();
-                        return Ok((true, None));
+                    match self.mempool_sync_pick_outbound_peer(dns_client_opt, &Txid([0u8; 32])) {
+                        Ok(Some(next_state)) => {
+                            // success! can advance to either resolve a URL or to send a query
+                            self.mempool_state = next_state;
+                        }
+                        Ok(None) => {
+                            // done
+                            self.mempool_sync_reset();
+                            return (true, None);
+                        }
+                        Err(e) => {
+                            // done; need reset
+                            warn!("mempool_sync_pick_outbound_peer returned {:?}", &e);
+                            self.mempool_sync_reset();
+                            return (true, None);
+                        }
                     }
                 }
                 MempoolSyncState::ResolveURL(ref url_str, ref dns_request, ref page_id) => {
                     // 2. resolve its data URL
-                    match self.mempool_sync_resolve_data_url(
-                        url_str,
-                        dns_request,
-                        dns_client_opt,
-                    )? {
-                        (false, Some(addr)) => {
+                    match self.mempool_sync_resolve_data_url(url_str, dns_request, dns_client_opt) {
+                        Ok((false, Some(addr))) => {
                             // success! advance
                             self.mempool_state =
                                 MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
                         }
-                        (false, None) => {
+                        Ok((false, None)) => {
                             // try again later
-                            return Ok((false, None));
+                            return (false, None);
                         }
-                        (true, _) => {
+                        Ok((true, _)) => {
                             // done
                             self.mempool_sync_reset();
-                            return Ok((true, None));
+                            return (true, None);
+                        }
+                        Err(e) => {
+                            // failed
+                            warn!(
+                                "mempool_sync_resolve_data_url({}) failed: {:?}",
+                                url_str, &e
+                            );
+                            self.mempool_sync_reset();
+                            return (true, None);
                         }
                     }
                 }
@@ -3493,27 +3510,33 @@ impl PeerNetwork {
                         mempool,
                         chainstate,
                         page_id.clone(),
-                    )? {
-                        (false, Some(event_id)) => {
+                    ) {
+                        Ok((false, Some(event_id))) => {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
                             self.mempool_state =
                                 MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
                         }
-                        (false, None) => {
+                        Ok((false, None)) => {
                             // try again later
-                            return Ok((false, None));
+                            return (false, None);
                         }
-                        (true, _) => {
+                        Ok((true, _)) => {
                             // done
                             self.mempool_sync_reset();
-                            return Ok((true, None));
+                            return (true, None);
+                        }
+                        Err(e) => {
+                            // done
+                            warn!("mempool_sync_send_query({}) returned {:?}", url, &e);
+                            self.mempool_sync_reset();
+                            return (true, None);
                         }
                     }
                 }
                 MempoolSyncState::RecvResponse(ref url, ref addr, ref event_id) => {
-                    match self.mempool_sync_recv_response(*event_id)? {
-                        (true, next_page_id_opt, Some(txs)) => {
+                    match self.mempool_sync_recv_response(*event_id) {
+                        Ok((true, next_page_id_opt, Some(txs))) => {
                             debug!(
                                 "{:?}: Mempool sync received {} transactions; next page is {:?}",
                                 &self.local_peer,
@@ -3538,25 +3561,31 @@ impl PeerNetwork {
                                     true
                                 }
                             };
-                            return Ok((ret, Some(txs)));
+                            return (ret, Some(txs));
                         }
-                        (true, _, None) => {
+                        Ok((true, _, None)) => {
                             // done! did not get data
                             self.mempool_sync_reset();
-                            return Ok((true, None));
+                            return (true, None);
                         }
-                        (false, _, None) => {
+                        Ok((false, _, None)) => {
                             // still receiving; try again later
-                            return Ok((false, None));
+                            return (false, None);
                         }
-                        (false, _, Some(_)) => {
+                        Ok((false, _, Some(_))) => {
                             // should never happen
                             if cfg!(test) {
                                 panic!("Reached invalid state in {:?}, aborting...", &cur_state);
                             }
                             warn!("Reached invalid state in {:?}, resetting...", &cur_state);
                             self.mempool_sync_reset();
-                            return Ok((true, None));
+                            return (true, None);
+                        }
+                        Err(e) => {
+                            // likely a network error
+                            warn!("mempool_sync_recv_response returned {:?}", &e);
+                            self.mempool_sync_reset();
+                            return (true, None);
                         }
                     }
                 }
@@ -3575,7 +3604,7 @@ impl PeerNetwork {
         download_backpressure: bool,
         ibd: bool,
         network_result: &mut NetworkResult,
-    ) -> Result<bool, net_error> {
+    ) -> bool {
         // do some Actual Work(tm)
         let mut do_prune = false;
         let mut did_cycle = false;
@@ -3601,22 +3630,15 @@ impl PeerNetwork {
                         self.work_state = PeerNetworkWorkState::BlockInvSync;
                     } else {
                         // (re)determine our public IP address
-                        match self.do_get_public_ip() {
-                            Ok(b) => {
-                                if b {
-                                    self.work_state = PeerNetworkWorkState::BlockInvSync;
-                                }
-                            }
-                            Err(e) => {
-                                info!("Failed to query public IP ({:?}) skipping", &e);
-                                self.work_state = PeerNetworkWorkState::BlockInvSync;
-                            }
+                        let done = self.do_get_public_ip();
+                        if done {
+                            self.work_state = PeerNetworkWorkState::BlockInvSync;
                         }
                     }
                 }
                 PeerNetworkWorkState::BlockInvSync => {
                     // synchronize peer block inventories
-                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd)?;
+                    let (inv_done, inv_throttled) = self.do_network_inv_sync(sortdb, ibd);
                     if inv_done {
                         if !download_backpressure {
                             // proceed to get blocks, if we're not backpressured
@@ -3717,13 +3739,15 @@ impl PeerNetwork {
                                 let (consensus_hash, _) =
                                     SortitionDB::get_canonical_stacks_chain_tip_hash(
                                         sortdb.conn(),
-                                    )?;
+                                    )
+                                    .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
 
                                 let stacks_tip_sortition_height =
                                     SortitionDB::get_block_snapshot_consensus(
                                         sortdb.conn(),
                                         &consensus_hash,
-                                    )?
+                                    )
+                                    .expect("FATAL: failed to query sortition DB")
                                     .map(|sn| sn.block_height)
                                     .unwrap_or(self.burnchain.first_block_height)
                                     .saturating_sub(self.burnchain.first_block_height);
@@ -3779,14 +3803,15 @@ impl PeerNetwork {
                     // go fetch blocks
                     match dns_client_opt {
                         Some(ref mut dns_client) => {
-                            if self.do_network_block_download(
+                            let done = self.do_network_block_download(
                                 sortdb,
                                 mempool,
                                 chainstate,
                                 *dns_client,
                                 ibd,
                                 network_result,
-                            )? {
+                            );
+                            if done {
                                 // advance work state
                                 self.work_state = PeerNetworkWorkState::AntiEntropy;
                             }
@@ -3808,15 +3833,7 @@ impl PeerNetwork {
                             &self.local_peer
                         );
                     } else {
-                        match self.try_push_local_data(sortdb, chainstate) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                debug!(
-                                    "{:?}: Failed to push local data: {:?}",
-                                    &self.local_peer, &e
-                                );
-                            }
-                        };
+                        self.try_push_local_data(sortdb, chainstate);
                     }
                     self.work_state = PeerNetworkWorkState::Prune;
                 }
@@ -3844,7 +3861,7 @@ impl PeerNetwork {
             );
         }
 
-        Ok(do_prune)
+        do_prune
     }
 
     fn do_attachment_downloads(
@@ -3853,12 +3870,18 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
-    ) -> Result<(), net_error> {
+    ) {
         if self.attachments_downloader.is_none() {
-            self.atlasdb.evict_expired_uninstantiated_attachments()?;
             self.atlasdb
-                .evict_expired_unresolved_attachment_instances()?;
-            let initial_batch = self.atlasdb.find_unresolved_attachment_instances()?;
+                .evict_expired_uninstantiated_attachments()
+                .expect("FATAL: atlasdb error: evict_expired_uninstantiated_attachments");
+            self.atlasdb
+                .evict_expired_unresolved_attachment_instances()
+                .expect("FATAL: atlasdb error: evict_expired_unresolved_attachment_instances");
+            let initial_batch = self
+                .atlasdb
+                .find_unresolved_attachment_instances()
+                .expect("FATAL: atlasdb error: find_unresolved_attachment_instances");
 
             self.init_attachments_downloader(initial_batch);
         }
@@ -3883,7 +3906,7 @@ impl PeerNetwork {
                         }
                         Ok(dead_events)
                     },
-                )?;
+                ).expect("FATAL: with_attachments_downloader() should be infallible (and it is not initialized)");
 
                 let _ = PeerNetwork::with_network_state(
                     self,
@@ -3909,7 +3932,6 @@ impl PeerNetwork {
                 );
             }
         }
-        Ok(())
     }
 
     /// Given an event ID, find the other event ID corresponding
@@ -4454,7 +4476,7 @@ impl PeerNetwork {
 
         let mut to_buffer = false;
 
-        for (consensus_hash, block) in new_blocks.blocks.iter() {
+        for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
             let sn = match SortitionDB::get_block_snapshot_consensus(
                 &sortdb.conn(),
                 &consensus_hash,
@@ -4676,7 +4698,7 @@ impl PeerNetwork {
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
         ibd: bool,
         buffer: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> HashMap<NeighborKey, Vec<StacksMessage>> {
         let mut unhandled: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
         for (event_id, messages) in unsolicited.into_iter() {
             let neighbor_key = match self.peers.get(&event_id) {
@@ -4733,7 +4755,7 @@ impl PeerNetwork {
                 }
             }
         }
-        Ok(unhandled)
+        unhandled
     }
 
     /// Find unauthenticated inbound conversations
@@ -4749,10 +4771,10 @@ impl PeerNetwork {
 
     /// Find inbound conversations that have authenticated, given a list of event ids to search
     /// for.  Add them to our network pingbacks
-    fn schedule_network_pingbacks(&mut self, event_ids: Vec<usize>) -> Result<(), net_error> {
+    fn schedule_network_pingbacks(&mut self, event_ids: Vec<usize>) {
         if cfg!(test) && self.connection_opts.disable_pingbacks {
             test_debug!("{:?}: pingbacks are disabled for testing", &self.local_peer);
-            return Ok(());
+            return;
         }
 
         // clear timed-out pingbacks
@@ -4792,7 +4814,7 @@ impl PeerNetwork {
                         &addr.addrbytes,
                         addr.port,
                     )
-                    .map_err(net_error::DBError)?;
+                    .expect("FATAL: failed to read from peer database");
 
                     if neighbor_opt.is_some() {
                         debug!(
@@ -4838,7 +4860,6 @@ impl PeerNetwork {
             &self.local_peer,
             self.walk_pingbacks.len()
         );
-        Ok(())
     }
 
     /// Count up the number of inbound neighbors that have public IP addresses (i.e. that we have
@@ -4941,18 +4962,16 @@ impl PeerNetwork {
             // update cached burnchain view for /v2/info
             self.chain_view = new_chain_view;
             self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
+
+            // update tx validation information
+            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
         }
 
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
             // try processing previously-buffered messages (best-effort)
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
-            ret = self.handle_unsolicited_messages(
-                sortdb,
-                chainstate,
-                buffered_messages,
-                ibd,
-                false,
-            )?;
+            ret =
+                self.handle_unsolicited_messages(sortdb, chainstate, buffered_messages, ibd, false);
         }
 
         // update cached stacks chain view for /v2/info
@@ -4976,14 +4995,14 @@ impl PeerNetwork {
         download_backpressure: bool,
         ibd: bool,
         mut poll_state: NetworkPollState,
-    ) -> Result<(), net_error> {
+    ) {
         if self.network.is_none() {
-            test_debug!("{:?}: network not connected", &self.local_peer);
-            return Err(net_error::NotConnected);
+            warn!("{:?}: network not connected", &self.local_peer);
+            return;
         }
 
         // set up new inbound conversations
-        self.process_new_sockets(&mut poll_state)?;
+        self.process_new_sockets(&mut poll_state);
 
         // set up sockets that have finished connecting
         self.process_connecting_sockets(&mut poll_state);
@@ -5002,11 +5021,11 @@ impl PeerNetwork {
             self.deregister_peer(error_event);
         }
         let unhandled_messages =
-            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true)?;
+            self.handle_unsolicited_messages(sortdb, chainstate, unsolicited_messages, ibd, true);
         network_result.consume_unsolicited(unhandled_messages);
 
         // schedule now-authenticated inbound convos for pingback
-        self.schedule_network_pingbacks(unauthenticated_inbounds)?;
+        self.schedule_network_pingbacks(unauthenticated_inbounds);
 
         // do some Actual Work(tm)
         // do this _after_ processing new sockets, so the act of opening a socket doesn't trample
@@ -5019,35 +5038,36 @@ impl PeerNetwork {
             download_backpressure,
             ibd,
             network_result,
-        )?;
+        );
         if do_prune {
             // prune back our connections if it's been a while
             // (only do this if we're done with all other tasks).
             // Also, process banned peers.
-            let mut dead_events = self.process_bans()?;
-            for dead in dead_events.drain(..) {
-                debug!(
-                    "{:?}: Banned connection on event {}",
-                    &self.local_peer, dead
-                );
-                self.deregister_peer(dead);
+            if let Ok(mut dead_events) = self.process_bans() {
+                for dead in dead_events.drain(..) {
+                    debug!(
+                        "{:?}: Banned connection on event {}",
+                        &self.local_peer, dead
+                    );
+                    self.deregister_peer(dead);
+                }
             }
             self.prune_connections();
         }
 
         // In parallel, do a neighbor walk
-        self.do_network_neighbor_walk(ibd)?;
+        self.do_network_neighbor_walk(ibd);
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
         if let Some(mut txs) =
-            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)?
+            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)
         {
             network_result.synced_transactions.append(&mut txs);
         }
 
         // download attachments
-        self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result)?;
+        self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
 
         // remove timed-out requests from other threads
         for (_, convo) in self.peers.iter_mut() {
@@ -5073,10 +5093,15 @@ impl PeerNetwork {
         // is our key about to expire?  do we need to re-key?
         // NOTE: must come last since it invalidates local_peer
         if self.local_peer.private_key_expire < self.chain_view.burn_block_height + 1 {
-            self.peerdb.rekey(
-                self.local_peer.private_key_expire + self.connection_opts.private_key_lifetime,
-            )?;
-            let new_local_peer = self.load_local_peer()?;
+            self.peerdb
+                .rekey(
+                    self.local_peer.private_key_expire + self.connection_opts.private_key_lifetime,
+                )
+                .expect("FATAL: failed to rekey peer DB");
+
+            let new_local_peer = self
+                .load_local_peer()
+                .expect("FATAL: failed to load local peer from peer DB");
             let old_local_peer = self.local_peer.clone();
             self.local_peer = new_local_peer;
             self.rekey(Some(&old_local_peer));
@@ -5107,17 +5132,16 @@ impl PeerNetwork {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Store a single transaction
-    /// Return true if stored; false if it was a dup.
+    /// Return true if stored; false if it was a dup or if it's temporarily blacklisted.
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: StacksTransaction,
@@ -5128,16 +5152,15 @@ impl PeerNetwork {
             debug!("Already have tx {}", txid);
             return false;
         }
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let stacks_epoch = match sortdb
             .index_conn()
-            .get_stacks_epoch(tip.block_height as u32)
+            .get_stacks_epoch(burnchain_tip.block_height as u32)
         {
             Some(epoch) => epoch,
             None => {
                 warn!(
                         "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        tip.block_height
+                        burnchain_tip.block_height
                     );
                 return false;
             }
@@ -5172,6 +5195,8 @@ impl PeerNetwork {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
 
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();
 
@@ -5182,6 +5207,7 @@ impl PeerNetwork {
                     mempool,
                     sortdb,
                     chainstate,
+                    &sn,
                     &canonical_consensus_hash,
                     &canonical_block_hash,
                     tx.clone(),
@@ -5203,6 +5229,7 @@ impl PeerNetwork {
                 mempool,
                 sortdb,
                 chainstate,
+                &sn,
                 &canonical_consensus_hash,
                 &canonical_block_hash,
                 tx,
@@ -5221,6 +5248,9 @@ impl PeerNetwork {
     /// -- runs the p2p and http peer main loop
     /// Returns the table of unhandled network messages to be acted upon, keyed by the neighbors
     /// that sent them (i.e. keyed by their event IDs)
+    ///
+    /// This method can only fail if the internal network object (self.network) is not
+    /// instantiated.
     pub fn run(
         &mut self,
         sortdb: &SortitionDB,
@@ -5259,32 +5289,31 @@ impl PeerNetwork {
         );
 
         // update local-peer state
-        self.refresh_local_peer()?;
+        self.refresh_local_peer()
+            .expect("FATAL: failed to read local peer from the peer DB");
 
         // update burnchain view, before handling any HTTP connections
-        let unsolicited_buffered_messages = self.refresh_burnchain_view(sortdb, chainstate, ibd)?;
+        let unsolicited_buffered_messages = self
+            .refresh_burnchain_view(sortdb, chainstate, ibd)
+            .expect("FATAL: failed to refresh burnchain view");
+
         network_result.consume_unsolicited(unsolicited_buffered_messages);
 
         // update PoX view, before handling any HTTP connections
-        self.refresh_sortition_view(sortdb)?;
+        self.refresh_sortition_view(sortdb)
+            .expect("FATAL: failed to refresh sortition view from sortition DB");
 
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        match PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
-            let mut known_attachments = attachments_downloader.enqueue_new_attachments(
-                attachment_requests,
-                &mut network.atlasdb,
-                false,
-            )?;
+        PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+            let mut known_attachments = attachments_downloader
+                .enqueue_new_attachments(attachment_requests, &mut network.atlasdb, false)
+                .expect("FATAL: failed to store new attachments to the atlas DB");
             network_result.attachments.append(&mut known_attachments);
             Ok(())
-        }) {
-            Ok(_) => {}
-            Err(e) => {
-                warn!("Atlas: updating attachment inventory failed: {}", e);
-            }
-        }
+        })
+        .expect("FATAL: with_attachments_downloader should be infallable (not connected)");
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
@@ -5297,10 +5326,11 @@ impl PeerNetwork {
                     http_poll_state,
                     handler_args,
                 )
-            })?;
+            });
             network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())
-        })?;
+        })
+        .expect("FATAL: with_network_state should be infallable (not connected)");
 
         self.dispatch_network(
             &mut network_result,
@@ -5311,7 +5341,7 @@ impl PeerNetwork {
             download_backpressure,
             ibd,
             p2p_poll_state,
-        )?;
+        );
 
         debug!("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< End Network Dispatch <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         Ok(network_result)
@@ -5326,24 +5356,24 @@ mod test {
     use rand;
     use rand::RngCore;
 
-    use burnchains::burnchain::*;
-    use burnchains::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use net::atlas::*;
-    use net::codec::*;
-    use net::db::*;
-    use net::test::*;
-    use net::*;
-    use util::log;
-    use util::sleep_ms;
-    use util::test::*;
-
-    use chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-
+    use crate::burnchains::burnchain::*;
+    use crate::burnchains::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochExtension;
+    use crate::net::atlas::*;
+    use crate::net::codec::*;
+    use crate::net::db::*;
+    use crate::net::test::*;
+    use crate::net::*;
     use crate::types::chainstate::BurnchainHeaderHash;
+    use crate::util_lib::test::*;
+    use clarity::vm::types::StacksAddressExtensions;
+    use stacks_common::util::log;
+    use stacks_common::util::sleep_ms;
+
+    use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+    use clarity::vm::MAX_CALL_STACK_DEPTH;
 
     use super::*;
 
@@ -5480,7 +5510,7 @@ mod test {
 
                     let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
 
-                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_new_sockets(&mut p2p_poll_state);
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
                     total_disconnected += p2p.disconnect_unresponsive();
 
@@ -5557,7 +5587,7 @@ mod test {
 
                     let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
 
-                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_new_sockets(&mut p2p_poll_state);
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
 
                     thread::sleep(time::Duration::from_millis(1000));
@@ -5651,7 +5681,7 @@ mod test {
 
                     let mut p2p_poll_state = poll_state.remove(&p2p.p2p_network_handle).unwrap();
 
-                    p2p.process_new_sockets(&mut p2p_poll_state).unwrap();
+                    p2p.process_new_sockets(&mut p2p_poll_state);
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
 
                     let mut banned = p2p.process_bans().unwrap();
@@ -6146,6 +6176,218 @@ mod test {
 
             for tx in peer_2_mempool_txs {
                 assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn test_mempool_sync_2_peers_blacklisted() {
+        with_timeout(600, || {
+            // peer 1 gets some transactions; peer 2 blacklists some of them;
+            // verify peer 2 gets only the non-blacklisted ones.
+            let mut peer_1_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2218, 2219);
+            let mut peer_2_config =
+                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2220, 2221);
+
+            peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
+            peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
+
+            peer_1_config.connection_opts.mempool_sync_interval = 1;
+            peer_2_config.connection_opts.mempool_sync_interval = 1;
+
+            let num_txs = 1024;
+            let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::new()).collect();
+            let addrs: Vec<_> = pks.iter().map(|pk| to_addr(pk)).collect();
+            let initial_balances: Vec<_> = addrs
+                .iter()
+                .map(|a| (a.to_account_principal(), 1000000000))
+                .collect();
+
+            peer_1_config.initial_balances = initial_balances.clone();
+            peer_2_config.initial_balances = initial_balances.clone();
+
+            let mut peer_1 = TestPeer::new(peer_1_config);
+            let mut peer_2 = TestPeer::new(peer_2_config);
+
+            let num_blocks = 10;
+            let first_stacks_block_height = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    &peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            for i in 0..num_blocks {
+                let (burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
+
+                peer_1.next_burnchain_block(burn_ops.clone());
+                peer_2.next_burnchain_block(burn_ops.clone());
+
+                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+                peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+            }
+
+            let addr = StacksAddress {
+                version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                bytes: Hash160([0xff; 20]),
+            };
+
+            // fill peer 1 with lots of transactions
+            let mut txs = HashMap::new();
+            let mut peer_1_mempool = peer_1.mempool.take().unwrap();
+            let mut mempool_tx = peer_1_mempool.tx_begin().unwrap();
+            let mut peer_2_blacklist = vec![];
+            for i in 0..num_txs {
+                let pk = &pks[i];
+                let mut tx = StacksTransaction {
+                    version: TransactionVersion::Testnet,
+                    chain_id: 0x80000000,
+                    auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+                    anchor_mode: TransactionAnchorMode::Any,
+                    post_condition_mode: TransactionPostConditionMode::Allow,
+                    post_conditions: vec![],
+                    payload: TransactionPayload::TokenTransfer(
+                        addr.to_account_principal(),
+                        123,
+                        TokenTransferMemo([0u8; 34]),
+                    ),
+                };
+                tx.set_tx_fee(1000);
+                tx.set_origin_nonce(0);
+
+                let mut tx_signer = StacksTransactionSigner::new(&tx);
+                tx_signer.sign_origin(&pk).unwrap();
+
+                let tx = tx_signer.get_tx().unwrap();
+
+                let txid = tx.txid();
+                let tx_bytes = tx.serialize_to_vec();
+                let origin_addr = tx.origin_address();
+                let origin_nonce = tx.get_origin_nonce();
+                let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+                let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+                let tx_fee = tx.get_tx_fee();
+
+                txs.insert(tx.txid(), tx.clone());
+
+                // should succeed
+                MemPoolDB::try_add_tx(
+                    &mut mempool_tx,
+                    peer_1.chainstate(),
+                    &ConsensusHash([0x1 + (num_blocks as u8); 20]),
+                    &BlockHeaderHash([0x2 + (num_blocks as u8); 32]),
+                    txid.clone(),
+                    tx_bytes,
+                    tx_fee,
+                    num_blocks,
+                    &origin_addr,
+                    origin_nonce,
+                    &sponsor_addr,
+                    sponsor_nonce,
+                    None,
+                )
+                .unwrap();
+
+                eprintln!("Added {} {}", i, &txid);
+
+                if i % 2 == 0 {
+                    // peer 2 blacklists even-numbered txs
+                    peer_2_blacklist.push(txid);
+                }
+            }
+            mempool_tx.commit().unwrap();
+            peer_1.mempool = Some(peer_1_mempool);
+
+            // peer 2 blacklists them all
+            let mut peer_2_mempool = peer_2.mempool.take().unwrap();
+
+            // blacklisted txs never time out
+            peer_2_mempool.blacklist_timeout = u64::MAX / 2;
+
+            let mempool_tx = peer_2_mempool.tx_begin().unwrap();
+            MemPoolDB::inner_blacklist_txs(&mempool_tx, &peer_2_blacklist, get_epoch_time_secs())
+                .unwrap();
+            mempool_tx.commit().unwrap();
+
+            peer_2.mempool = Some(peer_2_mempool);
+
+            let num_burn_blocks = {
+                let sn = SortitionDB::get_canonical_burn_chain_tip(
+                    peer_1.sortdb.as_ref().unwrap().conn(),
+                )
+                .unwrap();
+                sn.block_height + 1
+            };
+
+            let mut round = 0;
+            let mut peer_1_mempool_txs = 0;
+            let mut peer_2_mempool_txs = 0;
+
+            while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
+                if let Ok(mut result) = peer_1.step() {
+                    let lp = peer_1.network.local_peer.clone();
+                    peer_1
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                if let Ok(mut result) = peer_2.step() {
+                    let lp = peer_2.network.local_peer.clone();
+                    peer_2
+                        .with_db_state(|sortdb, chainstate, relayer, mempool| {
+                            relayer.process_network_result(
+                                &lp,
+                                &mut result,
+                                sortdb,
+                                chainstate,
+                                mempool,
+                                false,
+                                None,
+                                None,
+                            )
+                        })
+                        .unwrap();
+                }
+
+                round += 1;
+
+                let mp = peer_1.mempool.take().unwrap();
+                peer_1_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_1.mempool.replace(mp);
+
+                let mp = peer_2.mempool.take().unwrap();
+                peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap().len();
+                peer_2.mempool.replace(mp);
+
+                info!(
+                    "Peer 1: {}, Peer 2: {}",
+                    peer_1_mempool_txs, peer_2_mempool_txs
+                );
+            }
+
+            info!("Completed mempool sync in {} step(s)", round);
+
+            let mp = peer_2.mempool.take().unwrap();
+            let peer_2_mempool_txs = MemPoolDB::get_all_txs(mp.conn()).unwrap();
+            peer_2.mempool.replace(mp);
+
+            for tx in peer_2_mempool_txs {
+                assert_eq!(&tx.tx, txs.get(&tx.tx.txid()).unwrap());
+                assert!(!peer_2_blacklist.contains(&tx.tx.txid()));
             }
         });
     }

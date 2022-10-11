@@ -31,73 +31,72 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::blocks::CheckError;
+use crate::chainstate::stacks::db::{
+    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
+};
+use crate::chainstate::stacks::Error as chain_error;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::ClarityConnection;
 use crate::codec::StacksMessageCodec;
+use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
 use crate::cost_estimates::FeeEstimator;
+use crate::monitoring;
+use crate::net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
+use crate::net::connection::ConnectionHttp;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ReplyHandleHttp;
+use crate::net::db::PeerDB;
+use crate::net::http::*;
+use crate::net::p2p::PeerMap;
+use crate::net::p2p::PeerNetwork;
+use crate::net::relay::Relayer;
+use crate::net::BlocksDatum;
+use crate::net::Error as net_error;
+use crate::net::HttpRequestMetadata;
+use crate::net::HttpRequestType;
+use crate::net::HttpResponseMetadata;
+use crate::net::HttpResponseType;
+use crate::net::MemPoolSyncData;
+use crate::net::MicroblocksData;
+use crate::net::NeighborAddress;
+use crate::net::NeighborsData;
+use crate::net::PeerAddress;
+use crate::net::PeerHost;
+use crate::net::ProtocolFamily;
 use crate::net::RPCFeeEstimate;
 use crate::net::RPCFeeEstimateResponse;
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::*;
-use chainstate::burn::db::sortdb::SortitionDB;
-use chainstate::burn::ConsensusHash;
-use chainstate::stacks::db::blocks::CheckError;
-use chainstate::stacks::db::{
-    blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState, StreamCursor,
-};
-use chainstate::stacks::Error as chain_error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::ClarityConnection;
-use core::mempool::*;
-use monitoring;
-use net::atlas::{AtlasDB, Attachment, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use net::connection::ConnectionHttp;
-use net::connection::ConnectionOptions;
-use net::connection::ReplyHandleHttp;
-use net::db::PeerDB;
-use net::http::*;
-use net::p2p::PeerMap;
-use net::p2p::PeerNetwork;
-use net::relay::Relayer;
-use net::Error as net_error;
-use net::HttpRequestMetadata;
-use net::HttpRequestType;
-use net::HttpResponseMetadata;
-use net::HttpResponseType;
-use net::MemPoolSyncData;
-use net::MicroblocksData;
-use net::NeighborAddress;
-use net::NeighborsData;
-use net::PeerAddress;
-use net::PeerHost;
-use net::ProtocolFamily;
-use net::StacksHttp;
-use net::StacksHttpMessage;
-use net::StacksMessageType;
-use net::UnconfirmedTransactionResponse;
-use net::UnconfirmedTransactionStatus;
-use net::UrlString;
-use net::HTTP_REQUEST_ID_RESERVED;
-use net::MAX_HEADERS;
-use net::MAX_NEIGHBORS_DATA_LEN;
-use net::{
+use crate::net::StacksHttp;
+use crate::net::StacksHttpMessage;
+use crate::net::StacksMessageType;
+use crate::net::UnconfirmedTransactionResponse;
+use crate::net::UnconfirmedTransactionStatus;
+use crate::net::UrlString;
+use crate::net::HTTP_REQUEST_ID_RESERVED;
+use crate::net::MAX_HEADERS;
+use crate::net::MAX_NEIGHBORS_DATA_LEN;
+use crate::net::{
     AccountEntryResponse, AttachmentPage, CallReadOnlyResponse, ContractSrcResponse,
     DataVarResponse, GetAttachmentResponse, GetAttachmentsInvResponse, MapEntryResponse,
 };
-use net::{BlocksData, GetIsTraitImplementedResponse};
-use net::{ClientError, TipRequest};
-use net::{RPCNeighbor, RPCNeighborsInfo};
-use net::{RPCPeerInfoData, RPCPoxInfoData};
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_secs;
-use util::hash::Hash160;
-use util::hash::{hex_bytes, to_hex};
-use vm::database::clarity_store::make_contract_hash_key;
-use vm::types::TraitIdentifier;
-use vm::{
+use crate::net::{BlocksData, GetIsTraitImplementedResponse};
+use crate::net::{ClientError, TipRequest};
+use crate::net::{RPCNeighbor, RPCNeighborsInfo};
+use crate::net::{RPCPeerInfoData, RPCPoxInfoData};
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use clarity::vm::database::clarity_store::make_contract_hash_key;
+use clarity::vm::types::TraitIdentifier;
+use clarity::vm::{
     analysis::errors::CheckErrors,
+    ast::ASTRules,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
@@ -109,16 +108,22 @@ use vm::{
     types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData},
     ClarityName, ContractName, SymbolicExpression, Value,
 };
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
+use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::types::chainstate::BlockHeaderHash;
-use crate::types::chainstate::{
-    BurnchainHeaderHash, StacksAddress, StacksBlockHeader, StacksBlockId,
-};
+use stacks_common::types::chainstate::BlockHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::types::StacksPublicKeyBuffer;
+
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
 };
+
+use crate::util_lib::boot::boot_code_id;
 
 use super::{RPCPoxCurrentCycleInfo, RPCPoxNextCycleInfo};
 
@@ -147,6 +152,8 @@ pub struct ConversationHttp {
     last_request_timestamp: u64, // absolute timestamp of the last time we received at least 1 byte in a request
     last_response_timestamp: u64, // absolute timestamp of the last time we sent at least 1 byte in a response
     connection_time: u64,         // when this converation was instantiated
+
+    canonical_stacks_tip_height: Option<u64>, // chain tip height of the peer's Stacks blockchain
 
     // ongoing block streams
     reply_streams: VecDeque<(
@@ -223,6 +230,10 @@ impl RPCPeerInfoData {
             None => (None, None),
         };
 
+        let public_key = StacksPublicKey::from_private(&network.local_peer.private_key);
+        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
+
         RPCPeerInfoData {
             peer_version: network.burnchain.peer_version,
             pox_consensus: network.burnchain_tip.consensus_hash.clone(),
@@ -242,6 +253,8 @@ impl RPCPeerInfoData {
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height.cloned(),
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
+            node_public_key: Some(public_key_buf),
+            node_public_key_hash: Some(public_key_hash),
         }
     }
 }
@@ -254,7 +267,7 @@ impl RPCPoxInfoData {
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
-        let contract_identifier = util::boot::boot_code_id("pox", mainnet);
+        let contract_identifier = boot_code_id("pox", mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
@@ -387,7 +400,7 @@ impl RPCPoxInfoData {
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
 
         Ok(RPCPoxInfoData {
-            contract_id: util::boot::boot_code_id("pox", chainstate.mainnet).to_string(),
+            contract_id: boot_code_id("pox", chainstate.mainnet).to_string(),
             pox_activation_threshold_ustx,
             first_burnchain_block_height,
             prepare_phase_block_length: prepare_cycle_length,
@@ -498,6 +511,7 @@ impl ConversationHttp {
             peer_addr: peer_addr,
             outbound_url: outbound_url,
             peer_host: peer_host,
+            canonical_stacks_tip_height: None,
             pending_request: None,
             pending_response: None,
             pending_error_response: None,
@@ -615,8 +629,10 @@ impl ConversationHttp {
         network: &PeerNetwork,
         chainstate: &StacksChainState,
         handler_args: &RPCHandlerArgs,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let pi = RPCPeerInfoData::from_network(
             network,
             chainstate,
@@ -637,8 +653,10 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         match RPCPoxInfoData::from_db(sortdb, chainstate, tip, burnchain) {
             Ok(pi) => {
@@ -672,6 +690,7 @@ impl ConversationHttp {
         index_block_hash: &StacksBlockId,
         pages_indexes: &HashSet<u32>,
         _options: &ConnectionOptions,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         // We are receiving a list of page indexes with a chain tip hash.
         // The amount of pages_indexes is capped by MAX_ATTACHMENT_INV_PAGES_PER_REQUEST (8)
@@ -682,7 +701,8 @@ impl ConversationHttp {
         // we will be handling each page index separately.
         // We could also add the notion of "budget" so that a client could only get a limited number
         // of pages when they are spanning over many blocks.
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         if pages_indexes.len() > MAX_ATTACHMENT_INV_PAGES_PER_REQUEST {
             let msg = format!(
                 "Number of attachment inv pages is limited by {} per request",
@@ -737,8 +757,10 @@ impl ConversationHttp {
         req: &HttpRequestType,
         atlasdb: &mut AtlasDB,
         content_hash: Hash160,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         match atlasdb.find_attachment(&content_hash) {
             Ok(Some(attachment)) => {
                 let content = GetAttachmentResponse { attachment };
@@ -761,10 +783,12 @@ impl ConversationHttp {
         fd: &mut W,
         req: &HttpRequestType,
         network: &PeerNetwork,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
         let epoch = network.get_current_epoch();
 
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let neighbor_data = RPCNeighborsInfo::from_p2p(
             network.local_peer.network_id,
             epoch.network_epoch,
@@ -812,8 +836,10 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         quantity: u64,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StreamCursor>, net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         if quantity > (MAX_HEADERS as u64) {
             // bad request
             let response = HttpResponseType::BadRequestJSON(
@@ -861,9 +887,11 @@ impl ConversationHttp {
         req: &HttpRequestType,
         index_block_hash: &StacksBlockId,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_blocks_served_counter();
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         // do we have this block?
         match StacksChainState::has_block_indexed(&chainstate.blocks_path, index_block_hash) {
@@ -904,9 +932,11 @@ impl ConversationHttp {
         req: &HttpRequestType,
         index_anchor_block_hash: &StacksBlockId,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_confirmed_micro_blocks_served_counter();
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         match chainstate.has_processed_microblocks(index_anchor_block_hash) {
             Ok(true) => {}
@@ -1009,9 +1039,11 @@ impl ConversationHttp {
         req: &HttpRequestType,
         tail_index_microblock_hash: &StacksBlockId,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StreamCursor>, net_error> {
         monitoring::increment_stx_micro_blocks_served_counter();
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         // do we have this processed microblock stream?
         match StacksChainState::has_processed_microblocks_indexed(
@@ -1091,8 +1123,10 @@ impl ConversationHttp {
         http: &mut StacksHttp,
         fd: &mut W,
         req: &HttpRequestType,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         // todo -- need to actually estimate the cost / length for token transfers
         //   right now, it just uses the minimum.
@@ -1112,9 +1146,10 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         account: &PrincipalData,
         with_proof: bool,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
-
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
@@ -1123,7 +1158,7 @@ impl ConversationHttp {
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                     } else {
                         clarity_db
@@ -1136,7 +1171,7 @@ impl ConversationHttp {
                     let (nonce, nonce_proof) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (0, Some("".into())))
                     } else {
                         clarity_db
@@ -1184,8 +1219,10 @@ impl ConversationHttp {
         contract_name: &ContractName,
         var_name: &ClarityName,
         with_proof: bool,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1201,7 +1238,7 @@ impl ConversationHttp {
                     let (value, marf_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<Value>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))?
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
                         clarity_db.get::<Value>(&key).map(|a| (a, None))?
                     };
@@ -1236,8 +1273,10 @@ impl ConversationHttp {
         map_name: &ClarityName,
         key: &Value,
         with_proof: bool,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1252,7 +1291,7 @@ impl ConversationHttp {
                     let (value, marf_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<Value>(&key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
                                 (Value::none(), Some("".into()))
@@ -1295,8 +1334,10 @@ impl ConversationHttp {
         sender: &PrincipalData,
         args: &[Value],
         options: &ConnectionOptions,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1381,8 +1422,10 @@ impl ConversationHttp {
         contract_addr: &StacksAddress,
         contract_name: &ContractName,
         with_proof: bool,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1393,7 +1436,7 @@ impl ConversationHttp {
                     let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = if with_proof {
                         db.get_with_proof::<ContractCommitment>(&contract_commit_key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", &b.to_hex()))))
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .expect("BUG: obtained source, but couldn't get contract commit")
                     } else {
                         db.get::<ContractCommitment>(&contract_commit_key)
@@ -1433,8 +1476,10 @@ impl ConversationHttp {
         contract_addr: &StacksAddress,
         contract_name: &ContractName,
         trait_id: &TraitIdentifier,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1487,8 +1532,10 @@ impl ConversationHttp {
         tip: &StacksBlockId,
         contract_addr: &StacksAddress,
         contract_name: &ContractName,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
@@ -1524,8 +1571,10 @@ impl ConversationHttp {
         index_anchor_block_hash: &StacksBlockId,
         min_seq: u16,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StreamCursor>, net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         // do we have this unconfirmed microblock stream?
         match chainstate.has_any_staging_microblock_indexed(index_anchor_block_hash, min_seq) {
@@ -1609,8 +1658,10 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
         mempool: &MemPoolDB,
         txid: &Txid,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
 
         // present in the unconfirmed state?
         if let Some(ref unconfirmed) = chainstate.unconfirmed_state.as_ref() {
@@ -1673,6 +1724,7 @@ impl ConversationHttp {
         tip_req: &TipRequest,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<StacksBlockId>, net_error> {
         match tip_req {
             TipRequest::UseLatestUnconfirmedTip => {
@@ -1681,7 +1733,11 @@ impl ConversationHttp {
                         match unconfirmed_state.get_unconfirmed_state_if_exists() {
                             Ok(res) => res,
                             Err(msg) => {
-                                let response_metadata = HttpResponseMetadata::from(req);
+                                let response_metadata =
+                                    HttpResponseMetadata::from_http_request_type(
+                                        req,
+                                        Some(canonical_stacks_tip_height),
+                                    );
                                 let response = HttpResponseType::NotFound(response_metadata, msg);
                                 return response.send(http, fd).and_then(|_| Ok(None));
                             }
@@ -1699,7 +1755,10 @@ impl ConversationHttp {
                             &tip.anchored_block_hash,
                         ))),
                         None => {
-                            let response_metadata = HttpResponseMetadata::from(req);
+                            let response_metadata = HttpResponseMetadata::from_http_request_type(
+                                req,
+                                Some(canonical_stacks_tip_height),
+                            );
                             warn!("Failed to load Stacks chain tip");
                             let response = HttpResponseType::NotFound(
                                 response_metadata,
@@ -1717,7 +1776,10 @@ impl ConversationHttp {
                     &tip.anchored_block_hash,
                 ))),
                 None => {
-                    let response_metadata = HttpResponseMetadata::from(req);
+                    let response_metadata = HttpResponseMetadata::from_http_request_type(
+                        req,
+                        Some(canonical_stacks_tip_height),
+                    );
                     warn!("Failed to load Stacks chain tip");
                     let response = HttpResponseType::ServerError(
                         response_metadata,
@@ -1735,6 +1797,7 @@ impl ConversationHttp {
         req: &HttpRequestType,
         tip: StacksBlockId,
         chainstate: &StacksChainState,
+        canonical_stacks_tip_height: u64,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, net_error> {
         match chainstate.get_block_header_hashes(&tip)? {
             Some((ch, bl)) => {
@@ -1742,8 +1805,8 @@ impl ConversationHttp {
             }
             None => {}
         }
-
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         warn!("Failed to load Stacks chain tip");
         let response = HttpResponseType::ServerError(
             response_metadata,
@@ -1760,8 +1823,10 @@ impl ConversationHttp {
         sortdb: &SortitionDB,
         tx: &TransactionPayload,
         estimated_len: u64,
+        canonical_stacks_tip_height: u64,
     ) -> Result<(), net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let stacks_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), tip.block_height)?
                 .ok_or_else(|| {
@@ -1848,9 +1913,12 @@ impl ConversationHttp {
         atlasdb: &mut AtlasDB,
         attachment: Option<Attachment>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
+        canonical_stacks_tip_height: u64,
+        ast_rules: ASTRules,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let (response, accepted) = if mempool.has_tx(&txid) {
             debug!("Mempool already has POSTed transaction {}", &txid);
             (
@@ -1858,40 +1926,55 @@ impl ConversationHttp {
                 false,
             )
         } else {
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let stacks_epoch = sortdb
-                .index_conn()
-                .get_stacks_epoch(tip.block_height as u32)
-                .ok_or_else(|| {
-                    warn!(
-                        "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
-                        tip.block_height
-                    );
-                    net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
-                })?;
+            if Relayer::do_static_problematic_checks()
+                && !Relayer::static_check_problematic_relayed_tx(chainstate.mainnet, &tx, ast_rules)
+                    .is_ok()
+            {
+                debug!(
+                    "Transaction {} is problematic in rules {:?}; will not store or relay",
+                    &tx.txid(),
+                    ast_rules
+                );
+                (
+                    HttpResponseType::TransactionID(response_metadata, txid),
+                    false,
+                )
+            } else {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+                let stacks_epoch = sortdb
+                    .index_conn()
+                    .get_stacks_epoch(tip.block_height as u32)
+                    .ok_or_else(|| {
+                        warn!(
+                            "Failed to store transaction because could not load Stacks epoch for canonical burn height = {}",
+                            tip.block_height
+                        );
+                        net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
+                    })?;
 
-            match mempool.submit(
-                chainstate,
-                &consensus_hash,
-                &block_hash,
-                &tx,
-                event_observer,
-                &stacks_epoch.block_limit,
-                &stacks_epoch.epoch_id,
-            ) {
-                Ok(_) => {
-                    debug!("Mempool accepted POSTed transaction {}", &txid);
-                    (
-                        HttpResponseType::TransactionID(response_metadata, txid),
-                        true,
-                    )
-                }
-                Err(e) => {
-                    debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
-                    (
-                        HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                        false,
-                    )
+                match mempool.submit(
+                    chainstate,
+                    &consensus_hash,
+                    &block_hash,
+                    &tx,
+                    event_observer,
+                    &stacks_epoch.block_limit,
+                    &stacks_epoch.epoch_id,
+                ) {
+                    Ok(_) => {
+                        debug!("Mempool accepted POSTed transaction {}", &txid);
+                        (
+                            HttpResponseType::TransactionID(response_metadata, txid),
+                            true,
+                        )
+                    }
+                    Err(e) => {
+                        debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                        (
+                            HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
+                            false,
+                        )
+                    }
                 }
             }
         };
@@ -1921,8 +2004,10 @@ impl ConversationHttp {
         chainstate: &mut StacksChainState,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
+        canonical_stacks_tip_height: u64,
     ) -> Result<bool, net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         // is this a consensus hash we recognize?
         let (response, accepted) =
             match SortitionDB::get_sortition_id_by_consensus(&sortdb.conn(), consensus_hash) {
@@ -2025,7 +2110,6 @@ impl ConversationHttp {
                     )
                 }
             };
-
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
 
@@ -2039,11 +2123,54 @@ impl ConversationHttp {
         req: &HttpRequestType,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
+        sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         microblock: &StacksMicroblock,
+        canonical_stacks_tip_height: u64,
     ) -> Result<bool, net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
-        let (response, accepted) =
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
+
+        // make sure we can accept this
+        let ch_sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash) {
+            Ok(Some(sn)) => sn,
+            Ok(None) => {
+                let resp = HttpResponseType::NotFound(
+                    response_metadata,
+                    "No such consensus hash".to_string(),
+                );
+                return resp.send(http, fd).and_then(|_| Ok(false));
+            }
+            Err(e) => {
+                let resp = HttpResponseType::BadRequestJSON(
+                    response_metadata,
+                    chain_error::DBError(e).into_json(),
+                );
+                return resp.send(http, fd).and_then(|_| Ok(false));
+            }
+        };
+
+        let sort_handle = sortdb.index_handle(&ch_sn.sortition_id);
+        let parent_block_snapshot =
+            Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)?;
+        let ast_rules =
+            SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)?;
+
+        let (response, accepted) = if !Relayer::static_check_problematic_relayed_microblock(
+            chainstate.mainnet,
+            microblock,
+            ast_rules,
+        ) {
+            info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &block_hash);
+            (
+                // NOTE: txid is ignored in chainstate error .into_json()
+                HttpResponseType::BadRequestJSON(
+                    response_metadata,
+                    chain_error::ProblematicTransaction(Txid([0u8; 32])).into_json(),
+                ),
+                false,
+            )
+        } else {
             match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, microblock)
             {
                 Ok(accepted) => {
@@ -2075,7 +2202,8 @@ impl ConversationHttp {
                     HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
                     false,
                 ),
-            };
+            }
+        };
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
@@ -2089,9 +2217,11 @@ impl ConversationHttp {
         chainstate: &StacksChainState,
         query: MemPoolSyncData,
         max_txs: u64,
+        canonical_stacks_tip_height: u64,
         page_id: Option<Txid>,
     ) -> Result<StreamCursor, net_error> {
-        let response_metadata = HttpResponseMetadata::from(req);
+        let response_metadata =
+            HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
         let height = chainstate
             .get_stacks_chain_tip(sortdb)?
@@ -2136,6 +2266,7 @@ impl ConversationHttp {
                     network,
                     chainstate,
                     handler_opts,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2147,6 +2278,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_getpoxinfo(
                         &mut self.connection.protocol,
@@ -2156,6 +2288,7 @@ impl ConversationHttp {
                         chainstate,
                         &tip,
                         &network.burnchain,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2166,6 +2299,7 @@ impl ConversationHttp {
                     &mut reply,
                     &req,
                     network,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2177,6 +2311,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_getheaders(
                         &mut self.connection.protocol,
@@ -2185,6 +2320,7 @@ impl ConversationHttp {
                         &tip,
                         *quantity,
                         chainstate,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?
                 } else {
                     None
@@ -2197,6 +2333,7 @@ impl ConversationHttp {
                     &req,
                     index_block_hash,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksIndexed(ref _md, ref index_head_hash) => {
@@ -2206,6 +2343,7 @@ impl ConversationHttp {
                     &req,
                     index_head_hash,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksConfirmed(ref _md, ref anchor_index_block_hash) => {
@@ -2215,6 +2353,7 @@ impl ConversationHttp {
                     &req,
                     anchor_index_block_hash,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?
             }
             HttpRequestType::GetMicroblocksUnconfirmed(
@@ -2228,6 +2367,7 @@ impl ConversationHttp {
                 index_anchor_block_hash,
                 *min_seq,
                 chainstate,
+                network.burnchain_tip.canonical_stacks_tip_height,
             )?,
             HttpRequestType::GetTransactionUnconfirmed(ref _md, ref txid) => {
                 ConversationHttp::handle_gettransaction_unconfirmed(
@@ -2237,6 +2377,7 @@ impl ConversationHttp {
                     chainstate,
                     mempool,
                     txid,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2248,6 +2389,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_account_entry(
                         &mut self.connection.protocol,
@@ -2258,6 +2400,7 @@ impl ConversationHttp {
                         &tip,
                         principal,
                         *with_proof,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2277,6 +2420,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_data_var(
                         &mut self.connection.protocol,
@@ -2289,6 +2433,7 @@ impl ConversationHttp {
                         contract_name,
                         var_name,
                         *with_proof,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2309,6 +2454,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_map_entry(
                         &mut self.connection.protocol,
@@ -2322,6 +2468,7 @@ impl ConversationHttp {
                         map_name,
                         key,
                         *with_proof,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2331,6 +2478,7 @@ impl ConversationHttp {
                     &mut self.connection.protocol,
                     &mut reply,
                     &req,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2347,6 +2495,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_contract_abi(
                         &mut self.connection.protocol,
@@ -2357,6 +2506,7 @@ impl ConversationHttp {
                         &tip,
                         contract_addr,
                         contract_name,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2370,6 +2520,7 @@ impl ConversationHttp {
                     sortdb,
                     tx,
                     estimated_len,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2389,6 +2540,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_readonly_function_call(
                         &mut self.connection.protocol,
@@ -2403,6 +2555,7 @@ impl ConversationHttp {
                         as_sender,
                         args,
                         &self.connection.options,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2421,6 +2574,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_contract_src(
                         &mut self.connection.protocol,
@@ -2432,6 +2586,7 @@ impl ConversationHttp {
                         contract_addr,
                         contract_name,
                         *with_proof,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
@@ -2452,6 +2607,8 @@ impl ConversationHttp {
                             &mut network.atlasdb,
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
+                            network.burnchain_tip.canonical_stacks_tip_height,
+                            network.ast_rules,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2459,7 +2616,10 @@ impl ConversationHttp {
                         }
                     }
                     None => {
-                        let response_metadata = HttpResponseMetadata::from(&req);
+                        let response_metadata = HttpResponseMetadata::from_http_request_type(
+                            &req,
+                            Some(network.burnchain_tip.canonical_stacks_tip_height),
+                        );
                         warn!("Failed to load Stacks chain tip");
                         let response = HttpResponseType::ServerError(
                             response_metadata,
@@ -2477,6 +2637,7 @@ impl ConversationHttp {
                     &req,
                     &mut network.atlasdb,
                     content_hash.clone(),
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2493,6 +2654,7 @@ impl ConversationHttp {
                     &index_block_hash,
                     pages_indexes,
                     &self.connection.options,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 None
             }
@@ -2505,11 +2667,12 @@ impl ConversationHttp {
                     chainstate,
                     consensus_hash,
                     block,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )?;
                 if accepted {
                     // inform the peer network so it can announce its presence
                     ret = Some(StacksMessageType::Blocks(BlocksData {
-                        blocks: vec![(consensus_hash.clone(), block.clone())],
+                        blocks: vec![BlocksDatum(consensus_hash.clone(), block.clone())],
                     }));
                 }
                 None
@@ -2522,6 +2685,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     if let Some((consensus_hash, block_hash)) =
                         ConversationHttp::handle_load_stacks_chain_tip_hashes(
@@ -2530,6 +2694,7 @@ impl ConversationHttp {
                             &req,
                             tip,
                             chainstate,
+                            network.burnchain_tip.canonical_stacks_tip_height,
                         )?
                     {
                         let accepted = ConversationHttp::handle_post_microblock(
@@ -2538,8 +2703,10 @@ impl ConversationHttp {
                             &req,
                             &consensus_hash,
                             &block_hash,
+                            sortdb,
                             chainstate,
                             mblock,
+                            network.burnchain_tip.canonical_stacks_tip_height,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2565,11 +2732,15 @@ impl ConversationHttp {
                     chainstate,
                     query.clone(),
                     network.connection_opts.mempool_max_tx_query,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                     page_id_opt.clone(),
                 )?)
             }
             HttpRequestType::OptionsPreflight(ref _md, ref _path) => {
-                let response_metadata = HttpResponseMetadata::from(&req);
+                let response_metadata = HttpResponseMetadata::from_http_request_type(
+                    &req,
+                    Some(network.burnchain_tip.canonical_stacks_tip_height),
+                );
                 let response = HttpResponseType::OptionsPreflight(response_metadata);
                 response
                     .send(&mut self.connection.protocol, &mut reply)
@@ -2590,6 +2761,7 @@ impl ConversationHttp {
                     tip_req,
                     sortdb,
                     chainstate,
+                    network.burnchain_tip.canonical_stacks_tip_height,
                 )? {
                     ConversationHttp::handle_get_is_trait_implemented(
                         &mut self.connection.protocol,
@@ -2601,12 +2773,16 @@ impl ConversationHttp {
                         contract_addr,
                         contract_name,
                         trait_id,
+                        network.burnchain_tip.canonical_stacks_tip_height,
                     )?;
                 }
                 None
             }
             HttpRequestType::ClientError(ref _md, ref err) => {
-                let response_metadata = HttpResponseMetadata::from(&req);
+                let response_metadata = HttpResponseMetadata::from_http_request_type(
+                    &req,
+                    Some(network.burnchain_tip.canonical_stacks_tip_height),
+                );
                 let response = match err {
                     ClientError::Message(s) => HttpResponseType::BadRequestJSON(
                         response_metadata,
@@ -2912,6 +3088,14 @@ impl ConversationHttp {
                     // new request
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
+                    if req.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Request metadata: canonical stacks tip height is {:?}",
+                            &req.metadata().canonical_stacks_tip_height
+                        );
+                        self.canonical_stacks_tip_height =
+                            req.metadata().canonical_stacks_tip_height;
+                    }
                     let start_time = Instant::now();
                     let path = req.get_path();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
@@ -2927,6 +3111,14 @@ impl ConversationHttp {
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
+                    if resp.metadata().canonical_stacks_tip_height.is_some() {
+                        test_debug!(
+                            "Response metadata: canonical stacks tip height is {:?}",
+                            &resp.metadata().canonical_stacks_tip_height
+                        );
+                        self.canonical_stacks_tip_height =
+                            resp.metadata().canonical_stacks_tip_height;
+                    }
                     match self
                         .connection
                         .fulfill_request(StacksHttpMessage::Response(resp))
@@ -3006,27 +3198,30 @@ impl ConversationHttp {
     }
 
     /// Make a new getinfo request to this endpoint
-    pub fn new_getinfo(&self) -> HttpRequestType {
-        HttpRequestType::GetInfo(HttpRequestMetadata::from_host(self.peer_host.clone()))
+    pub fn new_getinfo(&self, stacks_height: Option<u64>) -> HttpRequestType {
+        HttpRequestType::GetInfo(HttpRequestMetadata::from_host(
+            self.peer_host.clone(),
+            stacks_height,
+        ))
     }
 
     /// Make a new getinfo request to this endpoint
     pub fn new_getpoxinfo(&self, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetPoxInfo(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             tip_req,
         )
     }
 
     /// Make a new getneighbors request to this endpoint
     pub fn new_getneighbors(&self) -> HttpRequestType {
-        HttpRequestType::GetNeighbors(HttpRequestMetadata::from_host(self.peer_host.clone()))
+        HttpRequestType::GetNeighbors(HttpRequestMetadata::from_host(self.peer_host.clone(), None))
     }
 
     /// Make a new getheaders request to this endpoint
     pub fn new_getheaders(&self, quantity: u64, tip_req: TipRequest) -> HttpRequestType {
         HttpRequestType::GetHeaders(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             quantity,
             tip_req,
         )
@@ -3035,7 +3230,7 @@ impl ConversationHttp {
     /// Make a new getblock request to this endpoint
     pub fn new_getblock(&self, index_block_hash: StacksBlockId) -> HttpRequestType {
         HttpRequestType::GetBlock(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             index_block_hash,
         )
     }
@@ -3046,7 +3241,7 @@ impl ConversationHttp {
         index_microblock_hash: StacksBlockId,
     ) -> HttpRequestType {
         HttpRequestType::GetMicroblocksIndexed(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             index_microblock_hash,
         )
     }
@@ -3057,7 +3252,7 @@ impl ConversationHttp {
         index_anchor_block_hash: StacksBlockId,
     ) -> HttpRequestType {
         HttpRequestType::GetMicroblocksConfirmed(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             index_anchor_block_hash,
         )
     }
@@ -3069,7 +3264,7 @@ impl ConversationHttp {
         min_seq: u16,
     ) -> HttpRequestType {
         HttpRequestType::GetMicroblocksUnconfirmed(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             anchored_index_block_hash,
             min_seq,
         )
@@ -3078,7 +3273,7 @@ impl ConversationHttp {
     /// Make a new get-unconfirmed-tx request
     pub fn new_gettransaction_unconfirmed(&self, txid: Txid) -> HttpRequestType {
         HttpRequestType::GetTransactionUnconfirmed(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             txid,
         )
     }
@@ -3086,7 +3281,7 @@ impl ConversationHttp {
     /// Make a new post-transaction request
     pub fn new_post_transaction(&self, tx: StacksTransaction) -> HttpRequestType {
         HttpRequestType::PostTransaction(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             tx,
             None,
         )
@@ -3095,7 +3290,7 @@ impl ConversationHttp {
     /// Make a new post-block request
     pub fn new_post_block(&self, ch: ConsensusHash, block: StacksBlock) -> HttpRequestType {
         HttpRequestType::PostBlock(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             ch,
             block,
         )
@@ -3108,7 +3303,7 @@ impl ConversationHttp {
         tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::PostMicroblock(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             mblock,
             tip_req,
         )
@@ -3122,7 +3317,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetAccount(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             principal,
             tip_req,
             with_proof,
@@ -3139,7 +3334,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetDataVar(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             contract_addr,
             contract_name,
             var_name,
@@ -3159,7 +3354,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetMapEntry(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             contract_addr,
             contract_name,
             map_name,
@@ -3178,7 +3373,7 @@ impl ConversationHttp {
         with_proof: bool,
     ) -> HttpRequestType {
         HttpRequestType::GetContractSrc(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             contract_addr,
             contract_name,
             tip_req,
@@ -3194,7 +3389,7 @@ impl ConversationHttp {
         tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::GetContractABI(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             contract_addr,
             contract_name,
             tip_req,
@@ -3212,7 +3407,7 @@ impl ConversationHttp {
         tip_req: TipRequest,
     ) -> HttpRequestType {
         HttpRequestType::CallReadOnlyFunction(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             contract_addr,
             contract_name,
             sender,
@@ -3229,7 +3424,7 @@ impl ConversationHttp {
         pages_indexes: HashSet<u32>,
     ) -> HttpRequestType {
         HttpRequestType::GetAttachmentsInv(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             index_block_hash,
             pages_indexes,
         )
@@ -3242,7 +3437,7 @@ impl ConversationHttp {
         page_id_opt: Option<Txid>,
     ) -> HttpRequestType {
         HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(self.peer_host.clone()),
+            HttpRequestMetadata::from_host(self.peer_host.clone(), None),
             query,
             page_id_opt,
         )
@@ -3255,32 +3450,32 @@ mod test {
     use std::convert::TryInto;
     use std::iter::FromIterator;
 
-    use address::*;
-    use burnchains::Burnchain;
-    use burnchains::BurnchainView;
-    use burnchains::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::stacks::db::blocks::test::*;
-    use chainstate::stacks::db::StacksChainState;
-    use chainstate::stacks::db::StreamCursor;
-    use chainstate::stacks::miner::*;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::Error as chain_error;
-    use chainstate::stacks::*;
-    use net::codec::*;
-    use net::http::*;
-    use net::test::*;
-    use net::*;
-    use util::get_epoch_time_secs;
-    use util::hash::hex_bytes;
-    use util::pipe::*;
-    use vm::types::*;
+    use crate::burnchains::Burnchain;
+    use crate::burnchains::BurnchainView;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::stacks::db::blocks::test::*;
+    use crate::chainstate::stacks::db::StacksChainState;
+    use crate::chainstate::stacks::db::StreamCursor;
+    use crate::chainstate::stacks::miner::*;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::Error as chain_error;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::*;
+    use crate::net::http::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use clarity::vm::types::*;
+    use stacks_common::address::*;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::pipe::*;
 
+    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
     use crate::types::chainstate::BlockHeaderHash;
     use crate::types::chainstate::BurnchainHeaderHash;
-    use chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
-    use core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
+    use crate::core::mempool::{BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS};
 
     use super::*;
 
@@ -3368,7 +3563,14 @@ mod test {
             &mut TestPeer,
             &mut ConversationHttp,
         ) -> HttpRequestType,
-        C: FnOnce(&HttpRequestType, &HttpResponseType, &mut TestPeer, &mut TestPeer) -> bool,
+        C: FnOnce(
+            &HttpRequestType,
+            &HttpResponseType,
+            &mut TestPeer,
+            &mut TestPeer,
+            &ConversationHttp,
+            &ConversationHttp,
+        ) -> bool,
     {
         let mut peer_1_config = TestPeerConfig::new(test_name, peer_1_p2p, peer_1_http);
         let mut peer_2_config = TestPeerConfig::new(test_name, peer_2_p2p, peer_2_http);
@@ -3688,6 +3890,24 @@ mod test {
         mempool_tx.commit().unwrap();
         peer_2.mempool.replace(mempool);
 
+        let peer_1_sortdb = peer_1.sortdb.take().unwrap();
+        let peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
+        peer_1.sortdb = Some(peer_1_sortdb);
+        peer_1.stacks_node = Some(peer_1_stacks_node);
+
+        let peer_2_sortdb = peer_2.sortdb.take().unwrap();
+        let peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+        peer_2.sortdb = Some(peer_2_sortdb);
+        peer_2.stacks_node = Some(peer_2_stacks_node);
+
         let view_1 = peer_1.get_burnchain_view().unwrap();
         let view_2 = peer_2.get_burnchain_view().unwrap();
 
@@ -3756,6 +3976,11 @@ mod test {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
+        let _ = peer_2
+            .network
+            .refresh_burnchain_view(&peer_2_sortdb, &peer_2_stacks_node.chainstate, false)
+            .unwrap();
+
         Relayer::setup_unconfirmed_state(&mut peer_2_stacks_node.chainstate, &peer_2_sortdb)
             .unwrap();
 
@@ -3799,6 +4024,11 @@ mod test {
         let mut peer_1_sortdb = peer_1.sortdb.take().unwrap();
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
 
+        let _ = peer_1
+            .network
+            .refresh_burnchain_view(&peer_1_sortdb, &peer_1_stacks_node.chainstate, false)
+            .unwrap();
+
         Relayer::setup_unconfirmed_state(&mut peer_1_stacks_node.chainstate, &peer_1_sortdb)
             .unwrap();
 
@@ -3825,13 +4055,25 @@ mod test {
         assert!(resp_opt.is_some());
 
         let resp = resp_opt.unwrap();
-        assert!(check_result(&req, &resp, &mut peer_1, &mut peer_2));
+        assert!(check_result(
+            &req,
+            &resp,
+            &mut peer_1,
+            &mut peer_2,
+            &convo_1,
+            &convo_2
+        ));
     }
 
+    /// This test tests two things:
+    /// (1) the get info RPC call
+    /// (2) whether the ConversationHttp object gets correctly updated with a peer's canonical
+    /// stacks tip height, which is sent in HTTP headers as part of the request/response
     #[test]
     #[ignore]
     fn test_rpc_getinfo() {
         let peer_server_info = RefCell::new(None);
+        let client_stacks_height = 17;
         test_rpc(
             "test_rpc_getinfo",
             40000,
@@ -3852,13 +4094,36 @@ mod test {
 
                 *peer_server_info.borrow_mut() = Some(peer_info);
 
-                convo_client.new_getinfo()
+                convo_client.new_getinfo(Some(client_stacks_height))
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
+                assert_eq!(convo_client.canonical_stacks_tip_height, Some(1));
+                assert_eq!(
+                    convo_server.canonical_stacks_tip_height,
+                    Some(client_stacks_height)
+                );
                 match http_response {
                     HttpResponseType::PeerInfo(response_md, peer_data) => {
                         assert_eq!(Some((*peer_data).clone()), *peer_server_info.borrow());
+                        assert!(peer_data.node_public_key.is_some());
+                        assert!(peer_data.node_public_key_hash.is_some());
+                        assert_eq!(
+                            peer_data.node_public_key_hash,
+                            Some(Hash160::from_node_public_key(
+                                &peer_data
+                                    .node_public_key
+                                    .clone()
+                                    .unwrap()
+                                    .to_public_key()
+                                    .unwrap()
+                            ))
+                        );
                         true
                     }
                     _ => {
@@ -3907,7 +4172,12 @@ mod test {
                 *pox_server_info.borrow_mut() = Some(pox_info);
                 convo_client.new_getpoxinfo(TipRequest::UseLatestAnchoredTip)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             convo_client,
+             convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::PoxInfo(response_md, pox_data) => {
@@ -3959,7 +4229,12 @@ mod test {
                 *pox_server_info.borrow_mut() = Some(pox_info);
                 convo_client.new_getpoxinfo(TipRequest::UseLatestUnconfirmedTip)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::PoxInfo(response_md, pox_data) => {
@@ -3989,7 +4264,12 @@ mod test {
              ref mut convo_client,
              ref mut peer_server,
              ref mut convo_server| { convo_client.new_getneighbors() },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::Neighbors(response_md, neighbor_info) => {
@@ -4070,7 +4350,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getheaders(25, TipRequest::SpecificTip(tip))
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::Headers(response_md, headers) => {
@@ -4133,7 +4418,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getblock(index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::Block(response_md, block_info) => {
@@ -4197,7 +4487,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getblock(index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::Block(response_md, block_info) => {
@@ -4311,7 +4606,12 @@ mod test {
 
                 convo_client.new_getmicroblocks_indexed(index_microblock_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match (*http_response).clone() {
                     HttpResponseType::Microblocks(_, mut microblocks) => {
@@ -4420,7 +4720,12 @@ mod test {
 
                 convo_client.new_getmicroblocks_confirmed(child_index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match (*http_response).clone() {
                     HttpResponseType::Microblocks(_, mut microblocks) => {
@@ -4481,7 +4786,12 @@ mod test {
                 // start at seq 5
                 convo_client.new_getmicroblocks_unconfirmed(index_block_hash, 5)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::Microblocks(response_md, microblocks) => {
@@ -4550,7 +4860,12 @@ mod test {
 
                 convo_client.new_gettransaction_unconfirmed(txid)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::UnconfirmedTransaction(response_md, unconfirmed_resp) => {
@@ -4601,7 +4916,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getblock(index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(response_md, msg) => true,
@@ -4638,7 +4958,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getmicroblocks_indexed(index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(response_md, msg) => true,
@@ -4675,7 +5000,12 @@ mod test {
                 // now ask for it
                 convo_client.new_getmicroblocks_confirmed(index_block_hash)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(response_md, msg) => true,
@@ -4731,7 +5061,12 @@ mod test {
                 // start at seq 16 (which doesn't exist)
                 convo_client.new_getmicroblocks_unconfirmed(index_block_hash, 16)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(response_md, msg) => true,
@@ -4771,7 +5106,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
@@ -4814,7 +5154,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(_, error_str) => {
@@ -4863,7 +5208,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
@@ -4905,7 +5255,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractSrc(response_md, data) => {
@@ -4943,7 +5298,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetAccount(response_md, data) => {
@@ -4986,7 +5346,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetAccount(response_md, data) => {
@@ -5030,7 +5395,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetAccount(response_md, data) => {
@@ -5077,7 +5447,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetAccount(response_md, data) => {
@@ -5118,7 +5493,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetDataVar(response_md, data) => {
@@ -5167,7 +5547,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetDataVar(response_md, data) => {
@@ -5209,7 +5594,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(_, msg) => {
@@ -5259,7 +5649,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetMapEntry(response_md, data) => {
@@ -5323,7 +5718,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetMapEntry(response_md, data) => {
@@ -5377,7 +5777,12 @@ mod test {
                     false,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetMapEntry(response_md, data) => {
@@ -5424,7 +5829,12 @@ mod test {
                     TipRequest::UseLatestAnchoredTip,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::NotFound(..) => {
@@ -5471,7 +5881,12 @@ mod test {
                     TipRequest::SpecificTip(unconfirmed_tip),
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractABI(response_md, data) => true,
@@ -5505,7 +5920,12 @@ mod test {
                     TipRequest::UseLatestAnchoredTip,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::GetContractABI(response_md, data) => true,
@@ -5547,7 +5967,12 @@ mod test {
                     TipRequest::UseLatestAnchoredTip,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::CallReadOnlyFunction(response_md, data) => {
@@ -5595,7 +6020,12 @@ mod test {
                     TipRequest::UseLatestAnchoredTip,
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::CallReadOnlyFunction(response_md, data) => {
@@ -5650,7 +6080,12 @@ mod test {
                     TipRequest::SpecificTip(unconfirmed_tip),
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 match http_response {
                     HttpResponseType::CallReadOnlyFunction(response_md, data) => {
@@ -5689,7 +6124,12 @@ mod test {
                 let pages_indexes = HashSet::from_iter(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
                 convo_client.new_getattachmentsinv(StacksBlockId([0x00; 32]), pages_indexes)
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
@@ -5725,7 +6165,12 @@ mod test {
                     Some(Txid([0u8; 32])),
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
@@ -5764,7 +6209,12 @@ mod test {
                     Some(Txid([0u8; 32])),
                 )
             },
-            |ref http_request, ref http_response, ref mut peer_client, ref mut peer_server| {
+            |ref http_request,
+             ref http_response,
+             ref mut peer_client,
+             ref mut peer_server,
+             ref convo_client,
+             ref convo_server| {
                 let req_md = http_request.metadata().clone();
                 println!("{:?}", http_response);
                 match http_response {
@@ -5777,5 +6227,23 @@ mod test {
                 }
             },
         );
+    }
+
+    #[test]
+    fn test_getinfo_compat() {
+        let old_getinfo_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null}"#;
+        let getinfo_no_pubkey_hash_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d"}"#;
+        let getinfo_no_pubkey_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+        let getinfo_full_json = r#"{"peer_version":402653189,"pox_consensus":"b712eb731b613eebae814a8f416c5c15bc8391ec","burn_block_height":727631,"stable_pox_consensus":"53b5ed79842080500d7d83daa36aa1069dedf983","stable_burn_block_height":727624,"server_version":"stacks-node 0.0.1 (feat/faster-inv-generation:68f33190a, release build, linux [x86_64])","network_id":1,"parent_network_id":3652501241,"stacks_tip_height":52537,"stacks_tip":"b3183f2ac588e12319ff0fde78f97e62c92a218d87828c35710c29aaf7adbedc","stacks_tip_consensus_hash":"b712eb731b613eebae814a8f416c5c15bc8391ec","genesis_chainstate_hash":"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b","unanchored_tip":"e76f68d607480e9984b4062b2691fb60a88423177898f5780b40ace17ae8982a","unanchored_seq":0,"exit_at_block_height":null,"node_public_key":"029b27d345e7bd2a6627262cefe6e97d9bc482f41ec32ec76a7bec391bb441798d","node_public_key_hash":"046e6f832a83ff0da4a550907d3a44412cc1e4bf"}"#;
+
+        // they all parse
+        for json_obj in &[
+            &old_getinfo_json,
+            &getinfo_no_pubkey_json,
+            &getinfo_no_pubkey_hash_json,
+            &getinfo_full_json,
+        ] {
+            let _v: RPCPeerInfoData = serde_json::from_str(json_obj).unwrap();
+        }
     }
 }
