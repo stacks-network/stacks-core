@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
 use crate::types::StacksEpochId;
+use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
@@ -76,7 +77,8 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = vm::ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        let parsed = build_ast_with_rules(&contract_id, program, &mut (), ASTRules::PrecheckSize)?
+            .expressions;
         vm::eval_all(&parsed, &mut contract_context, g)
     })
 }

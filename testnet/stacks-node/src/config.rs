@@ -573,6 +573,7 @@ impl Config {
                         Some(epochs) => Some(epochs),
                         None => default_burnchain_config.epochs,
                     },
+                    ast_precheck_size_height: burnchain.ast_precheck_size_height,
                 }
             }
             None => default_burnchain_config,
@@ -1027,6 +1028,7 @@ pub struct BurnchainConfig {
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
+    pub ast_precheck_size_height: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1055,6 +1057,7 @@ impl BurnchainConfig {
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
+            ast_precheck_size_height: None,
         }
     }
 
@@ -1109,6 +1112,7 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpoch>>,
+    pub ast_precheck_size_height: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

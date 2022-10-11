@@ -54,6 +54,7 @@ fn test_at_unknown_block() {
             .initialize_contract(
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
+                clarity::vm::ast::ASTRules::PrecheckSize,
             )
             .unwrap_err();
         eprintln!("{}", err);

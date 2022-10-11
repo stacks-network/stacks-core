@@ -1816,6 +1816,7 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
+    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
@@ -1894,6 +1895,10 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+
+        fn get_ast_rules(&self, height: u32) -> ASTRules {
+            ASTRules::PrecheckSize
         }
     }
 
@@ -2042,11 +2047,19 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    &token_contract_content,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;
