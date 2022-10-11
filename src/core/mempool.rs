@@ -2389,8 +2389,11 @@ impl TransactionPageCursor<'_> {
             &self.base_query,
             &[&self.page_size, &self.current_offset],
         );
-        let read_next_elapsed = read_next_start.elapsed();
-        info!("read_next_elapsed {:?}, page_size {}, current_offset {}", read_next_elapsed, self.page_size, self.current_offset);
+        let read_next_elapsed_us = read_next_start.elapsed().as_micros();
+        info!(
+            "read_next_elapsed_us {:?}, page_size {}, current_offset {}",
+            read_next_elapsed_us, self.page_size, self.current_offset
+        );
         match result {
             Ok(mut transaction_vector) => {
                 // reverse so we can `pop()` results in O(1) time
