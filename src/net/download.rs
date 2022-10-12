@@ -2572,8 +2572,10 @@ pub mod test {
 
     use rand::Rng;
 
+    use crate::burnchains::tests::TestMiner;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
+    use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
@@ -2584,10 +2586,13 @@ pub mod test {
     use crate::net::*;
     use crate::util_lib::strings::*;
     use crate::util_lib::test::*;
+    use clarity::vm::clarity::ClarityConnection;
     use clarity::vm::costs::ExecutionCost;
+    use clarity::vm::execute;
     use clarity::vm::representations::*;
     use stacks_common::util::hash::*;
     use stacks_common::util::sleep_ms;
+    use stacks_common::util::vrf::VRFProof;
 
     use super::*;
 
@@ -3102,6 +3107,261 @@ pub mod test {
                     for _ in 0..num_blocks {
                         let (mut burn_ops, stacks_block, microblocks) =
                             peers[1].make_default_tenure();
+
+                        let (_, burn_header_hash, consensus_hash) =
+                            peers[1].next_burnchain_block(burn_ops.clone());
+                        peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+
+                        peers[0].next_burnchain_block_raw(burn_ops);
+
+                        let sn = SortitionDB::get_canonical_burn_chain_tip(
+                            &peers[1].sortdb.as_ref().unwrap().conn(),
+                        )
+                        .unwrap();
+                        block_data.push((
+                            sn.consensus_hash.clone(),
+                            Some(stacks_block),
+                            Some(microblocks),
+                        ));
+                    }
+                    block_data
+                },
+                |_| {},
+                |peer| {
+                    // check peer health
+                    // nothing should break
+                    match peer.network.block_downloader {
+                        Some(ref dl) => {
+                            assert_eq!(dl.broken_peers.len(), 0);
+                            assert_eq!(dl.dead_peers.len(), 0);
+                        }
+                        None => {}
+                    }
+
+                    // no block advertisements (should be disabled)
+                    let _ = peer.for_each_convo_p2p(|event_id, convo| {
+                        let cnt = *(convo
+                            .stats
+                            .msg_rx_counts
+                            .get(&StacksMessageID::BlocksAvailable)
+                            .unwrap_or(&0));
+                        assert_eq!(
+                            cnt, 0,
+                            "neighbor event={} got {} BlocksAvailable messages",
+                            event_id, cnt
+                        );
+                        Ok(())
+                    });
+
+                    true
+                },
+                |_| true,
+            );
+        })
+    }
+
+    fn make_contract_call_transaction(
+        miner: &mut TestMiner,
+        sortdb: &mut SortitionDB,
+        chainstate: &mut StacksChainState,
+        spending_account: &mut TestMiner,
+        contract_address: StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        args: Vec<Value>,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+    ) -> StacksTransaction {
+        let tx_cc = {
+            let mut tx_cc = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                spending_account.as_transaction_auth().unwrap().into(),
+                TransactionPayload::new_contract_call(
+                    contract_address,
+                    contract_name,
+                    function_name,
+                    args,
+                )
+                .unwrap(),
+            );
+
+            let chain_tip = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
+            let cur_nonce = chainstate
+                .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
+                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                        clarity_db
+                            .get_account_nonce(&spending_account.origin_address().unwrap().into())
+                    })
+                })
+                .unwrap();
+
+            test_debug!(
+                "Nonce of {:?} is {} at {}/{}",
+                &spending_account.origin_address().unwrap(),
+                cur_nonce,
+                consensus_hash,
+                block_hash
+            );
+
+            tx_cc.chain_id = 0x80000000;
+            tx_cc.auth.set_origin_nonce(cur_nonce);
+            tx_cc.set_tx_fee(MINIMUM_TX_FEE_RATE_PER_BYTE * 500);
+
+            let mut tx_signer = StacksTransactionSigner::new(&tx_cc);
+            spending_account.sign_as_origin(&mut tx_signer);
+
+            let tx_cc_signed = tx_signer.get_tx().unwrap();
+
+            test_debug!(
+                "make transaction {:?} off of {:?}/{:?}: {:?}",
+                &tx_cc_signed.txid(),
+                consensus_hash,
+                block_hash,
+                &tx_cc_signed
+            );
+
+            spending_account.set_nonce(cur_nonce + 1);
+            tx_cc_signed
+        };
+
+        tx_cc
+    }
+
+    #[test]
+    #[ignore]
+    pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
+        // 20 reward cycles
+        with_timeout(600, || {
+            run_get_blocks_and_microblocks(
+                "test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks",
+                32100,
+                2,
+                |ref mut peer_configs| {
+                    // build initial network topology
+                    assert_eq!(peer_configs.len(), 2);
+
+                    peer_configs[0].connection_opts.disable_block_advertisement = true;
+                    peer_configs[1].connection_opts.disable_block_advertisement = true;
+
+                    let peer_0 = peer_configs[0].to_neighbor();
+                    let peer_1 = peer_configs[1].to_neighbor();
+                    peer_configs[0].add_neighbor(&peer_1);
+                    peer_configs[1].add_neighbor(&peer_0);
+
+                    // peer[1] has a big initial balance
+                    let initial_balances = vec![(
+                        PrincipalData::from(
+                            peer_configs[1].spending_account.origin_address().unwrap(),
+                        ),
+                        1_000_000_000_000_000,
+                    )];
+
+                    peer_configs[0].initial_balances = initial_balances.clone();
+                    peer_configs[1].initial_balances = initial_balances;
+                },
+                |num_blocks, ref mut peers| {
+                    // build up block data to replicate
+                    let mut block_data = vec![];
+                    let spending_account = &mut peers[1].config.spending_account.clone();
+
+                    // function to make a tenure in which a the peer's miner stacks its STX
+                    let mut make_stacking_tenure = |miner: &mut TestMiner,
+                                                    sortdb: &mut SortitionDB,
+                                                    chainstate: &mut StacksChainState,
+                                                    vrfproof: VRFProof,
+                                                    parent_opt: Option<&StacksBlock>,
+                                                    microblock_parent_opt: Option<
+                        &StacksMicroblockHeader,
+                    >| {
+                        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                        let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                        let parent_tip = match stacks_tip_opt {
+                            None => {
+                                StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                            }
+                            Some(staging_block) => {
+                                let ic = sortdb.index_conn();
+                                let snapshot =
+                                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                        &ic,
+                                        &tip.sortition_id,
+                                        &staging_block.anchored_block_hash,
+                                    )
+                                    .unwrap()
+                                    .unwrap(); // succeeds because we don't fork
+                                StacksChainState::get_anchored_block_header_info(
+                                    chainstate.db(),
+                                    &snapshot.consensus_hash,
+                                    &snapshot.winning_stacks_block_hash,
+                                )
+                                .unwrap()
+                                .unwrap()
+                            }
+                        };
+
+                        let parent_header_hash = parent_tip.anchored_header.block_hash();
+                        let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                        let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                        );
+
+                        let coinbase_tx = make_coinbase_with_nonce(
+                            miner,
+                            parent_tip.stacks_block_height as usize,
+                            miner.get_nonce(),
+                            None,
+                        );
+
+                        let stack_tx = make_contract_call_transaction(
+                                miner,
+                                sortdb,
+                                chainstate,
+                                spending_account,
+                                StacksAddress::burn_address(false),
+                                "pox",
+                                "stack-stx",
+                                vec![
+                                    Value::UInt(1_000_000_000_000_000 / 2),
+                                    execute("{ version: 0x00, hashbytes: 0x1000000010000000100000010000000100000001 }").unwrap().unwrap(),
+                                    Value::UInt((tip.block_height + 1) as u128),
+                                    Value::UInt(12)
+                                ],
+                                &parent_consensus_hash,
+                                &parent_header_hash
+                            );
+                        let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                        mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                        let builder = StacksBlockBuilder::make_block_builder(
+                            chainstate.mainnet,
+                            &parent_tip,
+                            vrfproof,
+                            tip.total_burn,
+                            Hash160(mblock_pubkey_hash_bytes),
+                        )
+                        .unwrap();
+
+                        let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                            builder,
+                            chainstate,
+                            &sortdb.index_conn(),
+                            vec![coinbase_tx, stack_tx],
+                        )
+                        .unwrap();
+
+                        (anchored_block.0, vec![])
+                    };
+
+                    for i in 0..50 {
+                        let (mut burn_ops, stacks_block, microblocks) = if i == 1 {
+                            peers[1].make_tenure(&mut make_stacking_tenure)
+                        } else {
+                            peers[1].make_default_tenure()
+                        };
 
                         let (_, burn_header_hash, consensus_hash) =
                             peers[1].next_burnchain_block(burn_ops.clone());
