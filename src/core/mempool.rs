@@ -2367,10 +2367,15 @@ impl MemPoolDB {
 
 /// Supports iteration in one query of the form of `base_query`, creating pages of size `page_size`.
 struct TransactionPageCursor<'a> {
+    /// Stored reference to an open db connection.
     connection: &'a Connection,
+    /// Query with LIMIT and OFFSET arguments.
     base_query: String,
+    /// Number of transactions to read at once.
     page_size: i64,
+    /// Offset in the db at which to start reading next examples.
     current_offset: i64,
+    /// The rest of the examples on this page. Length is at most `page_size`.
     current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
@@ -2440,13 +2445,21 @@ impl<'a> Iterator for TransactionPageCursor<'a> {
 /// Mixes two iterators together, roughly choosing an item `null_iterator` `null_fraction` of the time,
 /// and from `fee_iterator` the rest of the time. See comment on `next()` for more details.
 struct IteratorMixer<'a> {
+    /// Iterator over fee rate not-null transactions.
     fee_iterator: TransactionPageCursor<'a>,
+    /// Iterator over fee rate is-null transactions.
     null_iterator: TransactionPageCursor<'a>,
+    /// On-deck example for fee not-null transactions.
     fee_cursor: Option<MemPoolTxMinimalInfo>,
+    /// On-deck example for fee not-null transactions.
     null_cursor: Option<MemPoolTxMinimalInfo>,
+    /// Fraction (in [0, 1.0]) of the time to pick a fee is-null transaction.
     null_fraction: f64,
+    /// Number of fee not-null transactions included.
     fee_included: u64,
+    /// Number of fee is-null transactions included.
     null_included: u64,
+    /// Stored random number generator.
     rng: ThreadRng,
 }
 
