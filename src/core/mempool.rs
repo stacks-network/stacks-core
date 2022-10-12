@@ -823,11 +823,14 @@ impl CandidateCache {
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
         if self.size < Self::MAX_SIZE {
             self.next.push_back(tx);
+            self.size += 1;
         }
     }
 
     fn reset(&mut self) {
+        self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
+        self.size = 0;
     }
 }
 
