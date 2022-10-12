@@ -1216,10 +1216,10 @@ impl MemPoolDB {
     ///
     /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
     /// percent of the time
-    fn get_transaction_list_to_process<'a>(
-        conn: &'a DBConn,
+    fn get_transaction_list_to_process(
+        conn: &DBConn,
         null_estimate_fraction: f64,
-    ) -> IteratorMixer<'a> {
+    ) -> IteratorMixer {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
         let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
