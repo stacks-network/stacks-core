@@ -817,7 +817,7 @@ impl CandidateCache {
     }
 
     fn next(&mut self) -> Option<MemPoolTxInfoPartial> {
-        self.cache.pop_back()
+        self.cache.pop_front()
     }
 
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
