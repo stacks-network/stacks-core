@@ -1199,10 +1199,6 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         make_pox_contract_call(
             key,
             nonce,
@@ -1225,10 +1221,6 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_2_NAME,
@@ -1239,6 +1231,22 @@ pub mod test {
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
             ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_2_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
+            "stack-increase",
+            vec![Value::UInt(amount)],
         )
         .unwrap();
 

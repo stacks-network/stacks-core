@@ -14,6 +14,8 @@ This release will contain consensus-breaking changes.
 - Clarity function `stx-transfer?` now takes a 4th optional argument, which is a memo.
 - Added a new parser which will be used to parse Clarity code beginning with 2.1,
   resolving several bugs in the old parser and improving performance.
+- Documentation will indicate explicitly which Clarity version introduced each
+  keyword or function. 
 
 ## Upcoming
 
