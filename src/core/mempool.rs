@@ -1267,11 +1267,10 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  `todo` will be called once for each transaction whose origin nonce is equal
-    ///  to the origin account's nonce. At most one transaction per origin will be
-    ///  considered by this method, and transactions will be considered in
-    ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
-    ///  caller may choose how long to spend iterating before this method stops.
+    ///
+    ///  * start with candidates in order from `get_transaction_list_to_process()`
+    ///  * filter according to whether nonces match according to `check_nonces_match_expectations()`
+    ///  * for matching transactions, call `todo` on that transaction
     ///
     ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
     ///  that iteration through the mempool should be halted.
@@ -1305,11 +1304,12 @@ impl MemPoolDB {
         let connection = &self.db;
         let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
-        // For each minimal info entry in sorted order:
-        //   * check if its nonce is appropriate, and if so process it.
+        // Track time actually spent "processing" transactions, versus picking transactions.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
 
+        // For each minimal info entry in sorted order:
+        //   * check if its nonce is appropriate, and if so process it.
         for tx_reduced_info in db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
