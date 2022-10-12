@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::HashSet;
+use std::cmp::{self, Ordering};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::Hasher;
 use std::io::{Read, Write};
@@ -31,6 +31,7 @@ use rusqlite::Error as SqliteError;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
+use rusqlite::Rows;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
@@ -241,10 +242,16 @@ pub struct MemPoolTxInfo {
     pub metadata: MemPoolTxMetadata,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum MemPoolTxInfoPartial {
-    NeedsNonces { addrs_needed: Vec<StacksAddress> },
-    HasNonces(MemPoolTxInfo),
+/// This class is a minimal version of `MemPoolTxInfo`. It contains
+/// just enough information to 1) filter by nonce readiness, 2) sort by fee rate.
+#[derive(Debug, Clone)]
+pub struct MemPoolTxInfoPartial {
+    pub txid: Txid,
+    pub fee_rate: Option<f64>,
+    pub origin_address: StacksAddress,
+    pub origin_nonce: u64,
+    pub sponsor_address: StacksAddress,
+    pub sponsor_nonce: u64,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -367,25 +374,24 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
     fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
-        let md = MemPoolTxMetadata::from_row(row)?;
-        let needs_nonces = md.get_unknown_nonces();
-        let consider = if !needs_nonces.is_empty() {
-            MemPoolTxInfoPartial::NeedsNonces {
-                addrs_needed: needs_nonces,
-            }
-        } else {
-            let tx_bytes: Vec<u8> = row.get_unwrap("tx");
-            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
-                .map_err(|_e| db_error::ParseError)?;
-
-            if tx.txid() != md.txid {
-                return Err(db_error::ParseError);
-            }
-
-            MemPoolTxInfoPartial::HasNonces(MemPoolTxInfo { tx, metadata: md })
+        let txid = Txid::from_column(row, "txid")?;
+        let fee_rate: Option<f64> = match row.get("fee_rate") {
+            Ok(rate) => Some(rate),
+            Err(_) => None,
         };
+        let origin_address = StacksAddress::from_column(row, "origin_address")?;
+        let origin_nonce = u64::from_column(row, "origin_nonce")?;
+        let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
+        let sponsor_nonce = u64::from_column(row, "sponsor_nonce")?;
 
-        Ok(consider)
+        Ok(MemPoolTxInfoPartial {
+            txid,
+            fee_rate,
+            origin_address,
+            origin_nonce,
+            sponsor_address,
+            sponsor_nonce,
+        })
     }
 }
 
@@ -750,6 +756,110 @@ impl MemPoolTxInfo {
     }
 }
 
+/// Used to locally cache nonces to avoid repeatedly looking them up in the nonce.
+struct NonceCache {
+    cache: HashMap<StacksAddress, u64>,
+    size: usize,
+}
+
+impl NonceCache {
+    const MAX_SIZE: usize = 1024 * 1024;
+
+    fn new() -> Self {
+        Self {
+            cache: HashMap::new(),
+            size: 0,
+        }
+    }
+
+    fn get<C>(&mut self, address: &StacksAddress, clarity_tx: &mut C) -> u64
+    where
+        C: ClarityConnection,
+    {
+        match self.cache.get(address) {
+            Some(nonce) => *nonce,
+            None => {
+                let nonce = StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+                // Simple size cap to the cache -- once it's full, all nonces
+                // will be looked up every time. This is bad for performance
+                // but is unlikely to occur due to the typical number of
+                // transactions processed before filling a block.
+                if self.size < Self::MAX_SIZE {
+                    self.cache.insert(address.clone(), nonce);
+                    self.size += 1;
+                }
+                nonce
+            }
+        }
+    }
+
+    fn increment(&mut self, address: StacksAddress) {
+        let nonce = self.cache.entry(address).or_insert(0);
+        *nonce += 1;
+    }
+}
+
+struct CandidateCache {
+    cache: VecDeque<MemPoolTxInfoPartial>,
+    next: VecDeque<MemPoolTxInfoPartial>,
+    size: usize,
+}
+
+impl CandidateCache {
+    const MAX_SIZE: usize = 64 * 1024;
+
+    fn new() -> Self {
+        Self {
+            cache: VecDeque::new(),
+            next: VecDeque::new(),
+            size: 0,
+        }
+    }
+
+    fn next(&mut self) -> Option<MemPoolTxInfoPartial> {
+        self.cache.pop_back()
+    }
+
+    fn push(&mut self, tx: MemPoolTxInfoPartial) {
+        if self.size < Self::MAX_SIZE {
+            self.next.push_back(tx);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.cache = std::mem::take(&mut self.next);
+    }
+}
+
+/// Evaluates the pair of nonces, to determine an order
+///
+/// Returns:
+///   `Equal` if both origin and sponsor nonces match expected
+///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
+///          sponsor nonce is less than expected
+///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
+///          and the sponsor nonce is greater than expected
+fn order_nonces(
+    origin_actual: u64,
+    origin_expected: u64,
+    sponsor_actual: u64,
+    sponsor_expected: u64,
+) -> Ordering {
+    if origin_actual < origin_expected {
+        return Ordering::Less;
+    } else if origin_actual > origin_expected {
+        return Ordering::Greater;
+    }
+
+    if sponsor_actual < sponsor_expected {
+        return Ordering::Less;
+    } else if sponsor_actual > sponsor_expected {
+        return Ordering::Greater;
+    }
+
+    Ordering::Equal
+}
+
 impl MemPoolDB {
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
         let mut tx = tx_begin_immediate(conn)?;
@@ -991,73 +1101,6 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Select the next TX to consider from the pool of transactions without cost estimates.
-    /// If a transaction is found, returns Some object containing the transaction and a boolean indicating
-    ///  whether or not the miner should propagate transaction receipts back to the estimator.
-    fn get_next_tx_to_consider_no_estimate(
-        &self,
-    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
-        let select_no_estimate = "SELECT * FROM mempool WHERE
-                   ((origin_nonce = last_known_origin_nonce AND
-                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
-        query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
-            .map(|opt_tx| opt_tx.map(|tx| (tx, true)))
-    }
-
-    /// Select the next TX to consider from the pool of transactions with cost estimates.
-    /// If a transaction is found, returns Some object containing the transaction and a boolean indicating
-    ///  whether or not the miner should propagate transaction receipts back to the estimator.
-    fn get_next_tx_to_consider_with_estimate(
-        &self,
-    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
-        let select_estimate = "SELECT * FROM mempool WHERE
-                   ((origin_nonce = last_known_origin_nonce AND
-                     sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND fee_rate IS NOT NULL ORDER BY fee_rate DESC LIMIT 1";
-        query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)
-            .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
-    }
-
-    /// * `start_with_no_estimate` - Pass `true` to make this function
-    ///   start by considering transactions without a cost
-    ///   estimate, and if none are found, use transactions with a cost estimate.
-    ///   Pass `false` for the opposite behavior.
-    fn get_next_tx_to_consider(
-        &self,
-        start_with_no_estimate: bool,
-    ) -> Result<ConsiderTransactionResult, db_error> {
-        let (next_tx, update_estimate): (MemPoolTxInfoPartial, bool) = if start_with_no_estimate {
-            match self.get_next_tx_to_consider_no_estimate()? {
-                Some(result) => result,
-                None => match self.get_next_tx_to_consider_with_estimate()? {
-                    Some(result) => result,
-                    None => return Ok(ConsiderTransactionResult::NoTransactions),
-                },
-            }
-        } else {
-            match self.get_next_tx_to_consider_with_estimate()? {
-                Some(result) => result,
-                None => match self.get_next_tx_to_consider_no_estimate()? {
-                    Some(result) => result,
-                    None => return Ok(ConsiderTransactionResult::NoTransactions),
-                },
-            }
-        };
-
-        match next_tx {
-            MemPoolTxInfoPartial::NeedsNonces { addrs_needed } => {
-                Ok(ConsiderTransactionResult::UpdateNonces(addrs_needed))
-            }
-            MemPoolTxInfoPartial::HasNonces(tx) => {
-                Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
-                    tx,
-                    update_estimate,
-                }))
-            }
-        }
-    }
-
     /// Find the origin addresses who have sent the highest-fee transactions
     fn find_origin_addresses_by_descending_fees(
         &self,
@@ -1166,7 +1209,35 @@ impl MemPoolDB {
 
         let tx_consideration_sampler = Uniform::new(0, 100);
         let mut rng = rand::thread_rng();
-        let mut remember_start_with_estimate = None;
+        let mut candidate_cache = CandidateCache::new();
+        let mut nonce_cache = NonceCache::new();
+
+        let sql = "
+             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+             FROM mempool
+             WHERE fee_rate IS NULL
+             ";
+        let mut query_stmt = self
+            .db
+            .prepare(&sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut null_iterator = query_stmt
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
+
+        let sql = "
+            SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+            FROM mempool
+            WHERE fee_rate IS NOT NULL
+            ORDER BY fee_rate DESC
+            ";
+        let mut query_stmt = self
+            .db
+            .prepare(&sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut fee_iterator = query_stmt
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
 
         loop {
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
@@ -1175,71 +1246,137 @@ impl MemPoolDB {
                 break;
             }
 
-            let start_with_no_estimate = remember_start_with_estimate.unwrap_or_else(|| {
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob
-            });
+            let start_with_no_estimate =
+                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
 
-            match self.get_next_tx_to_consider(start_with_no_estimate)? {
-                ConsiderTransactionResult::NoTransactions => {
-                    debug!("No more transactions to consider in mempool");
-                    break;
+            // First, try to read from the retry list
+            let (candidate, update_estimate) = match candidate_cache.next() {
+                Some(tx) => {
+                    let update_estimate = tx.fee_rate.is_none();
+                    (tx, update_estimate)
                 }
-                ConsiderTransactionResult::UpdateNonces(addresses) => {
-                    // if we need to update the nonce for the considered transaction,
-                    //  use the last value of start_with_no_estimate on the next loop
-                    remember_start_with_estimate = Some(start_with_no_estimate);
-                    let mut last_addr = None;
-                    for address in addresses.into_iter() {
-                        debug!("Update nonce"; "address" => %address);
-                        // do not recheck nonces if the sponsor == origin
-                        if last_addr.as_ref() == Some(&address) {
-                            continue;
+                None => {
+                    // When the retry list is empty, read from the mempool db,
+                    // randomly selecting from either the null fee-rate transactions
+                    // or those with fee-rate estimates.
+                    let opt_tx = if start_with_no_estimate {
+                        null_iterator
+                            .next()
+                            .map_err(|err| Error::SqliteError(err))?
+                    } else {
+                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                    };
+                    match opt_tx {
+                        Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
+                        None => {
+                            // If the selected iterator is empty, check the other
+                            match if start_with_no_estimate {
+                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
+                            } else {
+                                null_iterator
+                                    .next()
+                                    .map_err(|err| Error::SqliteError(err))?
+                            } {
+                                Some(row) => (
+                                    MemPoolTxInfoPartial::from_row(row)?,
+                                    !start_with_no_estimate,
+                                ),
+                                None => {
+                                    debug!("No more transactions to consider in mempool");
+                                    break;
+                                }
+                            }
                         }
-                        let min_nonce =
-                            StacksChainState::get_account(clarity_tx, &address.clone().into())
-                                .nonce;
-
-                        self.update_last_known_nonces(&address, min_nonce)?;
-                        last_addr = Some(address)
                     }
                 }
-                ConsiderTransactionResult::Consider(consider) => {
-                    // if we actually consider the chosen transaction,
-                    //  compute a new start_with_no_estimate on the next loop
-                    remember_start_with_estimate = None;
-                    debug!("Consider mempool transaction";
+            };
+
+            // Check the nonces.
+            let expected_origin_nonce = nonce_cache.get(&candidate.origin_address, clarity_tx);
+            let expected_sponsor_nonce = nonce_cache.get(&candidate.sponsor_address, clarity_tx);
+            match order_nonces(
+                candidate.origin_nonce,
+                expected_origin_nonce,
+                candidate.sponsor_nonce,
+                expected_sponsor_nonce,
+            ) {
+                Ordering::Less => {
+                    debug!(
+                        "Mempool: unexecutable: drop tx ({})",
+                        candidate.fee_rate.unwrap_or_default()
+                    );
+                    // This transaction cannot execute in this pass, just drop it
+                    continue;
+                }
+                Ordering::Greater => {
+                    debug!(
+                        "Mempool: nonces too high, cached for later ({})",
+                        candidate.fee_rate.unwrap_or_default()
+                    );
+                    // This transaction could become runnable in this pass, save it for later
+                    candidate_cache.push(candidate);
+                    continue;
+                }
+                Ordering::Equal => {
+                    // Candidate transaction: fall through
+                }
+            };
+
+            // Read in and deserialize the transaction.
+            let tx_info_option = MemPoolDB::get_tx(&self.conn(), &candidate.txid)?;
+            let tx_info = match tx_info_option {
+                Some(tx) => tx,
+                None => {
+                    // Note: Don't panic here because maybe the state has changed from garbage collection.
+                    warn!("Miner: could not find a tx for id {:?}", &candidate.txid);
+                    continue;
+                }
+            };
+
+            let consider = ConsiderTransaction {
+                tx: tx_info,
+                update_estimate,
+            };
+            debug!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
                            "sponsor_addr" => %consider.tx.metadata.sponsor_address,
                            "accept_time" => consider.tx.metadata.accept_time,
                            "tx_fee" => consider.tx.metadata.tx_fee,
+                           "fee_rate" => candidate.fee_rate,
                            "size" => consider.tx.metadata.len);
-                    total_considered += 1;
+            total_considered += 1;
 
-                    // Run `todo` on the transaction.
-                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        Some(tx_event) => {
-                            match tx_event {
-                                TransactionEvent::Skipped(_) => {
-                                    // don't push `Skipped` events to the observer
-                                }
-                                _ => {
-                                    output_events.push(tx_event);
-                                }
-                            }
+            // Run `todo` on the transaction.
+            match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                Some(tx_event) => {
+                    match tx_event {
+                        TransactionEvent::Skipped(_) => {
+                            // don't push `Skipped` events to the observer
                         }
-                        None => {
-                            debug!("Mempool iteration early exit from iterator");
-                            break;
+                        _ => {
+                            output_events.push(tx_event);
                         }
-                    }
-
-                    self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
-                    if consider.tx.tx.auth.is_sponsored() {
-                        self.bump_last_known_nonces(&consider.tx.metadata.sponsor_address)?;
                     }
                 }
+                None => {
+                    debug!("Mempool iteration early exit from iterator");
+                    break;
+                }
             }
+
+            // Bump nonces in the cache for the executed transaction
+            nonce_cache.increment(consider.tx.metadata.origin_address);
+            if consider.tx.tx.auth.is_sponsored() {
+                nonce_cache.increment(consider.tx.metadata.sponsor_address);
+            }
+
+            // Reset for finding the next transaction to process
+            debug!(
+                "Mempool: reset: retry list has {} entries",
+                candidate_cache.size
+            );
+            candidate_cache.reset();
         }
 
         debug!(

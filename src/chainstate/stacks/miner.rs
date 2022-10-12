@@ -2425,7 +2425,7 @@ impl StacksBlockBuilder {
             );
         }
 
-        debug!(
+        info!(
             "Miner: mined anchored block";
             "block_hash" => %block.block_hash(),
             "height" => block.header.total_work.work,
@@ -2435,6 +2435,7 @@ impl StacksBlockBuilder {
             "parent_stacks_microblock_seq" => block.header.parent_microblock_sequence,
             "block_size" => size,
             "execution_consumed" => %consumed,
+            "%-full" => block_limit.proportion_largest_dimension(&consumed),
             "assembly_time_ms" => ts_end.saturating_sub(ts_start),
             "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
                 agg.saturating_add(tx.get_tx_fee())
