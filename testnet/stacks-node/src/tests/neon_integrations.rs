@@ -4312,7 +4312,7 @@ fn mining_events_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 30000;
+    conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
 
     conf.miner.min_tx_fee = 1;
