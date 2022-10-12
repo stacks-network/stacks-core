@@ -2493,14 +2493,26 @@ impl RelayerThread {
             });
         }
 
-        // resume mining if we blocked it
-        if num_tenures > 0 {
-            self.mined_stacks_block = false;
-            signal_mining_ready(self.globals.get_miner_status());
-        }
-
         // update state for microblock mining
         self.setup_microblock_mining_state(miner_tip);
+
+        // resume mining if we blocked it
+        if num_tenures > 0 {
+            if self.miner_tip.is_some() {
+                // we won the highest tenure
+                if self.config.node.mine_microblocks {
+                    // mine a microblock first
+                    self.mined_stacks_block = true;
+                } else {
+                    // mine a Stacks block first -- we won't build microblocks
+                    self.mined_stacks_block = false;
+                }
+            } else {
+                // mine a Stacks block first -- we didn't win
+                self.mined_stacks_block = false;
+            }
+            signal_mining_ready(self.globals.get_miner_status());
+        }
         true
     }
 
@@ -2718,7 +2730,7 @@ impl RelayerThread {
             };
 
         if let Ok(miner_handle) = thread::Builder::new()
-            .name(format!("miner-{}", self.local_peer.data_url))
+            .name(format!("miner-block-{}", self.local_peer.data_url))
             .spawn(move || miner_thread_state.run_tenure())
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
@@ -2834,7 +2846,7 @@ impl RelayerThread {
         };
 
         if let Ok(miner_handle) = thread::Builder::new()
-            .name(format!("miner-{}", self.local_peer.data_url))
+            .name(format!("miner-microblock-{}", self.local_peer.data_url))
             .spawn(move || {
                 Some(MinerThreadResult::Microblock(
                     microblock_thread_state.try_mine_microblock(miner_tip.clone()),
@@ -2877,7 +2889,14 @@ impl RelayerThread {
                     ongoing_commit_opt,
                 ) => {
                     // finished mining a block
-                    if self.last_mined_blocks.len() == 0 {
+                    if BlockMinerThread::find_inflight_mined_blocks(
+                        last_mined_block.my_block_height,
+                        &self.last_mined_blocks,
+                    )
+                    .len()
+                        == 0
+                    {
+                        // first time we've mined a block in this burnchain block
                         self.globals.counters.bump_blocks_processed();
                     }
 
@@ -2980,10 +2999,16 @@ impl RelayerThread {
                             self.mined_stacks_block = false;
                         }
                         Ok(None) => {
-                            debug!("Relayer: did not mine microblock in this tenure")
+                            debug!("Relayer: did not mine microblock in this tenure");
+
+                            // switch back to block mining
+                            self.mined_stacks_block = false;
                         }
                         Err(e) => {
                             warn!("Relayer: Failed to mine next microblock: {:?}", &e);
+
+                            // switch back to block mining
+                            self.mined_stacks_block = false;
                         }
                     }
                 }
