@@ -1195,6 +1195,7 @@ impl MemPoolDB {
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
         FROM mempool
         WHERE fee_rate IS NULL
+        ORDER BY accept_time ASC
         LIMIT ?
         OFFSET ?
         ";
