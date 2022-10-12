@@ -1680,6 +1680,7 @@ impl StacksChainState {
                     mblock.header,
                     conflict.header,
                 ));
+                ret.pop(); // last microblock pushed (i.e. the tip) conflicts with mblock
                 break;
             }
 
