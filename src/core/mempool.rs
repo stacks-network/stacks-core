@@ -802,7 +802,6 @@ impl NonceCache {
 struct CandidateCache {
     cache: VecDeque<MemPoolTxInfoPartial>,
     next: VecDeque<MemPoolTxInfoPartial>,
-    size: usize,
 }
 
 impl CandidateCache {
@@ -812,7 +811,6 @@ impl CandidateCache {
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
-            size: 0,
         }
     }
 
@@ -821,16 +819,18 @@ impl CandidateCache {
     }
 
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
-        if self.size < Self::MAX_SIZE {
+        if self.next.len() < Self::MAX_SIZE {
             self.next.push_back(tx);
-            self.size += 1;
         }
     }
 
     fn reset(&mut self) {
         self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
-        self.size = 0;
+    }
+
+    fn len(&self) -> usize {
+        self.cache.len() + self.next.len()
     }
 }
 
@@ -1377,7 +1377,7 @@ impl MemPoolDB {
             // Reset for finding the next transaction to process
             debug!(
                 "Mempool: reset: retry list has {} entries",
-                candidate_cache.size
+                candidate_cache.len()
             );
             candidate_cache.reset();
         }
