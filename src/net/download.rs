@@ -2584,6 +2584,7 @@ pub mod test {
     use crate::net::relay::*;
     use crate::net::test::*;
     use crate::net::*;
+    use crate::stacks_common::types::PublicKey;
     use crate::util_lib::strings::*;
     use crate::util_lib::test::*;
     use clarity::vm::clarity::ClarityConnection;
@@ -3173,6 +3174,7 @@ pub mod test {
         args: Vec<Value>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
+        nonce_offset: u64,
     ) -> StacksTransaction {
         let tx_cc = {
             let mut tx_cc = StacksTransaction::new(
@@ -3195,12 +3197,14 @@ pub mod test {
                             .get_account_nonce(&spending_account.origin_address().unwrap().into())
                     })
                 })
-                .unwrap();
+                .unwrap()
+                + nonce_offset;
 
             test_debug!(
-                "Nonce of {:?} is {} at {}/{}",
+                "Nonce of {:?} is {} (+{}) at {}/{}",
                 &spending_account.origin_address().unwrap(),
                 cur_nonce,
+                nonce_offset,
                 consensus_hash,
                 block_hash
             );
@@ -3331,29 +3335,51 @@ pub mod test {
                                     Value::UInt(12)
                                 ],
                                 &parent_consensus_hash,
-                                &parent_header_hash
+                                &parent_header_hash,
+                                0
                             );
-                        let mut mblock_pubkey_hash_bytes = [0u8; 20];
-                        mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
 
-                        let builder = StacksBlockBuilder::make_block_builder(
+                        let mblock_tx = make_contract_call_transaction(
+                            miner,
+                            sortdb,
+                            chainstate,
+                            spending_account,
+                            StacksAddress::burn_address(false),
+                            "pox",
+                            "get-pox-info",
+                            vec![],
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            4,
+                        );
+
+                        let mblock_privkey = StacksPrivateKey::new();
+
+                        let mblock_pubkey_hash_bytes = Hash160::from_data(
+                            &StacksPublicKey::from_private(&mblock_privkey).to_bytes(),
+                        );
+
+                        let mut builder = StacksBlockBuilder::make_block_builder(
                             chainstate.mainnet,
                             &parent_tip,
                             vrfproof,
                             tip.total_burn,
-                            Hash160(mblock_pubkey_hash_bytes),
+                            mblock_pubkey_hash_bytes,
                         )
                         .unwrap();
+                        builder.set_microblock_privkey(mblock_privkey);
 
-                        let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
-                            builder,
-                            chainstate,
-                            &sortdb.index_conn(),
-                            vec![coinbase_tx, stack_tx],
-                        )
-                        .unwrap();
+                        let (anchored_block, _size, _cost, microblock_opt) =
+                            StacksBlockBuilder::make_anchored_block_and_microblock_from_txs(
+                                builder,
+                                chainstate,
+                                &sortdb.index_conn(),
+                                vec![coinbase_tx, stack_tx],
+                                vec![mblock_tx],
+                            )
+                            .unwrap();
 
-                        (anchored_block.0, vec![])
+                        (anchored_block, vec![microblock_opt.unwrap()])
                     };
 
                     for i in 0..50 {
