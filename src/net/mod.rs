@@ -2947,6 +2947,19 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_and_missing_pox_anchor(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             self.inner_next_burnchain_block(blockstack_ops, true, true)
         }
 
@@ -2954,6 +2967,19 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_raw_and_missing_pox_anchor(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             self.inner_next_burnchain_block(blockstack_ops, false, false)
         }
 
@@ -2988,7 +3014,12 @@ pub mod test {
             mut blockstack_ops: Vec<BlockstackOperationType>,
             set_consensus_hash: bool,
             set_burn_hash: bool,
-        ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash) = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -3059,7 +3090,8 @@ pub mod test {
                 (block_header.block_height, block_header_hash)
             };
 
-            self.coord.handle_new_burnchain_block().unwrap();
+            let missing_pox_anchor_block_hash_opt =
+                self.coord.handle_new_burnchain_block().unwrap();
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -3077,7 +3109,12 @@ pub mod test {
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
-            (block_height, block_hash, tip.consensus_hash)
+            (
+                block_height,
+                block_hash,
+                tip.consensus_hash,
+                missing_pox_anchor_block_hash_opt,
+            )
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
