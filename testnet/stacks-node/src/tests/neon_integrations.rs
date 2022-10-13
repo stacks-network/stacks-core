@@ -1475,6 +1475,7 @@ fn bitcoind_forking_test() {
 
     // Let's create another fork, deeper
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
+    eprintln!("Instigate 10-block deep fork");
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_regtest_controller.build_next_block(10);
 
@@ -1484,6 +1485,7 @@ fn bitcoind_forking_test() {
 
     let account = get_account(&http_origin, &miner_account);
 
+    eprintln!("account after deep fork: {:?}", &account);
     // N.B. rewards mature after 2 confirmations...
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 3);
