@@ -28,13 +28,13 @@ use std::path::{Path, PathBuf};
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
 use rusqlite::Error as SqliteError;
 use rusqlite::OpenFlags;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
+use rusqlite::{Connection, Rows};
 
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 
@@ -1309,9 +1309,64 @@ impl MemPoolDB {
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
 
+        let fee_estimate_sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NOT NULL
+        ORDER BY fee_rate DESC
+        ";
+        let mut fee_estimate_query_stmt = self
+            .db
+            .prepare(&fee_estimate_sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut fee_estimate_iterator: Rows<'_> = fee_estimate_query_stmt
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
+
+        let null_estimate_sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NULL
+        ORDER BY accept_time ASC
+        ";
+        let mut null_estimate_query_stmt = self
+            .db
+            .prepare(&null_estimate_sql)
+            .map_err(|err| Error::SqliteError(err))?;
+        let mut null_estimate_iterator: Rows<'_> = null_estimate_query_stmt
+            .query(NO_PARAMS)
+            .map_err(|err| Error::SqliteError(err))?;
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
-        for tx_reduced_info in db_txs {
+        let mut rng = rand::thread_rng();
+        loop {
+            let random_float: f64 = rng.gen();
+            // Pick a row. Use a random number to decide if we should use a null fee rate example.
+            // If we don't end up with a null fee rate example, use a non-null fee rate
+            // example.
+            let null_row = if random_float < null_estimate_fraction {
+                null_estimate_iterator
+                    .next()
+                    .map_err(|err| Error::SqliteError(err))?
+            } else {
+                None
+            };
+            let active_row = match null_row {
+                Some(row) => Some(row),
+                None => fee_estimate_iterator
+                    .next()
+                    .map_err(|err| Error::SqliteError(err))?,
+            };
+
+            if active_row.is_none() {
+                info!("Mempool iteration: No examples");
+                break;
+            };
+
+            // Assume: active_row.is_some()
+            let tx_reduced_info = MemPoolTxMinimalInfo::from_row(
+                active_row.expect("active_row is None; This should have been checked."),
+            )?;
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 info!("Mempool iteration deadline exceeded";
