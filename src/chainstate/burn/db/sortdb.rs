@@ -40,6 +40,7 @@ use crate::burnchains::{
     BurnchainStateTransitionOps, BurnchainTransaction, BurnchainView, Error as BurnchainError,
     PoxConstants,
 };
+use crate::chainstate::burn::operations::DelegateStxOp;
 use crate::chainstate::burn::operations::{
     leader_block_commit::{MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp,
@@ -72,7 +73,7 @@ use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    u64_to_sql, u64_opt_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::Value;
@@ -360,6 +361,39 @@ impl FromRow<StackStxOp> for StackStxOp {
     }
 }
 
+impl FromRow<DelegateStxOp> for DelegateStxOp {
+    fn from_row<'a>(row: &'a Row) -> Result<DelegateStxOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let delegate_to = StacksAddress::from_column(row, "delegate_to")?;
+        let reward_addr_str: String = row.get_unwrap("reward_addr");
+        let reward_addr = serde_json::from_str(&reward_addr_str)
+                       .expect("CORRUPTION: DB stored bad transition ops"); 
+
+        let delegated_ustx_str: String = row.get_unwrap("stacked_ustx");
+        let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
+            .expect("CORRUPTION: bad u128 written to sortdb");
+        let until_burn_height = u64::from_column(row, "until_block_height")?;
+        
+        Ok(DelegateStxOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            delegate_to,
+            reward_addr,
+            delegated_ustx,
+            until_burn_height,
+        })
+    }
+}
+
+
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
@@ -438,7 +472,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "3";
+pub const SORTITION_DB_VERSION: &'static str = "4";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -618,6 +652,24 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
+
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE delegate_stx (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        delegate_to TEXT NOT NULL,
+        reward_addr TEXT NOT NULL,
+        delegated_ustx TEXT NOT NULL,
+        until_burn_height INTEGER NOT NULL,
+
+        PRIMARY KEY(txid)
+    );"#,
+];
 
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_burn_header_hash";
@@ -2422,6 +2474,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_SCHEMA_3 {
             db_tx.execute_batch(row_text)?;
         }
+        for row_text in SORTITION_DB_SCHEMA_4 {
+            db_tx.execute_batch(row_text)?;
+        }
 
         SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
 
@@ -2633,6 +2688,17 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_4(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_4 {
+            tx.execute_batch(sql_exec)?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["4"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2666,6 +2732,11 @@ impl SortitionDB {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_3(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "3" {
+                        // add the tables of schema 4, but do not populate them.
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -3292,6 +3363,20 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM stack_stx WHERE burn_header_hash = ?",
+            &[burn_header_hash],
+        )
+    }
+
+    /// Get the list of Delegate-STX operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
+    pub fn get_delegate_stx_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<DelegateStxOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM delegate_stx WHERE burn_header_hash = ?",
             &[burn_header_hash],
         )
     }
@@ -4064,6 +4149,13 @@ impl<'a> SortitionHandleTx<'a> {
                 // no need to store this op in the sortition db.
                 Ok(())
             }
+            BlockstackOperationType::DelegateStx(ref op) => {
+                info!(
+                    "ACCEPTED({}) delegate stx opt {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_delegate_stx(op)
+            }
         }
     }
 
@@ -4113,9 +4205,23 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
-    #[cfg(test)]
-    pub fn mock_insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
-        self.insert_stack_stx(op)
+    /// Insert a delegate-stx op
+    fn insert_delegate_stx(&mut self, op: &DelegateStxOp) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &op.delegate_to.to_string(),
+            &serde_json::to_string(&op.reward_addr).unwrap(),
+            &op.delegated_ustx.to_string(),
+            &u64_opt_to_sql(op.until_burn_height)?,
+        ];
+
+        self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
     }
 
     /// Insert a transfer-stx op
@@ -4134,11 +4240,6 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn mock_insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
-        self.insert_transfer_stx(op)
     }
 
     /// Insert a leader block commitment.

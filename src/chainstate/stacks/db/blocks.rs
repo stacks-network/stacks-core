@@ -178,6 +178,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub applied_epoch_transition: bool,
     pub burn_stack_stx_ops: Vec<StackStxOp>,
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
+    pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
 }
 
 pub struct DummyEventDispatcher;
@@ -4609,10 +4610,11 @@ impl StacksChainState {
     pub fn process_stacking_ops(
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
+        active_pox_contract: &str, 
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mainnet = clarity_tx.config.mainnet;
-        let mut cost_so_far = clarity_tx.cost_so_far();
+        let cost_so_far = clarity_tx.cost_so_far();
         for stack_stx_op in operations.into_iter() {
             let StackStxOp {
                 sender,
@@ -4628,7 +4630,7 @@ impl StacksChainState {
                 tx.run_contract_call(
                     &sender.into(),
                     None,
-                    &boot_code_id("pox", mainnet),
+                    &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
                     &[
                         Value::UInt(stacked_ustx),
@@ -4659,7 +4661,6 @@ impl StacksChainState {
                         execution_cost
                             .sub(&cost_so_far)
                             .expect("BUG: cost declined between executions");
-                        cost_so_far = clarity_tx.cost_so_far();
 
                         let receipt = StacksTransactionReceipt {
                             transaction: TransactionOrigin::Burn(txid),
@@ -4752,6 +4753,112 @@ impl StacksChainState {
 
         all_receipts
     }
+
+    /// Process any Delegate-related bitcoin operations
+    ///  that haven't been processed in this Stacks fork yet.
+    pub fn process_delegate_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<DelegateStxOp>,
+        active_pox_contract: &str,
+    ) -> Vec<StacksTransactionReceipt> {
+        let mut all_receipts = vec![];
+        let mainnet = clarity_tx.config.mainnet;
+        let cost_so_far = clarity_tx.cost_so_far();
+        for delegate_stx_op in operations.into_iter() {
+            let DelegateStxOp {
+                sender,
+                reward_addr,
+                delegated_ustx,
+                until_burn_height,
+                delegate_to, 
+                block_height,
+                txid,
+                burn_header_hash,
+                ..
+            } = delegate_stx_op;
+            let reward_addr_val = if let Some(addr) = &reward_addr {
+                // this .expect() should be unreachable since we coerce the hash mode when
+                // we parse the DelegateStxOp from a burnchain transaction
+                let clar_addr = addr.as_clarity_tuple()
+                    .expect("FATAL: delegate-stx operation has no hash mode")
+                    .into();
+                Value::some(clar_addr)
+                    .expect("FATAL: the tuple for pox address should be small enough to wrap as an option.")
+            } else {
+                Value::none()
+            }; 
+            // Q-JUDE: should this function return a result type? 
+            let until_burn_height_val = if let Some(height) = until_burn_height {
+                Value::some(Value::UInt(u128::from(height)))
+                    .expect("FATAL: construction of an optional uint Clarity value should succeed.")
+            } else {
+                Value::none()
+            };
+            let result = clarity_tx.connection().as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender.into(),
+                    None,
+                    &boot_code_id(active_pox_contract, mainnet),
+                    "delegate-stx",
+                    &[
+                        Value::UInt(delegated_ustx),
+                        Value::Principal(delegate_to.into()), 
+                        until_burn_height_val, 
+                        reward_addr_val,
+                    ],
+                    |_, _| false,
+                )
+            });
+            match result {
+                Ok((value, _, events)) => {
+                    if let Value::Response(ref resp) = value {
+                        if !resp.committed {
+                            debug!("DelegateStx burn op rejected by PoX contract.";
+                                   "txid" => %txid,
+                                   "burn_block" => %burn_header_hash,
+                                   "contract_call_ecode" => %resp.data);
+                        } else {
+                            let reward_addr_fmt = format!("{:?}", reward_addr); 
+                            let delegate_to_fmt = format!("{:?}", delegate_to);
+                            debug!("Processed DelegateStx burnchain op"; "amount_ustx" => delegated_ustx, "delegate_to" => delegate_to_fmt, "until_burn_height" => until_burn_height, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => reward_addr_fmt, "txid" => %txid);
+                        }
+                        let mut execution_cost = clarity_tx.cost_so_far();
+                        execution_cost
+                            .sub(&cost_so_far)
+                            .expect("BUG: cost declined between executions");
+
+                        let receipt = StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Burn(txid),
+                            events,
+                            result: value,
+                            post_condition_aborted: false,
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost,
+                            microblock_header: None,
+                            tx_index: 0,
+                            vm_error: None,
+                        };
+
+                        all_receipts.push(receipt);
+                    } else {
+                        unreachable!(
+                            "BUG: Non-response value returned by Delegate STX burnchain op"
+                        )
+                    }
+                }
+                Err(e) => {
+                    info!("DelegateStx burn op processing error.";
+                           "error" => %format!("{:?}", e),
+                           "txid" => %txid,
+                           "burn_block" => %burn_header_hash);
+                }
+            };
+        }
+
+        all_receipts
+    }
+
 
     /// Process a single anchored block.
     /// Return the fees and burns.
@@ -4945,14 +5052,14 @@ impl StacksChainState {
         Ok((stacking_burn_ops, transfer_burn_ops))
     }
 
-    fn get_stacking_and_transfer_burn_ops_v210(
+    fn get_stacking_and_transfer_and_delegate_burn_ops_v210(
         chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
         epoch_start_height: u64,
-    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>), Error> {
+    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>, Vec<DelegateStxOp>), Error> {
         // only consider transactions in Stacks 2.1
         let search_window: u8 =
             if epoch_start_height + (BURNCHAIN_TX_SEARCH_WINDOW as u64) > burn_tip_height {
@@ -4990,11 +5097,13 @@ impl StacksChainState {
 
         let mut all_stacking_burn_ops = vec![];
         let mut all_transfer_burn_ops = vec![];
+        let mut all_delegate_burn_ops = vec![];
 
         // go from oldest burn header hash to newest
         for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
             let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh)?;
             let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let delegate_ops = SortitionDB::get_delegate_stx_ops(sortdb_conn, ancestor_bhh)?;
 
             for stacking_op in stacking_ops.into_iter() {
                 if !processed_burnchain_txids.contains(&stacking_op.txid) {
@@ -5007,8 +5116,14 @@ impl StacksChainState {
                     all_transfer_burn_ops.push(transfer_op);
                 }
             }
+
+            for delegate_op in delegate_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&delegate_op.txid) {
+                    all_delegate_burn_ops.push(delegate_op);
+                }
+            }
         }
-        Ok((all_stacking_burn_ops, all_transfer_burn_ops))
+        Ok((all_stacking_burn_ops, all_transfer_burn_ops, all_delegate_burn_ops))
     }
 
     /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
@@ -5035,13 +5150,13 @@ impl StacksChainState {
     /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
     /// the first time -- the choice of K is significantly bigger than the length of short-lived
     /// forks or periods of time with no sortition than have been observed in practice.
-    fn get_stacking_and_transfer_burn_ops(
+    fn get_stacking_and_transfer_and_delegate_burn_ops(
         chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>), Error> {
+    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>, Vec<DelegateStxOp>), Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
@@ -5050,9 +5165,11 @@ impl StacksChainState {
                 panic!("FATAL: processed a block in Epoch 1.0");
             }
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)
+                let (stack_ops, transfer_ops) = StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?; 
+                // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
+                Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 => StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+            StacksEpochId::Epoch21 => StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                 chainstate_tx,
                 parent_index_hash,
                 sortdb_conn,
@@ -5161,8 +5278,8 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let (stacking_burn_ops, transfer_burn_ops) =
-            StacksChainState::get_stacking_and_transfer_burn_ops(
+        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops) =
+            StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                 chainstate_tx,
                 &parent_index_hash,
                 conn,
@@ -5297,14 +5414,27 @@ impl StacksChainState {
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
         // process stacking & transfer operations from burnchain ops
+        let active_pox_contract = PoxConstants::static_active_pox_contract(
+            burn_dbconn.get_v1_unlock_height() as u64, 
+            burn_tip_height as u64,
+        );
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops.clone(),
+            active_pox_contract,
         ));
         tx_receipts.extend(StacksChainState::process_transfer_ops(
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
+        // DelegateStx ops are allowed after epoch 2.1
+        if evaluated_epoch >= StacksEpochId::Epoch21 {
+            tx_receipts.extend(StacksChainState::process_delegate_ops(
+                &mut clarity_tx,
+                delegate_burn_ops.clone(),
+                active_pox_contract,
+            ));
+        }
 
         Ok(SetupBlockResult {
             clarity_tx,
@@ -5318,6 +5448,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops: stacking_burn_ops,
             burn_transfer_stx_ops: transfer_burn_ops,
+            burn_delegate_stx_ops: delegate_burn_ops,
         })
     }
 
@@ -5506,6 +5637,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            burn_delegate_stx_ops,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5775,6 +5907,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            burn_delegate_stx_ops,
         )
         .expect("FATAL: failed to advance chain tip");
 
@@ -11425,7 +11558,7 @@ pub mod test {
     /// operations are picked up and applied as expected in the given Stacks fork, even though
     /// there are empty sortitions.
     #[test]
-    fn test_get_stacking_and_transfer_burn_ops_v210() {
+    fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210() {
         let mut peer_config =
             TestPeerConfig::new("test_stacking_and_transfer_burn_ops_v210", 21315, 21316);
         let privk = StacksPrivateKey::from_hex(
@@ -11596,8 +11729,8 @@ pub mod test {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
                     chainstate.chainstate_tx_begin().unwrap();
-                let (stack_stx_ops, transfer_stx_ops) =
-                    StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops) =
+                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
                         &last_block_id,
                         sortdb.conn(),
@@ -11657,7 +11790,7 @@ pub mod test {
     /// operations are only dropped from consideration if there are more than 6 sortitions
     /// between when they are mined and when the next Stacks block is mined.
     #[test]
-    fn test_get_stacking_and_transfer_burn_ops_v210_expiration() {
+    fn test_get_stacking_and_transfer_and_delegate_burn_ops_v210_expiration() {
         let mut peer_config = TestPeerConfig::new(
             "test_stacking_and_transfer_burn_ops_v210_expiration",
             21317,
@@ -11875,8 +12008,8 @@ pub mod test {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
                     chainstate.chainstate_tx_begin().unwrap();
-                let (stack_stx_ops, transfer_stx_ops) =
-                    StacksChainState::get_stacking_and_transfer_burn_ops_v210(
+                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops) =
+                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
                         &last_block_id,
                         sortdb.conn(),

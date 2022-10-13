@@ -762,4 +762,255 @@ mod tests {
             panic!("EXPECTED to parse a stack stx op");
         }
     }
+
+    #[test]
+    fn test_classify_delegate_stx() {
+        let first_bhh = BurnchainHeaderHash([0; 32]);
+        let first_timestamp = 321;
+        let first_height = 1;
+
+        let mut burnchain_db =
+            BurnchainDB::connect(":memory:", first_height, &first_bhh, first_timestamp, true)
+                .unwrap();
+
+        let mut burnchain = Burnchain::regtest(":memory:");
+        burnchain.pox_constants = PoxConstants::test_default();
+
+        let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+        assert_eq!(&first_block_header.block_hash, &first_bhh);
+        assert_eq!(&first_block_header.block_height, &first_height);
+        assert_eq!(&first_block_header.timestamp, &first_timestamp);
+        assert_eq!(
+            &first_block_header.parent_block_hash,
+            &BurnchainHeaderHash::sentinel()
+        );
+
+        let canon_hash = BurnchainHeaderHash([1; 32]);
+
+        let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            500,
+            &canon_hash,
+            &first_bhh,
+            &vec![],
+            485,
+        ));
+        let ops = burnchain_db
+            .store_new_burnchain_block(&burnchain, &canonical_block)
+            .unwrap();
+        assert_eq!(ops.len(), 0);
+
+        // let's mine a block with a pre-stack-stx tx, and a delegate-stx tx,
+        //    the delegate-stx tx should _fail_ to verify, because there's no
+        //    corresponding pre-stack-stx.
+
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
+
+        let pre_delegate_stx_0_txid = Txid([5; 32]);
+        let pre_delegate_stx_0 = BitcoinTransaction {
+            txid: pre_delegate_stx_0_txid.clone(),
+            vtxindex: 0,
+            opcode: Opcodes::PreStx as u8,
+            data: vec![0; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 1),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one will not have a corresponding pre_stack_stx tx.
+        let delegate_stx_0 = BitcoinTransaction {
+            txid: Txid([4; 32]),
+            vtxindex: 1,
+            opcode: Opcodes::DelegateStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 1),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one will have a corresponding pre_stack_stx tx.
+        let delegate_stx_0_second_attempt = BitcoinTransaction {
+            txid: Txid([4; 32]),
+            vtxindex: 2,
+            opcode: Opcodes::DelegateStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (pre_delegate_stx_0_txid.clone(), 1),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
+                },
+            }, BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }
+            ],
+        };
+
+        // this one won't have a corresponding pre_stack_stx tx.
+        let delegate_stx_1 = BitcoinTransaction {
+            txid: Txid([3; 32]),
+            vtxindex: 3,
+            opcode: Opcodes::DelegateStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 1),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        // this one won't use the correct output
+        let delegate_stx_2 = BitcoinTransaction {
+            txid: Txid([8; 32]),
+            vtxindex: 4,
+            opcode: Opcodes::DelegateStx as u8,
+            data: vec![1; 80],
+            data_amt: 0,
+            inputs: vec![BitcoinTxInput {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (pre_delegate_stx_0_txid.clone(), 2),
+            }],
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                },
+            }],
+        };
+
+        let ops_0 = vec![pre_delegate_stx_0, delegate_stx_0];
+
+        let ops_1 = vec![delegate_stx_1, delegate_stx_0_second_attempt, delegate_stx_2];
+
+        let block_height_0 = 501;
+        let block_hash_0 = BurnchainHeaderHash([2; 32]);
+        let block_height_1 = 502;
+        let block_hash_1 = BurnchainHeaderHash([3; 32]);
+
+        let block_0 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            block_height_0,
+            &block_hash_0,
+            &first_bhh,
+            &ops_0,
+            350,
+        ));
+
+        let block_1 = BurnchainBlock::Bitcoin(BitcoinBlock::new(
+            block_height_1,
+            &block_hash_1,
+            &block_hash_0,
+            &ops_1,
+            360,
+        ));
+
+        let processed_ops_0 = burnchain_db
+            .store_new_burnchain_block(&burnchain, &block_0)
+            .unwrap();
+
+        assert_eq!(
+            processed_ops_0.len(),
+            1,
+            "Only pre_delegate_stx op should have been accepted"
+        );
+
+        let processed_ops_1 = burnchain_db
+            .store_new_burnchain_block(&burnchain, &block_1)
+            .unwrap();
+
+        assert_eq!(
+            processed_ops_1.len(),
+            1,
+            "Only one delegate_stx op should have been accepted"
+        );
+
+        let expected_pre_delegate_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
+            addrtype: BitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([1; 20]),
+        });
+
+        let expected_delegate_addr = PoxAddress::Standard(
+            StacksAddress::from_bitcoin_address(&BitcoinAddress {
+                addrtype: BitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([2; 20]),
+            }),
+            Some(AddressHashMode::SerializeP2PKH),
+        );
+
+        let expected_reward_addr = Some(PoxAddress::Standard(
+            StacksAddress::from_bitcoin_address(&BitcoinAddress {
+                addrtype: BitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([1; 20]),
+            }),
+            Some(AddressHashMode::SerializeP2PKH),
+        ));
+
+        if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {
+            assert_eq!(&op.output, &expected_pre_delegate_addr);
+        } else {
+            panic!("EXPECTED to parse a pre delegate stx op");
+        }
+
+        if let BlockstackOperationType::DelegateStx(op) = &processed_ops_1[0] {
+            assert_eq!(&op.sender, &expected_pre_delegate_addr);
+            assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
+            assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
+            assert_eq!(&op.reward_addr, &expected_reward_addr);
+            assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8]))); 
+        } else {
+            panic!("EXPECTED to parse a delegate stx op");
+        }
+    }
 }
