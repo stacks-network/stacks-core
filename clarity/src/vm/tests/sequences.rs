@@ -694,10 +694,7 @@ fn test_simple_list_replace_at() {
         )
         .unwrap(),
         Value::some(
-            Value::list_from(vec![
-                Value::list_from(vec![Value::Int(0)]).unwrap(),
-            ])
-            .unwrap(),
+            Value::list_from(vec![Value::list_from(vec![Value::Int(0)]).unwrap()]).unwrap(),
         )
         .unwrap(),
     ];
