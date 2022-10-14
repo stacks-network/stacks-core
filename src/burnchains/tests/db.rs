@@ -406,11 +406,14 @@ fn test_classify_stack_stx() {
         bytes: Hash160([1; 20]),
     });
 
-    let expected_reward_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
-        addrtype: BitcoinAddressType::PublicKeyHash,
-        network_id: BitcoinNetworkType::Mainnet,
-        bytes: Hash160([2; 20]),
-    });
+    let expected_reward_addr = PoxAddress::Standard(
+        StacksAddress::from_bitcoin_address(&BitcoinAddress {
+            addrtype: BitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([2; 20]),
+        }),
+        Some(AddressHashMode::SerializeP2PKH),
+    );
 
     if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {
         assert_eq!(&op.output, &expected_pre_stack_addr);
@@ -445,14 +448,8 @@ pub fn make_simple_block_commit(
         memo: vec![0],
 
         commit_outs: vec![
-            StacksAddress {
-                version: 26,
-                bytes: Hash160::empty(),
-            },
-            StacksAddress {
-                version: 26,
-                bytes: Hash160::empty(),
-            },
+            PoxAddress::standard_burn_address(false),
+            PoxAddress::standard_burn_address(false),
         ],
 
         burn_fee: 10000,
@@ -474,10 +471,7 @@ pub fn make_simple_block_commit(
     };
 
     if burnchain.is_in_prepare_phase(block_height) {
-        new_op.commit_outs = vec![StacksAddress {
-            version: 26,
-            bytes: Hash160::empty(),
-        }];
+        new_op.commit_outs = vec![PoxAddress::standard_burn_address(false)];
     }
 
     if let Some(ref op) = parent {
