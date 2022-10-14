@@ -39,7 +39,7 @@ impl TransactionOrigin {
         match self {
             TransactionOrigin::Burn(txid) => format!("BTC({})", txid),
             TransactionOrigin::Stacks(tx) => to_hex(&tx.serialize_to_vec()),
-            TransactionOrigin::NetworkProtocol => "ImplicitNetworkTransaction".into(),
+            TransactionOrigin::NetworkProtocol => "InternalNetworkBookkeeping".into(),
         }
     }
 }

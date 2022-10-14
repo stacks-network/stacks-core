@@ -893,7 +893,6 @@
             name: "stack-increase", 
             args: {
                 increase-by: increase-by, 
-                new-total-locked: new-total-locked,
             }
           }))
       (ok { stacker: tx-sender, total-locked: new-total-locked})))
@@ -1067,7 +1066,6 @@
       (print (merge event-info {
             name: "delegate-stack-increase", 
             args: {
-                new-total-locked: new-total-locked, 
                 pox-addr: pox-addr,
                 increase-by: increase-by,
             }

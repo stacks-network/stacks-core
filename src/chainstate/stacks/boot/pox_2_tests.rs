@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::convert::TryInto;
 
+use clarity::types::Address;
+use stacks_common::util::hash::hex_bytes;
 use crate::address::AddressHashMode;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
@@ -146,7 +148,30 @@ pub fn check_all_stacker_link_invariants(
     }
 }
 
-fn check_pox_print_event(event: &StacksTransactionEvent, operation_name: &str) {
+#[cfg(test)]
+fn generate_pox_clarity_value(str_hash: &str) -> Value{
+    let byte_vec = hex_bytes(str_hash).unwrap(); 
+    let pox_addr_tuple = TupleData::from_data(vec![
+        ("hashbytes".into(), Value::buff_from(byte_vec).unwrap()), 
+        ("version".into(), Value::buff_from_byte(0))
+    ]).unwrap();
+    
+    Value::Tuple(pox_addr_tuple)
+}
+
+#[cfg(test)]
+struct PoxPrintFields {
+    op_name: String, 
+    stacker: Value, 
+    balance: Value, 
+    locked: Value, 
+    burnchain_unlock_height: Value,
+}
+
+#[cfg(test)]
+// This function takes in a StacksTransactionEvent for a print statement from a pox function that modifies 
+// a stacker's state. It verifies that the values in the print statement are as expected. 
+fn check_pox_print_event(event: &StacksTransactionEvent, common_data: PoxPrintFields, op_data: HashMap<&str, Value>) {
     if let StacksTransactionEvent::SmartContractEvent(data) = event {
         assert_eq!(data.key.1, "print");
         let outer_tuple = data.value.clone().expect_tuple();
@@ -157,15 +182,22 @@ fn check_pox_print_event(event: &StacksTransactionEvent, operation_name: &str) {
                 .unwrap()
                 .clone()
                 .expect_ascii(),
-            operation_name
+            common_data.op_name
         );
-        assert!(outer_tuple.data_map.get("stacker").is_some());
-        assert!(outer_tuple.data_map.get("balance").is_some());
-        assert!(outer_tuple.data_map.get("locked").is_some());
-        assert!(outer_tuple
-            .data_map
-            .get("burnchain-unlock-height")
-            .is_some());
+        assert_eq!(outer_tuple.data_map.get("stacker"), Some(&common_data.stacker)); 
+        assert_eq!(outer_tuple.data_map.get("balance"), Some(&common_data.balance)); 
+        assert_eq!(outer_tuple.data_map.get("locked"), Some(&common_data.locked)); 
+        assert_eq!(outer_tuple.data_map.get(
+            "burnchain-unlock-height"), 
+            Some(&common_data.burnchain_unlock_height)
+        ); 
+
+        let args = outer_tuple.data_map.get("args")
+            .expect("The event tuple should have a field named `args`"); 
+        let inner_tuple = args.clone().expect_tuple(); 
+        for (inner_key, inner_val) in op_data {
+            assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val)); 
+        }
     } else {
         panic!("Unexpected transaction event type.")
     }
@@ -1410,7 +1442,30 @@ fn delegate_stack_increase() {
 
     // Check that the call to `delegate-stack-increase` has a print event.
     let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0];
-    check_pox_print_event(delegate_stack_increase_tx, "delegate-stack-increase");
+    let pox_addr_val = generate_pox_clarity_value(
+        "60c59ab11f7063ef44c16d3dc856f76bbb915eba"
+    ); 
+    let delegate_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val), 
+        ("increase-by", Value::UInt(5110000000000)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-increase".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(70),
+    }; 
+    check_pox_print_event(
+        delegate_stack_increase_tx, 
+        common_data, 
+        delegate_op_data
+    );
 }
 
 /// In this test case, Alice stacks and interacts with the
@@ -1638,7 +1693,22 @@ fn stack_increase() {
 
     // Check that the call to `stack-increase` has a print event.
     let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0];
-    check_pox_print_event(stack_increase_tx, "stack-increase");
+    let stack_op_data = HashMap::from([
+        ("increase-by", Value::UInt(5120000000000)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(70),
+    }; 
+    check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
 }
 
 #[test]
@@ -2178,11 +2248,49 @@ fn test_pox_extend_transition_pox_2() {
 
     // Check that the call to `stack-stx` has a print event.
     let stack_tx = &bob_txs.get(&0).unwrap().clone().events[0];
-    check_pox_print_event(stack_tx, "stack-stx");
+    let pox_addr_val = generate_pox_clarity_value(
+        "60c59ab11f7063ef44c16d3dc856f76bbb915eba"
+    ); 
+    let stack_op_data = HashMap::from([
+        ("amount-ustx", Value::UInt(5_120_000_000_000)), 
+        ("start-burn-ht", Value::UInt(35)),
+        ("pox-addr", pox_addr_val.clone()), 
+        ("lock-period", Value::UInt(3)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "stack-stx".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    }; 
+    check_pox_print_event(stack_tx, common_data, stack_op_data);
 
     // Check that the call to `stack-extend` has a print event.
     let stack_extend_tx = &bob_txs.get(&1).unwrap().clone().events[0];
-    check_pox_print_event(stack_extend_tx, "stack-extend");
+    let stack_ext_op_data = HashMap::from([
+        ("extend-count", Value::UInt(1)), 
+        ("pox-addr", pox_addr_val), 
+        ("new-unlock-height", Value::UInt(60)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "stack-extend".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(55),
+    }; 
+    check_pox_print_event(stack_extend_tx, common_data, stack_ext_op_data);
 }
 
 /// In this test case, two Stackers, Alice and Bob delegate stack and interact with the
@@ -2825,11 +2933,57 @@ fn test_delegate_extend_transition_pox_2() {
 
     // Check that the call to `delegate-stack-stx` has a print event.
     let delegate_stack_tx = &charlie_txs.get(&5).unwrap().clone().events[0];
-    check_pox_print_event(delegate_stack_tx, "delegate-stack-stx");
+    let pox_addr_val = generate_pox_clarity_value(
+        "12d93ae7b61e5b7d905c85828d4320e7c221f433"
+    );
+    let delegate_op_data = HashMap::from([
+        ("amount-ustx", Value::UInt(10240000000000)), 
+        ("start-burn-ht", Value::UInt(35)), 
+        ("pox-addr", pox_addr_val.clone()), 
+        ("lock-period", Value::UInt(3)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-stx".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    }; 
+    check_pox_print_event(
+        delegate_stack_tx, 
+        common_data, 
+        delegate_op_data
+    );
 
     // Check that the call to `delegate-stack-extend` has a print event.
     let delegate_stack_extend_tx = &charlie_txs.get(&6).unwrap().clone().events[0];
-    check_pox_print_event(delegate_stack_extend_tx, "delegate-stack-extend");
+    let delegate_ext_op_data = HashMap::from([
+        ("extend-count", Value::UInt(6)), 
+        ("pox-addr", pox_addr_val), 
+        ("new-unlock-height", Value::UInt(70)), 
+    ]); 
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-extend".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string(
+                "ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C"
+            )
+            .unwrap()
+            .to_account_principal()),
+        balance: Value::UInt(0),
+        locked: Value::UInt(10240000000000),
+        burnchain_unlock_height: Value::UInt(37),
+    }; 
+    check_pox_print_event(
+        delegate_stack_extend_tx, 
+        common_data, 
+        delegate_ext_op_data
+    );
 
     for (_nonce, tx) in charlie_txs.iter() {
         assert!(
