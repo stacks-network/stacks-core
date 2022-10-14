@@ -77,7 +77,7 @@ pub struct BlockCommitMetadata {
     /// if Some(..), then this block-commit is the anchor block for a reward cycle, and the
     /// reward cycle is represented as the inner u64.
     pub anchor_block: Option<u64>,
-    /// If Some(..), then this is the anchor block that this block-commit descends from
+    /// If Some(..), then this is the reward cycle which contains the anchor block that this block-commit descends from
     pub anchor_block_descendant: Option<u64>,
 }
 
@@ -506,6 +506,8 @@ impl<'a> BurnchainDBTransaction<'a> {
     /// method updates the prepare-phase block-commit's affirmation map to reflect what its miner
     /// believes to be the state of all anchor blocks, _including_ this new reward cycle's anchor
     /// block.
+    /// Returns the ID of the affirmation map in the database on success.
+    /// This can be used to later look up the affirmation map.
     pub fn make_prepare_phase_affirmation_map<B: BurnchainHeaderReader>(
         &self,
         indexer: &B,
@@ -1037,7 +1039,7 @@ impl BurnchainDB {
     ) -> Result<BurnchainBlockHeader, BurnchainError> {
         let qry = "SELECT * FROM burnchain_db_block_headers ORDER BY block_height DESC, block_hash ASC LIMIT 1";
         let opt = query_row(conn, qry, NO_PARAMS)?;
-        Ok(opt.expect("CORRUPTION: No canonical burnchain tip"))
+        Ok(opt.expect("CORRUPTION: Could not query highest burnchain header"))
     }
 
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
@@ -1211,7 +1213,7 @@ impl BurnchainDB {
         Ok(Some((commit, commit_metadata)))
     }
 
-    // do NOT call directly; only use in tests
+    // do NOT call directly; only call directly in tests
     pub fn store_new_burnchain_block_ops_unchecked<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,
@@ -1278,7 +1280,6 @@ impl BurnchainDB {
         Ok(())
     }
 
-<<<<<<< HEAD
     pub fn get_block_commit(
         conn: &DBConn,
         txid: &Txid,
@@ -1290,33 +1291,6 @@ impl BurnchainDB {
             test_debug!("No block-commit tx {}", &txid);
             Ok(None)
         }
-=======
-#[cfg(test)]
-mod tests {
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use std::convert::TryInto;
-
-    use crate::burnchains::bitcoin::address::*;
-    use crate::burnchains::bitcoin::blocks::*;
-    use crate::burnchains::bitcoin::*;
-    use crate::burnchains::PoxConstants;
-    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-    use crate::chainstate::burn::*;
-    use crate::chainstate::stacks::address::PoxAddress;
-    use crate::chainstate::stacks::*;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::util::hash::*;
-
-    use crate::types::chainstate::StacksAddress;
-
-    use super::*;
-
-    fn make_tx(hex_str: &str) -> BtcTx {
-        let tx_bin = hex_bytes(hex_str).unwrap();
-        deserialize(&tx_bin.to_vec()).unwrap()
->>>>>>> next
     }
 
     pub fn get_commit_in_block_at(
