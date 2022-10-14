@@ -185,6 +185,7 @@ impl SpvClient {
             readwrite: readwrite,
             reverse_order: reverse_order,
             headers_db: conn,
+            check_txcount: true,
         };
 
         if readwrite {
