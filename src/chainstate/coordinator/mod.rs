@@ -76,8 +76,8 @@ use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 
 pub use self::comm::CoordinatorCommunication;
 
-use stacks_common::util::get_epoch_time_secs;
 use super::stacks::boot::RewardSet;
+use stacks_common::util::get_epoch_time_secs;
 
 pub mod comm;
 #[cfg(test)]
@@ -1142,11 +1142,12 @@ impl<
         Ok(None)
     }
 
-    /// For unaffirmed anchor blocks, determine if they should be marked as present or absent.
-    fn has_unaffirmed_pox_anchor_block(
+    /// Determine if we have the block data for a given block-commit.
+    /// Used to see if we have the block data for an unaffirmed PoX anchor block
+    /// (hence the test_debug! macros referring to PoX anchor blocks)
+    fn has_stacks_block_for(
         &self,
         block_commit: LeaderBlockCommitOp,
-        _block_commit_metadata: BlockCommitMetadata,
     ) -> bool {
         let tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())
             .expect("BUG: failed to query chain tip from sortition DB");
@@ -1219,14 +1220,14 @@ impl<
     }
 
     pub fn get_canonical_affirmation_map(&self) -> Result<AffirmationMap, Error> {
-        // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
-        // download, then assume that it's absent.  Otherwise, if we are in the initial block
-        // download but we don't have it yet, assume that it's present.
         BurnchainDB::get_canonical_affirmation_map(
             self.burnchain_blocks_db.conn(),
             &self.burnchain,
-            |anchor_block_commit, anchor_block_metadata| {
-                self.has_unaffirmed_pox_anchor_block(anchor_block_commit, anchor_block_metadata)
+            |anchor_block_commit, _anchor_block_metadata| {
+                // if we don't have an unaffirmed anchor block, and we're no longer in the initial block
+                // download, then assume that it's absent.  Otherwise, if we are in the initial block
+                // download but we don't have it yet, assume that it's present.
+                self.has_stacks_block_for(anchor_block_commit)
             },
         )
         .map_err(|e| e.into())
