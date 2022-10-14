@@ -475,9 +475,16 @@ impl Burnchain {
             .block_height_to_reward_cycle(self.first_block_height, block_height)
     }
 
-    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
-        self.pox_constants
-            .is_in_prepare_phase(self.first_block_height, block_height)
+    pub fn static_block_height_to_reward_cycle(
+        block_height: u64,
+        first_block_height: u64,
+        reward_cycle_length: u64,
+    ) -> Option<u64> {
+        PoxConstants::static_block_height_to_reward_cycle(
+            block_height,
+            first_block_height,
+            reward_cycle_length,
+        )
     }
 
     /// Is this block either the first block in a reward cycle or
@@ -503,17 +510,12 @@ impl Burnchain {
         prepare_length: u64,
         block_height: u64,
     ) -> bool {
-        if block_height <= first_block_height {
-            // not a reward cycle start if we're the first block after genesis.
-            false
-        } else {
-            let effective_height = block_height - first_block_height;
-            let reward_index = effective_height % reward_cycle_length;
-
-            // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
-            // prepare phase.
-            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
-        }
+        PoxConstants::static_is_in_prepare_phase(
+            first_block_height,
+            reward_cycle_length,
+            prepare_length,
+            block_height,
+        )
     }
 
     pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
@@ -544,7 +546,7 @@ impl Burnchain {
         let mut byte_tail = [0u8; 16];
         rng.fill_bytes(&mut byte_tail);
 
-        let tmp_path = format!("/tmp/unit-tests-{}", &to_hex(&byte_tail));
+        let tmp_path = format!("/tmp/stacks-node-tests/unit-tests-{}", &to_hex(&byte_tail));
         let mut ret =
             Burnchain::new(&tmp_path, &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
         ret.first_block_height = first_block_height;
@@ -888,11 +890,11 @@ impl Burnchain {
         if this_reward_cycle != prev_reward_cycle {
             // at reward cycle boundary
             info!(
-                "Update PoX affirmation maps for reward cycle {} ({}) block {} cycle-length {}",
-                prev_reward_cycle,
-                this_reward_cycle,
-                block_height,
-                burnchain.pox_constants.reward_cycle_length
+                "Update PoX affirmation maps for reward cycle";
+                "prev_reward_cycle" => %prev_reward_cycle,
+                "this_reward_cycle" => %this_reward_cycle,
+                "block_height" => %block_height,
+                "cycle-length" => %burnchain.pox_constants.reward_cycle_length
             );
             update_pox_affirmation_maps(burnchain_db, indexer, prev_reward_cycle, burnchain)?;
         }
