@@ -415,17 +415,30 @@ impl PoxConstants {
     }
 
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
+        Self::static_is_in_prepare_phase(
+            first_block_height,
+            self.reward_cycle_length as u64,
+            self.prepare_length as u64,
+            block_height,
+        )
+    }
+
+    pub fn static_is_in_prepare_phase(
+        first_block_height: u64,
+        reward_cycle_length: u64,
+        prepare_length: u64,
+        block_height: u64,
+    ) -> bool {
         if block_height <= first_block_height {
             // not a reward cycle start if we're the first block after genesis.
             false
         } else {
             let effective_height = block_height - first_block_height;
-            let reward_index = effective_height % (self.reward_cycle_length as u64);
+            let reward_index = effective_height % reward_cycle_length;
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
-            reward_index == 0
-                || reward_index > ((self.reward_cycle_length - self.prepare_length) as u64)
+            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
         }
     }
 
