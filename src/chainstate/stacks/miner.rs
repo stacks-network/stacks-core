@@ -1933,10 +1933,10 @@ impl StacksBlockBuilder {
     ///  Used in test cases
     #[cfg(test)]
     pub fn make_anchored_block_from_txs(
-        mut builder: StacksBlockBuilder,
+        builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionDBConn,
-        mut txs: Vec<StacksTransaction>,
+        txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
         Self::make_anchored_block_and_microblock_from_txs(
             builder,
