@@ -77,8 +77,10 @@ pub enum Error {
     NoncontiguousHeader,
     /// Missing header
     MissingHeader,
-    /// Invalid target
+    /// Invalid header proof-of-work (i.e. due to a bad timestamp or a bad `bits` field)
     InvalidPoW,
+    /// Chainwork would decrease by including a given header
+    InvalidChainWork,
     /// Wrong number of bytes for constructing an address
     InvalidByteSequence,
     /// Configuration error
@@ -107,6 +109,7 @@ impl fmt::Display for Error {
             Error::NoncontiguousHeader => write!(f, "Non-contiguous header"),
             Error::MissingHeader => write!(f, "Missing header"),
             Error::InvalidPoW => write!(f, "Invalid proof of work"),
+            Error::InvalidChainWork => write!(f, "Chain difficulty cannot decrease"),
             Error::InvalidByteSequence => write!(f, "Invalid sequence of bytes"),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
             Error::BlockchainHeight => write!(f, "Value is beyond the end of the blockchain"),
@@ -133,6 +136,7 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => None,
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
+            Error::InvalidChainWork => None,
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,

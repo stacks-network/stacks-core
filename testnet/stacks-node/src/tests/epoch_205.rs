@@ -44,6 +44,7 @@ use stacks::core;
 
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::types::chainstate::VRFSeed;
 use stacks::vm::costs::ExecutionCost;
 
@@ -544,8 +545,9 @@ fn transition_empty_blocks() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
+    let mut bitcoin_controller =
+        BitcoinRegtestController::new_dummy(conf.clone(), burnchain.clone());
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {
@@ -590,11 +592,11 @@ fn transition_empty_blocks() {
 
             let commit_outs = if !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1) {
                 vec![
-                    StacksAddress::burn_address(conf.is_mainnet()),
-                    StacksAddress::burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
                 ]
             } else {
-                vec![StacksAddress::burn_address(conf.is_mainnet())]
+                vec![PoxAddress::standard_burn_address(conf.is_mainnet())]
             };
 
             // let's commit
@@ -783,7 +785,7 @@ fn test_cost_limit_switch_version205() {
     let increment_contract_defines = select_transactions_where(
         &test_observer::get_blocks(),
         |transaction| match &transaction.payload {
-            TransactionPayload::SmartContract(contract) => {
+            TransactionPayload::SmartContract(contract, ..) => {
                 contract.name == ContractName::try_from("increment-contract").unwrap()
             }
             _ => false,
@@ -1115,7 +1117,7 @@ fn bigger_microblock_streams_in_2_05() {
                 }
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
                 let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-                if let TransactionPayload::SmartContract(tsc) = parsed.payload {
+                if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                     if tsc.name.to_string().find("costs-2").is_some() {
                         in_205 = true;
                     } else if tsc.name.to_string().find("large").is_some() {

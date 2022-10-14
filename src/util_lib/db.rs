@@ -194,6 +194,13 @@ impl FromRow<u64> for u64 {
     }
 }
 
+impl FromRow<String> for String {
+    fn from_row<'a>(row: &'a Row) -> Result<String, Error> {
+        let x: String = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 impl FromColumn<u64> for u64 {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<u64, Error> {
         let x: i64 = row.get_unwrap(column_name);

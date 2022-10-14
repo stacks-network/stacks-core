@@ -197,10 +197,12 @@ pub struct DBConfig {
 impl DBConfig {
     pub fn supports_epoch(&self, epoch_id: StacksEpochId) -> bool {
         match epoch_id {
-            StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (self.version == "1" || self.version == "2"),
-            StacksEpochId::Epoch2_05 => self.version == "2",
-            StacksEpochId::Epoch21 => self.version == "2",
+            StacksEpochId::Epoch10 => true,
+            StacksEpochId::Epoch20 => {
+                self.version == "1" || self.version == "2" || self.version == "3"
+            }
+            StacksEpochId::Epoch2_05 => self.version == "2" || self.version == "3",
+            StacksEpochId::Epoch21 => self.version == "3",
         }
     }
 }
@@ -1167,12 +1169,15 @@ impl StacksChainState {
                     boot_code_contract.len()
                 );
 
-                let smart_contract = TransactionPayload::SmartContract(TransactionSmartContract {
-                    name: ContractName::try_from(boot_code_name.to_string())
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(boot_code_contract)
-                        .expect("FATAL: invalid boot code body"),
-                });
+                let smart_contract = TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: ContractName::try_from(boot_code_name.to_string())
+                            .expect("FATAL: invalid boot-code contract name"),
+                        code_body: StacksString::from_str(boot_code_contract)
+                            .expect("FATAL: invalid boot code body"),
+                    },
+                    None,
+                );
 
                 let boot_code_smart_contract = StacksTransaction::new(
                     tx_version.clone(),

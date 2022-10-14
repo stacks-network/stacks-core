@@ -163,8 +163,17 @@ impl UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
+        let output = outputs[1]
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         Ok(UserBurnSupportOp {
-            address: outputs[1].address.clone(),
+            address: output,
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             block_header_hash_160: data.block_header_hash_160,

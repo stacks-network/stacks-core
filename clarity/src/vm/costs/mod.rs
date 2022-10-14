@@ -798,6 +798,18 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::max_value(),
         }
     }
+    pub fn get_memory(&self) -> u64 {
+        match self {
+            Self::Limited(TrackerData { memory, .. }) => *memory,
+            Self::Free => 0,
+        }
+    }
+    pub fn get_memory_limit(&self) -> u64 {
+        match self {
+            Self::Limited(TrackerData { memory_limit, .. }) => *memory_limit,
+            Self::Free => u64::MAX,
+        }
+    }
 }
 
 fn parse_cost(

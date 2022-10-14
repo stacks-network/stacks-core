@@ -19,6 +19,7 @@ use std::error;
 use std::fmt;
 use std::thread;
 
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
@@ -71,9 +72,10 @@ use clarity::vm::database::{
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
-    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
     TypeSignature, Value,
 };
+use clarity::vm::ClarityVersion;
 use clarity::vm::ContractName;
 
 use crate::util_lib::db::Error as DatabaseError;
@@ -376,12 +378,17 @@ impl ClarityInstance {
 
         let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("costs", use_mainnet), BOOT_CODE_COSTS)
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS,
+                )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("costs", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     BOOT_CODE_COSTS,
                     None,
@@ -394,12 +401,14 @@ impl ClarityInstance {
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
                 )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_COST_VOTING,
                     None,
@@ -413,12 +422,17 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id("pox", use_mainnet), &*BOOT_CODE_POX_TESTNET)
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    &*BOOT_CODE_POX_TESTNET,
+                )
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &boot_code_id("pox", use_mainnet),
+                    ClarityVersion::Clarity1,
                     &ast,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
@@ -720,12 +734,15 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 &*BOOT_CODE_COSTS_2_TESTNET
             };
 
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(COSTS_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(cost_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
 
             let costs_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
@@ -832,16 +849,22 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let pox_2_contract_id = boot_code_id(POX_2_NAME, mainnet);
 
-            let payload = TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(POX_2_NAME)
-                    .expect("FATAL: invalid boot-code contract name"),
-                code_body: StacksString::from_str(pox_2_code)
-                    .expect("FATAL: invalid boot code body"),
-            });
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(POX_2_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(pox_2_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
 
             let pox_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
+            // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
+            // features
+            self.epoch = StacksEpochId::Epoch21;
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
                 tx_conn
@@ -895,8 +918,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
-            // upgrade epoch here as well
-            self.epoch = StacksEpochId::Epoch21;
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
@@ -922,6 +943,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         }
     }
 
+    /// Execute `todo` as a transaction in this block. The execution
+    /// will use the "free" cost tracker.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
+    pub fn as_free_transaction<F, R>(&mut self, todo: F) -> R
+    where
+        F: FnOnce(&mut ClarityTransactionConnection) -> R,
+    {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mut tx = self.start_transaction_processing();
+            let r = todo(&mut tx);
+            tx.commit();
+            (old_cost_tracker, r)
+        })
+    }
+
+    /// Execute `todo` as a transaction in this block.
+    /// This will unconditionally commit the edit log from the
+    /// transaction to the block, so any changes that should be
+    /// rolled back must be rolled back by `todo`.
     pub fn as_transaction<F, R>(&mut self, todo: F) -> R
     where
         F: FnOnce(&mut ClarityTransactionConnection) -> R,
@@ -1113,7 +1160,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
-                    .execute_in_env(sender.clone(), None, |env| {
+                    .execute_in_env(sender.clone(), None, None, |env| {
                         env.run_as_transaction(|env| {
                             StacksChainState::handle_poison_microblock(
                                 env,
@@ -1127,6 +1174,10 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             |_, _| false,
         )
         .and_then(|(value, ..)| Ok(value))
+    }
+
+    pub fn is_mainnet(&self) -> bool {
+        return self.mainnet;
     }
 
     /// Commit the changes from the edit log.
@@ -1181,6 +1232,8 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
+    use crate::chainstate::stacks::address::PoxAddress;
+
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::types::{StandardPrincipalData, Value};
@@ -1223,13 +1276,25 @@ mod tests {
             let contract = "(define-public (foo (x int) (y uint)) (ok (+ x y)))";
 
             let _e = conn
-                .as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
+                .as_transaction(|tx| {
+                    tx.analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
+                })
                 .unwrap_err();
 
             // okay, let's try it again:
 
             let _e = conn
-                .as_transaction(|tx| tx.analyze_smart_contract(&contract_identifier, &contract))
+                .as_transaction(|tx| {
+                    tx.analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
+                })
                 .unwrap_err();
 
             conn.commit_block();
@@ -1271,10 +1336,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1318,10 +1388,15 @@ mod tests {
                 let mut tx = conn.start_transaction_processing();
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1340,10 +1415,15 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1364,12 +1444,17 @@ mod tests {
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
                 let (ct_ast, _ct_analysis) = tx
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 assert!(format!(
                     "{}",
                     tx.initialize_smart_contract(
                         &contract_identifier,
+                        ClarityVersion::Clarity1,
                         &ct_ast,
                         &contract,
                         None,
@@ -1412,10 +1497,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1466,10 +1556,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1552,10 +1647,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1677,10 +1777,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,
@@ -1813,20 +1918,26 @@ mod tests {
         let mut tx1 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
         let tx2 = StacksTransaction::new(
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond.clone()),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: "hello-world".into(),
-                code_body: StacksString::from_str(contract).unwrap(),
-            })
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "hello-world".into(),
+                    code_body: StacksString::from_str(contract).unwrap(),
+                },
+                None,
+            )
             .into(),
         );
 
@@ -1968,6 +2079,13 @@ mod tests {
             fn get_burn_start_height(&self) -> u32 {
                 0
             }
+            fn get_pox_payout_addrs(
+                &self,
+                _height: u32,
+                _sortition_id: &SortitionId,
+            ) -> Option<(Vec<TupleData>, u128)> {
+                return None;
+            }
         }
 
         let burn_state_db = BlockLimitBurnStateDB {};
@@ -1999,10 +2117,15 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 let (ct_ast, ct_analysis) = conn
-                    .analyze_smart_contract(&contract_identifier, &contract)
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        &contract,
+                    )
                     .unwrap();
                 conn.initialize_smart_contract(
                     &contract_identifier,
+                    ClarityVersion::Clarity1,
                     &ct_ast,
                     &contract,
                     None,

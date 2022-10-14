@@ -23,6 +23,7 @@ use crate::burnchains::BurnchainBlockHeader;
 use crate::burnchains::Txid;
 use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
+use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::Error as op_error;
 use crate::chainstate::burn::operations::{
@@ -32,6 +33,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::burn::SortitionId;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
@@ -424,7 +426,7 @@ impl StacksMessageCodec for LeaderBlockCommitOp {
 #[derive(Debug)]
 pub struct RewardSetInfo {
     pub anchor_block: BlockHeaderHash,
-    pub recipients: Vec<(StacksAddress, u16)>,
+    pub recipients: Vec<(PoxAddress, u16)>,
 }
 
 #[derive(Debug, Clone)]
@@ -448,7 +450,7 @@ impl RewardSetInfo {
     /// Takes an Option<RewardSetInfo> and produces the commit_outs
     ///   for a corresponding LeaderBlockCommitOp. If RewardSetInfo is none,
     ///   the LeaderBlockCommitOp will use burn addresses.
-    pub fn into_commit_outs(from: Option<RewardSetInfo>, mainnet: bool) -> Vec<StacksAddress> {
+    pub fn into_commit_outs(from: Option<RewardSetInfo>, mainnet: bool) -> Vec<PoxAddress> {
         if let Some(recipient_set) = from {
             let mut outs: Vec<_> = recipient_set
                 .recipients
@@ -456,12 +458,12 @@ impl RewardSetInfo {
                 .map(|(recipient, _)| recipient)
                 .collect();
             while outs.len() < OUTPUTS_PER_COMMIT {
-                outs.push(StacksAddress::burn_address(mainnet));
+                outs.push(PoxAddress::standard_burn_address(mainnet));
             }
             outs
         } else {
             (0..OUTPUTS_PER_COMMIT)
-                .map(|_| StacksAddress::burn_address(mainnet))
+                .map(|_| PoxAddress::standard_burn_address(mainnet))
                 .collect()
         }
     }
@@ -511,7 +513,7 @@ impl LeaderBlockCommitOp {
                 let recipient_set_all_burns = reward_set_info
                     .recipients
                     .iter()
-                    .fold(true, |prior_is_burn, (addr, _)| {
+                    .fold(true, |prior_is_burn, (addr, ..)| {
                         prior_is_burn && addr.is_burn()
                     });
 
@@ -527,14 +529,14 @@ impl LeaderBlockCommitOp {
                         let mut check_recipients: Vec<_> = reward_set_info
                             .recipients
                             .iter()
-                            .map(|(addr, _)| addr.clone())
+                            .map(|(addr, ..)| addr.clone())
                             .collect();
 
                         if check_recipients.len() == 1 {
                             // If the number of recipients in the set was odd, we need to pad
                             // with a burn address
                             check_recipients
-                                .push(StacksAddress::burn_address(burnchain.is_mainnet()))
+                                .push(PoxAddress::standard_burn_address(burnchain.is_mainnet()))
                         }
 
                         if self.commit_outs.len() != check_recipients.len() {
@@ -554,9 +556,11 @@ impl LeaderBlockCommitOp {
                         for (expected_commit, found_commit) in
                             commit_outs.iter().zip(check_recipients)
                         {
-                            if expected_commit != &found_commit {
+                            if expected_commit.to_burnchain_repr()
+                                != found_commit.to_burnchain_repr()
+                            {
                                 warn!("Invalid block commit: committed output {} does not match expected {}",
-                                      found_commit, expected_commit);
+                                      found_commit.to_burnchain_repr(), expected_commit.to_burnchain_repr());
                                 return Err(op_error::BlockCommitBadOutputs);
                             }
                         }
@@ -572,8 +576,7 @@ impl LeaderBlockCommitOp {
                         if descended_from_anchor {
                             warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
                         } else {
-                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs"
-                            );
+                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
                         }
                         return Err(op_error::BlockCommitBadOutputs);
                     }
@@ -862,6 +865,7 @@ mod tests {
     };
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
     use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
@@ -893,6 +897,20 @@ mod tests {
         let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex string")?;
         let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
         Ok(tx)
+    }
+
+    fn stacks_address_to_bitcoin_tx_out(addr: &StacksAddress, value: u64) -> TxOut {
+        let btc_version = to_b58_version_byte(addr.version)
+            .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
+        let btc_addr_type = version_byte_to_address_type(btc_version)
+            .expect("BUG: failed to decode Bitcoin version byte")
+            .0;
+        match btc_addr_type {
+            BitcoinAddressType::PublicKeyHash => {
+                BitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+            }
+            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&addr.bytes, value),
+        }
     }
 
     #[test]
@@ -1248,8 +1266,8 @@ mod tests {
                     memo: vec![0x1f],
 
                     commit_outs: vec![
-                        StacksAddress { version: 26, bytes: Hash160::empty() },
-                        StacksAddress { version: 26, bytes: Hash160::empty() }
+                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
+                        PoxAddress::Standard( StacksAddress { version: 26, bytes: Hash160::empty() }, None ),
                     ],
 
                     burn_fee: 24690,
@@ -1298,7 +1316,7 @@ mod tests {
                 eprintln!("TX outputs: {}", tx.output.len());
                 tx.output.insert(
                     2,
-                    StacksAddress::burn_address(false).to_bitcoin_tx_out(12345),
+                    stacks_address_to_bitcoin_tx_out(&StacksAddress::burn_address(false), 12345),
                 );
                 is_first = false;
                 eprintln!("Updated txstr = {}", serialize_hex(&tx).unwrap());

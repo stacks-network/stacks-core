@@ -103,6 +103,11 @@ pub const MAX_BLOOM_COUNTER_TXS: u32 = 8192;
 // how far back in time (in Stacks blocks) does the bloom counter maintain tx records?
 pub const BLOOM_COUNTER_DEPTH: usize = 2;
 
+// how long will a transaction be blacklisted?
+// about as long as it takes for it to be garbage-collected
+pub const DEFAULT_BLACKLIST_TIMEOUT: u64 = 24 * 60 * 60 * 2;
+pub const DEFAULT_BLACKLIST_MAX_SIZE: u64 = 134217728; // 2**27 -- the blacklist table can reach at most 4GB at 128 bytes per record
+
 // maximum many tx tags we'll send before sending a bloom filter instead.
 // The parameter choice here is due to performance -- calculating a tag set can be slower than just
 // loading the bloom filter, even though the bloom filter is larger.
@@ -180,6 +185,7 @@ pub enum MemPoolDropReason {
     REPLACE_BY_FEE,
     STALE_COLLECT,
     TOO_EXPENSIVE,
+    PROBLEMATIC,
 }
 
 pub struct ConsiderTransaction {
@@ -204,6 +210,7 @@ impl std::fmt::Display for MemPoolDropReason {
             MemPoolDropReason::TOO_EXPENSIVE => write!(f, "TooExpensive"),
             MemPoolDropReason::REPLACE_ACROSS_FORK => write!(f, "ReplaceAcrossFork"),
             MemPoolDropReason::REPLACE_BY_FEE => write!(f, "ReplaceByFee"),
+            MemPoolDropReason::PROBLEMATIC => write!(f, "Problematic"),
         }
     }
 }
@@ -414,6 +421,45 @@ const MEMPOOL_SCHEMA_3_BLOOM_STATE: &'static [&'static str] = &[
     "#,
 ];
 
+const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
+    r#"
+    -- List of transactions that will never be stored to the mempool again, for as long as the rows exist.
+    -- `arrival_time` indicates when the entry was created. This is used to garbage-collect the list.
+    -- A transaction that is blacklisted may still be served from the mempool, but it will never be (re)submitted.
+    CREATE TABLE IF NOT EXISTS tx_blacklist(
+        txid TEXT PRIMARY KEY NOT NULL,
+        arrival_time INTEGER NOT NULL
+    );
+    "#,
+    r#"
+    -- Count the number of entries in the blacklist
+    CREATE TABLE IF NOT EXISTS tx_blacklist_size(
+        size INTEGER NOT NULL
+    );
+    "#,
+    r#"
+    -- Maintain a count of the size of the blacklist
+    CREATE TRIGGER IF NOT EXISTS tx_blacklist_size_inc
+    AFTER INSERT ON tx_blacklist
+    BEGIN
+        UPDATE tx_blacklist_size SET size = size + 1;
+    END
+    "#,
+    r#"
+    CREATE TRIGGER IF NOT EXISTS tx_blacklist_size_dec
+    AFTER DELETE ON tx_blacklist
+    BEGIN
+        UPDATE tx_blacklist_size SET size = size - 1;
+    END
+    "#,
+    r#"
+    INSERT INTO tx_blacklist_size (size) VALUES (0)
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (4)
+    "#,
+];
+
 const MEMPOOL_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
@@ -425,6 +471,7 @@ const MEMPOOL_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS fee_by_txid ON fee_estimates(txid);",
     "CREATE INDEX IF NOT EXISTS by_ordered_hashed_txid ON randomized_txids(hashed_txid ASC);",
     "CREATE INDEX IF NOT EXISTS by_hashed_txid ON randomized_txids(txid,hashed_txid);",
+    "CREATE INDEX IF NOT EXISTS by_arrival_time_desc ON tx_blacklist(arrival_time DESC);",
 ];
 
 pub struct MemPoolDB {
@@ -435,6 +482,8 @@ pub struct MemPoolDB {
     max_tx_tags: u32,
     cost_estimator: Box<dyn CostEstimator>,
     metric: Box<dyn CostMetric>,
+    pub blacklist_timeout: u64,
+    pub blacklist_max_size: u64,
 }
 
 pub struct MemPoolTx<'a> {
@@ -692,6 +741,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_bloom_state(tx)?;
                 }
                 3 => {
+                    MemPoolDB::instantiate_tx_blacklist(tx)?;
+                }
+                4 => {
                     break;
                 }
                 _ => {
@@ -730,6 +782,15 @@ impl MemPoolDB {
     /// Instantiate the cost estimator schema
     fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Instantiate the tx blacklist schema
+    fn instantiate_tx_blacklist(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_4_BLACKLIST {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -815,6 +876,8 @@ impl MemPoolDB {
             max_tx_tags: DEFAULT_MAX_TX_TAGS,
             cost_estimator,
             metric,
+            blacklist_timeout: DEFAULT_BLACKLIST_TIMEOUT,
+            blacklist_max_size: DEFAULT_BLACKLIST_MAX_SIZE,
         })
     }
 
@@ -1009,17 +1072,26 @@ impl MemPoolDB {
     ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
     ///  caller may choose how long to spend iterating before this method stops.
     ///
-    ///  `todo` returns a boolean representing whether or not to keep iterating.
+    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
+    ///  that iteration through the mempool should be halted.
+    ///
+    /// `output_events` is modified in place, adding all substantive transaction events (success and error
+    /// events, but not skipped) output by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
+        output_events: &mut Vec<TransactionEvent>,
         _tip_height: u64,
         settings: MemPoolWalkSettings,
         mut todo: F,
     ) -> Result<u64, E>
     where
         C: ClarityConnection,
-        F: FnMut(&mut C, &ConsiderTransaction, &mut dyn CostEstimator) -> Result<bool, E>,
+        F: FnMut(
+            &mut C,
+            &ConsiderTransaction,
+            &mut dyn CostEstimator,
+        ) -> Result<Option<TransactionEvent>, E>,
         E: From<db_error> + From<ChainstateError>,
     {
         let start_time = Instant::now();
@@ -1079,9 +1151,22 @@ impl MemPoolDB {
                            "size" => consider.tx.metadata.len);
                     total_considered += 1;
 
-                    if !todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
-                        debug!("Mempool iteration early exit from iterator");
-                        break;
+                    // Run `todo` on the transaction.
+                    match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
+                        Some(tx_event) => {
+                            match tx_event {
+                                TransactionEvent::Skipped(_) => {
+                                    // don't push `Skipped` events to the observer
+                                }
+                                _ => {
+                                    output_events.push(tx_event);
+                                }
+                            }
+                        }
+                        None => {
+                            debug!("Mempool iteration early exit from iterator");
+                            break;
+                        }
                     }
 
                     self.bump_last_known_nonces(&consider.tx.metadata.origin_address)?;
@@ -1541,6 +1626,12 @@ impl MemPoolDB {
         block_limit: &ExecutionCost,
         stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> {
+        if self.is_tx_blacklisted(&tx.txid())? {
+            // don't re-store this transaction
+            test_debug!("Transaction {} is temporarily blacklisted", &tx.txid());
+            return Err(MemPoolRejection::TemporarilyBlacklisted);
+        }
+
         let estimator_result = cost_estimates::estimate_fee_rate(
             tx,
             self.cost_estimator.as_ref(),
@@ -1591,6 +1682,12 @@ impl MemPoolDB {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
 
+        if self.is_tx_blacklisted(&tx.txid())? {
+            // don't re-store this transaction
+            test_debug!("Transaction {} is temporarily blacklisted", &tx.txid());
+            return Err(MemPoolRejection::TemporarilyBlacklisted);
+        }
+
         let estimator_result = cost_estimates::estimate_fee_rate(
             &tx,
             self.cost_estimator.as_ref(),
@@ -1628,14 +1725,126 @@ impl MemPoolDB {
         Ok(())
     }
 
-    /// Drop transactions from the mempool
-    pub fn drop_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
-        let mempool_tx = self.tx_begin()?;
+    /// Blacklist transactions from the mempool
+    /// Do not call directly; it's `pub` only for testing
+    pub fn inner_blacklist_txs<'a>(
+        tx: &DBTx<'a>,
+        txids: &[Txid],
+        now: u64,
+    ) -> Result<(), db_error> {
+        for txid in txids {
+            let sql = "INSERT OR REPLACE INTO tx_blacklist (txid, arrival_time) VALUES (?1, ?2)";
+            let args: &[&dyn ToSql] = &[&txid, &u64_to_sql(now)?];
+            tx.execute(sql, args)?;
+        }
+        Ok(())
+    }
+
+    /// garbage-collect the tx blacklist -- delete any transactions whose blacklist timeout has
+    /// been exceeded
+    pub fn garbage_collect_tx_blacklist<'a>(
+        tx: &DBTx<'a>,
+        now: u64,
+        timeout: u64,
+        max_size: u64,
+    ) -> Result<(), db_error> {
+        let sql = "DELETE FROM tx_blacklist WHERE arrival_time + ?1 < ?2";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(timeout)?, &u64_to_sql(now)?];
+        tx.execute(sql, args)?;
+
+        // if we get too big, then drop some txs at random
+        let sql = "SELECT size FROM tx_blacklist_size";
+        let sz = query_int(tx, sql, NO_PARAMS)? as u64;
+        if sz > max_size {
+            let to_delete = sz - max_size;
+            let txids: Vec<Txid> = query_rows(
+                tx,
+                "SELECT txid FROM tx_blacklist ORDER BY RANDOM() LIMIT ?1",
+                &[&u64_to_sql(to_delete)? as &dyn ToSql],
+            )?;
+            for txid in txids.into_iter() {
+                tx.execute(
+                    "DELETE FROM tx_blacklist WHERE txid = ?1",
+                    &[&txid as &dyn ToSql],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// when was a tx blacklisted?
+    fn get_blacklisted_tx_arrival_time(
+        conn: &DBConn,
+        txid: &Txid,
+    ) -> Result<Option<u64>, db_error> {
+        let sql = "SELECT arrival_time FROM tx_blacklist WHERE txid = ?1";
+        let args: &[&dyn ToSql] = &[&txid];
+        query_row(conn, sql, args)
+    }
+
+    /// is a tx blacklisted as of the given timestamp?
+    fn inner_is_tx_blacklisted(
+        conn: &DBConn,
+        txid: &Txid,
+        now: u64,
+        timeout: u64,
+    ) -> Result<bool, db_error> {
+        match MemPoolDB::get_blacklisted_tx_arrival_time(conn, txid)? {
+            None => Ok(false),
+            Some(arrival_time) => Ok(now < arrival_time + timeout),
+        }
+    }
+
+    /// is a tx blacklisted?
+    pub fn is_tx_blacklisted(&self, txid: &Txid) -> Result<bool, db_error> {
+        MemPoolDB::inner_is_tx_blacklisted(
+            self.conn(),
+            txid,
+            get_epoch_time_secs(),
+            self.blacklist_timeout,
+        )
+    }
+
+    /// Inner code body for dropping transactions.
+    /// Note that the bloom filter will *NOT* be updated.  That's the caller's job, if desired.
+    fn inner_drop_txs<'a>(tx: &DBTx<'a>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
-            mempool_tx.execute(sql, &[txid])?;
+            tx.execute(sql, &[txid])?;
         }
+        Ok(())
+    }
+
+    /// Drop transactions from the mempool.  Does not update the bloom filter, thereby ensuring that
+    /// these transactions will still show up as present to the mempool sync logic.
+    pub fn drop_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
+        let mempool_tx = self.tx_begin()?;
+        MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
         mempool_tx.commit()?;
+        Ok(())
+    }
+
+    /// Drop and blacklist transactions, so we don't re-broadcast them or re-fetch them.
+    /// Do *NOT* remove them from the bloom filter.  This will cause them to continue to be
+    /// reported as present, which is exactly what we want because we don't want these transactions
+    /// to be seen again (so we don't want anyone accidentally "helpfully" pushing them to us, nor
+    /// do we want the mempool sync logic to "helpfully" re-discover and re-download them).
+    pub fn drop_and_blacklist_txs(&mut self, txids: &[Txid]) -> Result<(), db_error> {
+        let now = get_epoch_time_secs();
+        let blacklist_timeout = self.blacklist_timeout;
+        let blacklist_max_size = self.blacklist_max_size;
+
+        let mempool_tx = self.tx_begin()?;
+        MemPoolDB::inner_drop_txs(&mempool_tx, txids)?;
+        MemPoolDB::inner_blacklist_txs(&mempool_tx, txids, now)?;
+        MemPoolDB::garbage_collect_tx_blacklist(
+            &mempool_tx,
+            now,
+            blacklist_timeout,
+            blacklist_max_size,
+        )?;
+        mempool_tx.commit()?;
+
         Ok(())
     }
 

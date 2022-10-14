@@ -19,7 +19,7 @@ use std::fmt;
 
 /// In a near future, we can go further in our static analysis and provide different levels
 /// of diagnostics, such as warnings, hints, best practices, etc.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum Level {
     Note,
     Warning,
@@ -34,7 +34,7 @@ pub trait DiagnosableError {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Diagnostic {
     pub level: Level,
     pub message: String,

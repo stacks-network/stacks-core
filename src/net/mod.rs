@@ -253,6 +253,8 @@ impl From<codec_error> for Error {
             codec_error::UnderflowError(s) => Error::UnderflowError(s),
             codec_error::OverflowError(s) => Error::OverflowError(s),
             codec_error::ArrayTooLong => Error::ArrayTooLong,
+            codec_error::SigningError(s) => Error::SigningError(s),
+            codec_error::GenericError(_) => Error::InvalidMessage,
         }
     }
 }
@@ -1072,12 +1074,20 @@ pub struct RPCPoxNextCycleInfo {
     pub ustx_until_pox_rejection: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RPCPoxContractVersion {
+    pub contract_id: String,
+    pub activation_burnchain_block_height: u64,
+    pub first_reward_cycle_id: u64,
+}
+
 /// The data we return on GET /v2/pox
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCPoxInfoData {
     pub contract_id: String,
     pub pox_activation_threshold_ustx: u64,
     pub first_burnchain_block_height: u64,
+    pub current_burnchain_block_height: u64,
     pub prepare_phase_block_length: u64,
     pub reward_phase_block_length: u64,
     pub reward_slots: u64,
@@ -1093,6 +1103,9 @@ pub struct RPCPoxInfoData {
     pub reward_cycle_length: u64,
     pub rejection_votes_left_required: u64,
     pub next_reward_cycle_in: u64,
+
+    // Information specific to each PoX contract version
+    pub contract_versions: Vec<RPCPoxContractVersion>,
 }
 
 /// Headers response payload
@@ -2071,6 +2084,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
+    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
@@ -2096,6 +2110,7 @@ pub mod test {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
+    use clarity::vm::ClarityVersion;
     use stacks_common::address::*;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
@@ -2368,9 +2383,9 @@ pub mod test {
             &self,
             _burn_block: &BurnchainHeaderHash,
             _burn_block_height: u64,
-            _rewards: Vec<(StacksAddress, u64)>,
+            _rewards: Vec<(PoxAddress, u64)>,
             _burns: u64,
-            _reward_recipients: Vec<StacksAddress>,
+            _reward_recipients: Vec<PoxAddress>,
         ) {
             // pass
         }
@@ -2405,6 +2420,9 @@ pub mod test {
         pub spending_account: TestMiner,
         pub setup_code: String,
         pub epochs: Option<Vec<StacksEpoch>>,
+        /// If some(), TestPeer should check the PoX-2 invariants
+        /// on cycle numbers bounded (inclusive) by the supplied u64s
+        pub check_pox_invariants: Option<(u64, u64)>,
     }
 
     impl TestPeerConfig {
@@ -2449,6 +2467,7 @@ pub mod test {
                 spending_account: spending_account,
                 setup_code: "".into(),
                 epochs: None,
+                check_pox_invariants: None,
             }
         }
 
@@ -2660,13 +2679,15 @@ pub mod test {
                             conf.setup_code.len()
                         );
 
-                        let smart_contract =
-                            TransactionPayload::SmartContract(TransactionSmartContract {
+                        let smart_contract = TransactionPayload::SmartContract(
+                            TransactionSmartContract {
                                 name: ContractName::try_from(conf.test_name.as_str())
                                     .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
                                     .expect("FATAL: invalid boot code body"),
-                            });
+                            },
+                            None,
+                        );
 
                         let boot_code_smart_contract = StacksTransaction::new(
                             TransactionVersion::Testnet,
@@ -3517,7 +3538,18 @@ pub mod test {
 
             *coinbase_nonce += 1;
 
-            StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
+            let tip_id = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
+
+            if let Some((start_check_cycle, end_check_cycle)) = self.config.check_pox_invariants {
+                pox_2_tests::check_all_stacker_link_invariants(
+                    self,
+                    &tip_id,
+                    start_check_cycle,
+                    end_check_cycle,
+                );
+            }
+
+            tip_id
         }
 
         // Make a tenure
@@ -3621,13 +3653,26 @@ pub mod test {
                                 .recipients
                                 .into_iter()
                                 .map(|x| x.0)
-                                .collect::<Vec<StacksAddress>>();
+                                .collect::<Vec<PoxAddress>>();
                             if recipients.len() == 1 {
-                                recipients.push(StacksAddress::burn_address(false));
+                                recipients.push(PoxAddress::standard_burn_address(false));
                             }
                             recipients
                         }
-                        None => vec![],
+                        None => {
+                            if self
+                                .config
+                                .burnchain
+                                .is_in_prepare_phase(burn_block.block_height)
+                            {
+                                vec![PoxAddress::standard_burn_address(false)]
+                            } else {
+                                vec![
+                                    PoxAddress::standard_burn_address(false),
+                                    PoxAddress::standard_burn_address(false),
+                                ]
+                            }
+                        }
                     };
                     test_debug!(
                         "Block commit at height {} has {} recipients: {:?}",

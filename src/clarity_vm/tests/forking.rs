@@ -26,6 +26,8 @@ use clarity::vm::test_util::{
 };
 use clarity::vm::types::Value;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::version::ClarityVersion;
+use clarity::vm::ContractContext;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -77,10 +79,14 @@ fn test_at_block_mutations() {
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal();
+        let mut placeholder_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None);
+            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
             let command = format!("(var-get datum)");
             let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
@@ -151,10 +157,14 @@ fn test_at_block_good() {
     ) -> Result<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal();
+        let mut placeholder_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
         eprintln!("Branched execution...");
 
         {
-            let mut env = owned_env.get_exec_environment(None, None);
+            let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
             let command = format!("(var-get datum)");
             let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
@@ -344,11 +354,15 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         }
     };
     let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+    let mut placeholder_context = ContractContext::new(
+        QualifiedContractIdentifier::transient(),
+        ClarityVersion::Clarity1,
+    );
 
     eprintln!("Branched execution...");
 
     {
-        let mut env = owned_env.get_exec_environment(None, None);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         let command = format!("(get-balance {})", p1_str);
         let balance = env.eval_read_only(&contract_identifier, &command).unwrap();
         let expected = if expect_success { 10 } else { 0 };

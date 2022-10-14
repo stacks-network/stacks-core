@@ -3189,3 +3189,1055 @@ fn test_build_microblock_stream_forks_with_descendants() {
         .unwrap();
     }
 }
+
+#[test]
+fn test_contract_call_across_clarity_versions() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let privk_anchored = StacksPrivateKey::from_hex(
+        "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
+    )
+    .unwrap();
+
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+
+    let addr_anchored = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk_anchored)],
+    )
+    .unwrap();
+
+    let mut peer_config =
+        TestPeerConfig::new("test_contract_call_across_clarity_versions", 2024, 2025);
+    peer_config.initial_balances = vec![
+        (addr.to_account_principal(), 1000000000),
+        (addr_anchored.to_account_principal(), 1000000000),
+    ];
+
+    let epochs = vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1, // NOTE: the first 25 burnchain blocks have no sortition
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2, // NOTE: the first 25 burnchain blocks have no sortition
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2, // effectively already in 2.1
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ];
+    peer_config.epochs = Some(epochs);
+
+    let num_blocks = 10;
+    let mut anchored_sender_nonce = 0;
+
+    let mut mblock_privks = vec![];
+    for _ in 0..num_blocks {
+        let mblock_privk = StacksPrivateKey::new();
+        mblock_privks.push(mblock_privk);
+    }
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    for tenure_id in 0..num_blocks {
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let mut anchored_txs = vec![coinbase_tx];
+
+                if tenure_id > 0 {
+                    let txs = if tenure_id == 1 {
+                        let chain_id_trait_v1 = "
+                        (define-trait trait-v1
+                            (
+                                (get-chain-info-v1 () (response { chain-id: uint } uint))
+                            )
+                        )
+                        ";
+                        let trait_v1_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * chain_id_trait_v1.len()) as u64, "chain-id-trait-v1", chain_id_trait_v1, ClarityVersion::Clarity1);
+
+                        let chain_id_trait_v2 = "
+                        (define-trait trait-v2
+                            (
+                                (get-chain-info-v2 () (response { chain-id: uint } uint))
+                            )
+                        )
+                        ";
+                        let trait_v2_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce + 1, (2 * chain_id_trait_v2.len()) as u64, "chain-id-trait-v2", chain_id_trait_v2, ClarityVersion::Clarity2);
+
+                        let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1, func: \"test-func\" }})
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1, func: \"test-cc-func\" }})
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (ok true)
+                        )
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            u0
+                        )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
+                        )
+                        ",
+                        tenure_id,
+                        tenure_id);
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce + 2, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
+                        vec![trait_v1_tx, trait_v2_tx, contract_tx]
+                    }
+                    else if tenure_id % 2 == 0 {
+                        // send a clarity2 contract that calls the last tenure's contract's test
+                        // methods
+                        let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+                        
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                ;; this only works in clarity2
+                                (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-func\" }})
+                                (unwrap-panic (contract-call? .test-{} test-func))
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                ;; this only works in clarity2
+                                (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-cc-func\" }})
+                                (unwrap-panic (contract-call? .test-{} test-cc-func))
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (print (at-block 0x{}
+                                    (begin
+                                        ;; this only works in clarity2
+                                        (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-v2\" }})
+                                        {{ chain-info: (contract-call? .test-{} get-chain-info), calls: (contract-call? .test-{} get-call-count), cc-calls: (contract-call? .test-{} get-cc-call-count) }}
+                                    )
+                                ))
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (at-block 0x{} 
+                                (begin
+                                    ;; this only works in clarity2
+                                    (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-recursive-v2\" }})
+                                    (contract-call? .test-{} test-at-block-recursive)
+                                )
+                            )
+                        )
+
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            ;; this only works in clarity2
+                            chain-id
+                        )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                ;; this only works in clarity2
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: chain-id }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                ;; this only works in clarity2
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: chain-id }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
+                        )
+                        (print (get-chain-info-dispatch-1 .test-{}))
+                        (print (get-chain-info-dispatch-2 .test-{}))
+                        (contract-call? .test-{} test-func)
+                        ",
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1);
+
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity2);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+
+                        vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
+                    }
+                    else {
+                        // send a clarity1 contract that calls the last tenure's contract's test
+                        // methods
+                        let contract = format!("
+                        (impl-trait .chain-id-trait-v1.trait-v1)
+                        (impl-trait .chain-id-trait-v2.trait-v2)
+                        
+                        (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
+                        (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
+
+                        (define-data-var call-count uint u0)
+                        (define-data-var cc-call-count uint u0)
+                        (define-data-var at-block-call-count uint u0)
+                        (define-public (test-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1 }})
+                                (unwrap-panic (contract-call? .test-{} test-cc-func))
+                                (var-set call-count (+ u1 (var-get call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-cc-func)
+                            (begin
+                                (print {{ tenure: u{}, version: u1 }})
+                                (unwrap-panic (contract-call? .test-{} test-func))
+                                (var-set cc-call-count (+ u1 (var-get cc-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-public (test-at-block-func)
+                            (begin
+                                (print (at-block 0x{}
+                                    (begin
+                                        (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-v1\" }})
+                                        {{ chain-info: (contract-call? .test-{} get-chain-info), calls: (contract-call? .test-{} get-call-count), cc-calls: (contract-call? .test-{} get-cc-call-count) }}
+                                    )
+                                ))
+                                (var-set at-block-call-count (+ u1 (var-get at-block-call-count)))
+                                (ok true)
+                            )
+                        )
+                        (define-read-only (test-at-block-recursive)
+                            (at-block 0x{} 
+                                (begin
+                                    (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-recursive-v1\" }})
+                                    (contract-call? .test-{} test-at-block-recursive)
+                                )
+                            )
+                        )
+                        
+                        (define-read-only (get-call-count)
+                            (var-get call-count)
+                        )
+                        (define-read-only (get-cc-call-count)
+                            (var-get cc-call-count)
+                        )
+                        (define-read-only (get-at-block-count)
+                            (var-get at-block-call-count)
+                        )
+                        (define-read-only (get-chain-info)
+                            u0
+                        )
+                        (define-public (get-chain-info-v1)
+                            (begin
+                                (print \"get-chain-info-v1\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-v2)
+                            (begin
+                                (print \"get-chain-info-v2\")
+                                (ok {{ chain-id: u0 }})
+                            )
+                        )
+                        (define-public (get-chain-info-dispatch-1 (trait <chain-info-v1>))
+                            (contract-call? trait get-chain-info-v1)
+                        )
+                        (define-public (get-chain-info-dispatch-2 (trait <chain-info-v2>))
+                            (contract-call? trait get-chain-info-v2)
+                        )
+                        (print (get-chain-info-dispatch-1 .test-{}))
+                        (print (get-chain-info-dispatch-2 .test-{}))
+                        (contract-call? .test-{} test-func)
+                        ",
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        &parent_index_hash,
+                        tenure_id,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1,
+                        tenure_id - 1);
+
+                        let contract_tx = make_versioned_user_contract_publish(&privk_anchored, anchored_sender_nonce, (2 * contract.len()) as u64, &format!("test-{}", tenure_id), &contract, ClarityVersion::Clarity1);
+                        let cc_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 1, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-cc-func", vec![]);
+                        let at_block_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 2, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-func", vec![]);
+                        let at_block_recursive_tx = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 3, 2000, &addr_anchored, &format!("test-{}", tenure_id - 1), "test-at-block-recursive", vec![]);
+                        let get_chain_info_dispatch_1 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 4, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-1",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+                        let get_chain_info_dispatch_2 = make_user_contract_call(&privk_anchored, anchored_sender_nonce + 5, 2000, &addr_anchored, &format!("test-{}", tenure_id), "get-chain-info-dispatch-2",
+                                                                                vec![Value::Principal(PrincipalData::parse(&format!("{}.test-{}", &addr_anchored, tenure_id - 1)).unwrap())]);
+
+                        vec![contract_tx, cc_tx, at_block_tx, at_block_recursive_tx, get_chain_info_dispatch_1, get_chain_info_dispatch_2]
+                    };
+
+                    for tx in txs.into_iter() {
+                        anchored_sender_nonce += 1;
+                        anchored_txs.push(tx);
+                    }
+                }
+
+                let sort_ic = sortdb.index_conn();
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrf_proof,
+                    tip.total_burn,
+                    Hash160([tenure_id as u8; 20])
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sort_ic,
+                    anchored_txs,
+                )
+                .unwrap();
+
+                // coinbase
+                (anchored_block.0, vec![])
+            },
+        );
+
+        test_debug!("Process tenure {}", tenure_id);
+
+        // should always succeed
+        peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &vec![])
+            .unwrap();
+    }
+
+    // all contracts deployed and called the right number of times, indicating that
+    // cross-clarity-version contract calls are doable
+    let sortdb = peer.sortdb.take().unwrap();
+    let (consensus_hash, block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
+
+    peer.chainstate().with_read_only_clarity_tx(
+        &sortdb.index_conn(),
+        &stacks_block_id,
+        |clarity_tx| {
+            for tenure_id in 1..num_blocks {
+                clarity_tx
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity2,
+                        PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap(),
+                        Some(PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap()),
+                        LimitedCostTracker::new_free(),
+                        |env| {
+                            test_debug!("check tenure {}", tenure_id);
+
+                            // .contract-call? worked
+                            let call_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-call-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = call_count_value.expect_u128();
+                            assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
+
+                            // contract-call transaction worked
+                            let call_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-cc-call-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = call_count_value.expect_u128();
+                            assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
+
+                            // at-block transaction worked
+                            let at_block_count_value = env
+                                .eval_raw(&format!(
+                                    "(contract-call? '{}.test-{} get-at-block-count)",
+                                    &addr_anchored, tenure_id
+                                ))
+                                .unwrap();
+                            let call_count = at_block_count_value.expect_u128();
+
+                            if tenure_id < num_blocks - 1 {
+                                assert_eq!(call_count, 1);
+                            } else {
+                                assert_eq!(call_count, 0);
+                            }
+
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
+            }
+        },
+    );
+}
+
+// verify that the problematic checker works
+#[test]
+fn test_is_tx_problematic() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let privk_extra = StacksPrivateKey::from_hex(
+        "f67c7437f948ca1834602b28595c12ac744f287a4efaf70d437042a6afed81bc01",
+    )
+    .unwrap();
+    let mut privks_expensive = vec![];
+    let mut addrs_expensive = vec![];
+    let mut initial_balances = vec![];
+    let num_blocks = 10;
+    for i in 0..num_blocks {
+        let pk = StacksPrivateKey::new();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&pk)],
+        )
+        .unwrap();
+
+        privks_expensive.push(pk);
+        addrs_expensive.push(addr.clone());
+        initial_balances.push((addr.to_account_principal(), 10000000000));
+    }
+
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+    let addr_extra = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk_extra)],
+    )
+    .unwrap();
+
+    initial_balances.push((addr.to_account_principal(), 100000000000));
+    initial_balances.push((addr_extra.to_account_principal(), 200000000000));
+
+    let mut peer_config = TestPeerConfig::new("test_is_tx_problematic", 2018, 2019);
+    peer_config.initial_balances = initial_balances;
+    peer_config.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: i64::MAX as u64,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+    ]);
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let mut last_block = None;
+    for tenure_id in 0..num_blocks {
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot =
+                            SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                                &ic,
+                                &tip.sortition_id,
+                                &block.block_hash(),
+                            )
+                            .unwrap()
+                            .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut mempool =
+                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+                let mut expected_txids = vec![];
+                expected_txids.push(coinbase_tx.txid());
+
+                let mut problematic_txids = vec![];
+
+                if tenure_id == 2 {
+                    // make a contract that, when instantiated, spends way too much STX.
+                    // Should result in an Error::InvalidFee, causing the tx to get evicted
+                    // from the mempool.
+                    let contract_spends_too_much =
+                        "(begin
+                            (stx-transfer? (stx-get-balance tx-sender) tx-sender 'ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV)
+                        )".to_string();
+
+                    let contract_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        0,
+                        (2 * contract_spends_too_much.len()) as u64,
+                        &format!("hello-world-{}", &tenure_id),
+                        &contract_spends_too_much
+                    );
+                    let contract_spends_too_much_txid = contract_spends_too_much_tx.txid();
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), contract_spends_too_much_tx.clone()]
+                    ) {
+                        assert_eq!(txid, contract_spends_too_much_txid);
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    // for tenure_id == 3:
+                    // make a contract that, when called, will cause the caller to spend too
+                    // much stx
+                    let contract_call_spends_too_much =
+                        "(define-public (spend-too-much)
+                            (begin
+                                (print { balance: (stx-get-balance tx-sender) })
+                                (stx-transfer? (stx-get-balance tx-sender) tx-sender 'ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV)
+                            )
+                        )".to_string();
+
+                    let contract_call_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        0,
+                        (2 * contract_call_spends_too_much.len()) as u64,
+                        "spend-too-much",
+                        &contract_call_spends_too_much
+                    );
+
+                    expected_txids.push(contract_call_spends_too_much_tx.txid());
+
+                    // for tenure_id == 4:
+                    // make a contract that, when called, will result in a CheckError at
+                    // runtime
+                    let runtime_checkerror_trait =
+                        "
+                        (define-trait foo
+                            (
+                                (lolwut () (response bool uint))
+                            )
+                        )
+                        ".to_string();
+
+                    let runtime_checkerror_impl =
+                        "
+                        (impl-trait .foo.foo)
+
+                        (define-public (lolwut)
+                            (ok true)
+                        )
+                        ".to_string();
+
+                    let runtime_checkerror = format!(
+                        "
+                        (use-trait trait .foo.foo)
+
+                        (define-data-var mutex bool true)
+
+                        (define-public (flip)
+                          (ok (var-set mutex (not (var-get mutex))))
+                        )
+
+                        ;; triggers checkerror at runtime because <trait> gets coerced
+                        ;; into a principal when `internal` is called.
+                        (define-public (test (ref <trait>))
+                            (ok (internal (if (var-get mutex)
+                                (some ref)
+                                none
+                            )))
+                        )
+
+                        ;; triggers a checkerror at runtime because the code in
+                        ;; `at-block` is buggy
+                        (define-public (test-past (ref <trait>))
+                            (at-block 0x{} (test ref))
+                        )
+
+                        (define-private (internal (ref (optional <trait>))) true)
+                        ",
+                        &last_block.clone().unwrap()
+                    );
+
+                    let runtime_checkerror_trait_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        1,
+                        (2 * runtime_checkerror_trait.len()) as u64,
+                        "foo",
+                        &runtime_checkerror_trait
+                    );
+
+                    let runtime_checkerror_impl_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        2,
+                        (2 * runtime_checkerror_impl.len()) as u64,
+                        "foo-impl",
+                        &runtime_checkerror_impl
+                    );
+
+                    let runtime_checkerror_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        3,
+                        (2 * runtime_checkerror.len()) as u64,
+                        "trait-checkerror",
+                        &runtime_checkerror
+                    );
+
+                    expected_txids.push(runtime_checkerror_trait_tx.txid());
+                    expected_txids.push(runtime_checkerror_impl_tx.txid());
+                    expected_txids.push(runtime_checkerror_tx.txid());
+
+                    for tx in &[&contract_call_spends_too_much_tx, &runtime_checkerror_trait_tx, &runtime_checkerror_impl_tx, &runtime_checkerror_tx] {
+                        mempool
+                            .submit(
+                                chainstate,
+                                &parent_consensus_hash,
+                                &parent_header_hash,
+                                tx,
+                                None,
+                                &ExecutionCost::max_value(),
+                                &StacksEpochId::Epoch2_05,
+                            )
+                            .unwrap();
+                    }
+
+                    // the same tx, but with nonce 4 (since we expect the `spends-too-much` contract to get
+                    // mined, as well as the other problem setup txs)
+                    let contract_spends_too_much_tx = make_user_contract_publish(
+                        &privks_expensive[tenure_id],
+                        4,
+                        (2 * contract_spends_too_much.len()) as u64,
+                        &format!("hello-world-{}", &tenure_id),
+                        &contract_spends_too_much
+                    );
+                    let contract_spends_too_much_txid = contract_spends_too_much_tx.txid();
+                    problematic_txids.push(contract_spends_too_much_txid);
+
+                    // put this into the mempool anyway, so we can verify it gets rejected
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &contract_spends_too_much_tx,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 3 {
+                    // call spend-too-much and verify that it's flagged as problematic
+                    let spend_too_much = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "spend-too-much",
+                        "spend-too-much",
+                        vec![]
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), spend_too_much.clone()]
+                    ) {
+                        assert_eq!(txid, spend_too_much.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    problematic_txids.push(spend_too_much.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &spend_too_much,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 4 {
+                    // call trait-checkerror.test and verify that it's flagged as problematic
+                    let runtime_checkerror_problematic = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "trait-checkerror",
+                        "test",
+                        vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    let err = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
+                    );
+
+                    if let Err(ChainstateError::ProblematicTransaction(ref txid)) = &err {
+                        assert_eq!(txid, &runtime_checkerror_problematic.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction, but got {:?}", &err);
+                    }
+
+                    problematic_txids.push(runtime_checkerror_problematic.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &runtime_checkerror_problematic,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                if tenure_id == 5 {
+                    // call trait-checkerror.test-past and verify that it's flagged as problematic
+                    let runtime_checkerror_problematic = make_user_contract_call(
+                        &privks_expensive[tenure_id],
+                        0,
+                        2000,
+                        &addrs_expensive[2],
+                        "trait-checkerror",
+                        "test-past",
+                        vec![Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addrs_expensive[2])).unwrap()))],
+                    );
+
+                    // attempting to build an anchored block with this tx should cause this tx
+                    // to get flagged as problematic
+                    let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                        &parent_tip,
+                        vrf_proof.clone(),
+                        tip.total_burn,
+                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                    )
+                    .unwrap();
+
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), runtime_checkerror_problematic.clone()]
+                    ) {
+                        assert_eq!(txid, runtime_checkerror_problematic.txid());
+                    }
+                    else {
+                        panic!("Did not get Error::ProblematicTransaction");
+                    }
+
+                    problematic_txids.push(runtime_checkerror_problematic.txid());
+                    mempool
+                        .submit(
+                            chainstate,
+                            &parent_consensus_hash,
+                            &parent_header_hash,
+                            &runtime_checkerror_problematic,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch2_05,
+                        )
+                        .unwrap();
+                }
+
+                // all problematic txids are present
+                for problematic_txid in problematic_txids.iter() {
+                    assert!(mempool.has_tx(problematic_txid));
+                }
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(
+                    chainstate,
+                    &sortdb.index_conn(),
+                    &mut mempool,
+                    &parent_tip,
+                    tip.total_burn,
+                    vrf_proof,
+                    Hash160([tenure_id as u8; 20]),
+                    &coinbase_tx,
+                    BlockBuilderSettings::limited(),
+                    None,
+                )
+                .unwrap();
+
+                // all problematic txids are absent
+                for problematic_txid in problematic_txids.iter() {
+                    assert!(!mempool.has_tx(problematic_txid));
+                }
+
+                // make sure the right txs get included
+                let txids : Vec<_> = anchored_block.0.txs.iter().map(|tx| tx.txid()).collect();
+                assert_eq!(txids, expected_txids);
+
+                (anchored_block.0, vec![])
+            },
+        );
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        last_block = Some(StacksBlockHeader::make_index_block_hash(
+            &consensus_hash,
+            &stacks_block.block_hash(),
+        ));
+    }
+}

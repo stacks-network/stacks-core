@@ -21,7 +21,7 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-use crate::vm::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
+use crate::vm::representations::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,
@@ -112,12 +112,12 @@ fn create_principal_destruct_tuple(
 
 /// Creates Response return type, to wrap an *actual error* result of a `principal-construct`.
 ///
-/// The response is an error Response, where the `err` value is a tuple `{error_int,parse_tuple}`.
+/// The response is an error Response, where the `err` value is a tuple `{error_code, parse_tuple}`.
 /// `error_int` is of type `UInt`, `parse_tuple` is None.
 fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Value {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_int".into(), Value::UInt(error_int as u128)),
+            ("error_code".into(), Value::UInt(error_int as u128)),
             ("value".into(), Value::none()),
         ])
         .expect("FAIL: Failed to initialize tuple."),
@@ -128,7 +128,7 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
 /// Creates Response return type, to wrap a *return value returned as an error* result of a
 /// `principal-construct`.
 ///
-/// The response is an error Response, where the `err` value is a tuple `{error_int,value}`.
+/// The response is an error Response, where the `err` value is a tuple `{error_code, value}`.
 /// `error_int` is of type `UInt`, `value` is of type `Some(Value)`.
 fn create_principal_value_error_response(
     error_int: PrincipalConstructErrorCode,
@@ -136,7 +136,7 @@ fn create_principal_value_error_response(
 ) -> Value {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
-            ("error_int".into(), Value::UInt(error_int as u128)),
+            ("error_code".into(), Value::UInt(error_int as u128)),
             (
                 "value".into(),
                 Value::some(value).expect("Unexpected problem creating Value."),

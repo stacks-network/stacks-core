@@ -38,6 +38,7 @@ use crate::types::chainstate::VRFSeed;
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
@@ -180,8 +181,10 @@ pub struct TransferStxOp {
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct StackStxOp {
     pub sender: StacksAddress,
-    /// the PoX reward address
-    pub reward_addr: StacksAddress,
+    /// the PoX reward address.
+    /// NOTE: the address in .pox will be tagged as either p2pkh or p2sh; it's impossible to tell
+    /// if it's a segwit-p2sh since that looks identical to a p2sh address.
+    pub reward_addr: PoxAddress,
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
@@ -229,7 +232,7 @@ pub struct LeaderBlockCommitOp {
     pub apparent_sender: BurnchainSigner,
 
     /// PoX/Burn outputs
-    pub commit_outs: Vec<StacksAddress>,
+    pub commit_outs: Vec<PoxAddress>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID

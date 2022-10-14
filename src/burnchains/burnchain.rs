@@ -48,6 +48,7 @@ use crate::burnchains::{
     BurnchainStateTransition, BurnchainStateTransitionOps, BurnchainTransaction,
     Error as burnchain_error, PoxConstants,
 };
+use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
@@ -56,6 +57,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::StacksEpoch;
 use crate::core::MINING_COMMITMENT_WINDOW;
@@ -73,11 +75,11 @@ use crate::util_lib::db::Error as db_error;
 use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash as BitcoinSha256dHash;
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
@@ -354,9 +356,10 @@ impl BurnchainSigner {
 
 impl BurnchainRecipient {
     pub fn from_bitcoin_output(o: &BitcoinTxOutput) -> BurnchainRecipient {
-        let stacks_addr = StacksAddress::from_bitcoin_address(&o.address);
+        let addr = StacksAddress::from_bitcoin_address(&o.address);
+        let pox_addr = PoxAddress::Standard(addr, None);
         BurnchainRecipient {
-            address: stacks_addr,
+            address: pox_addr,
             amount: o.units,
         }
     }
@@ -477,6 +480,51 @@ impl Burnchain {
             .is_in_prepare_phase(self.first_block_height, block_height)
     }
 
+    /// Is this block either the first block in a reward cycle or
+    ///  right before the reward phase starts? This is the mod 0 or mod 1
+    ///  block. Reward cycle start events (like auto-unlocks) process *after*
+    ///  the first reward block, so this function is used to determine when
+    ///  that has passed.
+    pub fn is_before_reward_cycle(
+        first_block_ht: u64,
+        burn_ht: u64,
+        reward_cycle_length: u64,
+    ) -> bool {
+        let effective_height = burn_ht
+            .checked_sub(first_block_ht)
+            .expect("FATAL: attempted to check reward cycle start before first block height");
+        // first block of the new reward cycle
+        (effective_height % reward_cycle_length) <= 1
+    }
+
+    pub fn static_is_in_prepare_phase(
+        first_block_height: u64,
+        reward_cycle_length: u64,
+        prepare_length: u64,
+        block_height: u64,
+    ) -> bool {
+        if block_height <= first_block_height {
+            // not a reward cycle start if we're the first block after genesis.
+            false
+        } else {
+            let effective_height = block_height - first_block_height;
+            let reward_index = effective_height % reward_cycle_length;
+
+            // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
+            // prepare phase.
+            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
+        }
+    }
+
+    pub fn is_in_prepare_phase(&self, block_height: u64) -> bool {
+        Self::static_is_in_prepare_phase(
+            self.first_block_height,
+            self.pox_constants.reward_cycle_length as u64,
+            self.pox_constants.prepare_length.into(),
+            block_height,
+        )
+    }
+
     pub fn regtest(working_dir: &str) -> Burnchain {
         let ret =
             Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
@@ -547,6 +595,7 @@ impl Burnchain {
             debug!("Fetch initial headers");
             indexer.sync_headers(headers_height, None).map_err(|e| {
                 error!("Failed to sync initial headers");
+                sleep_ms(100);
                 e
             })?;
         }
@@ -979,27 +1028,24 @@ impl Burnchain {
         if did_reorg {
             // a reorg happened
             warn!(
-                "Dropping headers higher than {} due to burnchain reorg",
+                "Dropped headers higher than {} due to burnchain reorg",
                 sync_height
             );
-            indexer.drop_headers(sync_height)?;
         }
 
         // get latest headers.
-        debug!("Sync headers from {}", sync_height);
+        let highest_header = indexer.get_highest_header_height()?;
 
-        let end_block = indexer.sync_headers(sync_height, None)?;
-        let mut start_block = match sync_height {
-            0 => 0,
-            _ => sync_height,
-        };
+        debug!("Sync headers from {}", highest_header);
+        let end_block = indexer.sync_headers(highest_header, None)?;
+        let mut start_block = sync_height;
         if db_height < start_block {
             start_block = db_height;
         }
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            start_block, end_block, db_height
+            highest_header, end_block, db_height
         );
         if start_block == db_height && db_height == end_block {
             // all caught up
@@ -1220,22 +1266,22 @@ impl Burnchain {
 
         let db_height = burn_chain_tip.block_height;
 
-        // handle reorgs
+        // handle reorgs (which also updates our best-known chain work and headers DB)
         let (sync_height, did_reorg) = Burnchain::sync_reorg(indexer)?;
         if did_reorg {
             // a reorg happened
             warn!(
-                "Dropping headers higher than {} due to burnchain reorg",
+                "Dropped headers higher than {} due to burnchain reorg",
                 sync_height
             );
-            indexer.drop_headers(sync_height)?;
         }
 
         // get latest headers.
         debug!("Sync headers from {}", sync_height);
 
-        // fetch all headers, no matter what
-        let mut end_block = indexer.sync_headers(sync_height, None)?;
+        // fetch all new headers
+        let highest_header_height = indexer.get_highest_header_height()?;
+        let mut end_block = indexer.sync_headers(highest_header_height, None)?;
         if did_reorg && sync_height > 0 {
             // a reorg happened, and the last header fetched
             // is on a smaller fork than the one we just
@@ -1260,7 +1306,7 @@ impl Burnchain {
 
         debug!(
             "Sync'ed headers from {} to {}. DB at {}",
-            sync_height, end_block, db_height
+            highest_header_height, end_block, db_height
         );
 
         if let Some(target_block_height) = target_block_height_opt {

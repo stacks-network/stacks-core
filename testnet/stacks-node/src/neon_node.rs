@@ -20,6 +20,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
@@ -67,7 +68,7 @@ use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
@@ -412,7 +413,7 @@ fn inner_generate_block_commit_op(
     parent_burnchain_height: u32,
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
-    commit_outs: Vec<StacksAddress>,
+    commit_outs: Vec<PoxAddress>,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -896,10 +897,9 @@ fn spawn_peer(
                         }
                     }
                     Err(e) => {
-                        error!("P2P: Failed to process network dispatch: {:?}", &e);
-                        if config.is_node_event_driven() {
-                            panic!();
-                        }
+                        // this is only reachable if the network is not instantiated correctly --
+                        // i.e. you didn't connect it
+                        panic!("P2P: Failed to process network dispatch: {:?}", &e);
                     }
                 };
 
@@ -1022,7 +1022,8 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
+    let mut bitcoin_controller =
+        BitcoinRegtestController::new_dummy(config.clone(), burnchain.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;
@@ -1352,7 +1353,7 @@ enum LeaderKeyRegistrationState {
 impl StacksNode {
     pub fn spawn(
         runloop: &RunLoop,
-        last_burn_block: Option<BurnchainTip>,
+        last_burn_block: Option<BlockSnapshot>,
         coord_comms: CoordinatorChannels,
         attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
@@ -1530,7 +1531,6 @@ impl StacksNode {
         // setup the relayer channel
         let (relay_send, relay_recv) = sync_channel(RELAYER_MAX_BUFFER);
 
-        let last_burn_block = last_burn_block.map(|x| x.block_snapshot);
         let last_sortition = Arc::new(Mutex::new(last_burn_block));
 
         let burnchain_signer = keychain.get_burnchain_signer();
@@ -1834,7 +1834,15 @@ impl StacksNode {
         };
 
         // has the tip changed from our previously-mined block for this epoch?
-        let attempt = {
+        let attempt = if last_mined_blocks.len() <= 1 {
+            // always mine if we've not mined a block for this epoch yet, or
+            // if we've mined just one attempt, unconditionally try again (so we
+            // can use `subsequent_miner_time_ms` in this attempt)
+            if last_mined_blocks.len() == 1 {
+                debug!("Have only attempted one block; unconditionally trying again");
+            }
+            last_mined_blocks.len() as u64 + 1
+        } else {
             let mut best_attempt = 0;
             debug!(
                 "Consider {} in-flight Stacks tip(s)",
@@ -1849,20 +1857,12 @@ impl StacksNode {
                     &prev_block.my_burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
-                if prev_block.anchored_block.txs.len() == 1 {
-                    if last_mined_blocks.len() == 1 {
-                        // this is an empty block, and we've only tried once before. We should always
-                        // try again, with the `subsequent_miner_time_ms` allotment, in order to see if
-                        // we can make a bigger block
-                        debug!("Have only mined one empty block off of {}/{} height {}; unconditionally trying again", &prev_block.parent_consensus_hash, &prev_block.anchored_block.block_hash(), prev_block.anchored_block.header.total_work.work);
-                        best_attempt = 1;
-                        break;
-                    } else if prev_block.attempt == 1 {
-                        // Don't let the fact that we've built an empty block during this sortition
-                        // prevent us from trying again.
-                        best_attempt = 1;
-                        continue;
-                    }
+
+                if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
+                    // Don't let the fact that we've built an empty block during this sortition
+                    // prevent us from trying again.
+                    best_attempt = 1;
+                    continue;
                 }
                 if prev_block.parent_consensus_hash == parent_consensus_hash
                     && prev_block.my_burn_hash == burn_block.burn_header_hash
@@ -2170,7 +2170,7 @@ impl StacksNode {
         let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1) {
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
-            vec![StacksAddress::burn_address(config.is_mainnet())]
+            vec![PoxAddress::standard_burn_address(config.is_mainnet())]
         };
 
         // let's commit

@@ -410,7 +410,9 @@ pub fn check_special_slice(
     // Check sequence
     let seq_type = checker.type_check(&args[0], context)?;
     let seq = match seq_type {
-        TypeSignature::SequenceType(seq) => TypeSignature::SequenceType(seq),
+        TypeSignature::SequenceType(seq) => {
+            TypeSignature::new_option(TypeSignature::SequenceType(seq))?
+        }
         _ => return Err(CheckErrors::ExpectedSequence(seq_type).into()),
     };
 

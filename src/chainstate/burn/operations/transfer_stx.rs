@@ -180,9 +180,18 @@ impl TransferStxOp {
             op_error::ParseError
         })?;
 
+        let output = outputs[0]
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         Ok(TransferStxOp {
             sender: sender.clone(),
-            recipient: outputs[0].address,
+            recipient: output,
             transfered_ustx: data.transfered_ustx,
             memo: data.memo,
             txid: tx.txid(),

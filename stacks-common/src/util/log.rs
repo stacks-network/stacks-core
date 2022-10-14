@@ -26,6 +26,7 @@ use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref LOGGER: Logger = make_logger();
+    pub static ref STACKS_LOG_FORMAT_TIME: Option<String> = env::var("STACKS_LOG_FORMAT_TIME").ok();
 }
 struct TermFormat<D: Decorator> {
     decorator: D,
@@ -41,21 +42,30 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     write!(rd, " ")?;
 
     rd.start_timestamp()?;
-    let elapsed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or(Duration::from_secs(0));
-    write!(
-        rd,
-        "[{:5}.{:06}]",
-        elapsed.as_secs(),
-        elapsed.subsec_nanos() / 1000
-    )?;
+    let system_time = SystemTime::now();
+    match &*STACKS_LOG_FORMAT_TIME {
+        None => {
+            let elapsed = system_time
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::from_secs(0));
+            write!(
+                rd,
+                "[{:5}.{:06}]",
+                elapsed.as_secs(),
+                elapsed.subsec_nanos() / 1000
+            )?;
+        }
+        Some(ref format) => {
+            let datetime: DateTime<Local> = system_time.into();
+            write!(rd, "[{}]", datetime.format(format))?;
+        }
+    }
     write!(rd, " ")?;
     write!(rd, "[{}:{}]", record.file(), record.line())?;
     write!(rd, " ")?;
     match thread::current().name() {
         None => write!(rd, "[{:?}]", thread::current().id())?,
-        Some(name) => write!(rd, "[{}]", name)?,
+        Some(name) => write!(rd, "[{:.15}]", name)?,
     }
 
     rd.start_whitespace()?;

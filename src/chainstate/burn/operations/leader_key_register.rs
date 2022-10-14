@@ -174,7 +174,14 @@ impl LeaderKeyRegisterOp {
             }
         };
 
-        let address = outputs[0].address.clone();
+        let address = outputs[0]
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                test_debug!("Invalid address: not representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
 
         Ok(LeaderKeyRegisterOp {
             consensus_hash: data.consensus_hash,

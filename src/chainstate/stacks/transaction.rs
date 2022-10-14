@@ -37,6 +37,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::StacksAddress;
+use clarity::vm::ClarityVersion;
 
 impl StacksMessageCodec for TransactionContractCall {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -113,6 +114,31 @@ impl StacksMessageCodec for TransactionSmartContract {
     }
 }
 
+fn ClarityVersion_consensus_serialize<W: Write>(
+    version: &ClarityVersion,
+    fd: &mut W,
+) -> Result<(), codec_error> {
+    match *version {
+        ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
+        ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
+    }
+    Ok(())
+}
+
+fn ClarityVersion_consensus_deserialize<R: Read>(
+    fd: &mut R,
+) -> Result<ClarityVersion, codec_error> {
+    let version_byte: u8 = read_next(fd)?;
+    match version_byte {
+        1u8 => Ok(ClarityVersion::Clarity1),
+        2u8 => Ok(ClarityVersion::Clarity2),
+        _ => Err(codec_error::DeserializeError(format!(
+            "Unrecognized ClarityVersion byte {}",
+            &version_byte
+        ))),
+    }
+}
+
 impl StacksMessageCodec for TransactionPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         match *self {
@@ -126,9 +152,17 @@ impl StacksMessageCodec for TransactionPayload {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
                 cc.consensus_serialize(fd)?;
             }
-            TransactionPayload::SmartContract(ref sc) => {
-                write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
-                sc.consensus_serialize(fd)?;
+            TransactionPayload::SmartContract(ref sc, ref version_opt) => {
+                if let Some(version) = version_opt {
+                    // caller requests a specific Clarity version
+                    write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
+                    ClarityVersion_consensus_serialize(&version, fd)?;
+                    sc.consensus_serialize(fd)?;
+                } else {
+                    // caller requests to use whatever the current clarity version is
+                    write_next(fd, &(TransactionPayloadID::SmartContract as u8))?;
+                    sc.consensus_serialize(fd)?;
+                }
             }
             TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
                 write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
@@ -168,7 +202,12 @@ impl StacksMessageCodec for TransactionPayload {
             }
             x if x == TransactionPayloadID::SmartContract as u8 => {
                 let payload: TransactionSmartContract = read_next(fd)?;
-                TransactionPayload::SmartContract(payload)
+                TransactionPayload::SmartContract(payload, None)
+            }
+            x if x == TransactionPayloadID::VersionedSmartContract as u8 => {
+                let version = ClarityVersion_consensus_deserialize(fd)?;
+                let payload: TransactionSmartContract = read_next(fd)?;
+                TransactionPayload::SmartContract(payload, Some(version))
             }
             x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
                 let h1: StacksMicroblockHeader = read_next(fd)?;
@@ -250,7 +289,11 @@ impl TransactionPayload {
         }))
     }
 
-    pub fn new_smart_contract(name: &str, contract: &str) -> Option<TransactionPayload> {
+    pub fn new_smart_contract(
+        name: &str,
+        contract: &str,
+        version_opt: Option<ClarityVersion>,
+    ) -> Option<TransactionPayload> {
         match (
             ContractName::try_from(name.to_string()),
             StacksString::from_str(contract),
@@ -260,6 +303,7 @@ impl TransactionPayload {
                     name: s_name,
                     code_body: s_body,
                 },
+                version_opt,
             )),
             (_, _) => None,
         }
@@ -551,7 +595,7 @@ impl StacksMessageCodec for StacksTransaction {
 
 impl From<TransactionSmartContract> for TransactionPayload {
     fn from(value: TransactionSmartContract) -> Self {
-        TransactionPayload::SmartContract(value)
+        TransactionPayload::SmartContract(value, None)
     }
 }
 
@@ -1466,13 +1510,14 @@ mod test {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
                 TransactionPayload::TokenTransfer(addr.clone(), amount + 1, memo.clone())
             }
-            TransactionPayload::ContractCall(_) => {
-                TransactionPayload::SmartContract(TransactionSmartContract {
+            TransactionPayload::ContractCall(_) => TransactionPayload::SmartContract(
+                TransactionSmartContract {
                     name: ContractName::try_from("corrupt-name").unwrap(),
                     code_body: StacksString::from_str("corrupt body").unwrap(),
-                })
-            }
-            TransactionPayload::SmartContract(_) => {
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(..) => {
                 TransactionPayload::ContractCall(TransactionContractCall {
                     address: StacksAddress {
                         version: 1,
@@ -1611,7 +1656,7 @@ mod test {
     }
 
     #[test]
-    fn tx_stacks_transacton_payload_contracts() {
+    fn tx_stacks_transaction_payload_contracts() {
         let hello_contract_call = "hello-contract-call";
         let hello_contract_name = "hello-contract-name";
         let hello_function_name = "hello-function-name";
@@ -1660,11 +1705,47 @@ mod test {
             .consensus_serialize(&mut smart_contract_bytes)
             .unwrap();
 
+        let mut version_1_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity1,
+            &mut version_1_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_1_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_1_smart_contract_bytes)
+            .unwrap();
+
+        let mut version_2_smart_contract_bytes = vec![];
+        ClarityVersion_consensus_serialize(
+            &ClarityVersion::Clarity2,
+            &mut version_2_smart_contract_bytes,
+        )
+        .unwrap();
+        smart_contract
+            .name
+            .consensus_serialize(&mut version_2_smart_contract_bytes)
+            .unwrap();
+        smart_contract
+            .code_body
+            .consensus_serialize(&mut version_2_smart_contract_bytes)
+            .unwrap();
+
         let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
         transaction_contract_call.append(&mut contract_call_bytes.clone());
 
         let mut transaction_smart_contract = vec![TransactionPayloadID::SmartContract as u8];
         transaction_smart_contract.append(&mut smart_contract_bytes.clone());
+
+        let mut v1_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v1_smart_contract.append(&mut version_1_smart_contract_bytes.clone());
+
+        let mut v2_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
+        v2_smart_contract.append(&mut version_2_smart_contract_bytes.clone());
 
         check_codec_and_corruption::<TransactionContractCall>(&contract_call, &contract_call_bytes);
         check_codec_and_corruption::<TransactionSmartContract>(
@@ -1676,8 +1757,22 @@ mod test {
             &transaction_contract_call,
         );
         check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(smart_contract.clone()),
+            &TransactionPayload::SmartContract(smart_contract.clone(), None),
             &transaction_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(
+                smart_contract.clone(),
+                Some(ClarityVersion::Clarity1),
+            ),
+            &v1_smart_contract,
+        );
+        check_codec_and_corruption::<TransactionPayload>(
+            &TransactionPayload::SmartContract(
+                smart_contract.clone(),
+                Some(ClarityVersion::Clarity2),
+            ),
+            &v2_smart_contract,
         );
     }
 
@@ -3176,6 +3271,7 @@ mod test {
             TransactionPayload::new_smart_contract(
                 &"name-contract".to_string(),
                 &"hello smart contract".to_string(),
+                None,
             )
             .unwrap(),
         );

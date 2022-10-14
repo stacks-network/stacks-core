@@ -178,7 +178,7 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                     }
                     TransactionPayload::PoisonMicroblock(_, _)
                     | TransactionPayload::ContractCall(_)
-                    | TransactionPayload::SmartContract(_) => {
+                    | TransactionPayload::SmartContract(..) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
                         self.metric.from_cost_and_len(

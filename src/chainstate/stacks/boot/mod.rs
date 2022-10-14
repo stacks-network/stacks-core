@@ -23,17 +23,26 @@ use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::Burnchain;
 use crate::burnchains::{Address, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
+use crate::clarity_vm::clarity::ClarityTransactionConnection;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
+use crate::util_lib::strings::VecDisplay;
+use clarity::codec::StacksMessageCodec;
+use clarity::types::chainstate::BlockHeaderHash;
+use clarity::util::hash::to_hex;
+use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
     cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
 };
 use clarity::vm::database::ClarityDatabase;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::InterpreterError;
+use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
@@ -50,6 +59,8 @@ use crate::types::chainstate::StacksAddress;
 use crate::types::chainstate::StacksBlockId;
 use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
+use clarity::vm::clarity::Error as ClarityError;
+use clarity::vm::ClarityVersion;
 
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
@@ -124,32 +135,151 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
-/// Extract a PoX address from its tuple representation
-fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
-    let version_value = tuple_data
-        .get("version")
-        .expect("FATAL: no 'version' field in pox-addr")
-        .to_owned();
-    let hashbytes_value = tuple_data
-        .get("hashbytes")
-        .expect("FATAL: no 'hashbytes' field in pox-addr")
-        .to_owned();
+pub struct RawRewardSetEntry {
+    pub reward_address: PoxAddress,
+    pub amount_stacked: u128,
+    pub stacker: Option<PrincipalData>,
+}
 
-    let version_u8 = version_value.expect_buff_padded(1, 0)[0];
-    let version: AddressHashMode = version_u8
-        .try_into()
-        .expect("FATAL: PoX version is not a supported version byte");
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct PoxStartCycleInfo {
+    /// This data contains the set of principals who missed a reward slot
+    ///  in this reward cycle.
+    ///
+    /// The first element of the tuple is the principal whose microSTX
+    ///  were locked, and the second element is the amount of microSTX
+    ///  that were locked
+    pub missed_reward_slots: Vec<(PrincipalData, u128)>,
+}
 
-    let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
+#[derive(Debug, PartialEq)]
+pub struct RewardSet {
+    pub rewarded_addresses: Vec<PoxAddress>,
+    pub start_cycle_state: PoxStartCycleInfo,
+}
 
-    let mut hashbytes_20 = [0u8; 20];
-    hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
-    let hashbytes = Hash160(hashbytes_20);
+const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
 
-    (version, hashbytes)
+impl PoxStartCycleInfo {
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self).expect("FATAL: failure to serialize internal struct")
+    }
+
+    pub fn deserialize(from: &str) -> Option<PoxStartCycleInfo> {
+        serde_json::from_str(from).ok()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.missed_reward_slots.is_empty()
+    }
+}
+
+impl RewardSet {
+    /// Create an empty reward set where no one gets an early unlock
+    pub fn empty() -> RewardSet {
+        RewardSet {
+            rewarded_addresses: vec![],
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+        }
+    }
 }
 
 impl StacksChainState {
+    /// Return the MARF key used to store whether or not a given PoX
+    ///  cycle's "start" has been handled by the Stacks fork yet. This
+    ///  is used in Stacks 2.1 to help process unlocks.
+    fn handled_pox_cycle_start_key(cycle_number: u64) -> String {
+        format!("chainstate_pox::handled_cycle_start::{}", cycle_number)
+    }
+
+    /// Returns whether or not the `cycle_number` PoX cycle has been handled by the
+    ///  Stacks fork in the opened `clarity_db`.
+    pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
+        let db_key = Self::handled_pox_cycle_start_key(cycle_number);
+        match clarity_db.get::<String>(&db_key) {
+            Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
+            None => false,
+        }
+    }
+
+    fn mark_pox_cycle_handled(db: &mut ClarityDatabase, cycle_number: u64) {
+        let db_key = Self::handled_pox_cycle_start_key(cycle_number);
+        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    pub fn handle_pox_cycle_start(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
+
+        debug!("Handling PoX reward cycle start"; "reward_cycle" => cycle_number, "cycle_active" => cycle_info.is_some());
+
+        let cycle_info = match cycle_info {
+            Some(x) => x,
+            None => return Ok(vec![]),
+        };
+
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
+        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+
+        let mut total_events = vec![];
+        for (principal, amount_locked) in cycle_info.missed_reward_slots.iter() {
+            // we have to do several things for each principal
+            // 1. lookup their Stacks account and accelerate their unlock
+            // 2. remove the user's entries from every `reward-cycle-pox-address-list` they were in
+            //     (a) this can be done by moving the last entry to the now vacated spot,
+            //         and, if necessary, updating the associated `stacking-state` entry's pointer
+            //     (b) or, if they were the only entry in the list, then just deleting them from the list
+            // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
+            // 4. delete the user's stacking-state entry.
+            clarity.with_clarity_db(|db| {
+                // lookup the Stacks account and alter their unlock height to next block
+                let mut balance = db.get_stx_balance_snapshot(&principal);
+                if balance.canonical_balance_repr().amount_locked() < *amount_locked {
+                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", balance.canonical_balance_repr().amount_locked(), *amount_locked);
+                }
+
+                balance.accelerate_unlock();
+                balance.save();
+                Ok(())
+            }).expect("FATAL: failed to accelerate PoX unlock");
+
+            let (result, _, events, _) = clarity
+                .with_abort_callback(
+                    |vm_env| {
+                        vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
+                            env.execute_contract_allow_private(
+                                &pox_contract,
+                                "handle-unlock",
+                                &[
+                                    SymbolicExpression::atom_value(principal.clone().into()),
+                                    SymbolicExpression::atom_value(Value::UInt(*amount_locked)),
+                                    SymbolicExpression::atom_value(Value::UInt(
+                                        cycle_number.into(),
+                                    )),
+                                ],
+                                false,
+                            )
+                        })
+                    },
+                    |_, _| false,
+                )
+                .expect("FATAL: failed to handle PoX unlock");
+
+            result.expect_result_ok();
+
+            total_events.extend(events.into_iter());
+        }
+
+        Ok(total_events)
+    }
+
     fn eval_boot_code_read_only(
         &mut self,
         sortdb: &SortitionDB,
@@ -216,6 +346,7 @@ impl StacksChainState {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
+                    ClarityVersion::Clarity1,
                     sender,
                     None,
                     cost_track,
@@ -273,19 +404,39 @@ impl StacksChainState {
     ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
-    pub fn make_reward_set(
-        threshold: u128,
-        mut addresses: Vec<(StacksAddress, u128)>,
-    ) -> Vec<StacksAddress> {
+    pub fn make_reward_set(threshold: u128, mut addresses: Vec<RawRewardSetEntry>) -> RewardSet {
         let mut reward_set = vec![];
+        let mut missed_slots = vec![];
         // the way that we sum addresses relies on sorting.
-        addresses.sort_by_key(|k| k.0.bytes.0);
-        while let Some((address, mut stacked_amt)) = addresses.pop() {
-            // peak at the next address in the set, and see if we need to sum
-            while addresses.last().map(|x| &x.0) == Some(&address) {
-                let (_, additional_amt) = addresses
+        addresses.sort_by_key(|k| k.reward_address.bytes());
+        while let Some(RawRewardSetEntry {
+            reward_address: address,
+            amount_stacked: mut stacked_amt,
+            stacker,
+        }) = addresses.pop()
+        {
+            let mut contributed_stackers = vec![];
+            if let Some(stacker) = stacker.as_ref() {
+                contributed_stackers.push((stacker.clone(), stacked_amt));
+            }
+            // Here we check if we should combine any entries with the same
+            //  reward address together in the reward set.
+            // The outer while loop pops the last element of the
+            //  addresses vector, and here we peak at the last item in
+            //  the vector (via last()). Because the items in the
+            //  vector are sorted by address, we know that any entry
+            //  with the same `reward_address` as `address` will be at the end of
+            //  the list (and therefore found by this loop)
+            while addresses.last().map(|x| &x.reward_address) == Some(&address) {
+                let next_contrib = addresses
                     .pop()
                     .expect("BUG: first() returned some, but pop() is none.");
+                let additional_amt = next_contrib.amount_stacked;
+
+                if let Some(stacker) = next_contrib.stacker {
+                    contributed_stackers.push((stacker.clone(), additional_amt));
+                }
+
                 stacked_amt = stacked_amt
                     .checked_add(additional_amt)
                     .expect("CORRUPTION: Stacker stacked > u128 max amount");
@@ -293,19 +444,52 @@ impl StacksChainState {
             let slots_taken = u32::try_from(stacked_amt / threshold)
                 .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
             info!(
-                "Slots taken by {} = {}, on stacked_amt = {}, threshold = {}",
-                &address.clone().to_b58(),
-                slots_taken,
-                stacked_amt,
-                threshold
+                "Reward slots taken";
+                "reward_address" => %address,
+                "slots_taken" => slots_taken,
+                "stacked_amt" => stacked_amt,
+                "pox_threshold" => threshold,
             );
             for _i in 0..slots_taken {
                 test_debug!("Add to PoX reward set: {:?}", &address);
                 reward_set.push(address.clone());
             }
+            // if stacker did not qualify for a slot *and* they have a stacker
+            //   pointer set by the PoX contract, then add them to auto-unlock list
+            if slots_taken == 0 && !contributed_stackers.is_empty() {
+                info!(
+                    "Stacker missed reward slot, added to unlock list";
+                    //                    "stackers" => %VecDisplay(&contributed_stackers),
+                    "reward_address" => %address.clone().to_b58(),
+                    "threshold" => threshold,
+                    "stacked_amount" => stacked_amt
+                );
+                contributed_stackers
+                    .sort_by_cached_key(|(stacker, ..)| to_hex(&stacker.serialize_to_vec()));
+                while let Some((contributor, amt)) = contributed_stackers.pop() {
+                    let mut total_amount = amt;
+                    while contributed_stackers.last().map(|(stacker, ..)| stacker)
+                        == Some(&contributor)
+                    {
+                        let (add_stacker, additional) = contributed_stackers
+                            .pop()
+                            .expect("BUG: last() returned some, but pop() is none.");
+                        assert_eq!(&add_stacker, &contributor);
+                        total_amount = total_amount
+                            .checked_add(additional)
+                            .expect("CORRUPTION: Stacked stacked > u128 max amount");
+                    }
+                    missed_slots.push((contributor, total_amount));
+                }
+            }
         }
         info!("Reward set calculated"; "slots_occuppied" => reward_set.len());
-        reward_set
+        RewardSet {
+            rewarded_addresses: reward_set,
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: missed_slots,
+            },
+        }
     }
 
     pub fn get_threshold_from_participation(
@@ -328,12 +512,12 @@ impl StacksChainState {
 
     pub fn get_reward_threshold_and_participation(
         pox_settings: &PoxConstants,
-        addresses: &[(StacksAddress, u128)],
+        addresses: &[RawRewardSetEntry],
         liquid_ustx: u128,
     ) -> (u128, u128) {
         let participation = addresses
             .iter()
-            .fold(0, |agg, (_, stacked_amt)| agg + stacked_amt);
+            .fold(0, |agg, entry| agg + entry.amount_stacked);
 
         assert!(
             participation <= liquid_ustx,
@@ -359,25 +543,13 @@ impl StacksChainState {
         (threshold, participation)
     }
 
-    /// Each address will have at least (get-stacking-minimum) tokens.
-    pub fn get_reward_addresses(
+    fn get_reward_addresses_pox_1(
         &mut self,
-        burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        current_burn_height: u64,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<(StacksAddress, u128)>, Error> {
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .ok_or(Error::PoxNoRewardCycle)?;
-
-        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
-
-        let pox_contract_name = burnchain
-            .pox_constants
-            .active_pox_contract(reward_cycle_start_height);
-
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, pox_contract_name)? {
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_1_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -385,14 +557,12 @@ impl StacksChainState {
             return Ok(vec![]);
         }
 
-        debug!("Using pox_contract = {}", pox_contract_name);
-
         // how many in this cycle?
         let num_addrs = self
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
-                pox_contract_name,
+                POX_1_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
@@ -410,7 +580,7 @@ impl StacksChainState {
                 .eval_boot_code_read_only(
                     sortdb,
                     block_id,
-                    pox_contract_name,
+                    POX_1_NAME,
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
@@ -423,10 +593,13 @@ impl StacksChainState {
             let pox_addr_tuple = tuple_data
                 .get("pox-addr")
                 .expect(&format!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
-                .to_owned()
-                .expect_tuple();
+                .to_owned();
 
-            let (hash_mode, hash) = tuple_to_pox_addr(pox_addr_tuple);
+            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
 
             let total_ustx = tuple_data
                 .get("total-ustx")
@@ -434,20 +607,137 @@ impl StacksChainState {
                 .to_owned()
                 .expect_u128();
 
-            let version = match self.mainnet {
-                true => hash_mode.to_version_mainnet(),
-                false => hash_mode.to_version_testnet(),
-            };
-
             debug!(
                 "PoX reward address (for {} ustx): {}",
-                total_ustx,
-                &StacksAddress::new(version, hash)
+                total_ustx, &reward_address,
             );
-            ret.push((StacksAddress::new(version, hash), total_ustx));
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker: None,
+            })
         }
 
         Ok(ret)
+    }
+
+    fn get_reward_addresses_pox_2(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_2_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(vec![]);
+        }
+
+        // how many in this cycle?
+        let num_addrs = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_2_NAME,
+                &format!("(get-reward-set-size u{})", reward_cycle),
+            )?
+            .expect_u128();
+
+        debug!(
+            "At block {:?} (reward cycle {}): {} PoX reward addresses",
+            block_id, reward_cycle, num_addrs
+        );
+
+        let mut ret = vec![];
+        for i in 0..num_addrs {
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            let tuple = self
+                .eval_boot_code_read_only(
+                    sortdb,
+                    block_id,
+                    POX_2_NAME,
+                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    i, num_addrs, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = tuple
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = tuple
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = tuple
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            debug!(
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
+            );
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+            })
+        }
+
+        Ok(ret)
+    }
+
+    /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
+    /// lost in the conversion to StacksAddress)
+    /// Each address will have at least (get-stacking-minimum) tokens.
+    pub fn get_reward_addresses(
+        &mut self,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        current_burn_height: u64,
+        block_id: &StacksBlockId,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or(Error::PoxNoRewardCycle)?;
+
+        let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
+
+        let pox_contract_name = burnchain
+            .pox_constants
+            .active_pox_contract(reward_cycle_start_height);
+
+        match pox_contract_name {
+            x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
+            x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
+            unknown_contract => {
+                panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
+                       unknown_contract);
+            }
+        }
     }
 }
 
@@ -488,31 +778,79 @@ pub mod test {
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
+    /// Extract a PoX address from its tuple representation
+    fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
+        let version_value = tuple_data
+            .get("version")
+            .expect("FATAL: no 'version' field in pox-addr")
+            .to_owned();
+        let hashbytes_value = tuple_data
+            .get("hashbytes")
+            .expect("FATAL: no 'hashbytes' field in pox-addr")
+            .to_owned();
+
+        let version_u8 = version_value.expect_buff_padded(1, 0)[0];
+        let version: AddressHashMode = version_u8
+            .try_into()
+            .expect("FATAL: PoX version is not a supported version byte");
+
+        let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
+
+        let mut hashbytes_20 = [0u8; 20];
+        hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
+        let hashbytes = Hash160(hashbytes_20);
+
+        (version, hashbytes)
+    }
+
     #[test]
     fn make_reward_set_units() {
         let threshold = 1_000;
         let addresses = vec![
-            (
-                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
-                1500,
-            ),
-            (
-                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
-                500,
-            ),
-            (
-                StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
-                1500,
-            ),
-            (
-                StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
-                400,
-            ),
+            RawRewardSetEntry {
+                reward_address: PoxAddress::Standard(
+                    StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+                amount_stacked: 1500,
+                stacker: None,
+            },
+            RawRewardSetEntry {
+                reward_address: PoxAddress::Standard(
+                    StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+
+                amount_stacked: 500,
+                stacker: None,
+            },
+            RawRewardSetEntry {
+                reward_address: PoxAddress::Standard(
+                    StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+                amount_stacked: 1500,
+                stacker: None,
+            },
+            RawRewardSetEntry {
+                reward_address: PoxAddress::Standard(
+                    StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+                amount_stacked: 400,
+                stacker: None,
+            },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses).len(),
+            StacksChainState::make_reward_set(threshold, addresses)
+                .rewarded_addresses
+                .len(),
             3
         );
+    }
+
+    fn rand_pox_addr() -> PoxAddress {
+        PoxAddress::Standard(rand_addr(), Some(AddressHashMode::SerializeP2PKH))
     }
 
     #[test]
@@ -533,7 +871,11 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
-                &[(rand_addr(), liquid)],
+                &[RawRewardSetEntry {
+                    reward_address: rand_pox_addr(),
+                    amount_stacked: liquid,
+                    stacker: None
+                }],
                 liquid
             )
             .0,
@@ -555,7 +897,11 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
-                &[(rand_addr(), liquid / 4)],
+                &[RawRewardSetEntry {
+                    reward_address: rand_pox_addr(),
+                    amount_stacked: liquid / 4,
+                    stacker: None
+                }],
                 liquid
             )
             .0,
@@ -566,8 +912,16 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), 10_000_000 * (MICROSTACKS_PER_STACKS as u128))
+                    RawRewardSetEntry {
+                        reward_address: rand_pox_addr(),
+                        amount_stacked: liquid / 4,
+                        stacker: None
+                    },
+                    RawRewardSetEntry {
+                        reward_address: rand_pox_addr(),
+                        amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
+                        stacker: None
+                    },
                 ],
                 liquid
             )
@@ -580,8 +934,16 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[
-                    (rand_addr(), liquid / 4),
-                    (rand_addr(), (MICROSTACKS_PER_STACKS as u128))
+                    RawRewardSetEntry {
+                        reward_address: rand_pox_addr(),
+                        amount_stacked: liquid / 4,
+                        stacker: None
+                    },
+                    RawRewardSetEntry {
+                        reward_address: rand_pox_addr(),
+                        amount_stacked: MICROSTACKS_PER_STACKS as u128,
+                        stacker: None
+                    },
                 ],
                 liquid
             )
@@ -593,7 +955,11 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
-                &[(rand_addr(), liquid)],
+                &[RawRewardSetEntry {
+                    reward_address: rand_pox_addr(),
+                    amount_stacked: liquid,
+                    stacker: None
+                }],
                 liquid
             )
             .0,
@@ -835,10 +1201,6 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         make_pox_contract_call(
             key,
             nonce,
@@ -861,10 +1223,6 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_2_NAME,
@@ -875,6 +1233,22 @@ pub mod test {
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
             ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_2_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
+            "stack-increase",
+            vec![Value::UInt(amount)],
         )
         .unwrap();
 
@@ -1028,7 +1402,7 @@ pub mod test {
         name: &str,
         code: &str,
     ) -> StacksTransaction {
-        let payload = TransactionPayload::new_smart_contract(name, code).unwrap();
+        let payload = TransactionPayload::new_smart_contract(name, code, None).unwrap();
         make_tx(key, nonce, tx_fee, payload)
     }
 
@@ -1134,12 +1508,29 @@ pub mod test {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<(StacksAddress, u128)>, Error> {
+    ) -> Result<Vec<(PoxAddress, u128)>, Error> {
         let burn_block_height = get_par_burn_block_height(state, block_id);
+        get_reward_set_entries_at_block(state, burnchain, sortdb, block_id, burn_block_height).map(
+            |addrs| {
+                addrs
+                    .into_iter()
+                    .map(|x| (x.reward_address, x.amount_stacked))
+                    .collect()
+            },
+        )
+    }
+
+    pub fn get_reward_set_entries_at_block(
+        state: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        burn_block_height: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
             .and_then(|mut addrs| {
-                addrs.sort_by_key(|k| k.0.bytes.0);
+                addrs.sort_by_key(|k| k.reward_address.bytes());
                 Ok(addrs)
             })
     }
@@ -1767,10 +2158,13 @@ pub mod test {
                     // either way, there's a single reward address
                     assert_eq!(reward_addrs.len(), 1);
                     assert_eq!(
-                        (reward_addrs[0].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[0].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
-                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!(
+                        (reward_addrs[0].0).hash160(),
+                        key_to_stacks_addr(&alice).bytes
+                    );
                     assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                     // Lock-up is consistent with stacker state
@@ -2022,8 +2416,8 @@ pub mod test {
                         eprintln!("\n{}: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", key.to_hex(), amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                         assert_eq!(
-                            (reward_addrs[0].0).version,
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            (reward_addrs[0].0).version(),
+                            AddressHashMode::SerializeP2PKH as u8
                         );
                         assert!(all_addrbytes.contains(&key_to_stacks_addr(&key).bytes));
                         all_addrbytes.remove(&key_to_stacks_addr(&key).bytes);
@@ -2254,10 +2648,13 @@ pub mod test {
                         // either way, there's a single reward address
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
-                            (reward_addrs[0].0).version,
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            (reward_addrs[0].0).version(),
+                            AddressHashMode::SerializeP2PKH as u8
                         );
-                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!(
+                            (reward_addrs[0].0).hash160(),
+                            key_to_stacks_addr(&alice).bytes
+                        );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                         // contract's address's tokens are locked
@@ -2508,17 +2905,23 @@ pub mod test {
                     // They are present in sorted order
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
-                        (reward_addrs[1].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[1].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!(
+                        (reward_addrs[1].0).hash160(),
+                        key_to_stacks_addr(&alice).bytes
+                    );
                     assert_eq!(reward_addrs[1].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                     assert_eq!(
-                        (reward_addrs[0].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[0].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
-                    assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&bob).bytes);
+                    assert_eq!(
+                        (reward_addrs[0].0).hash160(),
+                        key_to_stacks_addr(&bob).bytes
+                    );
                     assert_eq!(reward_addrs[0].1, (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5);
                 } else {
                     // no reward addresses
@@ -2916,10 +3319,13 @@ pub mod test {
                         // either way, there's a single reward address
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
-                            (reward_addrs[0].0).version,
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            (reward_addrs[0].0).version(),
+                            AddressHashMode::SerializeP2PKH as u8
                         );
-                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!(
+                            (reward_addrs[0].0).hash160(),
+                            key_to_stacks_addr(&alice).bytes
+                        );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                         // All of Alice's tokens are locked
@@ -3250,18 +3656,21 @@ pub mod test {
                     // two reward address, and it's Alice's and Charlie's in sorted order
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
-                        (reward_addrs[1].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[1].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!(
+                        (reward_addrs[1].0).hash160(),
+                        key_to_stacks_addr(&alice).bytes
+                    );
                     assert_eq!(reward_addrs[1].1, 1024 * POX_THRESHOLD_STEPS_USTX);
 
                     assert_eq!(
-                        (reward_addrs[0].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[0].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
-                        (reward_addrs[0].0).bytes,
+                        (reward_addrs[0].0).hash160(),
                         key_to_stacks_addr(&charlie).bytes
                     );
                     assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
@@ -3375,18 +3784,21 @@ pub mod test {
                     // either way, there's a single reward address
                     assert_eq!(reward_addrs.len(), 2);
                     assert_eq!(
-                        (reward_addrs[1].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[1].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
-                    assert_eq!((reward_addrs[1].0).bytes, key_to_stacks_addr(&alice).bytes);
+                    assert_eq!(
+                        (reward_addrs[1].0).hash160(),
+                        key_to_stacks_addr(&alice).bytes
+                    );
                     assert_eq!(reward_addrs[1].1, 512 * POX_THRESHOLD_STEPS_USTX);
 
                     assert_eq!(
-                        (reward_addrs[0].0).version,
-                        AddressHashMode::SerializeP2PKH.to_version_testnet()
+                        (reward_addrs[0].0).version(),
+                        AddressHashMode::SerializeP2PKH as u8
                     );
                     assert_eq!(
-                        (reward_addrs[0].0).bytes,
+                        (reward_addrs[0].0).hash160(),
                         key_to_stacks_addr(&charlie).bytes
                     );
                     assert_eq!(reward_addrs[0].1, 512 * POX_THRESHOLD_STEPS_USTX);
@@ -3708,23 +4120,23 @@ pub mod test {
 
             let expected_pox_addrs: Vec<(u8, Hash160)> = vec![
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&alice).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&bob).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&charlie).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2PKH.to_version_testnet(),
+                    AddressHashMode::SerializeP2PKH as u8,
                     key_to_stacks_addr(&danielle).bytes,
                 ),
                 (
-                    AddressHashMode::SerializeP2SH.to_version_testnet(),
+                    AddressHashMode::SerializeP2SH as u8,
                     key_to_stacks_addr(&alice).bytes,
                 ),
             ];
@@ -3844,8 +4256,8 @@ pub mod test {
                     for (i, (pox_addr, expected_stacked)) in
                         sorted_expected_pox_info.iter().enumerate()
                     {
-                        assert_eq!((reward_addrs[i].0).version, pox_addr.0);
-                        assert_eq!((reward_addrs[i].0).bytes, pox_addr.1);
+                        assert_eq!((reward_addrs[i].0).version(), pox_addr.0);
+                        assert_eq!((reward_addrs[i].0).hash160(), pox_addr.1);
                         assert_eq!(reward_addrs[i].1, **expected_stacked);
                     }
 
@@ -4185,10 +4597,13 @@ pub mod test {
                         // present
                         assert_eq!(reward_addrs.len(), 1);
                         assert_eq!(
-                            (reward_addrs[0].0).version,
-                            AddressHashMode::SerializeP2PKH.to_version_testnet()
+                            (reward_addrs[0].0).version(),
+                            AddressHashMode::SerializeP2PKH as u8
                         );
-                        assert_eq!((reward_addrs[0].0).bytes, key_to_stacks_addr(&alice).bytes);
+                        assert_eq!(
+                            (reward_addrs[0].0).hash160(),
+                            key_to_stacks_addr(&alice).bytes
+                        );
                         assert_eq!(reward_addrs[0].1, 1024 * POX_THRESHOLD_STEPS_USTX);
                     }
 

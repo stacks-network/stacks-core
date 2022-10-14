@@ -45,7 +45,12 @@ use crate::types::StacksEpochId;
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::ClarityVersion;
 
-pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
+pub fn test_tracked_costs(
+    prog: &str,
+    use_mainnet: bool,
+    epoch: StacksEpochId,
+    version: ClarityVersion,
+) -> ExecutionCost {
     let marf = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf);
@@ -129,10 +134,11 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, contract_trait)
+                .analyze_smart_contract(&trait_contract_id, version, contract_trait)
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
+                version,
                 &ct_ast,
                 contract_trait,
                 None,
@@ -156,10 +162,11 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, contract_other)
+                .analyze_smart_contract(&other_contract_id, version, contract_other)
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
+                version,
                 &ct_ast,
                 contract_other,
                 None,
@@ -183,10 +190,11 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, &contract_self)
+                .analyze_smart_contract(&self_contract_id, version, &contract_self)
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,
+                version,
                 &ct_ast,
                 &contract_self,
                 None,
@@ -200,33 +208,49 @@ pub fn test_tracked_costs(prog: &str, use_mainnet: bool, epoch: StacksEpochId) -
     }
 }
 
-fn epoch_21_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21);
+fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
+    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch21, version);
 
     for f in NativeFunctions::ALL.iter() {
+        if version < f.get_version() {
+            continue;
+        }
+
         let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21);
+        let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch21, version);
         assert!(cost.exceeds(&baseline));
     }
 }
 
 #[test]
 fn epoch_21_test_all_mainnet() {
-    epoch_21_test_all(true)
+    epoch_21_test_all(true, ClarityVersion::Clarity1);
+    epoch_21_test_all(true, ClarityVersion::Clarity2);
 }
 
 #[test]
 fn epoch_21_test_all_testnet() {
-    epoch_21_test_all(false)
+    epoch_21_test_all(false, ClarityVersion::Clarity1);
+    epoch_21_test_all(false, ClarityVersion::Clarity2);
 }
 
 fn epoch_205_test_all(use_mainnet: bool) {
-    let baseline = test_tracked_costs("1", use_mainnet, StacksEpochId::Epoch2_05);
+    let baseline = test_tracked_costs(
+        "1",
+        use_mainnet,
+        StacksEpochId::Epoch2_05,
+        ClarityVersion::Clarity1,
+    );
 
     for f in NativeFunctions::ALL.iter() {
         if f.get_version() == ClarityVersion::Clarity1 {
             let test = get_simple_test(f);
-            let cost = test_tracked_costs(test, use_mainnet, StacksEpochId::Epoch2_05);
+            let cost = test_tracked_costs(
+                test,
+                use_mainnet,
+                StacksEpochId::Epoch2_05,
+                ClarityVersion::Clarity1,
+            );
             assert!(cost.exceeds(&baseline));
         }
     }
@@ -234,10 +258,10 @@ fn epoch_205_test_all(use_mainnet: bool) {
 
 #[test]
 fn epoch_205_test_all_mainnet() {
-    epoch_205_test_all(true)
+    epoch_205_test_all(true);
 }
 
 #[test]
 fn epoch_205_test_all_testnet() {
-    epoch_205_test_all(false)
+    epoch_205_test_all(false);
 }

@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "contract_id",
+    "current_burnchain_block_height",
     "first_burnchain_block_height",
     "pox_activation_threshold_ustx",
     "prepare_phase_block_length",
@@ -19,7 +20,8 @@
     "min_amount_ustx",
     "reward_cycle_id",
     "prepare_cycle_length",
-    "rejection_votes_left_required"
+    "rejection_votes_left_required",
+    "contract_versions"
   ],
   "properties": {
     "contract_id": {
@@ -29,6 +31,10 @@
     "first_burnchain_block_height": {
       "type": "integer",
       "description": "The first burn block evaluated in this Stacks chain"
+    },
+    "current_burnchain_block_height": {
+      "type": "integer",
+      "description": "The latest Bitcoin chain block height"
     },
     "pox_activation_threshold_ustx": {
       "type": "integer",
@@ -83,7 +89,7 @@
         "is_pox_active": {
           "type": "boolean",
           "description": "Whether or not PoX is active during this reward cycle."
-        },
+        }
       }
     },
     "next_cycle": {
@@ -146,15 +152,42 @@
     },
     "min_amount_ustx": {
       "type": "integer",
-      "deprecated": true,
+      "deprecated": true
     },
     "prepare_cycle_length": {
       "type": "integer",
-      "deprecated": true,
+      "deprecated": true
     },
     "rejection_votes_left_required": {
       "type": "integer",
-      "deprecated": true,
+      "deprecated": true
+    },
+    "contract_versions": {
+      "type": "array",
+      "description": "Versions of each PoX",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "contract_id", 
+          "activation_burnchain_block_height", 
+          "first_reward_cycle_id"
+        ],
+        "properties": {
+          "contract_id": {
+            "type": "string",
+            "description": "The contract identifier for the PoX contract"
+          },
+          "activation_burnchain_block_height": {
+            "type": "integer",
+            "description": "The burn block height at which this version of PoX is activated"
+          },
+          "first_reward_cycle_id": {
+            "type": "integer",
+            "description": "The first reward cycle number that uses this version of PoX"
+          }
+        }
+      }
     }
   }
 }

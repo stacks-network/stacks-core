@@ -38,6 +38,8 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -62,7 +64,9 @@ use crate::util_lib::boot::boot_code_id;
 use crate::{types, util};
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::ClarityVersion;
 use rand::RngCore;
+use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
@@ -233,6 +237,11 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
         &vec![pk],
     )
     .unwrap()
+}
+
+fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
+    let stacks_addr = p2pkh_from(sk);
+    PoxAddress::Standard(stacks_addr, Some(AddressHashMode::SerializeP2PKH))
 }
 
 pub fn setup_states(
@@ -428,9 +437,9 @@ impl BlockEventDispatcher for NullEventDispatcher {
         &self,
         _burn_block: &BurnchainHeaderHash,
         _burn_block_height: u64,
-        _rewards: Vec<(StacksAddress, u64)>,
+        _rewards: Vec<(PoxAddress, u64)>,
         _burns: u64,
-        _slot_holders: Vec<StacksAddress>,
+        _slot_holders: Vec<PoxAddress>,
     ) {
     }
 
@@ -446,7 +455,7 @@ pub fn make_coordinator<'a>(
     ChainsCoordinator::test_new(&burnchain, 0x80000000, path, OnChainRewardSetProvider(), tx)
 }
 
-struct StubbedRewardSetProvider(Vec<StacksAddress>);
+struct StubbedRewardSetProvider(Vec<PoxAddress>);
 
 impl RewardSetProvider for StubbedRewardSetProvider {
     fn get_reward_set(
@@ -456,14 +465,19 @@ impl RewardSetProvider for StubbedRewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<StacksAddress>, chainstate::coordinator::Error> {
-        Ok(self.0.clone())
+    ) -> Result<RewardSet, chainstate::coordinator::Error> {
+        Ok(RewardSet {
+            rewarded_addresses: self.0.clone(),
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+        })
     }
 }
 
 fn make_reward_set_coordinator<'a>(
     path: &str,
-    addrs: Vec<StacksAddress>,
+    addrs: Vec<PoxAddress>,
     pox_consts: Option<PoxConstants>,
 ) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), ()> {
     let (tx, _) = sync_channel(100000);
@@ -596,9 +610,9 @@ fn make_genesis_block_with_recipients(
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect::<Vec<StacksAddress>>();
+            .collect::<Vec<PoxAddress>>();
         if commit_outs.len() == 1 {
-            commit_outs.push(StacksAddress::burn_address(false))
+            commit_outs.push(PoxAddress::standard_burn_address(false));
         }
         commit_outs
     } else {
@@ -811,15 +825,15 @@ fn make_stacks_block_with_input(
             .recipients
             .iter()
             .map(|(a, _)| a.clone())
-            .collect::<Vec<StacksAddress>>();
+            .collect::<Vec<PoxAddress>>();
         if commit_outs.len() == 1 {
             // Padding with burn address if required
-            commit_outs.push(StacksAddress::burn_address(false))
+            commit_outs.push(PoxAddress::standard_burn_address(false));
         }
         commit_outs
     } else if burnchain.is_in_prepare_phase(parent_height + 1) {
         test_debug!("block-commit in {} will burn", parent_height + 1);
-        vec![StacksAddress::burn_address(false)]
+        vec![PoxAddress::standard_burn_address(false)]
     } else {
         vec![]
     };
@@ -864,7 +878,7 @@ fn missed_block_commits() {
     let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
     let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -1123,6 +1137,7 @@ fn missed_block_commits() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1294,6 +1309,7 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1365,7 +1381,7 @@ fn test_sortition_with_reward_set() {
 
     let reward_set_size = 4;
     let reward_set: Vec<_> = (0..reward_set_size)
-        .map(|_| p2pkh_from(&StacksPrivateKey::new()))
+        .map(|_| pox_addr_from(&StacksPrivateKey::new()))
         .collect();
 
     setup_states(
@@ -1531,10 +1547,10 @@ fn test_sortition_with_reward_set() {
             // sometime have the wrong _number_ of recipients,
             //   other times just have the wrong set of recipients
             let recipients = if ix % 2 == 0 {
-                vec![(p2pkh_from(miner_wrong_out), 0)]
+                vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -1602,6 +1618,7 @@ fn test_sortition_with_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1633,9 +1650,9 @@ fn test_sortition_with_burner_reward_set() {
 
     let reward_set_size = 3;
     let mut reward_set: Vec<_> = (0..reward_set_size - 1)
-        .map(|_| StacksAddress::burn_address(false))
+        .map(|_| PoxAddress::standard_burn_address(false))
         .collect();
-    reward_set.push(p2pkh_from(&StacksPrivateKey::new()));
+    reward_set.push(pox_addr_from(&StacksPrivateKey::new()));
 
     setup_states(
         &[path],
@@ -1774,10 +1791,10 @@ fn test_sortition_with_burner_reward_set() {
             // sometime have the wrong _number_ of recipients,
             //   other times just have the wrong set of recipients
             let recipients = if ix % 2 == 0 {
-                vec![(p2pkh_from(miner_wrong_out), 0)]
+                vec![(pox_addr_from(miner_wrong_out), 0)]
             } else {
                 (0..OUTPUTS_PER_COMMIT)
-                    .map(|ix| (p2pkh_from(&StacksPrivateKey::new()), ix as u16))
+                    .map(|ix| (pox_addr_from(&StacksPrivateKey::new()), ix as u16))
                     .collect()
             };
             let bad_block_recipients = Some(RewardSetInfo {
@@ -1845,6 +1862,7 @@ fn test_sortition_with_burner_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1878,7 +1896,7 @@ fn test_pox_btc_ops() {
     let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
 
     let stacker = p2pkh_from(&StacksPrivateKey::new());
-    let rewards = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = pox_addr_from(&StacksPrivateKey::new());
     let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
@@ -2099,6 +2117,7 @@ fn test_pox_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2392,6 +2411,7 @@ fn test_stx_transfer_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2623,6 +2643,7 @@ fn test_initial_coinbase_reward_distributions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -4580,6 +4601,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
+                    ClarityVersion::Clarity1,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),

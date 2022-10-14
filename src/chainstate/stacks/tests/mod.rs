@@ -1036,6 +1036,24 @@ pub fn make_smart_contract(
     burnchain_height: usize,
     stacks_block_height: usize,
 ) -> StacksTransaction {
+    make_smart_contract_with_version(
+        miner,
+        miner.get_nonce(),
+        burnchain_height,
+        stacks_block_height,
+        None,
+        None,
+    )
+}
+
+pub fn make_smart_contract_with_version(
+    miner: &mut TestMiner,
+    nonce: u64,
+    burnchain_height: usize,
+    stacks_block_height: usize,
+    version: Option<ClarityVersion>,
+    fee: Option<u64>,
+) -> StacksTransaction {
     // make a smart contract
     let contract = "
     (define-data-var bar int 0)
@@ -1055,18 +1073,21 @@ pub fn make_smart_contract(
         TransactionPayload::new_smart_contract(
             &format!("hello-world-{}-{}", burnchain_height, stacks_block_height),
             &contract.to_string(),
+            version,
         )
         .unwrap(),
     );
 
     tx_contract.chain_id = 0x80000000;
-    tx_contract.auth.set_origin_nonce(miner.get_nonce());
+    tx_contract.auth.set_origin_nonce(nonce);
 
     if miner.test_with_tx_fees {
-        tx_contract.set_tx_fee(123);
-        miner.spent_at_nonce.insert(miner.get_nonce(), 123);
+        tx_contract.set_tx_fee(fee.unwrap_or(123));
+        miner
+            .spent_at_nonce
+            .insert(nonce, fee.unwrap_or(123).into());
     } else {
-        tx_contract.set_tx_fee(0);
+        tx_contract.set_tx_fee(fee.unwrap_or(0));
     }
 
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
@@ -1156,6 +1177,57 @@ pub fn make_user_contract_publish(
     let payload = TransactionSmartContract { name, code_body };
 
     sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
+}
+
+pub fn make_versioned_user_contract_publish(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    contract_name: &str,
+    contract_content: &str,
+    version: ClarityVersion,
+) -> StacksTransaction {
+    let name = ContractName::from(contract_name);
+    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+    let payload = TransactionPayload::SmartContract(
+        TransactionSmartContract { name, code_body },
+        Some(version),
+    );
+
+    sign_standard_singlesig_tx(payload, sender, nonce, tx_fee)
+}
+
+pub fn make_user_contract_call(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    contract_addr: &StacksAddress,
+    contract_name: &str,
+    contract_function: &str,
+    args: Vec<Value>,
+) -> StacksTransaction {
+    let mut tx_contract_call = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(sender).unwrap(),
+        TransactionPayload::new_contract_call(
+            contract_addr.clone(),
+            contract_name,
+            contract_function,
+            args,
+        )
+        .unwrap(),
+    );
+
+    tx_contract_call.chain_id = 0x80000000;
+    tx_contract_call.auth.set_origin_nonce(nonce);
+    tx_contract_call.auth.set_tx_fee(tx_fee);
+    tx_contract_call.post_condition_mode = TransactionPostConditionMode::Allow;
+
+    let mut tx_signer = StacksTransactionSigner::new(&tx_contract_call);
+    tx_signer.sign_origin(sender).unwrap();
+    let tx_contract_call_signed = tx_signer.get_tx().unwrap();
+    tx_contract_call_signed
 }
 
 pub fn make_user_stacks_transfer(

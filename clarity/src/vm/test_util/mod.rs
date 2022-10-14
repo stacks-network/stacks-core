@@ -4,7 +4,7 @@ use crate::vm::execute as vm_execute;
 use crate::vm::execute_on_network as vm_execute_on_network;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::StandardPrincipalData;
-use crate::vm::types::{PrincipalData, ResponseData, Value};
+use crate::vm::types::{PrincipalData, ResponseData, TupleData, Value};
 use crate::vm::StacksEpoch;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
@@ -26,6 +26,12 @@ pub struct UnitTestHeaderDB {}
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
+};
+pub const TEST_BURN_STATE_DB_205: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch2_05,
+};
+pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
+    epoch_id: StacksEpochId::Epoch21,
 };
 
 pub fn execute(s: &str) -> Value {
@@ -218,5 +224,19 @@ impl BurnStateDB for UnitTestBurnStateDB {
         _consensus_hash: &ConsensusHash,
     ) -> Option<SortitionId> {
         None
+    }
+    fn get_pox_payout_addrs(
+        &self,
+        _height: u32,
+        _sortition_id: &SortitionId,
+    ) -> Option<(Vec<TupleData>, u128)> {
+        Some((
+            vec![TupleData::from_data(vec![
+                ("version".into(), Value::buff_from(vec![0u8]).unwrap()),
+                ("hashbytes".into(), Value::buff_from(vec![0u8; 20]).unwrap()),
+            ])
+            .unwrap()],
+            123,
+        ))
     }
 }

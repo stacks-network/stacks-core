@@ -38,6 +38,7 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
+          - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::microblock_integration_test
           - tests::neon_integrations::size_check_integration_test
           - tests::neon_integrations::cost_voting_integration
@@ -59,7 +60,7 @@ jobs:
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
           - tests::neon_integrations::mining_transactions_is_fair
-          - tests::neon_integrations::microblock_large_tx_integration_test
+          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
           - tests::neon_integrations::block_large_tx_integration_test
           - tests::neon_integrations::microblock_limit_hit_integration_test
           - tests::neon_integrations::block_limit_hit_integration_test
@@ -76,6 +77,7 @@ jobs:
           - tests::epoch_21::transition_adds_burn_block_height
           - tests::epoch_21::transition_fixes_bitcoin_rigidity
           - tests::epoch_21::transition_adds_pay_to_contract
+          - tests::epoch_21::transition_adds_get_pox_addr_recipients
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

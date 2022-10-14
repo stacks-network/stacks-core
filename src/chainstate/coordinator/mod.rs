@@ -41,6 +41,7 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
+use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     db::{
@@ -67,7 +68,7 @@ use clarity::vm::{
 use crate::core::StacksEpochId;
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use clarity::vm::database::BurnStateDB;
 
@@ -76,6 +77,7 @@ use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 pub use self::comm::CoordinatorCommunication;
 
 use stacks_common::util::get_epoch_time_secs;
+use super::stacks::boot::RewardSet;
 
 pub mod comm;
 #[cfg(test)]
@@ -85,7 +87,7 @@ pub mod tests;
 ///  reward cycle's relationship to its PoX anchor
 #[derive(Debug, Clone, PartialEq)]
 pub enum PoxAnchorBlockStatus {
-    SelectedAndKnown(BlockHeaderHash, Vec<StacksAddress>),
+    SelectedAndKnown(BlockHeaderHash, RewardSet),
     SelectedAndUnknown(BlockHeaderHash),
     NotSelected,
 }
@@ -110,7 +112,7 @@ impl RewardCycleInfo {
             SelectedAndKnown(_, _) | NotSelected => true,
         }
     }
-    pub fn known_selected_anchor_block(&self) -> Option<&Vec<StacksAddress>> {
+    pub fn known_selected_anchor_block(&self) -> Option<&RewardSet> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
             SelectedAndUnknown(_) => None,
@@ -118,7 +120,7 @@ impl RewardCycleInfo {
             NotSelected => None,
         }
     }
-    pub fn known_selected_anchor_block_owned(self) -> Option<Vec<StacksAddress>> {
+    pub fn known_selected_anchor_block_owned(self) -> Option<RewardSet> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
             SelectedAndUnknown(_) => None,
@@ -153,9 +155,9 @@ pub trait BlockEventDispatcher {
         &self,
         burn_block: &BurnchainHeaderHash,
         burn_block_height: u64,
-        rewards: Vec<(StacksAddress, u64)>,
+        rewards: Vec<(PoxAddress, u64)>,
         burns: u64,
-        reward_recipients: Vec<StacksAddress>,
+        reward_recipients: Vec<PoxAddress>,
     );
 
     fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
@@ -240,7 +242,7 @@ pub trait RewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<StacksAddress>, Error>;
+    ) -> Result<RewardSet, Error>;
 }
 
 pub struct OnChainRewardSetProvider();
@@ -253,7 +255,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<StacksAddress>, Error> {
+    ) -> Result<RewardSet, Error> {
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
@@ -261,7 +263,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &burnchain.pox_constants,
-            &registered_addrs,
+            &registered_addrs[..],
             liquid_ustx,
         );
 
@@ -274,7 +276,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "participation" => participation,
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
-            return Ok(vec![]);
+            return Ok(RewardSet::empty());
         } else {
             info!("PoX reward cycle threshold computed";
                   "burn_height" => current_burn_height,
@@ -583,7 +585,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 }
 
 struct PaidRewards {
-    pox: Vec<(StacksAddress, u64)>,
+    pox: Vec<(PoxAddress, u64)>,
     burns: u64,
 }
 
@@ -625,7 +627,7 @@ fn dispatcher_announce_burn_ops<T: BlockEventDispatcher>(
         recip_info
             .recipients
             .into_iter()
-            .map(|(addr, _)| addr)
+            .map(|(addr, ..)| addr)
             .collect()
     } else {
         vec![]

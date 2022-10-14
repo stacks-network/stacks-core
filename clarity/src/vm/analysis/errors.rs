@@ -174,6 +174,7 @@ pub enum CheckErrors {
 
     // strings
     InvalidCharactersDetected,
+    InvalidUTF8Encoding,
 
     // secp256k1 signature
     InvalidSecp65k1Signature,
@@ -387,7 +388,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
             CheckErrors::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
-            CheckErrors::CircularReference(function_names) => format!("detected interdependent functions ({})", function_names.join(", ")),
+            CheckErrors::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UndefinedVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
@@ -420,6 +421,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
+            CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")

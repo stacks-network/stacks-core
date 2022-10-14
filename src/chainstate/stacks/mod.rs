@@ -49,6 +49,7 @@ use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use clarity::vm::ClarityVersion;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -123,7 +124,10 @@ pub enum Error {
     PoxInsufficientBalance,
     PoxNoRewardCycle,
     PoxExtendNotLocked,
+    PoxIncreaseOnV1,
+    PoxInvalidIncrease,
     DefunctPoxContract,
+    ProblematicTransaction(Txid),
 }
 
 impl From<marf_error> for Error {
@@ -200,6 +204,13 @@ impl fmt::Display for Error {
             Error::DefunctPoxContract => {
                 write!(f, "A defunct PoX contract was called after transition")
             }
+            Error::ProblematicTransaction(ref txid) => write!(
+                f,
+                "Transaction {} is problematic and will not be mined again",
+                txid
+            ),
+            Error::PoxIncreaseOnV1 => write!(f, "PoX increase only allowed for pox-2 locks"),
+            Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
         }
     }
 }
@@ -235,6 +246,9 @@ impl error::Error for Error {
             Error::PoxExtendNotLocked => None,
             Error::DefunctPoxContract => None,
             Error::StacksTransactionSkipped(ref _r) => None,
+            Error::ProblematicTransaction(ref _txid) => None,
+            Error::PoxIncreaseOnV1 => None,
+            Error::PoxInvalidIncrease => None,
         }
     }
 }
@@ -270,6 +284,9 @@ impl Error {
             Error::PoxExtendNotLocked => "PoxExtendNotLocked",
             Error::DefunctPoxContract => "DefunctPoxContract",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
+            Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
+            Error::PoxIncreaseOnV1 => "PoxIncreaseOnV1",
+            Error::PoxInvalidIncrease => "PoxInvalidIncrease",
         }
     }
 
@@ -559,6 +576,14 @@ pub struct TransactionContractCall {
     pub function_args: Vec<Value>,
 }
 
+impl TransactionContractCall {
+    pub fn contract_identifier(&self) -> QualifiedContractIdentifier {
+        let standard_principal =
+            StandardPrincipalData(self.address.version, self.address.bytes.0.clone());
+        QualifiedContractIdentifier::new(standard_principal, self.contract_name.clone())
+    }
+}
+
 /// A transaction that instantiates a smart contract
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionSmartContract {
@@ -585,7 +610,7 @@ impl_byte_array_serde!(TokenTransferMemo);
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
-    SmartContract(TransactionSmartContract),
+    SmartContract(TransactionSmartContract, Option<ClarityVersion>),
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     Coinbase(CoinbasePayload, Option<PrincipalData>),
 }
@@ -611,6 +636,7 @@ pub enum TransactionPayloadID {
     PoisonMicroblock = 3,
     Coinbase = 4,
     CoinbaseToAltRecipient = 5,
+    VersionedSmartContract = 6,
 }
 
 /// Encoding of an asset type identifier
@@ -880,6 +906,7 @@ pub mod test {
     use crate::net::codec::*;
     use crate::net::*;
     use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::ClarityVersion;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
@@ -1155,10 +1182,27 @@ pub mod test {
                 function_name: ClarityName::try_from("hello-contract-call").unwrap(),
                 function_args: vec![Value::Int(0)],
             }),
-            TransactionPayload::SmartContract(TransactionSmartContract {
-                name: ContractName::try_from(hello_contract_name).unwrap(),
-                code_body: StacksString::from_str(hello_contract_body).unwrap(),
-            }),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                None,
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(hello_contract_name).unwrap(),
+                    code_body: StacksString::from_str(hello_contract_body).unwrap(),
+                },
+                Some(ClarityVersion::Clarity2),
+            ),
             TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),

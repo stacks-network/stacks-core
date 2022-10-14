@@ -19,6 +19,7 @@ use stacks::burnchains::bitcoin::address::BitcoinAddress;
 use stacks::burnchains::bitcoin::address::BitcoinAddressType;
 use stacks::burnchains::{Address, Burnchain};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
     migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, ChainsCoordinatorConfig,
@@ -496,29 +497,36 @@ impl RunLoop {
         }
     }
 
-    /// Get the sortition DB's highest block height
-    fn get_sortition_db_height(sortdb: &SortitionDB, burnchain_config: &Burnchain) -> u64 {
-        let sortition_db_height = {
-            let (stacks_ch, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
-                .expect("BUG: failed to load canonical stacks chain tip hash");
+    /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the
+    /// highest sortition.
+    /// Returns (height at rc start, sortition)
+    fn get_reward_cycle_sortition_db_height(
+        sortdb: &SortitionDB,
+        burnchain_config: &Burnchain,
+    ) -> (u64, BlockSnapshot) {
+        let (stacks_ch, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+            .expect("BUG: failed to load canonical stacks chain tip hash");
 
-            match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_ch)
-                .expect("BUG: failed to query sortition DB")
-            {
-                Some(sn) => burnchain_config.reward_cycle_to_block_height(
-                    burnchain_config
-                        .block_height_to_reward_cycle(sn.block_height)
-                        .expect("BUG: snapshot preceeds first reward cycle"),
-                ),
-                None => {
-                    let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
-                        .expect("BUG: failed to get first-ever block snapshot");
-
-                    sn.block_height
-                }
+        let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &stacks_ch)
+            .expect("BUG: failed to query sortition DB")
+        {
+            Some(sn) => sn,
+            None => {
+                debug!("No canonical stacks chain tip hash present");
+                let sn = SortitionDB::get_first_block_snapshot(&sortdb.conn())
+                    .expect("BUG: failed to get first-ever block snapshot");
+                sn
             }
         };
-        sortition_db_height
+
+        (
+            burnchain_config.reward_cycle_to_block_height(
+                burnchain_config
+                    .block_height_to_reward_cycle(sn.block_height)
+                    .expect("BUG: snapshot preceeds first reward cycle"),
+            ),
+            sn,
+        )
     }
 
     /// Starts the node runloop.
@@ -547,33 +555,47 @@ impl RunLoop {
         let (coordinator_thread_handle, attachments_rx) =
             self.spawn_chains_coordinator(&burnchain_config, coordinator_receivers);
         self.instantiate_pox_watchdog();
+        self.start_prometheus();
 
         // We announce a new burn block so that the chains coordinator
         // can resume prior work and handle eventual unprocessed sortitions
         // stored during a previous session.
         coordinator_senders.announce_new_burn_block();
 
-        // Wait for some sortitions!
-        let mut burnchain_tip = burnchain
-            .wait_for_sortitions(None)
-            .expect("Unable to get burnchain tip");
+        // Make sure at least one sortition has happened
+        let sortdb = burnchain.sortdb_mut();
+        let (rc_aligned_height, sn) =
+            RunLoop::get_reward_cycle_sortition_db_height(&sortdb, &burnchain_config);
+
+        let burnchain_tip_snapshot = if sn.block_height == burnchain_config.first_block_height {
+            // need at least one sortition to happen.
+            burnchain
+                .wait_for_sortitions(Some(sn.block_height + 1))
+                .expect("Unable to get burnchain tip")
+                .block_snapshot
+        } else {
+            sn
+        };
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
         let mut node = StacksNode::spawn(
             self,
-            Some(burnchain_tip.clone()),
+            Some(burnchain_tip_snapshot),
             coordinator_senders.clone(),
             attachments_rx,
         );
-        let sortdb = burnchain.sortdb_mut();
-        let mut sortition_db_height = RunLoop::get_sortition_db_height(&sortdb, &burnchain_config);
+
+        // Wait for all pending sortitions to process
+        let mut burnchain_tip = burnchain
+            .wait_for_sortitions(None)
+            .expect("Unable to get burnchain tip");
 
         // Start the runloop
         debug!("Begin run loop");
-        self.start_prometheus();
         self.counters.bump_blocks_processed();
 
+        let mut sortition_db_height = rc_aligned_height;
         let mut burnchain_height = sortition_db_height;
         let mut num_sortitions_in_last_cycle = 1;
 

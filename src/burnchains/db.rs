@@ -1278,6 +1278,7 @@ impl BurnchainDB {
         Ok(())
     }
 
+<<<<<<< HEAD
     pub fn get_block_commit(
         conn: &DBConn,
         txid: &Txid,
@@ -1289,6 +1290,33 @@ impl BurnchainDB {
             test_debug!("No block-commit tx {}", &txid);
             Ok(None)
         }
+=======
+#[cfg(test)]
+mod tests {
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use std::convert::TryInto;
+
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::blocks::*;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::PoxConstants;
+    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::PoxAddress;
+    use crate::chainstate::stacks::*;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::util::hash::*;
+
+    use crate::types::chainstate::StacksAddress;
+
+    use super::*;
+
+    fn make_tx(hex_str: &str) -> BtcTx {
+        let tx_bin = hex_bytes(hex_str).unwrap();
+        deserialize(&tx_bin.to_vec()).unwrap()
+>>>>>>> next
     }
 
     pub fn get_commit_in_block_at(

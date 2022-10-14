@@ -850,7 +850,7 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
@@ -885,7 +885,7 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
@@ -1009,7 +1009,7 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
                     ("value".into(), Value::none()),
@@ -1036,7 +1036,7 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
                     ("value".into(), Value::none()),
@@ -1054,7 +1054,7 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
                     ("value".into(), Value::none()),
@@ -1080,7 +1080,7 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
                     ("value".into(), Value::none()),
@@ -1106,7 +1106,7 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_int".into(),
+                        "error_code".into(),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
                     ("value".into(), Value::none()),
