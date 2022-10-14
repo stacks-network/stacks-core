@@ -391,7 +391,6 @@ pub fn special_replace_at(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
     // Set the input to runtime_cost to 0, since replacing an element at an index is an O(1) operation.
     runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
 

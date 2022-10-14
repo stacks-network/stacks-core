@@ -159,7 +159,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Slice => "(slice str-foo u1 u1)",
         ToConsensusBuff => "(to-consensus-buff u1)",
         FromConsensusBuff => "(from-consensus-buff bool 0x03)",
-        ReplaceAt => "(replace-at list-foo 0 false)",
+        ReplaceAt => "(replace-at list-bar u0 5)",
     }
 }
 
@@ -837,7 +837,7 @@ fn test_tracked_costs(
         (define-data-var var-foo int 0)
         (define-constant tuple-foo (tuple (a 1)))
         (define-constant list-foo (list true))
-        (define-constant list-bar (list 1))
+        (define-constant clarity/src/vm/docs/mod.rs (list 1))
         (define-constant str-foo \"foobar\")
         (use-trait trait-1 .contract-trait.trait-1)
         (define-public (execute (contract <trait-1>)) (ok {}))",
