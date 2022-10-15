@@ -1145,10 +1145,7 @@ impl<
     /// Determine if we have the block data for a given block-commit.
     /// Used to see if we have the block data for an unaffirmed PoX anchor block
     /// (hence the test_debug! macros referring to PoX anchor blocks)
-    fn has_stacks_block_for(
-        &self,
-        block_commit: LeaderBlockCommitOp,
-    ) -> bool {
+    fn has_stacks_block_for(&self, block_commit: LeaderBlockCommitOp) -> bool {
         let tip = SortitionDB::get_canonical_burn_chain_tip(self.sortition_db.conn())
             .expect("BUG: failed to query chain tip from sortition DB");
         let ic = self.sortition_db.index_conn();
