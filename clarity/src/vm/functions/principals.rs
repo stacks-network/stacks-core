@@ -21,7 +21,7 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-use crate::vm::ast::parser::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
+use crate::vm::representations::{CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH};
 
 pub enum PrincipalConstructErrorCode {
     VERSION_BYTE = 0,

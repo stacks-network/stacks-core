@@ -25,7 +25,7 @@ use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::{ClarityName, Span, SymbolicExpression};
 use crate::vm::types::Value::UInt;
 use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature,
@@ -256,6 +256,19 @@ impl DefinedFunction {
 
     pub fn get_identifier(&self) -> FunctionIdentifier {
         self.identifier.clone()
+    }
+
+    pub fn get_arguments(&self) -> &Vec<ClarityName> {
+        &self.arguments
+    }
+
+    pub fn get_arg_types(&self) -> &Vec<TypeSignature> {
+        &self.arg_types
+    }
+
+    #[cfg(feature = "developer-mode")]
+    pub fn get_span(&self) -> Span {
+        self.body.span.clone()
     }
 }
 

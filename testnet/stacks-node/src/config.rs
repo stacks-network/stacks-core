@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::PoxConstants;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -394,10 +395,22 @@ lazy_static! {
 }
 
 impl Config {
+    /// This method applies any of this Config's configured PoX constants to the supplied
+    /// `PoxConstants` struct.
+    pub fn update_pox_constants(&self, pox_consts: &mut PoxConstants) {
+        if self.is_mainnet() {
+            return;
+        }
+        if let Some(pox_2_activation_height) = self.burnchain.pox_2_activation {
+            pox_consts.v1_unlock_height = pox_2_activation_height;
+        }
+    }
+
     fn make_epochs(
         conf_epochs: &[StacksEpochConfigFile],
         burn_mode: &str,
         bitcoin_network: BitcoinNetworkType,
+        pox_2_activation: Option<u32>,
     ) -> Result<Vec<StacksEpoch>, String> {
         let default_epochs = match bitcoin_network {
             BitcoinNetworkType::Mainnet => {
@@ -488,6 +501,16 @@ impl Config {
             }
         }
 
+        if let Some(pox_2_activation) = pox_2_activation {
+            let last_epoch = out_epochs
+                .iter()
+                .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
+                .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
+            if last_epoch.start_height > pox_2_activation as u64 {
+                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {}, epoch 2.1 start height = {}", pox_2_activation, last_epoch.start_height))?;
+            }
+        }
+
         Ok(out_epochs)
     }
 
@@ -500,7 +523,7 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => hex_bytes(&seed)
-                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
+                            .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -514,7 +537,7 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| {
+                        Some(seed) => hex_bytes(&seed).map_err(|_e| {
                             format!("node.local_peer_seed should be a hex encoded string")
                         })?,
                         None => default_node_config.local_peer_seed,
@@ -669,13 +692,24 @@ impl Config {
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
                     epochs: default_burnchain_config.epochs,
+                    pox_2_activation: burnchain
+                        .pox_2_activation
+                        .or(default_burnchain_config.pox_2_activation),
                 };
+
+                // check that pox_2_activation hasn't been set in mainnet
+                if result.pox_2_activation.is_some() {
+                    if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
+                        return Err("PoX-2 Activation height is not configurable in mainnet".into());
+                    }
+                }
 
                 if let Some(ref conf_epochs) = burnchain.epochs {
                     result.epochs = Some(Self::make_epochs(
                         conf_epochs,
                         &result.mode,
                         result.get_bitcoin_network().1,
+                        burnchain.pox_2_activation,
                     )?);
                 }
 
@@ -1137,6 +1171,7 @@ pub struct BurnchainConfig {
     /// Custom override for the definitions of the epochs. This will only be applied for testnet and
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
+    pub pox_2_activation: Option<u32>,
 }
 
 impl BurnchainConfig {
@@ -1165,6 +1200,7 @@ impl BurnchainConfig {
             block_commit_tx_estimated_size: BLOCK_COMMIT_TX_ESTIM_SIZE,
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
+            pox_2_activation: None,
         }
     }
 
@@ -1230,6 +1266,7 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
+    pub pox_2_activation: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default)]

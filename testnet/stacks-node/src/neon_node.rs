@@ -68,7 +68,7 @@ use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
@@ -1022,7 +1022,8 @@ fn spawn_miner_relayer(
     > = HashMap::new();
     let burn_fee_cap = config.burnchain.burn_fee_cap;
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
+    let mut bitcoin_controller =
+        BitcoinRegtestController::new_dummy(config.clone(), burnchain.clone());
     let mut microblock_miner_state: Option<MicroblockMinerState> = None;
     let mut miner_tip = None; // only set if we won the last sortition
     let mut last_microblock_tenure_time = 0;

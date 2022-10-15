@@ -6,9 +6,10 @@ use std::num::ParseIntError;
 use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::error::LexerError;
+use self::lexer::token::{PlacedToken, Token};
+use self::lexer::Lexer;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
-use crate::vm::ast::parser_v2::lexer::token::{PlacedToken, Token};
-use crate::vm::ast::parser_v2::lexer::Lexer;
+use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
 use crate::vm::representations::{
     ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType, Span,
@@ -17,6 +18,7 @@ use crate::vm::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
     TraitIdentifier, UTF8Data, Value,
 };
+use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -28,10 +30,12 @@ pub struct Parser<'a> {
     // and should exit on the first error. This is useful for parsing in the
     // context of a stacks-node, while normal mode is useful for developers.
     fail_fast: bool,
+    nesting_depth: u64,
 }
 
 pub const MAX_STRING_LEN: usize = 128;
 pub const MAX_CONTRACT_NAME_LEN: usize = 40;
+pub const MAX_NESTING_DEPTH: u64 = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1;
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrors> {
@@ -46,6 +50,7 @@ impl<'a> Parser<'a> {
             diagnostics: vec![],
             success: true,
             fail_fast,
+            nesting_depth: 0,
         };
 
         loop {
@@ -98,6 +103,26 @@ impl<'a> Parser<'a> {
         let token = self.tokens[self.next_token].clone();
         self.next_token += 1;
         Some(token)
+    }
+
+    fn peek_next_token(&mut self) -> PlacedToken {
+        if self.next_token >= self.tokens.len() {
+            PlacedToken {
+                span: Span {
+                    start_line: 1,
+                    start_column: 1,
+                    end_line: 1,
+                    end_column: 1,
+                },
+                token: Token::Eof,
+            }
+        } else {
+            self.tokens[self.next_token].clone()
+        }
+    }
+
+    fn skip_to_end(&mut self) {
+        self.next_token = self.tokens.len();
     }
 
     fn ignore_whitespace(&mut self) -> bool {
@@ -198,7 +223,7 @@ impl<'a> Parser<'a> {
             let mut comments = self.ignore_whitespace_and_comments();
             nodes.append(&mut comments);
 
-            let token = self.tokens[self.next_token].clone();
+            let token = self.peek_next_token();
             match token.token {
                 Token::Comma => {
                     if first {
@@ -224,11 +249,11 @@ impl<'a> Parser<'a> {
                 _ => (),
             }
 
-            // A comma is allowed after the last pair in the tuple -- check for this case.
             let mut comments = self.ignore_whitespace_and_comments();
             nodes.append(&mut comments);
 
-            let token = self.tokens[self.next_token].clone();
+            // A comma is allowed after the last pair in the tuple -- check for this case.
+            let token = self.peek_next_token();
             match token.token {
                 Token::Rbrace => {
                     span.end_line = token.span.end_line;
@@ -266,11 +291,11 @@ impl<'a> Parser<'a> {
             };
             nodes.push(node);
 
-            // Look for ':'
             let mut comments = self.ignore_whitespace_and_comments();
             nodes.append(&mut comments);
 
-            let token = self.tokens[self.next_token].clone();
+            // Look for ':'
+            let token = self.peek_next_token();
             match token.token {
                 Token::Colon => {
                     self.next_token();
@@ -340,7 +365,7 @@ impl<'a> Parser<'a> {
         };
 
         // Peek ahead for a '.', indicating a contract identifier
-        if self.tokens[self.next_token].token == Token::Dot {
+        if self.peek_next_token().token == Token::Dot {
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, contract_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -404,7 +429,7 @@ impl<'a> Parser<'a> {
             let contract_id = QualifiedContractIdentifier::new(principal, contract_name);
 
             // Peek ahead for a '.', indicating a trait identifier
-            if self.tokens[self.next_token].token == Token::Dot {
+            if self.peek_next_token().token == Token::Dot {
                 let dot = self.next_token().unwrap(); // skip over the dot
                 let (name, trait_span) = match self.next_token() {
                     Some(PlacedToken {
@@ -545,7 +570,7 @@ impl<'a> Parser<'a> {
         };
 
         // Peek ahead for a '.', indicating a trait identifier
-        if self.tokens[self.next_token].token == Token::Dot {
+        if self.peek_next_token().token == Token::Dot {
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, trait_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -622,8 +647,37 @@ impl<'a> Parser<'a> {
         }
         let token = token.unwrap();
         let node = match &token.token {
-            Token::Lparen => Some(self.parse_list(token)?),
-            Token::Lbrace => Some(self.parse_tuple(token)?),
+            Token::Lparen => {
+                self.nesting_depth += 1;
+                if self.nesting_depth > MAX_NESTING_DEPTH {
+                    self.add_diagnostic(
+                        ParseErrors::ExpressionStackDepthTooDeep,
+                        token.span.clone(),
+                    )?;
+                    // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                    self.skip_to_end();
+                    return Ok(None);
+                }
+                let list = self.parse_list(token)?;
+                self.nesting_depth -= 1;
+                Some(list)
+            }
+            Token::Lbrace => {
+                // This sugared syntax for tuple becomes a list of pairs, so depth is increased by 2.
+                self.nesting_depth += 2;
+                if self.nesting_depth > MAX_NESTING_DEPTH {
+                    self.add_diagnostic(
+                        ParseErrors::ExpressionStackDepthTooDeep,
+                        token.span.clone(),
+                    )?;
+                    // Do not try to continue, exit cleanly now to avoid a stack overflow.
+                    self.skip_to_end();
+                    return Ok(None);
+                }
+                let tuple = self.parse_tuple(token)?;
+                self.nesting_depth -= 2;
+                Some(tuple)
+            }
             Token::Int(val_string) => {
                 let mut expr = match val_string.parse::<i128>() {
                     Ok(val) => PreSymbolicExpression::atom_value(Value::Int(val)),
@@ -3220,7 +3274,6 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 0);
         let exprs = stmts[0].match_list().unwrap();
-        println!("{:?}", exprs);
         assert_eq!(exprs.len(), 4);
         assert_eq!(exprs[0].match_atom().unwrap().as_str(), "foo");
         assert_eq!(exprs[1].match_comment().unwrap(), "comment after");
@@ -3284,5 +3337,67 @@ mod tests {
         assert_eq!(success, true);
         assert_eq!(stmts.len(), 0);
         assert_eq!(diagnostics.len(), 0);
+    }
+
+    #[test]
+    fn test_stack_depth() {
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit / 2 + 1),
+            "} ".repeat(stack_limit / 2 + 1)
+        );
+        let exceeds_stack_depth_list = format!(
+            "{}u1 {}",
+            "(list ".repeat(stack_limit + 1),
+            ")".repeat(stack_limit + 1)
+        );
+
+        assert!(match parse(&exceeds_stack_depth_list).unwrap_err().err {
+            ParseErrors::ExpressionStackDepthTooDeep => true,
+            x => panic!("expected a stack depth too deep error, got {:?}", x),
+        });
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
+        assert_eq!(success, false);
+        assert!(diagnostics.len() >= 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+        );
+        assert_eq!(diagnostics[0].level, Level::Error);
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 421,
+                end_line: 1,
+                end_column: 421
+            }
+        );
+
+        assert!(match parse(&exceeds_stack_depth_tuple).unwrap_err().err {
+            ParseErrors::ExpressionStackDepthTooDeep => true,
+            x => panic!("expected a stack depth too deep error, got {:?}", x),
+        });
+
+        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
+        assert_eq!(success, false);
+        assert!(diagnostics.len() >= 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "AST has too deep of an expression nesting. The maximum stack depth is 64"
+        );
+        assert_eq!(diagnostics[0].level, Level::Error);
+        assert_eq!(
+            diagnostics[0].spans[0],
+            Span {
+                start_line: 1,
+                start_column: 211,
+                end_line: 1,
+                end_column: 211
+            }
+        );
     }
 }

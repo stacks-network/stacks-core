@@ -118,6 +118,8 @@ pub struct MinerEpochInfo<'a> {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance,
     pub burn_tip: BurnchainHeaderHash,
+    /// This is the expected burn tip height (i.e., the current burnchain tip + 1)
+    ///  of the mined block
     pub burn_tip_height: u32,
     pub parent_microblocks: Vec<StacksMicroblock>,
     pub mainnet: bool,
@@ -1880,6 +1882,7 @@ impl StacksBlockBuilder {
         } = StacksChainState::setup_block(
             &mut info.chainstate_tx,
             info.clarity_instance,
+            burn_dbconn,
             burn_dbconn,
             burn_dbconn.conn(),
             &self.chain_tip,

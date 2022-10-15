@@ -4,13 +4,12 @@ WORKDIR /build
 
 ENV CARGO_MANIFEST_DIR="$(pwd)"
 
-RUN rustup override set nightly-2022-01-14 && \
-    rustup component add llvm-tools-preview && \
+RUN rustup component add llvm-tools-preview && \
     cargo install grcov
 
-ENV RUSTFLAGS="-Zinstrument-coverage" \
+ENV RUSTFLAGS="-Cinstrument-coverage" \
     LLVM_PROFILE_FILE="stacks-blockchain-%p-%m.profraw"
-    
+
 COPY . .
 
 RUN cargo build --workspace && \

@@ -64,6 +64,8 @@ use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 
 pub use self::comm::CoordinatorCommunication;
 
+use super::stacks::boot::RewardSet;
+
 pub mod comm;
 #[cfg(test)]
 pub mod tests;
@@ -72,7 +74,7 @@ pub mod tests;
 ///  reward cycle's relationship to its PoX anchor
 #[derive(Debug, PartialEq)]
 pub enum PoxAnchorBlockStatus {
-    SelectedAndKnown(BlockHeaderHash, Vec<PoxAddress>),
+    SelectedAndKnown(BlockHeaderHash, RewardSet),
     SelectedAndUnknown(BlockHeaderHash),
     NotSelected,
 }
@@ -97,7 +99,7 @@ impl RewardCycleInfo {
             SelectedAndKnown(_, _) | NotSelected => true,
         }
     }
-    pub fn known_selected_anchor_block(&self) -> Option<&Vec<PoxAddress>> {
+    pub fn known_selected_anchor_block(&self) -> Option<&RewardSet> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
             SelectedAndUnknown(_) => None,
@@ -105,7 +107,7 @@ impl RewardCycleInfo {
             NotSelected => None,
         }
     }
-    pub fn known_selected_anchor_block_owned(self) -> Option<Vec<PoxAddress>> {
+    pub fn known_selected_anchor_block_owned(self) -> Option<RewardSet> {
         use self::PoxAnchorBlockStatus::*;
         match self.anchor_status {
             SelectedAndUnknown(_) => None,
@@ -210,7 +212,7 @@ pub trait RewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<PoxAddress>, Error>;
+    ) -> Result<RewardSet, Error>;
 }
 
 pub struct OnChainRewardSetProvider();
@@ -223,7 +225,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<PoxAddress>, Error> {
+    ) -> Result<RewardSet, Error> {
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
 
@@ -244,7 +246,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "participation" => participation,
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
-            return Ok(vec![]);
+            return Ok(RewardSet::empty());
         } else {
             info!("PoX reward cycle threshold computed";
                   "burn_height" => current_burn_height,

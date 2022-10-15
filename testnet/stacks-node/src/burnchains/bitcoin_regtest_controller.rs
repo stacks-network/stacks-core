@@ -75,7 +75,7 @@ pub struct BitcoinRegtestController {
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
     use_coordinator: Option<CoordinatorChannels>,
-    burnchain_config: Option<Burnchain>,
+    burnchain_config: Burnchain,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
     allow_rbf: bool,
@@ -190,7 +190,7 @@ impl BitcoinRegtestController {
     pub fn with_burnchain(
         config: Config,
         coordinator_channel: Option<CoordinatorChannels>,
-        burnchain_config: Option<Burnchain>,
+        burnchain: Option<Burnchain>,
         should_keep_running: Option<Arc<AtomicBool>>,
     ) -> Self {
         std::fs::create_dir_all(&config.get_burnchain_path_str())
@@ -242,6 +242,8 @@ impl BitcoinRegtestController {
             runtime: indexer_runtime,
         };
 
+        let burnchain_config = burnchain.unwrap_or_else(|| Self::default_burnchain(&config));
+
         Self {
             use_coordinator: coordinator_channel,
             config,
@@ -258,7 +260,7 @@ impl BitcoinRegtestController {
 
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
-    pub fn new_dummy(config: Config) -> Self {
+    pub fn new_dummy(config: Config, burnchain: Burnchain) -> Self {
         let (network, _) = config.burnchain.get_bitcoin_network();
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
@@ -294,28 +296,21 @@ impl BitcoinRegtestController {
             db: None,
             burnchain_db: None,
             chain_tip: None,
-            burnchain_config: None,
+            burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running: None,
             allow_rbf: true,
         }
     }
 
-    fn default_burnchain(&self) -> Burnchain {
-        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
-        match &self.burnchain_config {
-            Some(burnchain) => burnchain.clone(),
-            None => {
-                let working_dir = self.config.get_burn_db_path();
-                match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-                    Ok(burnchain) => burnchain,
-                    Err(e) => {
-                        error!("Failed to instantiate burnchain: {}", e);
-                        panic!()
-                    }
-                }
-            }
-        }
+    fn default_burnchain(config: &Config) -> Burnchain {
+        let (network_name, _network_type) = config.burnchain.get_bitcoin_network();
+        let working_dir = config.get_burn_db_path();
+        let mut burnchain = Burnchain::new(&working_dir, &config.burnchain.chain, &network_name)
+            .expect("Failed to instantiate burnchain");
+        config.update_pox_constants(&mut burnchain.pox_constants);
+
+        burnchain
     }
 
     pub fn get_pox_constants(&self) -> PoxConstants {
@@ -324,10 +319,7 @@ impl BitcoinRegtestController {
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
-        match self.burnchain_config {
-            Some(ref burnchain) => burnchain.clone(),
-            None => self.default_burnchain(),
-        }
+        self.burnchain_config.clone()
     }
 
     fn receive_blocks_helium(&mut self) -> BurnchainTip {
@@ -1688,10 +1680,6 @@ pub struct ParsedUTXO {
     script_pub_key: String,
     amount: Box<RawValue>,
     confirmations: u32,
-    spendable: bool,
-    solvable: bool,
-    desc: Option<String>,
-    safe: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

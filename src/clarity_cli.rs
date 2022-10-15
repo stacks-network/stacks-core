@@ -413,6 +413,7 @@ fn with_env_costs<F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
     marf: &mut WritableMarfStore,
+    coverage: Option<&mut CoverageReporter>,
     f: F,
 ) -> (R, ExecutionCost)
 where
@@ -438,6 +439,9 @@ where
         cost_track,
         DEFAULT_CLI_EPOCH,
     );
+    if let Some(coverage) = coverage {
+        vm_env.add_eval_hook(coverage);
+    }
     let result = f(&mut vm_env);
     let cost = vm_env.get_cost_total();
     (result, cost)
@@ -457,7 +461,6 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
         LimitedCostTracker::new_free(),
         DEFAULT_CLI_EPOCH,
     );
-    global_context.coverage_reporting = Some(CoverageReporter::new());
     global_context.execute(|g| {
         let parsed = ast::build_ast(
             &contract_id,
@@ -1323,11 +1326,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                    });
                 (header_db, marf, result_and_cost)
             });
 
@@ -1385,25 +1389,30 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 QualifiedContractIdentifier::transient(),
                 ClarityVersion::Clarity2,
             );
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    if coverage_folder.is_some() {
-                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                    }
-                    (
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &mut placeholder_context)
-                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content),
-                        vm_env.take_coverage_reporter(),
-                    )
-                });
-                let ((result, coverage), cost) = result_and_cost;
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                    },
+                );
+                let (result, cost) = result_and_cost;
 
-                (marf, (result, cost, coverage))
+                (marf, (result, cost))
             });
 
             match result_and_cost {
-                (Ok(result), cost, coverage) => {
+                (Ok(result), cost) => {
                     save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "output": serde_json::to_value(&result).unwrap(),
@@ -1415,7 +1424,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                     (0, Some(result_json))
                 }
-                (Err(error), cost, coverage) => {
+                (Err(error), cost) => {
                     save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "error": {
@@ -1473,11 +1482,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 ClarityVersion::Clarity2,
             );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    vm_env
-                        .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_read_only(&contract_identifier, &content)
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only(&contract_identifier, &content)
+                    });
                 (marf, result_and_cost)
             });
 
@@ -1579,6 +1589,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let mainnet = header_db.is_mainnet();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
@@ -1586,29 +1601,28 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
-                            let result_and_cost =
-                                with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                                    if coverage_folder.is_some() {
-                                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                                    }
-                                    (
-                                        vm_env.initialize_versioned_contract(
-                                            contract_identifier,
-                                            ClarityVersion::Clarity2,
-                                            &contract_content,
-                                            None,
-                                        ),
-                                        vm_env.take_coverage_reporter(),
+                            let result_and_cost = with_env_costs(
+                                mainnet,
+                                &header_db,
+                                &mut marf,
+                                coverage.as_mut(),
+                                |vm_env| {
+                                    vm_env.initialize_versioned_contract(
+                                        contract_identifier,
+                                        ClarityVersion::Clarity2,
+                                        &contract_content,
+                                        None,
                                     )
-                                });
-                            let ((result, coverage), cost) = result_and_cost;
-                            (header_db, marf, Ok((analysis, (result, cost, coverage))))
+                                },
+                            );
+                            let (result, cost) = result_and_cost;
+                            (header_db, marf, Ok((analysis, (result, cost))))
                         }
                     }
                 });
 
             match analysis_result_and_cost {
-                Ok((contract_analysis, (Ok((_x, asset_map, events)), cost, coverage))) => {
+                Ok((contract_analysis, (Ok((_x, asset_map, events)), cost))) => {
                     let mut result = json!({
                         "message": "Contract initialized!"
                     });
@@ -1717,28 +1731,33 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 })
                 .collect();
 
+            let mut coverage = if coverage_folder.is_some() {
+                Some(CoverageReporter::new())
+            } else {
+                None
+            };
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, |vm_env| {
-                    if coverage_folder.is_some() {
-                        vm_env.set_coverage_reporter(CoverageReporter::new());
-                    }
-                    (
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
                         vm_env.execute_transaction(
                             sender,
                             None,
                             contract_identifier,
                             &tx_name,
                             &arguments,
-                        ),
-                        vm_env.take_coverage_reporter(),
-                    )
-                });
-                let ((result, coverage), cost) = result_and_cost;
-                (header_db, marf, (result, cost, coverage))
+                        )
+                    },
+                );
+                let (result, cost) = result_and_cost;
+                (header_db, marf, (result, cost))
             });
 
             match result_and_cost {
-                (Ok((x, asset_map, events)), cost, coverage) => {
+                (Ok((x, asset_map, events)), cost) => {
                     if let Value::Response(data) = x {
                         save_coverage(coverage_folder, coverage, "execute");
                         if data.committed {

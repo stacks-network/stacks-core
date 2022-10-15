@@ -1,9 +1,11 @@
+use clarity::vm::types::PrincipalData;
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn,
+    get_ancestor_sort_id, get_ancestor_sort_id_tx, SortitionDB, SortitionDBConn, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
+use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::MarfTrieId;
@@ -19,6 +21,7 @@ use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 use crate::chainstate::stacks::db::ChainstateTx;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
@@ -221,6 +224,72 @@ fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<Min
             .expect("Unexpected SQL failure querying miner reward table")
     } else {
         None
+    }
+}
+
+/// This trait describes SortitionDB connections. This is used
+/// for methods that the chainstate needs to be in common between
+/// different sortition db connections or handles, but that aren't
+/// used by the `clarity_db` (and therefore shouldn't appear in BurnStateDB)
+pub trait SortitionDBRef: BurnStateDB {
+    fn get_pox_start_cycle_info(
+        &self,
+        sortition_id: &SortitionId,
+        parent_stacks_block_burn_ht: u64,
+        cycle_index: u64,
+    ) -> Result<Option<PoxStartCycleInfo>, ChainstateError>;
+}
+
+fn get_pox_start_cycle_info(
+    handle: &mut SortitionHandleConn,
+    parent_stacks_block_burn_ht: u64,
+    cycle_index: u64,
+) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
+    let descended_from_last_pox_anchor = match handle.get_last_anchor_block_hash()? {
+        Some(pox_anchor) => handle.descended_from(parent_stacks_block_burn_ht, &pox_anchor)?,
+        None => return Ok(None),
+    };
+
+    if !descended_from_last_pox_anchor {
+        return Ok(None);
+    }
+
+    let start_info = handle.get_reward_cycle_unlocks(cycle_index)?;
+    debug!(
+        "get_pox_start_cycle_info";
+        "start_info" => ?start_info,
+    );
+    Ok(start_info)
+}
+
+impl SortitionDBRef for SortitionHandleTx<'_> {
+    fn get_pox_start_cycle_info(
+        &self,
+        sortition_id: &SortitionId,
+        parent_stacks_block_burn_ht: u64,
+        cycle_index: u64,
+    ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
+        let readonly_marf = self
+            .index()
+            .reopen_readonly()
+            .expect("BUG: failure trying to get a read-only interface into the sortition db.");
+        let mut context = self.context.clone();
+        context.chain_tip = sortition_id.clone();
+        let mut handle = SortitionHandleConn::new(&readonly_marf, context);
+
+        get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
+    }
+}
+
+impl SortitionDBRef for SortitionDBConn<'_> {
+    fn get_pox_start_cycle_info(
+        &self,
+        sortition_id: &SortitionId,
+        parent_stacks_block_burn_ht: u64,
+        cycle_index: u64,
+    ) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
+        let mut handle = self.as_handle(sortition_id);
+        get_pox_start_cycle_info(&mut handle, parent_stacks_block_burn_ht, cycle_index)
     }
 }
 

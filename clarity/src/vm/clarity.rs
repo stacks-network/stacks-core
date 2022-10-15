@@ -149,6 +149,14 @@ pub trait ClarityConnection {
 }
 
 pub trait TransactionConnection: ClarityConnection {
+    /// Do something with this connection's Clarity environment that can be aborted
+    ///  with `abort_call_back`.
+    /// This returns the return value of `to_do`:
+    ///  * the generic term `R`
+    ///  * the asset changes during `to_do` in an `AssetMap`
+    ///  * the Stacks events during the transaction
+    /// and a `bool` value which is `true` if the `abort_call_back` caused the changes to abort
+    /// If `to_do` returns an `Err` variant, then the changes are aborted.
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,

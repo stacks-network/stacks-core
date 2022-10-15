@@ -410,6 +410,55 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         };
     }
 
+    /// Return true iff `self` represents a snapshot that has a lock
+    ///  created by PoX v2.
+    pub fn is_v2_locked(&self) -> bool {
+        match self.canonical_balance_repr() {
+            STXBalance::Unlocked { .. } => false,
+            STXBalance::LockedPoxOne { .. } => false,
+            STXBalance::LockedPoxTwo { .. } => true,
+        }
+    }
+
+    /// Increase the account's current lock to `new_total_locked`.
+    /// Panics if `self` was not locked by V2 PoX.
+    pub fn increase_lock_v2(&mut self, new_total_locked: u128) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after extend-token-lock");
+        }
+
+        if !self.has_locked_tokens() {
+            // caller needs to have checked this
+            panic!("FATAL: account does not have locked tokens");
+        }
+
+        if !self.is_v2_locked() {
+            // caller needs to have checked this
+            panic!("FATAL: account must be locked by pox-2");
+        }
+
+        assert!(
+            self.balance.amount_locked() <= new_total_locked,
+            "FATAL: account must lock more after `increase_lock_v2`"
+        );
+
+        let total_amount = self
+            .balance
+            .amount_unlocked()
+            .checked_add(self.balance.amount_locked())
+            .expect("STX balance overflowed u128");
+        let amount_unlocked = total_amount
+            .checked_sub(new_total_locked)
+            .expect("STX underflow: more is locked than total balance");
+
+        self.balance = STXBalance::LockedPoxTwo {
+            amount_unlocked,
+            amount_locked: new_total_locked,
+            unlock_height: self.balance.unlock_height(),
+        };
+    }
+
     /// Extend this account's current lock to `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
     ///  because this method is only invoked as a result of PoX2 interactions
@@ -471,6 +520,32 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_unlocked: new_amount_unlocked,
             amount_locked: amount_to_lock,
             unlock_height: unlock_burn_height,
+        };
+    }
+
+    /// If this snapshot is locked, then alter the lock height to be
+    /// the next burn block (i.e., `self.burn_block_height + 1`)
+    pub fn accelerate_unlock(&mut self) {
+        let unlocked = self.unlock_available_tokens_if_any();
+        if unlocked > 0 {
+            debug!("Consolidated after account-token-lock");
+        }
+
+        let new_unlock_height = self.burn_block_height + 1;
+        self.balance = match self.balance {
+            STXBalance::Unlocked { amount } => STXBalance::Unlocked { amount },
+            STXBalance::LockedPoxOne { .. } => {
+                unreachable!("Attempted to accelerate the unlock of a lockup created by PoX-1")
+            }
+            STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                ..
+            } => STXBalance::LockedPoxTwo {
+                amount_unlocked,
+                amount_locked,
+                unlock_height: new_unlock_height,
+            },
         };
     }
 
