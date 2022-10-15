@@ -443,7 +443,7 @@ impl<'a> BurnchainDBTransaction<'a> {
                     commit.parent_vtxindex,
                 )?
             } else {
-                // parnet is genesis
+                // parent is genesis
                 test_debug!(
                     "Parent block-commit of {},{},{} is the genesis commit",
                     &commit.txid,
