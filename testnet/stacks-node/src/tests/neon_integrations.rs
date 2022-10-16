@@ -1493,15 +1493,15 @@ fn bitcoind_forking_test() {
 
     eprintln!("account after deep fork: {:?}", &account);
     // N.B. rewards mature after 2 confirmations...
-    assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 3);
+    assert_eq!(account.balance, 1020400000);
+    assert_eq!(account.nonce, 4);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
     // but we're able to keep on mining
-    assert!(account.nonce >= 3);
+    assert!(account.nonce > 4);
 
     eprintln!("End of test");
     channel.stop_chains_coordinator();
