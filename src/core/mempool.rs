@@ -364,7 +364,7 @@ impl FromRow<MemPoolTxMetadata> for MemPoolTxMetadata {
 }
 
 impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfo, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfo, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
         let tx_bytes: Vec<u8> = row.get_unwrap("tx");
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
@@ -382,7 +382,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 }
 
 impl FromRow<MemPoolTxMinimalInfo> for MemPoolTxMinimalInfo {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxMinimalInfo, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxMinimalInfo, db_error> {
         let txid = Txid::from_column(row, "txid")?;
         let fee_rate: Option<f64> = match row.get("fee_rate") {
             Ok(rate) => Some(rate),
@@ -405,7 +405,7 @@ impl FromRow<MemPoolTxMinimalInfo> for MemPoolTxMinimalInfo {
 }
 
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
-    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
+    fn from_row(row: &Row) -> Result<MemPoolTxInfoPartial, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
         let needs_nonces = md.get_unknown_nonces();
         let consider = if !needs_nonces.is_empty() {
@@ -429,7 +429,7 @@ impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
 }
 
 impl FromRow<(u64, u64)> for (u64, u64) {
-    fn from_row<'a>(row: &'a Row) -> Result<(u64, u64), db_error> {
+    fn from_row(row: &Row) -> Result<(u64, u64), db_error> {
         let t1: i64 = row.get_unwrap(0);
         let t2: i64 = row.get_unwrap(1);
         if t1 < 0 || t2 < 0 {
