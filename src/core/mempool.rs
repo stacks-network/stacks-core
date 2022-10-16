@@ -1324,15 +1324,7 @@ impl MemPoolDB {
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
-        loop {
-            let tx_reduced_info = match db_txs.next() {
-                Some(info) => info,
-                None => {
-                    info!("Mempool: Out of examples!");
-                    break;
-                }
-            };
-
+        for tx_reduced_info in db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 info!("Mempool iteration deadline exceeded";
