@@ -1238,7 +1238,7 @@ impl MemPoolDB {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
         let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
-        IteratorMixerFactory::create_from(
+        IteratorMixer::create_from(
             fee_rate_transactions,
             null_rate_transactions,
             null_estimate_fraction,
@@ -2419,8 +2419,7 @@ struct IteratorMixer<'connection> {
     rng: ThreadRng,
 }
 
-struct IteratorMixerFactory {}
-impl IteratorMixerFactory {
+impl IteratorMixer<'_> {
     pub fn create_from<'connection>(
         mut fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
         mut null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
