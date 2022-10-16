@@ -1175,8 +1175,6 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-
-
     ///
     /// Iterate over candidates in the mempool
     ///  `todo` will be called once for each transaction whose origin nonce is equal
@@ -2482,6 +2480,45 @@ fn get_transaction_list_to_process<'connection>(
     )
 }
 
+struct NonceFilteringIterator<'connection, C: ClarityConnection> {
+    underlying: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
+    clarity_connection: &'connection mut C,
+}
+
+impl<'connection, C: ClarityConnection> Iterator for NonceFilteringIterator<'connection, C> {
+    type Item = MemPoolTxMinimalInfo;
+    fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
+        loop {
+            match self.underlying.next() {
+                Some(tx_info) => {
+                    let nonces_match =
+                        check_nonces_match_expectations(self.clarity_connection, &tx_info);
+                    if nonces_match.is_eq() {
+                        return Some(tx_info);
+                    }
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+        None
+    }
+}
+
+fn get_filtered_transaction_list_to_process<'connection, C: ClarityConnection>(
+    conn: &'connection Connection,
+    clarity_connection: &'connection mut C,
+    null_estimate_fraction: f64,
+) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
+    let mut underlying = get_transaction_list_to_process(conn, null_estimate_fraction);
+
+    Box::new(NonceFilteringIterator {
+        underlying,
+        clarity_connection,
+    })
+}
+
 /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
 /// in `clarity_tx`.
 ///
@@ -2495,8 +2532,8 @@ fn check_nonces_match_expectations<C>(
     clarity_tx: &mut C,
     tx_reduced_info: &MemPoolTxMinimalInfo,
 ) -> Ordering
-    where
-        C: ClarityConnection,
+where
+    C: ClarityConnection,
 {
     let expected_origin_nonce =
         StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
