@@ -1317,15 +1317,22 @@ impl MemPoolDB {
         info!("Mempool walk for {}ms", settings.max_walk_time_ms,);
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
-        let connection = self.conn();
-        let db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
+        let connection = &self.db;
+        let mut db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
         let mut total_effective_processing_time = Duration::ZERO;
         let mut total_lookup_nonce_time = Duration::ZERO;
+        loop {
+            let tx_reduced_info = match db_txs.next() {
+                Some(info) => info,
+                None => {
+                    info!("Mempool: Out of examples!");
+                    break
+                }
+            };
 
-        for tx_reduced_info in db_txs {
             // Consider timing out.
             if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
                 info!("Mempool iteration deadline exceeded";
