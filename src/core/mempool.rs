@@ -1175,110 +1175,7 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
-    /// Page size is 10_000. TODO: Make this configurable.
-    fn sorted_fee_rate_transactions<'connection>(
-        connection: &'connection Connection,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
-        info!("sorted_fee_rate_transactions");
-        let sql = "
-        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
-        FROM mempool
-        WHERE fee_rate IS NOT NULL
-        ORDER BY fee_rate DESC
-        LIMIT ?
-        OFFSET ?
-        ";
-        Box::new(TransactionPageCursor {
-            connection,
-            base_query: sql.to_string(),
-            current_offset: 0,
-            page_size: 10_000,
-            current_page_remaining: vec![],
-        })
-    }
 
-    /// Take a batch of transactions *without* a fee rate estimate, in *arbitrary* order.
-    /// Page size is 10_000. TODO: Make this configurable.
-    /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
-    fn null_fee_rate_transactions<'connection>(
-        connection: &'connection Connection,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
-        info!("null_fee_rate_transactions");
-
-        let sql = "
-        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
-        FROM mempool
-        WHERE fee_rate IS NULL
-        LIMIT ?
-        OFFSET ?
-        ";
-        Box::new(TransactionPageCursor {
-            connection,
-            base_query: sql.to_string(),
-            current_offset: 0,
-            page_size: 10_000,
-            current_page_remaining: vec![],
-        })
-    }
-
-    /// Get a set of transactions to try. Select those that:
-    ///   1) have fee rate estimates
-    ///       -- in which case these are
-    ///             * sorted by fee_rate (descending order)
-    ///   2) do not have fee rate estimates
-    ///       -- just select randomly
-    ///
-    /// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
-    /// percent of the time
-    fn get_transaction_list_to_process<'connection>(
-        conn: &'connection Connection,
-        null_estimate_fraction: f64,
-    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
-        let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
-        let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
-
-        IteratorMixer::create_from(
-            fee_rate_transactions,
-            null_rate_transactions,
-            null_estimate_fraction,
-        )
-    }
-
-    /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
-    /// in `clarity_tx`.
-    ///
-    /// Returns:
-    ///   `Equal` if both origin and sponsor nonces match expected
-    ///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
-    ///          sponsor nonce is less than expected
-    ///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
-    ///          and the sponsor nonce is greater than expected
-    fn check_nonces_match_expectations<C>(
-        clarity_tx: &mut C,
-        tx_reduced_info: &MemPoolTxMinimalInfo,
-    ) -> Ordering
-    where
-        C: ClarityConnection,
-    {
-        let expected_origin_nonce =
-            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
-        if tx_reduced_info.origin_nonce < expected_origin_nonce {
-            return Ordering::Less;
-        } else if tx_reduced_info.origin_nonce > expected_origin_nonce {
-            return Ordering::Greater;
-        }
-
-        let expected_sponsor_nonce =
-            StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
-        if tx_reduced_info.sponsor_nonce < expected_sponsor_nonce {
-            return Ordering::Less;
-        } else if tx_reduced_info.sponsor_nonce > expected_sponsor_nonce {
-            return Ordering::Greater;
-        }
-
-        Ordering::Equal
-    }
 
     ///
     /// Iterate over candidates in the mempool
@@ -1318,7 +1215,7 @@ impl MemPoolDB {
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = &self.db;
-        let mut db_txs = Self::get_transaction_list_to_process(connection, null_estimate_fraction);
+        let mut db_txs = get_transaction_list_to_process(connection, null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1334,7 +1231,7 @@ impl MemPoolDB {
 
             // Check the nonces.
             let lookup_nonce_start = Instant::now();
-            let nonces_match = Self::check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
+            let nonces_match = check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
             total_lookup_nonce_time += lookup_nonce_start.elapsed();
             debug!(
                 "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
@@ -2516,4 +2413,106 @@ impl<'connection> Iterator for IteratorMixer<'connection> {
             None
         }
     }
+}
+
+/// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
+/// Page size is 10_000. TODO: Make this configurable.
+fn sorted_fee_rate_transactions<'connection>(
+    connection: &'connection Connection,
+) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
+    let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NOT NULL
+        ORDER BY fee_rate DESC
+        LIMIT ?
+        OFFSET ?
+        ";
+    Box::new(TransactionPageCursor {
+        connection,
+        base_query: sql.to_string(),
+        current_offset: 0,
+        page_size: 10_000,
+        current_page_remaining: vec![],
+    })
+}
+
+/// Take a batch of transactions *without* a fee rate estimate, in *arbitrary* order.
+/// Page size is 10_000. TODO: Make this configurable.
+/// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
+fn null_fee_rate_transactions<'connection>(
+    connection: &'connection Connection,
+) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
+    let sql = "
+        SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
+        FROM mempool
+        WHERE fee_rate IS NULL
+        LIMIT ?
+        OFFSET ?
+        ";
+    Box::new(TransactionPageCursor {
+        connection,
+        base_query: sql.to_string(),
+        current_offset: 0,
+        page_size: 10_000,
+        current_page_remaining: vec![],
+    })
+}
+
+/// Get a set of transactions to try. Select those that:
+///   1) have fee rate estimates
+///       -- in which case these are
+///             * sorted by fee_rate (descending order)
+///   2) do not have fee rate estimates
+///       -- just select randomly
+///
+/// Balance between these by selecting a null fee rate estrimate `null_estimate_fraction`
+/// percent of the time
+fn get_transaction_list_to_process<'connection>(
+    conn: &'connection Connection,
+    null_estimate_fraction: f64,
+) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
+    let mut fee_rate_transactions = sorted_fee_rate_transactions(conn);
+    let mut null_rate_transactions = null_fee_rate_transactions(conn);
+
+    IteratorMixer::create_from(
+        fee_rate_transactions,
+        null_rate_transactions,
+        null_estimate_fraction,
+    )
+}
+
+/// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
+/// in `clarity_tx`.
+///
+/// Returns:
+///   `Equal` if both origin and sponsor nonces match expected
+///   `Less` if the origin nonce is less than expected, or the origin matches expected and the
+///          sponsor nonce is less than expected
+///   `Greater` if the origin nonce is greater than expected, or the origin matches expected
+///          and the sponsor nonce is greater than expected
+fn check_nonces_match_expectations<C>(
+    clarity_tx: &mut C,
+    tx_reduced_info: &MemPoolTxMinimalInfo,
+) -> Ordering
+    where
+        C: ClarityConnection,
+{
+    let expected_origin_nonce =
+        StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.origin_address.into());
+    if tx_reduced_info.origin_nonce < expected_origin_nonce {
+        return Ordering::Less;
+    } else if tx_reduced_info.origin_nonce > expected_origin_nonce {
+        return Ordering::Greater;
+    }
+
+    let expected_sponsor_nonce =
+        StacksChainState::get_nonce(clarity_tx, &tx_reduced_info.sponsor_address.into());
+    if tx_reduced_info.sponsor_nonce < expected_sponsor_nonce {
+        return Ordering::Less;
+    } else if tx_reduced_info.sponsor_nonce > expected_sponsor_nonce {
+        return Ordering::Greater;
+    }
+
+    Ordering::Equal
 }
