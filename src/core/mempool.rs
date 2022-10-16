@@ -2395,6 +2395,33 @@ struct TransactionPageCursor<'connection> {
     current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
+impl<'connection> TransactionPageCursor<'connection> {
+    /// Read in one page of size `page_size`, starting at `current_offset`.
+    /// If we can read a page, load this into `current_remaining_page` and update `current_offset`.
+    /// If we can't read a page, leave `current_remaining_page` empty.
+    fn read_next_page(&mut self) {
+        let result = query_rows::<MemPoolTxMinimalInfo, _>(
+            &self.connection,
+            &self.base_query,
+            &[&self.page_size, &self.current_offset],
+        );
+        match result {
+            Ok(mut transaction_vector) => {
+                // reverse so we can `pop()` results in O(1) time
+                transaction_vector.reverse();
+                self.current_page_remaining = transaction_vector;
+                self.current_offset += self.page_size;
+                ()
+            }
+            Err(e) => {
+                warn!("Error reading batch of results: {:?}. Suppressing error because inside Iterator.", &e);
+                // pass through
+                ()
+            }
+        }
+    }
+}
+
 impl<'connection> Iterator for TransactionPageCursor<'connection> {
     type Item = MemPoolTxMinimalInfo;
 
@@ -2402,7 +2429,26 @@ impl<'connection> Iterator for TransactionPageCursor<'connection> {
     /// Otherwise, try to read a page, and then try to return the head of `current_remaining_page`
     /// again.
     fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
-        todo!()
+        let popped = self.current_page_remaining.pop();
+        // See if we have more on this page.
+        match popped {
+            Some(tx_info) => {
+                // Return element from this page.
+                Some(tx_info)
+            }
+            None => {
+                // Page is empty, so read a page.
+                self.read_next_page();
+                let popped2 = self.current_page_remaining.pop();
+                match popped2 {
+                    Some(tx_info) => Some(tx_info),
+                    None => {
+                        // If there is nothing after reading a page, we are done.
+                        None
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2446,6 +2492,28 @@ impl<'connection> Iterator for IteratorMixer<'connection> {
     /// If either iterator is exhausted, take from the other.
     /// If both iterators have something, take from null iterator `null_fraction` of the time.
     fn next(&mut self) -> Option<MemPoolTxMinimalInfo> {
-        todo!()
+        if self.fee_cursor.is_some() || self.null_cursor.is_some() {
+            let f: f64 = self.rng.gen();
+            if (f < self.null_fraction && self.null_cursor.is_some()) || self.fee_cursor.is_none() {
+                // Assume: null_cursor.is_some()
+                let return_value = self.null_cursor.clone(); // TODO: replace clone
+                self.null_cursor = self.null_iterator.next();
+                self.null_included += 1;
+                return_value
+            } else {
+                // Assume: !fee_cursor.is_none(), i.e., fee_cursor.is_some()
+                let return_value = self.fee_cursor.clone(); // TODO: replace clone
+                self.fee_cursor = self.fee_iterator.next();
+                self.fee_included += 1;
+                return_value
+            }
+        } else {
+            // both are empty
+            info!(
+                "Finished mixing iterators. fee_included {}, null_included {}",
+                self.fee_included, self.null_included
+            );
+            None
+        }
     }
 }
