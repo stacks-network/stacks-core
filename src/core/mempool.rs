@@ -1175,6 +1175,7 @@ impl MemPoolDB {
         Ok(updated)
     }
 
+    
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions<'connection>(
