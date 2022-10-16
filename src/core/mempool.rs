@@ -1175,12 +1175,11 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    
     /// Returns an iterator over the mempool entries that do have a fee rate, sorted by fee rate.
     /// Page size is 10_000. TODO: Make this configurable.
     fn sorted_fee_rate_transactions<'connection>(
         connection: &'connection Connection,
-    ) -> Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>> {
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
         info!("sorted_fee_rate_transactions");
         let sql = "
         SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
@@ -1204,7 +1203,7 @@ impl MemPoolDB {
     /// Note: Nulls in the mempool are, up to a limit, over-written between mempool runs.
     fn null_fee_rate_transactions<'connection>(
         connection: &'connection Connection,
-    ) -> Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>> {
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
         info!("null_fee_rate_transactions");
 
         let sql = "
@@ -1235,15 +1234,15 @@ impl MemPoolDB {
     fn get_transaction_list_to_process<'connection>(
         conn: &'connection Connection,
         null_estimate_fraction: f64,
-    ) -> Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>> {
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
         let mut fee_rate_transactions = Self::sorted_fee_rate_transactions(conn);
         let mut null_rate_transactions = Self::null_fee_rate_transactions(conn);
 
-        Box::new(IteratorMixer::create_from(
+        IteratorMixerFactory::create_from(
             fee_rate_transactions,
             null_rate_transactions,
             null_estimate_fraction,
-        ))
+        )
     }
 
     /// Evaluates the nonces in `tx_reduced_info`, and compare this to what is expected by the nonce
@@ -1330,7 +1329,7 @@ impl MemPoolDB {
                 Some(info) => info,
                 None => {
                     info!("Mempool: Out of examples!");
-                    break
+                    break;
                 }
             };
 
@@ -2404,15 +2403,7 @@ struct TransactionPageCursor<'connection> {
     current_page_remaining: Vec<MemPoolTxMinimalInfo>,
 }
 
-/// Like Rust's `Iterator`, but maintain iterator-associated lifetimes.
-///
-/// `'connection` is the lifetime of the database connection
-trait MempoolIterator<'connection> {
-    type Item;
-    fn next(&mut self) -> Option<Self::Item>;
-}
-
-impl<'connection> MempoolIterator<'connection> for TransactionPageCursor<'connection> {
+impl<'connection> Iterator for TransactionPageCursor<'connection> {
     type Item = MemPoolTxMinimalInfo;
 
     /// Return lead element of `current_remaining_page` if another element exists.
@@ -2426,8 +2417,8 @@ impl<'connection> MempoolIterator<'connection> for TransactionPageCursor<'connec
 /// Mixes two iterators together, roughly choosing an item `null_iterator` `null_fraction` of the time,
 /// and from `fee_iterator` the rest of the time. See comment on `next()` for more details.
 struct IteratorMixer<'connection> {
-    fee_iterator: Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>>,
-    null_iterator: Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>>,
+    fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
+    null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
     fee_cursor: Option<MemPoolTxMinimalInfo>,
     null_cursor: Option<MemPoolTxMinimalInfo>,
     null_fraction: f64,
@@ -2436,15 +2427,16 @@ struct IteratorMixer<'connection> {
     rng: ThreadRng,
 }
 
-impl<'connection> IteratorMixer<'connection> {
-    pub fn create_from(
-        mut fee_iterator: Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>>,
-        mut null_iterator: Box<dyn MempoolIterator<'connection, Item = MemPoolTxMinimalInfo>>,
+struct IteratorMixerFactory {}
+impl IteratorMixerFactory {
+    pub fn create_from<'connection>(
+        mut fee_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
+        mut null_iterator: Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection>,
         null_fraction: f64,
-    ) -> IteratorMixer<'connection> {
+    ) -> Box<dyn Iterator<Item = MemPoolTxMinimalInfo> + 'connection> {
         let fee_cursor = fee_iterator.next();
         let null_cursor = null_iterator.next();
-        IteratorMixer {
+        Box::new(IteratorMixer {
             fee_iterator,
             null_iterator,
             fee_cursor,
@@ -2453,11 +2445,11 @@ impl<'connection> IteratorMixer<'connection> {
             fee_included: 0,
             null_included: 0,
             rng: rand::thread_rng(),
-        }
+        })
     }
 }
 
-impl<'connection> MempoolIterator<'connection> for IteratorMixer<'connection> {
+impl<'connection> Iterator for IteratorMixer<'connection> {
     type Item = MemPoolTxMinimalInfo;
     /// Loop until both fee_iterator and null_iterator are empty.
     /// If either iterator is exhausted, take from the other.
