@@ -1213,7 +1213,10 @@ impl MemPoolDB {
 
         let null_estimate_fraction = settings.consider_no_estimate_tx_prob as f64 / 100f64;
         let connection = &self.db;
-        let mut db_txs = get_transaction_list_to_process(connection, null_estimate_fraction);
+        let mut db_txs = get_filtered_transaction_list_to_process(
+            connection,
+            clarity_tx,
+            null_estimate_fraction);
 
         // For each minimal info entry in sorted order:
         //   * check if its nonce is appropriate, and if so process it.
@@ -1225,18 +1228,6 @@ impl MemPoolDB {
                 info!("Mempool iteration deadline exceeded";
                        "deadline_ms" => settings.max_walk_time_ms);
                 break;
-            }
-
-            // Check the nonces.
-            let lookup_nonce_start = Instant::now();
-            let nonces_match = check_nonces_match_expectations(clarity_tx, &tx_reduced_info);
-            total_lookup_nonce_time += lookup_nonce_start.elapsed();
-            debug!(
-                "Nonce check: for tx_reduced_info {:?}, nonces_match={:?}",
-                tx_reduced_info, nonces_match
-            );
-            if !nonces_match.is_eq() {
-                continue;
             }
 
             // Read in and deserialize the transaction.
