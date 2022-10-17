@@ -769,15 +769,17 @@ impl MemPoolTxInfo {
 struct NonceCache {
     cache: HashMap<StacksAddress, u64>,
     size: usize,
+    /// The maximum size that this cache can be.
+    max_size: usize,
 }
 
 impl NonceCache {
-    const MAX_SIZE: usize = 1024 * 1024;
-
-    fn new() -> Self {
+    fn new(nonce_cache_size:u64) -> Self {
+        let max_size:usize = nonce_cache_size.try_into().expect("Could not cast `nonce_cache_size` as `usize`.");
         Self {
             cache: HashMap::new(),
             size: 0,
+            max_size,
         }
     }
 
@@ -793,7 +795,7 @@ impl NonceCache {
                 // will be looked up every time. This is bad for performance
                 // but is unlikely to occur due to the typical number of
                 // transactions processed before filling a block.
-                if self.size < Self::MAX_SIZE {
+                if self.size < self.max_size {
                     self.cache.insert(address.clone(), nonce);
                     self.size += 1;
                 }
@@ -816,15 +818,17 @@ impl NonceCache {
 struct CandidateCache {
     cache: VecDeque<MemPoolTxInfoPartial>,
     next: VecDeque<MemPoolTxInfoPartial>,
+    /// The maximum size that this cache can be.
+    max_size: usize,
 }
 
 impl CandidateCache {
-    const MAX_SIZE: usize = 64 * 1024;
-
-    fn new() -> Self {
+    fn new(candidate_retry_cache_size:u64) -> Self {
+        let max_size:usize = candidate_retry_cache_size.try_into().expect("Could not cast `candidate_retry_cache_size` as usize.");
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
+            max_size,
         }
     }
 
@@ -835,7 +839,7 @@ impl CandidateCache {
 
     /// Push a candidate to the cache for the next iteration.
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
-        if self.next.len() < Self::MAX_SIZE {
+        if self.next.len() < self.max_size {
             self.next.push_back(tx);
         }
     }
@@ -1236,8 +1240,8 @@ impl MemPoolDB {
 
         let tx_consideration_sampler = Uniform::new(0, 100);
         let mut rng = rand::thread_rng();
-        let mut candidate_cache = CandidateCache::new();
-        let mut nonce_cache = NonceCache::new();
+        let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
+        let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
 
         let sql = "
              SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
