@@ -116,8 +116,10 @@ pub const BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT: u64 = 2_104_380;
 // TODO: Pick a real height for Stacks 2.1.
 pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 4_000_000;
 
-pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
-pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
+// On regtest networks, we need to matured coinbases for mining Stacks blocks.
+// We start at block #100 so we avoid indexing the first 100 non matured
+// coinbases.
+pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 100;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -156,6 +158,7 @@ pub const POX_TESTNET_CYCLE_LENGTH: u128 = 1050;
 
 pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 = 1_000_000;
 pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 = 2_000_000;
+pub const POX_V1_REGTEST_EARLY_UNLOCK_HEIGHT: u32 = 1_000_000;
 
 // Stacks 1.0 did not allow smart contracts so all limits are 0.
 pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {

@@ -383,7 +383,7 @@ impl PoxConstants {
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(5, 1, 1, 3333333333333333, 1, 1_000_000)
+        PoxConstants::new(10, 5, 3, 25, 5, POX_V1_REGTEST_EARLY_UNLOCK_HEIGHT)
     }
 }
 
