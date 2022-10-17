@@ -45,6 +45,7 @@ use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
 use clarity::vm::database::BurnStateDB;
 use serde::Deserialize;
+use stacks_common::consts::BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::hash::Sha512Trunc256Sum;

@@ -23,6 +23,7 @@ use std::io;
 use std::marker::PhantomData;
 
 use rusqlite::Error as sqlite_error;
+use stacks_common::consts::BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP;
 
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
