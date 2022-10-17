@@ -100,7 +100,6 @@ impl DelegateStxOp {
     ) -> Result<DelegateStxOp, op_error> {
         let outputs = tx.get_recipients();
 
-        // Q-JUDE 
         if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
@@ -171,6 +170,7 @@ impl DelegateStxOp {
        
 }
 
+// Q_JUDE - TODO - broken
 impl StacksMessageCodec for DelegateStxOp {
     /*
             Wire format:
@@ -191,6 +191,8 @@ impl StacksMessageCodec for DelegateStxOp {
 
         // Q-JUDE
         if let Some(height) = self.until_burn_height {
+            fd.write_all(&(1 as u64).to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
             fd.write_all(&height.to_be_bytes())
                 .map_err(|e| codec_error::WriteError(e))?;
         } else {

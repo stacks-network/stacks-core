@@ -4787,7 +4787,7 @@ impl StacksChainState {
             } else {
                 Value::none()
             }; 
-            // Q-JUDE: should this function return a result type? 
+            
             let until_burn_height_val = if let Some(height) = until_burn_height {
                 Value::some(Value::UInt(u128::from(height)))
                     .expect("FATAL: construction of an optional uint Clarity value should succeed.")
