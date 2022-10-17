@@ -295,6 +295,11 @@ pub struct MemPoolWalkSettings {
     /// That is, with x%, when picking the next transaction to include a block, select one that
     /// either failed to get a cost estimate or has not been estimated yet.
     pub consider_no_estimate_tx_prob: u8,
+    /// Size of the nonce cache. This avoids MARF look-ups.
+    pub nonce_cache_size: u64,
+    /// Size of the candidate cache. These are the candidates that will be retried after each
+    /// transaction is mined.
+    pub candidate_retry_cache_size: u64,
 }
 
 impl MemPoolWalkSettings {
@@ -303,6 +308,8 @@ impl MemPoolWalkSettings {
             min_tx_fee: 1,
             max_walk_time_ms: u64::max_value(),
             consider_no_estimate_tx_prob: 5,
+            nonce_cache_size: 10_000,
+            candidate_retry_cache_size: 10_000,
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
@@ -310,6 +317,8 @@ impl MemPoolWalkSettings {
             min_tx_fee: 0,
             max_walk_time_ms: u64::max_value(),
             consider_no_estimate_tx_prob: 5,
+            nonce_cache_size: 10_000,
+            candidate_retry_cache_size: 10_000,
         }
     }
 }

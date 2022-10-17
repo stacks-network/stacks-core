@@ -11018,7 +11018,6 @@ pub mod test {
 
         let chainstate_path = peer.chainstate_path.clone();
 
-        let num_blocks = 10;
         let first_stacks_block_height = {
             let sn =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
