@@ -120,6 +120,8 @@ pub const BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT: u64 = 4_000_000;
 // We start at block #100 so we avoid indexing the first 100 non matured
 // coinbases.
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 100;
+pub const BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT: u64 = 120;
+pub const BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT: u64 = 140;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -288,21 +290,21 @@ lazy_static! {
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 1000,
+            start_height: BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 1000,
-            end_height: 2000,
+            start_height: BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT,
+            end_height: BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
-            start_height: 2000,
+            start_height: BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05

@@ -575,7 +575,7 @@ impl EventDispatcher {
             let tx_hash = receipt.transaction.txid();
             for event in receipt.events.iter() {
                 match event {
-                    StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(event_data)) => {
+                    StacksTransactionEvent::DataEvent(DataEventType::VarSetEvent(_event_data)) => {
                         for o_i in &self.any_event_observers_lookup {
                             if self.registered_observers[*o_i as usize].include_data_events {
                                 dispatch_matrix[*o_i as usize].insert(i);
@@ -583,7 +583,7 @@ impl EventDispatcher {
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapInsertEvent(
-                        event_data,
+                        _event_data,
                     )) => {
                         for o_i in &self.any_event_observers_lookup {
                             if self.registered_observers[*o_i as usize].include_data_events {
@@ -592,7 +592,7 @@ impl EventDispatcher {
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapUpdateEvent(
-                        event_data,
+                        _event_data,
                     )) => {
                         for o_i in &self.any_event_observers_lookup {
                             if self.registered_observers[*o_i as usize].include_data_events {
@@ -601,7 +601,7 @@ impl EventDispatcher {
                         }
                     }
                     StacksTransactionEvent::DataEvent(DataEventType::MapDeleteEvent(
-                        event_data,
+                        _event_data,
                     )) => {
                         for o_i in &self.any_event_observers_lookup {
                             if self.registered_observers[*o_i as usize].include_data_events {
