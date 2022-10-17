@@ -10989,6 +10989,143 @@ pub mod test {
         }
     }
 
+    #[test]
+    /// Test the situation in which the nonce order of transactions from a user. That is,
+    /// nonce 1 has a higher fee than nonce 0.
+    /// Want to see that both transactions can go into the same block, because the miner
+    /// should make multiple passes.
+    fn test_fee_order_mismatch_nonce_order() {
+        let privk = StacksPrivateKey::from_hex(
+            "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+        )
+        .unwrap();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let mut peer_config = TestPeerConfig::new(
+            "test_build_anchored_blocks_stx_transfers_single",
+            2002,
+            2003,
+        );
+        peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+
+        let mut peer = TestPeer::new(peer_config);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let num_blocks = 10;
+        let first_stacks_block_height = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            sn.block_height
+        };
+
+        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+        let mut sender_nonce = 0;
+
+        let mut last_block = None;
+        // send transactions to the mempool
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+
+                let mut mempool =
+                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+                let coinbase_tx = make_coinbase(miner, 0);
+
+                let stx_transfer0 =
+                    make_user_stacks_transfer(&privk, 0, 200, &recipient.to_account_principal(), 1);
+                let stx_transfer1 =
+                    make_user_stacks_transfer(&privk, 1, 400, &recipient.to_account_principal(), 1);
+
+                mempool
+                    .submit(
+                        chainstate,
+                        &parent_consensus_hash,
+                        &parent_header_hash,
+                        &stx_transfer0,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
+                    .unwrap();
+
+                mempool
+                    .submit(
+                        chainstate,
+                        &parent_consensus_hash,
+                        &parent_header_hash,
+                        &stx_transfer1,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
+                    .unwrap();
+
+                let anchored_block = StacksBlockBuilder::build_anchored_block(
+                    chainstate,
+                    &sortdb.index_conn(),
+                    &mut mempool,
+                    &parent_tip,
+                    tip.total_burn,
+                    vrf_proof,
+                    Hash160([0 as u8; 20]),
+                    &coinbase_tx,
+                    BlockBuilderSettings::max_value(),
+                    None,
+                )
+                .unwrap();
+                (anchored_block.0, vec![])
+            },
+        );
+
+        last_block = Some(stacks_block.clone());
+
+        peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        // Both user transactions and the coinbase should have been mined.
+        assert_eq!(stacks_block.txs.len(), 3);
+    }
+
     static CONTRACT: &'static str = "
 (define-map my-map int int)
 (define-private (do (input bool))
