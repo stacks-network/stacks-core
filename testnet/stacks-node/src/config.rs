@@ -801,10 +801,11 @@ impl Config {
                         .collect();
 
                     let endpoint = format!("{}", observer.endpoint);
-
+                    let include_data_events = observer.include_data_events.unwrap_or(false);
                     observers.push(EventObserverConfig {
                         endpoint,
                         events_keys,
+                        include_data_events,
                     });
                 }
                 observers
@@ -817,6 +818,7 @@ impl Config {
             Ok(val) => events_observers.push(EventObserverConfig {
                 endpoint: val,
                 events_keys: vec![EventKeyType::AnyEvent],
+                include_data_events: false,
             }),
             _ => (),
         };
@@ -1792,12 +1794,14 @@ pub struct MinerConfigFile {
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
+    pub include_data_events: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
+    pub include_data_events: bool,
 }
 
 #[derive(Clone, Debug)]

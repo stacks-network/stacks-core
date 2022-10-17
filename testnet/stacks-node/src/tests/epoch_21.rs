@@ -81,6 +81,7 @@ fn advance_to_2_1(
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
@@ -589,6 +590,7 @@ fn transition_fixes_bitcoin_rigidity() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();

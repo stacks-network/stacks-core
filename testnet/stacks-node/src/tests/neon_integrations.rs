@@ -855,6 +855,7 @@ fn liquid_ustx_integration() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -983,6 +984,7 @@ fn lockup_integration() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -1638,6 +1640,7 @@ fn microblock_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -2415,6 +2418,7 @@ fn mining_transactions_is_fair() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -2737,6 +2741,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -2934,6 +2939,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -3129,6 +3135,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -3396,6 +3403,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -3569,6 +3577,7 @@ fn block_replay_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -3693,6 +3702,7 @@ fn cost_voting_integration() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -4016,6 +4026,7 @@ fn mining_events_integration_test() {
             EventKeyType::MinedBlocks,
             EventKeyType::MinedMicroblocks,
         ],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -4260,6 +4271,7 @@ fn block_limit_hit_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -4487,6 +4499,7 @@ fn microblock_limit_hit_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -4621,6 +4634,7 @@ fn block_large_tx_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     conf.initial_balances.push(InitialBalance {
@@ -4755,6 +4769,7 @@ fn microblock_large_tx_integration_test_FLAKY() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     conf.initial_balances.push(InitialBalance {
@@ -4886,6 +4901,7 @@ fn pox_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
@@ -5364,6 +5380,7 @@ fn atlas_integration_test() {
         .push(EventObserverConfig {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
+            include_data_events: false,
         });
 
     // Our 2 nodes will share the bitcoind node
@@ -5891,6 +5908,7 @@ fn antientropy_integration_test() {
         .push(EventObserverConfig {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
+            include_data_events: false,
         });
 
     // Our 2 nodes will share the bitcoind node
@@ -6867,6 +6885,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -7047,6 +7066,7 @@ fn use_latest_tip_integration_test() {
     conf.events_observers.push(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
+        include_data_events: false,
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
