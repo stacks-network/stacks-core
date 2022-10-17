@@ -305,7 +305,12 @@ impl FunctionType {
     /// types to callable types. In an initial transaction, arguments are typed
     /// as contract principals, but they must be principal literals, so they
     /// may be used to call into a contract.
-    pub fn principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
+    pub fn principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+        clarity_version: ClarityVersion,
+    ) -> TypeResult {
         if depth > MAX_TYPE_DEPTH {
             return Err(CheckErrors::TypeSignatureTooDeep.into());
         }
@@ -316,19 +321,21 @@ impl FunctionType {
             }
             Value::Optional(OptionalData {
                 data: Some(inner_value),
-            }) => {
-                TypeSignature::new_option(self.principal_to_callable_type(inner_value, depth + 1)?)?
-            }
-            Value::Response(ResponseData { committed, data }) => {
+            }) if clarity_version >= ClarityVersion::Clarity2 => TypeSignature::new_option(
+                self.principal_to_callable_type(inner_value, depth + 1, clarity_version)?,
+            )?,
+            Value::Response(ResponseData { committed, data })
+                if clarity_version >= ClarityVersion::Clarity2 =>
+            {
                 let (ok_type, err_type) = if *committed {
                     (
-                        self.principal_to_callable_type(data, depth + 1)?,
+                        self.principal_to_callable_type(data, depth + 1, clarity_version)?,
                         TypeSignature::NoType,
                     )
                 } else {
                     (
                         TypeSignature::NoType,
-                        self.principal_to_callable_type(data, depth + 1)?,
+                        self.principal_to_callable_type(data, depth + 1, clarity_version)?,
                     )
                 };
                 TypeSignature::new_response(ok_type, err_type)?
@@ -336,9 +343,11 @@ impl FunctionType {
             Value::Sequence(SequenceData::List(ListData {
                 data,
                 type_signature: _,
-            })) => {
+            })) if clarity_version >= ClarityVersion::Clarity2 => {
                 let inner_type = match data.first() {
-                    Some(inner_val) => self.principal_to_callable_type(inner_val, depth + 1)?,
+                    Some(inner_val) => {
+                        self.principal_to_callable_type(inner_val, depth + 1, clarity_version)?
+                    }
                     None => TypeSignature::NoType,
                 };
                 TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData::new_list(
@@ -349,12 +358,12 @@ impl FunctionType {
             Value::Tuple(TupleData {
                 type_signature: _,
                 data_map,
-            }) => {
+            }) if clarity_version >= ClarityVersion::Clarity2 => {
                 let mut type_map = BTreeMap::new();
                 for (name, field_value) in data_map {
                     type_map.insert(
                         name.clone(),
-                        self.principal_to_callable_type(field_value, depth + 1)?,
+                        self.principal_to_callable_type(field_value, depth + 1, clarity_version)?,
                     );
                 }
                 TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
@@ -365,6 +374,8 @@ impl FunctionType {
 
     /// This method is only used by StacksChainState::can_include_tx. The
     /// cost of evaluating these type checks are not tracked.
+    /// WARNING: This is not consensus-critical code, and should never be
+    ///          called from consensus-critical code.
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
@@ -377,32 +388,62 @@ impl FunctionType {
         };
         check_argument_count(expected_args.len(), func_args)?;
 
-        let mut arg_types = Vec::new();
-        for arg in func_args {
-            arg_types.push(self.principal_to_callable_type(arg, 1)?);
-        }
+        if clarity_version < ClarityVersion::Clarity2 {
+            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+                match (&expected_arg.signature, arg) {
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait_id)),
+                        Value::Principal(PrincipalData::Contract(contract)),
+                    ) => {
+                        let contract_to_check = db.load_contract(contract).ok_or_else(|| {
+                            CheckErrors::NoSuchContract(contract.name.to_string())
+                        })?;
+                        let trait_definition = db
+                            .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
+                            .unwrap()
+                            .ok_or(CheckErrors::NoSuchContract(
+                                trait_id.contract_identifier.to_string(),
+                            ))?;
+                        contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
+                    }
+                    (expected_type, value) => {
+                        if !expected_type.admits(&value) {
+                            let actual_type = TypeSignature::type_of(&value);
+                            return Err(
+                                CheckErrors::TypeError(expected_type.clone(), actual_type).into()
+                            );
+                        }
+                    }
+                }
+            }
+        } else {
+            let mut arg_types = Vec::new();
+            for arg in func_args {
+                arg_types.push(self.principal_to_callable_type(arg, 1, clarity_version)?);
+            }
 
-        for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
-            inner_type_check_type(
-                db,
-                None,
-                arg_type,
-                &expected_arg.signature,
-                clarity_version,
-                1,
-                &mut LimitedCostTracker::new_free(),
-            )?;
+            for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
+                clarity2_inner_type_check_type(
+                    db,
+                    None,
+                    arg_type,
+                    &expected_arg.signature,
+                    1,
+                    &mut LimitedCostTracker::new_free(),
+                )?;
+            }
         }
         Ok(returns.clone())
     }
 }
 
-pub fn check_functions_compatible<T: CostTracker>(
+/// Used to check if a function signature is compatible with the function
+/// signature required for a trait.
+fn clarity2_check_functions_compatible<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     expected_sig: &FunctionSignature,
     actual_sig: &FunctionSignature,
-    clarity_version: ClarityVersion,
     tracker: &mut T,
 ) -> bool {
     if expected_sig.args.len() != actual_sig.args.len() {
@@ -410,12 +451,11 @@ pub fn check_functions_compatible<T: CostTracker>(
     }
     let args_iter = expected_sig.args.iter().zip(actual_sig.args.iter());
     for (expected_type, actual_type) in args_iter {
-        if inner_type_check_type(
+        if clarity2_inner_type_check_type(
             db,
             contract_context,
             actual_type,
             expected_type,
-            clarity_version,
             1,
             tracker,
         )
@@ -424,12 +464,11 @@ pub fn check_functions_compatible<T: CostTracker>(
             return false;
         }
     }
-    if inner_type_check_type(
+    if clarity2_inner_type_check_type(
         db,
         contract_context,
         &actual_sig.returns,
         &expected_sig.returns,
-        clarity_version,
         1,
         tracker,
     )
@@ -440,14 +479,13 @@ pub fn check_functions_compatible<T: CostTracker>(
     true
 }
 
-pub fn trait_check_trait_compliance<T: CostTracker>(
+pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
-    clarity_version: ClarityVersion,
     tracker: &mut T,
 ) -> CheckResult<()> {
     // Shortcut for the simple case when the two traits are the same.
@@ -457,12 +495,11 @@ pub fn trait_check_trait_compliance<T: CostTracker>(
 
     for (func_name, expected_sig) in expected_trait.iter() {
         if let Some(func) = actual_trait.get(func_name) {
-            if !check_functions_compatible(
+            if !clarity2_check_functions_compatible(
                 db,
                 contract_context,
                 expected_sig,
                 func,
-                clarity_version,
                 tracker,
             ) {
                 return Err(CheckErrors::IncompatibleTrait(
@@ -484,12 +521,11 @@ pub fn trait_check_trait_compliance<T: CostTracker>(
 
 /// Check if `expected_type` admits `actual_type`, handling traits and callable types
 /// through invoking trait compliance checks.
-fn inner_type_check_type<T: CostTracker>(
+fn clarity2_inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
-    clarity_version: ClarityVersion,
     depth: u8,
     tracker: &mut T,
 ) -> TypeResult {
@@ -503,12 +539,11 @@ fn inner_type_check_type<T: CostTracker>(
             TypeSignature::OptionalType(atom_inner_type),
             TypeSignature::OptionalType(expected_inner_type),
         ) => {
-            inner_type_check_type(
+            clarity2_inner_type_check_type(
                 db,
                 contract_context,
                 atom_inner_type,
                 expected_inner_type,
-                clarity_version,
                 depth + 1,
                 tracker,
             )?;
@@ -517,21 +552,19 @@ fn inner_type_check_type<T: CostTracker>(
             TypeSignature::ResponseType(atom_inner_types),
             TypeSignature::ResponseType(expected_inner_types),
         ) => {
-            inner_type_check_type(
+            clarity2_inner_type_check_type(
                 db,
                 contract_context,
                 &atom_inner_types.0,
                 &expected_inner_types.0,
-                clarity_version,
                 depth + 1,
                 tracker,
             )?;
-            inner_type_check_type(
+            clarity2_inner_type_check_type(
                 db,
                 contract_context,
                 &atom_inner_types.1,
                 &expected_inner_types.1,
-                clarity_version,
                 depth + 1,
                 tracker,
             )?;
@@ -540,12 +573,11 @@ fn inner_type_check_type<T: CostTracker>(
             TypeSignature::SequenceType(SequenceSubtype::ListType(atom_list_type)),
             TypeSignature::SequenceType(SequenceSubtype::ListType(expected_list_type)),
         ) => {
-            inner_type_check_type(
+            clarity2_inner_type_check_type(
                 db,
                 contract_context,
                 atom_list_type.get_list_item_type(),
                 expected_list_type.get_list_item_type(),
-                clarity_version,
                 depth + 1,
                 tracker,
             )?;
@@ -563,12 +595,11 @@ fn inner_type_check_type<T: CostTracker>(
             for (name, expected_field_type) in expected_tuple_type.get_type_map() {
                 match atom_tuple_type.field_type(name) {
                     Some(atom_field_type) => {
-                        inner_type_check_type(
+                        clarity2_inner_type_check_type(
                             db,
                             contract_context,
                             atom_field_type,
                             expected_field_type,
-                            clarity_version,
                             depth + 1,
                             tracker,
                         )?;
@@ -592,24 +623,23 @@ fn inner_type_check_type<T: CostTracker>(
                     db,
                     contract_context,
                     &atom_trait_id,
-                    clarity_version,
+                    ClarityVersion::Clarity2,
                     tracker,
                 )?;
                 let expected_trait = lookup_trait(
                     db,
                     contract_context,
                     expected_trait_id,
-                    clarity_version,
+                    ClarityVersion::Clarity2,
                     tracker,
                 )?;
-                trait_check_trait_compliance(
+                clarity2_trait_check_trait_compliance(
                     db,
                     contract_context,
                     &atom_trait_id,
                     &atom_trait,
                     expected_trait_id,
                     &expected_trait,
-                    clarity_version,
                     tracker,
                 )?;
             }
@@ -636,7 +666,7 @@ fn inner_type_check_type<T: CostTracker>(
                 db,
                 contract_context,
                 expected_trait_id,
-                clarity_version,
+                ClarityVersion::Clarity2,
                 tracker,
             )?;
             contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
@@ -647,12 +677,11 @@ fn inner_type_check_type<T: CostTracker>(
         ) => {
             // Verify that all types in the union implement this trait
             for subtype in types {
-                inner_type_check_type(
+                clarity2_inner_type_check_type(
                     db,
                     contract_context,
                     &TypeSignature::CallableType(subtype.clone()),
                     expected_type,
-                    clarity_version,
                     depth + 1,
                     tracker,
                 )?;
@@ -1171,12 +1200,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         };
 
         analysis_typecheck_cost(self, expected_type, &expr_type)?;
-        inner_type_check_type(
+        clarity2_inner_type_check_type(
             self.db,
             Some(&self.contract_context),
             &expr_type,
             expected_type,
-            self.clarity_version,
             1,
             &mut self.cost_track,
         )?;
