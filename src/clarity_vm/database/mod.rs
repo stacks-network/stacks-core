@@ -185,6 +185,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.tx(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
     }
+
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.tx(), height.into()).expect("BUG: failed to get AST rules")
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -215,6 +219,11 @@ impl BurnStateDB for SortitionDBConn<'_> {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         SortitionDB::get_stacks_epoch_by_epoch_id(self.conn(), epoch_id)
             .expect("BUG: failed to get epoch for epoch id")
+    }
+
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.conn(), height.into())
+            .expect("BUG: failed to get AST rules")
     }
 }
 

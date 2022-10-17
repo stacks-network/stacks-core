@@ -216,7 +216,13 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(pow i1 i2)",
-    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.",
+    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.
+Note: Corner cases are handled with the following rules:
+  * if both `i1` and `i2` are `0`, return `1`
+  * if `i1` is `1`, return `1`
+  * if `i1` is `0`, return `0`
+  * if `i2` is `1`, return `i1`
+  * if `i2` is negative or greater than `u32::MAX`, throw a runtime error",
     example: "(pow 2 3) ;; Returns 8
 (pow 2 2) ;; Returns 4
 (pow 7 1) ;; Returns 7
@@ -1816,6 +1822,7 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
+    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
 
     struct DocHeadersDB {}
@@ -1894,6 +1901,10 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+
+        fn get_ast_rules(&self, height: u32) -> ASTRules {
+            ASTRules::PrecheckSize
         }
     }
 
@@ -2042,11 +2053,19 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    &token_contract_content,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;

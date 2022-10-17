@@ -58,6 +58,7 @@ use crate::core::mempool::*;
 use crate::core::POX_REWARD_CYCLE_LENGTH;
 use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::HttpReservedHeader;
+pub use crate::net::http::StacksBlockAcceptedData;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
@@ -2053,6 +2054,7 @@ pub mod test {
     use std::sync::Mutex;
     use std::thread;
 
+    use clarity::vm::ast::ASTRules;
     use mio;
     use rand;
     use rand::RngCore;
@@ -2668,6 +2670,7 @@ pub mod test {
                             clarity,
                             &boot_code_smart_contract,
                             &boot_code_account,
+                            ASTRules::PrecheckSize,
                         )
                         .unwrap()
                     });

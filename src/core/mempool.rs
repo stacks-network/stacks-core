@@ -242,6 +242,12 @@ pub struct MemPoolTxInfo {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum MemPoolTxInfoPartial {
+    NeedsNonces { addrs_needed: Vec<StacksAddress> },
+    HasNonces(MemPoolTxInfo),
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct MemPoolTxMetadata {
     pub txid: Txid,
     pub len: u64,
@@ -256,6 +262,19 @@ pub struct MemPoolTxMetadata {
     pub last_known_origin_nonce: Option<u64>,
     pub last_known_sponsor_nonce: Option<u64>,
     pub accept_time: u64,
+}
+
+impl MemPoolTxMetadata {
+    pub fn get_unknown_nonces(&self) -> Vec<StacksAddress> {
+        let mut needs_nonces = vec![];
+        if self.last_known_origin_nonce.is_none() {
+            needs_nonces.push(self.origin_address);
+        }
+        if self.last_known_sponsor_nonce.is_none() {
+            needs_nonces.push(self.sponsor_address);
+        }
+        needs_nonces
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -343,6 +362,30 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
             tx: tx,
             metadata: md,
         })
+    }
+}
+
+impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
+    fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfoPartial, db_error> {
+        let md = MemPoolTxMetadata::from_row(row)?;
+        let needs_nonces = md.get_unknown_nonces();
+        let consider = if !needs_nonces.is_empty() {
+            MemPoolTxInfoPartial::NeedsNonces {
+                addrs_needed: needs_nonces,
+            }
+        } else {
+            let tx_bytes: Vec<u8> = row.get_unwrap("tx");
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
+                .map_err(|_e| db_error::ParseError)?;
+
+            if tx.txid() != md.txid {
+                return Err(db_error::ParseError);
+            }
+
+            MemPoolTxInfoPartial::HasNonces(MemPoolTxInfo { tx, metadata: md })
+        };
+
+        Ok(consider)
     }
 }
 
@@ -457,6 +500,22 @@ const MEMPOOL_SCHEMA_4_BLACKLIST: &'static [&'static str] = &[
     "#,
     r#"
     INSERT INTO schema_version (version) VALUES (4)
+    "#,
+];
+
+const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
+    r#"
+    ALTER TABLE mempool ADD COLUMN fee_rate NUMBER;
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS by_fee_rate ON mempool(fee_rate);
+    "#,
+    r#"
+    UPDATE mempool
+    SET fee_rate = (SELECT f.fee_rate FROM fee_estimates as f WHERE f.txid = mempool.txid);
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (5)
     "#,
 ];
 
@@ -744,6 +803,9 @@ impl MemPoolDB {
                     MemPoolDB::instantiate_tx_blacklist(tx)?;
                 }
                 4 => {
+                    MemPoolDB::denormalize_fee_rate(tx)?;
+                }
+                5 => {
                     break;
                 }
                 _ => {
@@ -782,6 +844,15 @@ impl MemPoolDB {
     /// Instantiate the cost estimator schema
     fn instantiate_cost_estimator(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_2_COST_ESTIMATOR {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Denormalize fee rate schema 5
+    fn denormalize_fee_rate(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_5 {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -933,11 +1004,11 @@ impl MemPoolDB {
     ///  whether or not the miner should propagate transaction receipts back to the estimator.
     fn get_next_tx_to_consider_no_estimate(
         &self,
-    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
-        let select_no_estimate = "SELECT * FROM mempool LEFT JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
+        let select_no_estimate = "SELECT * FROM mempool WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND f.fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
+                   AND fee_rate IS NULL ORDER BY tx_fee DESC LIMIT 1";
         query_row(&self.db, select_no_estimate, rusqlite::NO_PARAMS)
             .map(|opt_tx| opt_tx.map(|tx| (tx, true)))
     }
@@ -947,11 +1018,11 @@ impl MemPoolDB {
     ///  whether or not the miner should propagate transaction receipts back to the estimator.
     fn get_next_tx_to_consider_with_estimate(
         &self,
-    ) -> Result<Option<(MemPoolTxInfo, bool)>, db_error> {
-        let select_estimate = "SELECT * FROM mempool LEFT OUTER JOIN fee_estimates as f ON mempool.txid = f.txid WHERE
+    ) -> Result<Option<(MemPoolTxInfoPartial, bool)>, db_error> {
+        let select_estimate = "SELECT * FROM mempool WHERE
                    ((origin_nonce = last_known_origin_nonce AND
                      sponsor_nonce = last_known_sponsor_nonce) OR (last_known_origin_nonce is NULL) OR (last_known_sponsor_nonce is NULL))
-                   AND f.fee_rate IS NOT NULL ORDER BY f.fee_rate DESC LIMIT 1";
+                   AND fee_rate IS NOT NULL ORDER BY fee_rate DESC LIMIT 1";
         query_row(&self.db, select_estimate, rusqlite::NO_PARAMS)
             .map(|opt_tx| opt_tx.map(|tx| (tx, false)))
     }
@@ -964,7 +1035,7 @@ impl MemPoolDB {
         &self,
         start_with_no_estimate: bool,
     ) -> Result<ConsiderTransactionResult, db_error> {
-        let (next_tx, update_estimate): (MemPoolTxInfo, bool) = if start_with_no_estimate {
+        let (next_tx, update_estimate): (MemPoolTxInfoPartial, bool) = if start_with_no_estimate {
             match self.get_next_tx_to_consider_no_estimate()? {
                 Some(result) => result,
                 None => match self.get_next_tx_to_consider_with_estimate()? {
@@ -982,21 +1053,16 @@ impl MemPoolDB {
             }
         };
 
-        let mut needs_nonces = vec![];
-        if next_tx.metadata.last_known_origin_nonce.is_none() {
-            needs_nonces.push(next_tx.metadata.origin_address);
-        }
-        if next_tx.metadata.last_known_sponsor_nonce.is_none() {
-            needs_nonces.push(next_tx.metadata.sponsor_address);
-        }
-
-        if !needs_nonces.is_empty() {
-            Ok(ConsiderTransactionResult::UpdateNonces(needs_nonces))
-        } else {
-            Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
-                tx: next_tx,
-                update_estimate,
-            }))
+        match next_tx {
+            MemPoolTxInfoPartial::NeedsNonces { addrs_needed } => {
+                Ok(ConsiderTransactionResult::UpdateNonces(addrs_needed))
+            }
+            MemPoolTxInfoPartial::HasNonces(tx) => {
+                Ok(ConsiderTransactionResult::Consider(ConsiderTransaction {
+                    tx,
+                    update_estimate,
+                }))
+            }
         }
     }
 
@@ -1035,8 +1101,7 @@ impl MemPoolDB {
         let sql_tx = tx_begin_immediate(&mut self.db)?;
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
-            "SELECT * FROM mempool as m LEFT OUTER JOIN fee_estimates as f ON
-                               m.txid = f.txid WHERE f.fee_rate IS NULL LIMIT ?",
+            "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
             &[max_updates],
         )?;
         let mut updated = 0;
@@ -1061,8 +1126,8 @@ impl MemPoolDB {
             };
 
             sql_tx.execute(
-                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
-                rusqlite::params![&txid, fee_rate_f64],
+                "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                rusqlite::params![fee_rate_f64, &txid],
             )?;
             updated += 1;
         }
@@ -1611,8 +1676,8 @@ impl MemPoolDB {
 
         mempool_tx
             .execute(
-                "INSERT OR REPLACE INTO fee_estimates(txid, fee_rate) VALUES (?, ?)",
-                rusqlite::params![&txid, fee_rate_estimate],
+                "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                rusqlite::params![fee_rate_estimate, &txid],
             )
             .map_err(db_error::from)?;
 
