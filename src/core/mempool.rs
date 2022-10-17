@@ -808,6 +808,11 @@ impl NonceCache {
     }
 }
 
+/// Cache potential candidate transactions for subsequent iterations.
+/// While walking the mempool, transactions that have nonces that are too high
+/// to process yet (but could be processed in the future) are added to `next`.
+/// In the next pass, `next` is moved to `cache` and these transactions are
+/// checked before reading more from the mempool DB.
 struct CandidateCache {
     cache: VecDeque<MemPoolTxInfoPartial>,
     next: VecDeque<MemPoolTxInfoPartial>,
@@ -823,21 +828,31 @@ impl CandidateCache {
         }
     }
 
+    /// Retrieve the next candidate transaction from the cache.
     fn next(&mut self) -> Option<MemPoolTxInfoPartial> {
         self.cache.pop_front()
     }
 
+    /// Push a candidate to the cache for the next iteration.
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
         if self.next.len() < Self::MAX_SIZE {
             self.next.push_back(tx);
         }
     }
 
+    /// Prepare for the next iteration, transferring transactions from `next` to `cache`.
     fn reset(&mut self) {
+        // We do not need a size check here, because the cache can only grow in size
+        // after `cache` is empty. New transactions are not walked until the entire
+        // cache has been walked, so whenever we are adding brand new transactions to
+        // the cache, `cache` must, by definition, be empty. The size of `next`
+        // can grow beyond the previous iteration's cache, and that is limited inside
+        // the `push` method.
         self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
     }
 
+    /// Total length of the cache.
     fn len(&self) -> usize {
         self.cache.len() + self.next.len()
     }
