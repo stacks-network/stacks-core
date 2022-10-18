@@ -495,7 +495,7 @@ impl BitcoinIndexer {
                             canonical_spv_client.read_block_headers(1, start_block + 1)?;
                         assert!(
                             interval_headers.len() >= start_block as usize,
-                            "BUG: missing headers for 0-{}",
+                            "BUG: missing headers for 1-{}",
                             start_block
                         );
 
