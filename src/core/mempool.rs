@@ -308,8 +308,8 @@ impl MemPoolWalkSettings {
             min_tx_fee: 1,
             max_walk_time_ms: u64::max_value(),
             consider_no_estimate_tx_prob: 5,
-            nonce_cache_size: 10_000,
-            candidate_retry_cache_size: 10_000,
+            nonce_cache_size: 1024 * 1024,
+            candidate_retry_cache_size: 64 * 1024,
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
@@ -317,8 +317,8 @@ impl MemPoolWalkSettings {
             min_tx_fee: 0,
             max_walk_time_ms: u64::max_value(),
             consider_no_estimate_tx_prob: 5,
-            nonce_cache_size: 10_000,
-            candidate_retry_cache_size: 10_000,
+            nonce_cache_size: 1024 * 1024,
+            candidate_retry_cache_size: 64 * 1024,
         }
     }
 }
@@ -1355,7 +1355,9 @@ impl MemPoolDB {
             ) {
                 Ordering::Less => {
                     debug!(
-                        "Mempool: unexecutable: drop tx ({})",
+                        "Mempool: unexecutable: drop tx {}:{} ({})",
+                        candidate.origin_address,
+                        candidate.origin_nonce,
                         candidate.fee_rate.unwrap_or_default()
                     );
                     // This transaction cannot execute in this pass, just drop it
@@ -1363,7 +1365,9 @@ impl MemPoolDB {
                 }
                 Ordering::Greater => {
                     debug!(
-                        "Mempool: nonces too high, cached for later ({})",
+                        "Mempool: nonces too high, cached for later {}:{} ({})",
+                        candidate.origin_address,
+                        candidate.origin_nonce,
                         candidate.fee_rate.unwrap_or_default()
                     );
                     // This transaction could become runnable in this pass, save it for later
@@ -1393,7 +1397,9 @@ impl MemPoolDB {
             debug!("Consider mempool transaction";
                            "txid" => %consider.tx.tx.txid(),
                            "origin_addr" => %consider.tx.metadata.origin_address,
+                           "origin_nonce" => candidate.origin_nonce,
                            "sponsor_addr" => %consider.tx.metadata.sponsor_address,
+                           "sponsor_nonce" => candidate.sponsor_nonce,
                            "accept_time" => consider.tx.metadata.accept_time,
                            "tx_fee" => consider.tx.metadata.tx_fee,
                            "fee_rate" => candidate.fee_rate,
