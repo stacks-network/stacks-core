@@ -159,6 +159,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         Slice => "(slice str-foo u1 u1)",
         ToConsensusBuff => "(to-consensus-buff u1)",
         FromConsensusBuff => "(from-consensus-buff bool 0x03)",
+        ReplaceAt => "(replace-at list-bar u0 5)",
     }
 }
 

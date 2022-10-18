@@ -172,6 +172,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Slice("slice", ClarityVersion::Clarity2),
     ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2),
+    ReplaceAt("replace-at", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -516,6 +517,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             FromConsensusBuff => {
                 SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
             }
+            ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
         };
         Some(callable)
     } else {
