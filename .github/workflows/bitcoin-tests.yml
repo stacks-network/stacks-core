@@ -68,6 +68,8 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::test_flash_block_skip_tenure
+          - tests::neon_integrations::test_chainwork_first_intervals
+          - tests::neon_integrations::test_chainwork_partial_interval
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205
