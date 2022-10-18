@@ -81,6 +81,169 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                 (token-credit! .tokens u4))";
 
 #[test]
+fn test_deep_tuples() {
+    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
+    let p1 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+            .unwrap(),
+    );
+    let p2 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            .unwrap(),
+    );
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+
+    {
+        let mut block = clarity.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &test_block_headers(0),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit + 5),
+            "} ".repeat(stack_limit + 5)
+        );
+
+        let error = block.as_transaction(|tx| {
+            //  basically, without the new stack depth checks in the lexer/parser,
+            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                &exceeds_stack_depth_tuple,
+                ASTRules::PrecheckSize,
+            );
+            analysis_resp.unwrap_err()
+        });
+
+        match error {
+            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+                eprintln!("Runtime error: {:?}", r_e);
+            }
+            other => {
+                eprintln!("Other error: {:?}", other);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_deep_tuples_ast_precheck() {
+    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
+    let p1 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+            .unwrap(),
+    );
+    let p2 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            .unwrap(),
+    );
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+
+    {
+        let mut block = clarity.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &test_block_headers(0),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB_AST_PRECHECK,
+        );
+
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+
+        // absurdly deep tuple depth
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit + 1024 * 128),
+            "} ".repeat(stack_limit + 1024 * 128)
+        );
+
+        let error = block.as_transaction(|tx| {
+            //  basically, without the new stack depth checks in the lexer/parser,
+            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                &exceeds_stack_depth_tuple,
+                ASTRules::PrecheckSize,
+            );
+            analysis_resp.unwrap_err()
+        });
+
+        match error {
+            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+                eprintln!("Runtime error: {:?}", r_e);
+            }
+            other => {
+                eprintln!("Other error: {:?}", other);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_deep_type_nesting() {
+    let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
+    let p1 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+            .unwrap(),
+    );
+    let p2 = PrincipalData::from(
+        PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")
+            .unwrap(),
+    );
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+
+    {
+        let mut block = clarity.begin_test_genesis_block(
+            &StacksBlockId::sentinel(),
+            &test_block_headers(0),
+            &TEST_HEADER_DB,
+            &TEST_BURN_STATE_DB,
+        );
+
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let mut parts = vec!["(a0 { a0 : u1 })".to_string()];
+        for i in 1..1024 {
+            parts.push(format!("(a{} {{ a{} : (print a{}) }})", i, i, i - 1));
+        }
+
+        let exceeds_type_depth = format!(
+            "(let (
+                {}
+            )
+                (print a31)
+            )",
+            &parts.join("\n")
+        );
+
+        let error = block.as_transaction(|tx| {
+            //  basically, without the new stack depth checks in the lexer/parser,
+            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                &exceeds_type_depth,
+                ASTRules::PrecheckSize,
+            );
+            analysis_resp.unwrap_err()
+        });
+
+        match error {
+            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+                eprintln!("Runtime error: {:?}", r_e);
+            }
+            other => {
+                eprintln!("Other error: {:?}", other);
+            }
+        }
+    }
+}
+
+#[test]
 fn test_simple_token_system() {
     let mut clarity = ClarityInstance::new(false, MarfedKV::temporary());
     let p1 = PrincipalData::from(
