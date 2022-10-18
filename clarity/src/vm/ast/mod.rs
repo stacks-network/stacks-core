@@ -151,6 +151,143 @@ mod test {
     use crate::vm::MAX_CALL_STACK_DEPTH;
     use std::collections::HashMap;
 
+    #[derive(PartialEq, Debug)]
+    struct UnitTestTracker {
+        invoked_functions: Vec<(ClarityCostFunction, Vec<u64>)>,
+        invocation_count: u64,
+        cost_addition_count: u64,
+    }
+    impl UnitTestTracker {
+        pub fn new() -> Self {
+            UnitTestTracker {
+                invoked_functions: vec![],
+                invocation_count: 0,
+                cost_addition_count: 0,
+            }
+        }
+    }
+    impl CostTracker for UnitTestTracker {
+        fn compute_cost(
+            &mut self,
+            cost_f: ClarityCostFunction,
+            input: &[u64],
+        ) -> std::result::Result<ExecutionCost, CostErrors> {
+            self.invoked_functions.push((cost_f, input.to_vec()));
+            self.invocation_count += 1;
+            Ok(ExecutionCost::zero())
+        }
+        fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+            self.cost_addition_count += 1;
+            Ok(())
+        }
+        fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
+            Ok(())
+        }
+        fn drop_memory(&mut self, _memory: u64) {}
+        fn reset_memory(&mut self) {}
+        fn short_circuit_contract_call(
+            &mut self,
+            _contract: &QualifiedContractIdentifier,
+            _function: &ClarityName,
+            _input: &[u64],
+        ) -> Result<bool, CostErrors> {
+            Ok(false)
+        }
+    }
+
+    #[test]
+    fn test_cost_tracking_deep_contracts() {
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit + 1),
+            "} ".repeat(stack_limit + 1)
+        );
+
+        // for deep lists, a test like this works:
+        //   it can assert a limit, that you can also verify
+        //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser lexer limits
+        //   and see that it produces the same result
+        let exceeds_stack_depth_list = format!(
+            "{}u1 {}",
+            "(list ".repeat(stack_limit + 1),
+            ")".repeat(stack_limit + 1)
+        );
+
+        // with old rules, this is just ExpressionStackDepthTooDeep
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_list,
+            &mut cost_track,
+            ASTRules::Typical,
+        )
+        .expect_err("Contract should error in parsing");
+
+        let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+
+        // with new rules, this is now VaryExpressionStackDepthTooDeep
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_list,
+            &mut cost_track,
+            ASTRules::PrecheckSize,
+        )
+        .expect_err("Contract should error in parsing");
+
+        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+
+        // you cannot do the same for tuples!
+        // in ASTRules::Typical, this passes
+        let mut cost_track = UnitTestTracker::new();
+        let _ = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_tuple,
+            &mut cost_track,
+            ASTRules::Typical,
+        )
+        .expect("Contract should aprse with ASTRules::Typical");
+
+        // this actually won't even error without
+        //  the VaryStackDepthChecker changes.
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_tuple,
+            &mut cost_track,
+            ASTRules::PrecheckSize,
+        )
+        .expect_err("Contract should error in parsing with ASTRules::PrecheckSize");
+
+        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+    }
+
     #[test]
     fn test_expression_identification_tuples() {
         let progn = "{ a: (+ 1 2 3),
