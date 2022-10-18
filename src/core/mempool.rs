@@ -774,8 +774,10 @@ struct NonceCache {
 }
 
 impl NonceCache {
-    fn new(nonce_cache_size:u64) -> Self {
-        let max_size:usize = nonce_cache_size.try_into().expect("Could not cast `nonce_cache_size` as `usize`.");
+    fn new(nonce_cache_size: u64) -> Self {
+        let max_size: usize = nonce_cache_size
+            .try_into()
+            .expect("Could not cast `nonce_cache_size` as `usize`.");
         Self {
             cache: HashMap::new(),
             size: 0,
@@ -823,8 +825,10 @@ struct CandidateCache {
 }
 
 impl CandidateCache {
-    fn new(candidate_retry_cache_size:u64) -> Self {
-        let max_size:usize = candidate_retry_cache_size.try_into().expect("Could not cast `candidate_retry_cache_size` as usize.");
+    fn new(candidate_retry_cache_size: u64) -> Self {
+        let max_size: usize = candidate_retry_cache_size
+            .try_into()
+            .expect("Could not cast `candidate_retry_cache_size` as usize.");
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
