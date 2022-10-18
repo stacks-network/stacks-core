@@ -768,7 +768,6 @@ impl MemPoolTxInfo {
 /// Used to locally cache nonces to avoid repeatedly looking them up in the nonce.
 struct NonceCache {
     cache: HashMap<StacksAddress, u64>,
-    size: usize,
     /// The maximum size that this cache can be.
     max_size: usize,
 }
@@ -780,7 +779,6 @@ impl NonceCache {
             .expect("Could not cast `nonce_cache_size` as `usize`.");
         Self {
             cache: HashMap::new(),
-            size: 0,
             max_size,
         }
     }
@@ -797,9 +795,8 @@ impl NonceCache {
                 // will be looked up every time. This is bad for performance
                 // but is unlikely to occur due to the typical number of
                 // transactions processed before filling a block.
-                if self.size < self.max_size {
+                if self.cache.len() < self.max_size {
                     self.cache.insert(address.clone(), nonce);
-                    self.size += 1;
                 }
                 nonce
             }
