@@ -49,6 +49,7 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use clarity::vm::Environment;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 
@@ -248,7 +249,7 @@ impl StacksChainState {
                 Ok(())
             }).expect("FATAL: failed to accelerate PoX unlock");
 
-            let (result, _, events, _) = clarity
+            let (result, _, mut events, _) = clarity
                 .with_abort_callback(
                     |vm_env| {
                         vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
@@ -269,6 +270,10 @@ impl StacksChainState {
                     |_, _| false,
                 )
                 .expect("FATAL: failed to handle PoX unlock");
+
+            // Add synthetic print event for `handle-unlock`, since it alters stacking state
+            let tx_event = Environment::construct_print_transaction_event(&pox_contract, &result);
+            events.push(tx_event);
 
             result.expect_result_ok();
 

@@ -43,9 +43,51 @@ use stacks_common::util::hash::Hash160;
 use crate::vm::costs::runtime_cost;
 
 /// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
-///  into a format more readily digestible in rust.
+///  from pox-2.clar into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_stacking_result(
+    result: &Value,
+) -> std::result::Result<(PrincipalData, u128, u64), i128> {
+    match result.clone().expect_result() {
+        Ok(res) => {
+            // should have gotten back (ok { stacker: principal, data: { lock-amount: uint, unlock-burn-height: uint .. } .. })))
+            let tuple_data = res.expect_tuple();
+            let stacker = tuple_data
+                .get("stacker")
+                .expect(&format!("FATAL: no 'stacker'"))
+                .to_owned()
+                .expect_principal();
+
+            let inner_data = tuple_data
+                .get("data")
+                .expect(&format!("FATAL: no 'data'"))
+                .to_owned()
+                .expect_tuple();
+
+            let lock_amount = inner_data
+                .get("lock-amount")
+                .expect(&format!("FATAL: no 'lock-amount'"))
+                .to_owned()
+                .expect_u128();
+
+            let unlock_burn_height = inner_data
+                .get("unlock-burn-height")
+                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .to_owned()
+                .expect_u128()
+                .try_into()
+                .expect("FATAL: 'unlock-burn-height' overflow");
+
+            Ok((stacker, lock_amount, unlock_burn_height))
+        }
+        Err(e) => Err(e.expect_i128()),
+    }
+}
+
+/// Parse the returned value from PoX `stack-stx` and `delegate-stack-stx` functions
+///  from pox.clar into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
+fn parse_pox_stacking_result_v1(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
     match result.clone().expect_result() {
@@ -84,7 +126,7 @@ fn parse_pox_stacking_result(
 fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
     match result.clone().expect_result() {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint })
+            // should have gotten back (ok { stacker: principal, data: { unlock-burn-height: uint .. } .. })
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
@@ -92,7 +134,13 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
                 .to_owned()
                 .expect_principal();
 
-            let unlock_burn_height = tuple_data
+            let inner_data = tuple_data
+                .get("data")
+                .expect(&format!("FATAL: no 'data'"))
+                .to_owned()
+                .expect_tuple();
+
+            let unlock_burn_height = inner_data
                 .get("unlock-burn-height")
                 .expect(&format!("FATAL: no 'unlock-burn-height'"))
                 .to_owned()
@@ -113,7 +161,7 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
 fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u128), i128> {
     match result.clone().expect_result() {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, total-locked: uint })
+            // should have gotten back (ok { stacker: principal, data: { total-locked: uint .. } .. })
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
@@ -121,7 +169,13 @@ fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u12
                 .to_owned()
                 .expect_principal();
 
-            let total_locked = tuple_data
+            let inner_data = tuple_data
+                .get("data")
+                .expect(&format!("FATAL: no 'data'"))
+                .to_owned()
+                .expect_tuple();
+
+            let total_locked = inner_data
                 .get("total-locked")
                 .expect(&format!("FATAL: no 'total-locked'"))
                 .to_owned()
@@ -156,7 +210,7 @@ fn handle_pox_v1_api_contract_call(
             1,
         )?;
 
-        match parse_pox_stacking_result(value) {
+        match parse_pox_stacking_result_v1(value) {
             Ok((stacker, locked_amount, unlock_height)) => {
                 // in most cases, if this fails, then there's a bug in the contract (since it already does
                 // the necessary checks), but with v2 introduction, that's no longer true -- if someone
@@ -206,9 +260,26 @@ fn handle_pox_v1_api_contract_call(
 fn handle_pox_v2_api_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
+    contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     value: &Value,
 ) -> Result<()> {
+    // First, generate a synthetic print event for all functions that alter stacking state
+    if function_name == "stack-stx"
+        || function_name == "delegate-stack-stx"
+        || function_name == "stack-extend"
+        || function_name == "delegate-stack-extend"
+        || function_name == "stack-increase"
+        || function_name == "delegate-stack-increase"
+        || function_name == "stack-aggregation-commit"
+    {
+        let tx_event = Environment::construct_print_transaction_event(contract_id, value);
+        if let Some(batch) = global_context.event_batches.last_mut() {
+            batch.events.push(tx_event);
+        }
+    }
+
+    // Execute function specific logic
     if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
         debug!(
             "Handle special-case contract-call to {:?} {} (which returned {:?})",
@@ -393,7 +464,13 @@ pub fn handle_contract_call_special_cases(
         }
         return handle_pox_v1_api_contract_call(global_context, sender, function_name, result);
     } else if *contract_id == boot_code_id(POX_2_NAME, global_context.mainnet) {
-        return handle_pox_v2_api_contract_call(global_context, sender, function_name, result);
+        return handle_pox_v2_api_contract_call(
+            global_context,
+            sender,
+            contract_id,
+            function_name,
+            result,
+        );
     }
 
     // TODO: insert more special cases here, as needed
