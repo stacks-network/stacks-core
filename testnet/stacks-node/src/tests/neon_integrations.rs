@@ -7318,3 +7318,73 @@ fn test_flash_block_skip_tenure() {
 
     channel.stop_chains_coordinator();
 }
+
+#[test]
+#[ignore]
+fn test_chainwork_first_intervals() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(2016 * 2 - 1);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let missed_tenures = run_loop.get_missed_tenures_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn test_chainwork_partial_interval() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(2016 - 1);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let missed_tenures = run_loop.get_missed_tenures_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+    channel.stop_chains_coordinator();
+}

@@ -521,22 +521,36 @@ impl BitcoinIndexer {
                     let interval_start_block =
                         (start_block / BLOCK_DIFFICULTY_CHUNK_SIZE).saturating_sub(2);
                     let base_block = interval_start_block * BLOCK_DIFFICULTY_CHUNK_SIZE;
-                    let interval_headers =
-                        canonical_spv_client.read_block_headers(base_block, start_block + 1)?;
-                    assert!(
-                        interval_headers.len() >= (start_block - base_block) as usize,
-                        "BUG: missing headers for {}-{}",
-                        base_block,
-                        start_block
-                    );
 
-                    test_debug!(
-                        "Copy headers {}-{}",
-                        base_block,
-                        base_block + interval_headers.len() as u64
-                    );
-                    reorg_spv_client
-                        .insert_block_headers_before(base_block - 1, interval_headers)?;
+                    if base_block > 0 {
+                        let interval_headers =
+                            canonical_spv_client.read_block_headers(base_block, start_block + 1)?;
+                        assert!(
+                            interval_headers.len() >= (start_block - base_block) as usize,
+                            "BUG: missing headers for {}-{}",
+                            base_block,
+                            start_block
+                        );
+
+                        debug!(
+                            "Copy headers {}-{}",
+                            base_block,
+                            base_block + interval_headers.len() as u64
+                        );
+                        reorg_spv_client
+                            .insert_block_headers_before(base_block - 1, interval_headers)?;
+                    } else {
+                        let interval_headers =
+                            canonical_spv_client.read_block_headers(1, start_block + 1)?;
+                        assert!(
+                            interval_headers.len() >= start_block as usize,
+                            "BUG: missing headers for 1-{}",
+                            start_block
+                        );
+
+                        debug!("Copy headers 1-{}", interval_headers.len() as u64);
+                        reorg_spv_client.insert_block_headers_before(0, interval_headers)?;
+                    }
 
                     let last_interval = canonical_spv_client.find_highest_work_score_interval()?;
 
@@ -594,12 +608,12 @@ impl BitcoinIndexer {
         let mut new_tip = 0;
         let mut found_common_ancestor = false;
 
-        let orig_spv_client = SpvClient::new(
+        let mut orig_spv_client = SpvClient::new(
             canonical_headers_path,
             0,
             None,
             self.runtime.network_id,
-            false,
+            true,
             false,
         )?;
 
@@ -767,7 +781,7 @@ impl BitcoinIndexer {
 
         if check_chain_work {
             let reorg_total_work = reorg_spv_client.update_chain_work()?;
-            let orig_total_work = orig_spv_client.get_chain_work()?;
+            let orig_total_work = orig_spv_client.update_chain_work()?;
 
             debug!("Bitcoin headers history is consistent up to {}", new_tip;
                    "Orig chainwork" => %orig_total_work,
