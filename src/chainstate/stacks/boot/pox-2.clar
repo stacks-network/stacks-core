@@ -951,7 +951,7 @@
 ;;   STX to `pox-addr`
 (define-public (delegate-stack-increase
                     (stacker principal)
-                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                     (increase-by uint))
     (let ((stacker-info (stx-account stacker))
           (existing-lock (get locked stacker-info))
