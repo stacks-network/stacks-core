@@ -11129,137 +11129,6 @@ pub mod test {
     }
 
     #[test]
-    /// Test with a number of transactions (10) that is "much greater" than the cache size (2).
-    /// Test that all transactions get into the block.
-    fn test_1_user_10_transactions_with_cache_size_2() {
-        let privk = StacksPrivateKey::from_hex(
-            "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
-        )
-        .unwrap();
-        let addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(&privk)],
-        )
-        .unwrap();
-
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_stx_transfers_single",
-            2002,
-            2003,
-        );
-        peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-
-        let mut peer = TestPeer::new(peer_config);
-
-        let chainstate_path = peer.chainstate_path.clone();
-
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height
-        };
-
-        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
-        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
-        let mut sender_nonce = 0;
-
-        let mut last_block = None;
-        // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
-
-        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
-            |ref mut miner,
-             ref mut sortdb,
-             ref mut chainstate,
-             vrf_proof,
-             ref parent_opt,
-             ref parent_microblock_header_opt| {
-                let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(block) => {
-                        let ic = sortdb.index_conn();
-                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &ic,
-                            &tip.sortition_id,
-                            &block.block_hash(),
-                        )
-                        .unwrap()
-                        .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
-                            chainstate.db(),
-                            &snapshot.consensus_hash,
-                            &snapshot.winning_stacks_block_hash,
-                        )
-                        .unwrap()
-                        .unwrap()
-                    }
-                };
-
-                let parent_header_hash = parent_tip.anchored_header.block_hash();
-                let parent_consensus_hash = parent_tip.consensus_hash.clone();
-
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
-
-                let coinbase_tx = make_coinbase(miner, 0);
-
-                for i in 0..10 {
-                    let stx_transfer = make_user_stacks_transfer(
-                        &privk,
-                        i,
-                        200,
-                        &recipient.to_account_principal(),
-                        1,
-                    );
-
-                    mempool
-                        .submit(
-                            chainstate,
-                            &parent_consensus_hash,
-                            &parent_header_hash,
-                            &stx_transfer,
-                            None,
-                            &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
-                        )
-                        .unwrap();
-                }
-
-                let mut settings = BlockBuilderSettings::max_value();
-                settings.mempool_settings.nonce_cache_size = 2;
-                settings.mempool_settings.consider_no_estimate_tx_prob = 50;
-                settings.mempool_settings.candidate_retry_cache_size = 2;
-                let anchored_block = StacksBlockBuilder::build_anchored_block(
-                    chainstate,
-                    &sortdb.index_conn(),
-                    &mut mempool,
-                    &parent_tip,
-                    tip.total_burn,
-                    vrf_proof,
-                    Hash160([0 as u8; 20]),
-                    &coinbase_tx,
-                    settings,
-                    None,
-                )
-                .unwrap();
-                (anchored_block.0, vec![])
-            },
-        );
-
-        last_block = Some(stacks_block.clone());
-
-        peer.next_burnchain_block(burn_ops.clone());
-        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-        // Both user transactions and the coinbase should have been mined.
-        assert_eq!(stacks_block.txs.len(), 11);
-    }
-
-    #[test]
     fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_0() {
         paramaterized_mempool_walk_test(1, 10, 2, 0)
     }
@@ -11289,6 +11158,20 @@ pub mod test {
         paramaterized_mempool_walk_test(10, 3, 2, 100)
     }
 
+    #[test]
+    fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_0() {
+        paramaterized_mempool_walk_test(10, 3, 2000, 0)
+    }
+
+    #[test]
+    fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_50() {
+        paramaterized_mempool_walk_test(10, 3, 2000, 50)
+    }
+
+    #[test]
+    fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_100() {
+        paramaterized_mempool_walk_test(10, 3, 2000, 100)
+    }
     /// With the parameters given, create `num_rounds` transactions per each user in `num_users`.
     /// `nonce_and_candidate_cache_size` is the cache size used for both of the nonce cache
     /// and the candidate cache.
