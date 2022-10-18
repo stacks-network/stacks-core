@@ -6,7 +6,6 @@ edition = "2021"
 resolver = "2"
 
 [dependencies]
-signal-hook = "0.3.14"
 lazy_static = "1.4.0"
 pico-args = "0.3.1"
 rand = "0.7.3"

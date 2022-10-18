@@ -426,12 +426,21 @@ impl Config {
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
                 let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
+                let node_seed_bytes = match node.seed {
+                    Some(seed) => Some(seed),
+                    None => match std::env::var("STACKS_NODE_SEED") {
+                        Ok(seed) => {
+                            info!("Using STACKS_NODE_SEED for node.seed");
+                            Some(seed)
+                        },
+                        Err(_) => None
+                    },
+                };
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
-                    seed: match node.seed {
-                        Some(seed) => hex_bytes(&seed)
-                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
-                        None => default_node_config.seed,
+                    seed: match node_seed_bytes {
+                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("node.seed should be a hex encoded string"))?,
+                        None => &default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: rpc_bind.clone(),
@@ -565,8 +574,14 @@ impl Config {
                     rpc_ssl: burnchain
                         .rpc_ssl
                         .unwrap_or(default_burnchain_config.rpc_ssl),
-                    username: burnchain.username,
-                    password: burnchain.password,
+                    username: burnchain.username.or_else(|| {
+                        info!("Using STACKS_BURNCHAIN_USERNAME");
+                        std::env::var("STACKS_BURNCHAIN_USERNAME").ok()
+                    }),
+                    password: burnchain.password.or_else(|| {
+                        info!("Using STACKS_BURNCHAIN_PASSWORD");
+                        std::env::var("STACKS_BURNCHAIN_PASSWORD").ok()
+                    }),
                     timeout: burnchain
                         .timeout
                         .unwrap_or(default_burnchain_config.timeout),
