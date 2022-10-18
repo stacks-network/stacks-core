@@ -807,8 +807,14 @@ impl NonceCache {
     }
 
     fn increment(&mut self, address: StacksAddress) {
-        let nonce = self.cache.entry(address).or_insert(0);
-        *nonce += 1;
+        match self.cache.get_mut(&address) {
+            Some(mut nonce) => {
+                *nonce += 1;
+            }
+            None => {
+                // do nothing, not in cache yet
+            }
+        }
     }
 }
 
@@ -847,7 +853,8 @@ impl CandidateCache {
             self.next.push_back(tx);
         }
 
-        #[cfg(test)] {
+        #[cfg(test)]
+        {
             assert!(self.cache.len() <= self.max_cache_size + 1);
             assert!(self.next.len() <= self.max_cache_size + 1);
         }
@@ -864,7 +871,8 @@ impl CandidateCache {
         self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
 
-        #[cfg(test)] {
+        #[cfg(test)]
+        {
             assert!(self.cache.len() <= self.max_cache_size + 1);
             assert!(self.next.len() <= self.max_cache_size + 1);
         }
