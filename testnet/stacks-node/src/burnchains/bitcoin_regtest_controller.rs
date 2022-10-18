@@ -1684,6 +1684,7 @@ impl SerializedTx {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ParsedUTXO {
     txid: String,
     vout: u32,
