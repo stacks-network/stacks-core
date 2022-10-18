@@ -1129,6 +1129,16 @@ impl MemPoolDB {
         Ok(updated)
     }
 
+    pub fn bucket_candidates<C>(
+        &mut self,
+        clarity_tx: &mut C,
+    ) -> ()
+        where
+            C: ClarityConnection,
+    {
+        todo!()
+    }
+
     ///
     /// Iterate over candidates in the mempool
     ///  `todo` will be called once for each transaction whose origin nonce is equal
