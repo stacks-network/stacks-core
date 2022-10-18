@@ -1,8 +1,9 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::convert::TryInto;
-use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
+use std::time::SystemTime;
+use std::{convert, fs, thread};
 
 use rand::RngCore;
 
@@ -367,25 +368,158 @@ pub struct Config {
     pub estimation: FeeEstimationConfig,
 }
 
-/// Dynamic configuration struct to enable reloading configuration settings.
 #[derive(Clone, Debug)]
-pub struct DynConfig {
-    config: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>,
+pub struct ConfigLoader {
+    config_handle: ConfigHandle,
+    config_path: Option<String>,
+    load_time: SystemTime,
 }
 
-impl DynConfig {
-    pub fn new(config: Config) -> DynConfig {
-        DynConfig {
-            config: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config))),
+impl ConfigLoader {
+    pub fn new(config: &Config, config_path: Option<String>) -> ConfigLoader {
+        Self {
+            config_handle: ConfigHandle::new(config.clone()),
+            config_path,
+            load_time: SystemTime::now(),
+        }
+    }
+
+    pub fn get_config_handle(&self) -> &ConfigHandle {
+        &self.config_handle
+    }
+
+    pub fn reload(&mut self) {
+        let config_path = match &self.config_path {
+            Some(config_path) => config_path,
+            None => {
+                return;
+            }
+        };
+
+        let config_file_time = match fs::metadata(&config_path)
+            .map(|m| m.modified()).and_then(convert::identity)
+        {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("Failed to get modified time of config file: {}", e);
+                return;
+            }
+        };
+
+        self.load_time = config_file_time;
+        if config_file_time <= self.load_time {
+            return;
+        }
+
+        let config = Self::load(&config_path);
+        match config {
+            Ok(new_config) => {
+                info!("Loaded config at {}", config_path);
+                let config_handle = &self.config_handle;
+                let old_config = config_handle.get();
+                Self::diff_config(&old_config, &new_config);
+                config_handle.replace(&new_config);
+            }
+            Err(e) => warn!("Failed to reload config: {}", e),
+        }
+    }
+
+    fn load(config_path: &String) -> Result<Config, String> {
+        let config_file = ConfigFile::from_path(&config_path)
+            .map_err(|e| format!("Failed to load config file: {}", e))?;
+        let config = Config::from_config_file(config_file.clone())
+            .map_err(|e| format!("Failed to parse config file: {}", e))?;
+        Ok(config)
+    }
+
+    fn diff_config(old_config: &Config, new_config: &Config) {
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.burnchain.burn_fee_cap,
+            "burnchain.burn_fee_cap",
+        );
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.burnchain.satoshis_per_byte,
+            "burnchain.satoshis_per_byte",
+        );
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.burnchain.rbf_fee_increment,
+            "burnchain.rbf_fee_increment",
+        );
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.burnchain.max_rbf,
+            "burnchain.max_rbf",
+        );
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.node.microblock_frequency,
+            "node.microblock_frequency",
+        );
+        Self::visit_diff(
+            &old_config,
+            &new_config,
+            |s| &s.node.wait_time_for_microblocks,
+            "node.wait_time_for_microblocks",
+        );
+    }
+
+    fn visit_diff<Struct, Field: PartialEq + std::fmt::Display>(
+        struct1: &Struct,
+        struct2: &Struct,
+        extractor: fn(&Struct) -> &Field,
+        field_name: &str,
+    ) {
+        let field1 = extractor(struct1);
+        let field2 = extractor(struct2);
+        if field1 != field2 {
+            info!("{} changed from {} to {}", field_name, field1, field2)
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ConfigLoaderHandle {
+    handle: std::sync::Arc<std::sync::Mutex<RefCell<ConfigLoader>>>
+}
+
+impl ConfigLoaderHandle {
+    pub fn new(config_loader: ConfigLoader) -> ConfigLoaderHandle {
+        ConfigLoaderHandle {
+            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config_loader)))
+        }
+    }
+
+    pub fn get(&self) -> ConfigLoader {
+        self.handle.lock().unwrap().borrow().clone()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ConfigHandle {
+    handle: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>,
+}
+
+impl ConfigHandle {
+    pub fn new(config: Config) -> ConfigHandle {
+        ConfigHandle {
+            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config))),
         }
     }
 
     pub fn replace(&self, config: &Config) {
-        self.config.lock().unwrap().replace(config.clone());
+        self.handle.lock().unwrap().replace(config.clone());
     }
 
     pub fn get(&self) -> Config {
-        self.config.lock().unwrap().borrow().clone()
+        self.handle.lock().unwrap().borrow().clone()
     }
 }
 
@@ -422,6 +556,13 @@ lazy_static! {
 
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
+        Config::from_config_file_with_options(config_file, false)
+    }
+
+    pub fn from_config_file_with_options(
+        config_file: ConfigFile,
+        verbose: bool,
+    ) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -430,17 +571,20 @@ impl Config {
                     Some(seed) => Some(seed),
                     None => match std::env::var("STACKS_NODE_SEED") {
                         Ok(seed) => {
-                            info!("Using STACKS_NODE_SEED for node.seed");
+                            if verbose {
+                                info!("Using STACKS_NODE_SEED for node.seed");
+                            }
                             Some(seed)
-                        },
-                        Err(_) => None
+                        }
+                        Err(_) => None,
                     },
                 };
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node_seed_bytes {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| format!("node.seed should be a hex encoded string"))?,
-                        None => &default_node_config.seed,
+                        Some(seed) => hex_bytes(&seed)
+                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
+                        None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
                     rpc_bind: rpc_bind.clone(),
@@ -575,11 +719,15 @@ impl Config {
                         .rpc_ssl
                         .unwrap_or(default_burnchain_config.rpc_ssl),
                     username: burnchain.username.or_else(|| {
-                        info!("Using STACKS_BURNCHAIN_USERNAME");
+                        if verbose {
+                            info!("Using STACKS_BURNCHAIN_USERNAME");
+                        }
                         std::env::var("STACKS_BURNCHAIN_USERNAME").ok()
                     }),
                     password: burnchain.password.or_else(|| {
-                        info!("Using STACKS_BURNCHAIN_PASSWORD");
+                        if verbose {
+                            info!("Using STACKS_BURNCHAIN_PASSWORD");
+                        }
                         std::env::var("STACKS_BURNCHAIN_PASSWORD").ok()
                     }),
                     timeout: burnchain

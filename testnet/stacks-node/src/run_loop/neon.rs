@@ -41,7 +41,7 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
-use crate::config::DynConfig;
+use crate::config::{ConfigLoaderHandle, ConfigLoader, ConfigHandle};
 use libc;
 
 pub const STDERR: i32 = 2;
@@ -128,7 +128,7 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
-    dyn_config: DynConfig,
+    config_loader_handle: ConfigLoaderHandle,
     pub callbacks: RunLoopCallbacks,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
@@ -160,7 +160,7 @@ fn async_safe_write_stderr(msg: &str) {
 
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, config_loader: ConfigLoader) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let pox_watchdog_comms = PoxSyncWatchdogComms::new(should_keep_running.clone());
@@ -170,14 +170,13 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
-        let dyn_config = DynConfig::new(config.clone());
         Self {
             config,
-            dyn_config,
+            config_loader_handle: ConfigLoaderHandle::new(config_loader),
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
-            should_keep_running: should_keep_running,
+            should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
             is_miner: None,
@@ -218,9 +217,9 @@ impl RunLoop {
         &self.config
     }
 
-    pub fn dyn_config(&self) -> &DynConfig {
-        &self.dyn_config
-    }
+    pub fn config_loader_handle(&self) -> &ConfigLoaderHandle { &self.config_loader_handle }
+
+    pub fn config_handle(&self) -> ConfigHandle { self.config_loader_handle.get().get_config_handle().clone() }
 
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
         self.event_dispatcher.clone()
@@ -331,7 +330,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
-            self.dyn_config.clone(),
+            self.config_handle().clone(),
             Some(coordinator_senders),
             burnchain_opt,
             Some(self.should_keep_running.clone()),

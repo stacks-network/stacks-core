@@ -51,6 +51,7 @@ use std::convert::TryInto;
 use std::panic;
 use std::process;
 
+use crate::config::ConfigLoader;
 use backtrace::Backtrace;
 
 fn main() {
@@ -209,90 +210,11 @@ fn main() {
         || config.burnchain.mode == "krypton"
         || config.burnchain.mode == "mainnet"
     {
-        let mut run_loop = neon::RunLoop::new(config);
+        let config_loader = ConfigLoader::new(&config, start_config_path);
+        let mut run_loop = neon::RunLoop::new(config, config_loader);
         run_loop.start(None, mine_start.unwrap_or(0));
-
-        if let Some(config_path) = start_config_path {
-            let dyn_config = run_loop.dyn_config().clone();
-            let mut signals =
-                signal_hook::iterator::Signals::new(&[signal_hook::consts::SIGUSR1]).unwrap();
-            thread::Builder::new()
-                .name("config-loader".to_string())
-                .spawn(move || {
-                    for sig in signals.forever() {
-                        let config_file = ConfigFile::from_path(&config_path);
-                        match config_file {
-                            Err(e) => {
-                                error!("Failed to load config file: {}", e);
-                            }
-                            Ok(config_file) => {
-                                match Config::from_config_file(config_file.clone()) {
-                                    Err(e) => {
-                                        error!("Failed to load config: {}", e);
-                                    }
-                                    Ok(config) => {
-                                        info!("Loaded config at {}", config_path);
-                                        let prior_config = dyn_config.get();
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.burnchain.burn_fee_cap,
-                                            "burnchain.burn_fee_cap",
-                                        );
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.burnchain.satoshis_per_byte,
-                                            "burnchain.satoshis_per_byte",
-                                        );
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.burnchain.rbf_fee_increment,
-                                            "burnchain.rbf_fee_increment",
-                                        );
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.burnchain.max_rbf,
-                                            "burnchain.max_rbf",
-                                        );
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.node.microblock_frequency,
-                                            "node.microblock_frequency",
-                                        );
-                                        visit_diff(
-                                            &prior_config,
-                                            &config,
-                                            |s| &s.node.wait_time_for_microblocks,
-                                            "node.wait_time_for_microblocks",
-                                        );
-                                        dyn_config.replace(&config);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
-                .unwrap();
-        }
     } else {
         println!("Burnchain mode '{}' not supported", config.burnchain.mode);
-    }
-}
-
-fn visit_diff<Struct, Field: PartialEq + std::fmt::Display>(
-    struct1: &Struct,
-    struct2: &Struct,
-    extractor: fn(&Struct) -> &Field,
-    field_name: &str,
-) {
-    let field1 = extractor(struct1);
-    let field2 = extractor(struct2);
-    if field1 != field2 {
-        info!("{} changed from {} to {}", field_name, field1, field2)
     }
 }
 
