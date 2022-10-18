@@ -478,6 +478,18 @@ impl PoxAddress {
             }
         }
     }
+
+    /// Construct from hash mode and hash160
+    #[cfg(any(test, feature = "testing"))]
+    pub fn from_legacy(hash_mode: AddressHashMode, hash_bytes: Hash160) -> PoxAddress {
+        PoxAddress::Standard(
+            StacksAddress {
+                version: hash_mode.to_version_testnet(),
+                bytes: hash_bytes,
+            },
+            Some(hash_mode),
+        )
+    }
 }
 
 impl StacksAddressExtensions for StacksAddress {
