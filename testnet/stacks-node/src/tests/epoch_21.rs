@@ -1263,7 +1263,7 @@ fn transition_adds_get_pox_addr_recipients() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if parsed.txid() == cc_txid {
                 // check events for this block
-                for (i, event) in events.iter().enumerate() {
+                for (_i, event) in events.iter().enumerate() {
                     if let Some(cev) = event.get("contract_event") {
                         // strip leading `0x`
                         let clarity_serialized_value = hex_bytes(

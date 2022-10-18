@@ -20,7 +20,6 @@ pub struct Keychain {
     microblocks_secret_keys: Vec<StacksPrivateKey>,
     vrf_secret_keys: Vec<VRFPrivateKey>,
     vrf_map: HashMap<VRFPublicKey, VRFPrivateKey>,
-    rotations: u64,
 }
 
 impl Keychain {
@@ -46,7 +45,6 @@ impl Keychain {
             microblocks_secret_keys: vec![],
             secret_keys,
             threshold,
-            rotations: 0,
             vrf_secret_keys: vec![],
             vrf_map: HashMap::new(),
         }

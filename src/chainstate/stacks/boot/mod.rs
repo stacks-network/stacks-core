@@ -788,28 +788,8 @@ pub mod test {
 
     /// Extract a PoX address from its tuple representation.
     /// Doesn't work on segwit addresses
-    fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
-        let version_value = tuple_data
-            .get("version")
-            .expect("FATAL: no 'version' field in pox-addr")
-            .to_owned();
-        let hashbytes_value = tuple_data
-            .get("hashbytes")
-            .expect("FATAL: no 'hashbytes' field in pox-addr")
-            .to_owned();
-
-        let version_u8 = version_value.expect_buff_padded(1, 0)[0];
-        let version: AddressHashMode = version_u8
-            .try_into()
-            .expect("FATAL: PoX version is not a supported version byte");
-
-        let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
-
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
-        let hashbytes = Hash160(hashbytes_20);
-
-        (version, hashbytes)
+    fn tuple_to_pox_addr(tuple_data: TupleData) -> PoxAddress {
+        PoxAddress::try_from_pox_tuple(false, &Value::Tuple(tuple_data)).unwrap()
     }
 
     #[test]
@@ -1120,7 +1100,7 @@ pub mod test {
     pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
-    ) -> Option<(u128, (AddressHashMode, Hash160), u128, u128)> {
+    ) -> Option<(u128, PoxAddress, u128, u128)> {
         let value_opt = eval_at_tip(
             peer,
             "pox",
@@ -1210,10 +1190,6 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         make_pox_contract_call(
             key,
             nonce,
@@ -1228,35 +1204,6 @@ pub mod test {
     }
 
     pub fn make_pox_2_lockup(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        amount: u128,
-        addr_version: AddressHashMode,
-        addr_bytes: Hash160,
-        lock_period: u128,
-        burn_ht: u64,
-    ) -> StacksTransaction {
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            POX_2_NAME,
-            "stack-stx",
-            vec![
-                Value::UInt(amount),
-                make_pox_addr(addr_version, addr_bytes),
-                Value::UInt(burn_ht as u128),
-                Value::UInt(lock_period),
-            ],
-        )
-        .unwrap();
-
-        make_tx(key, nonce, 0, payload)
-    }
-
-    pub fn make_pox_2_lockup_raw(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
@@ -1285,21 +1232,34 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_2_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_2_NAME,
+            "stack-increase",
+            vec![Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_2_extend(
         key: &StacksPrivateKey,
         nonce: u64,
-        addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr: PoxAddress,
         lock_period: u128,
     ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox-2",
             "stack-extend",
-            vec![
-                Value::UInt(lock_period),
-                make_pox_addr(addr_version, addr_bytes),
-            ],
+            vec![Value::UInt(lock_period), addr_tuple],
         )
         .unwrap();
 
