@@ -404,7 +404,7 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => hex_bytes(&seed)
-                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
+                            .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: node.working_dir.unwrap_or(default_node_config.working_dir),
@@ -418,7 +418,7 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| {
+                        Some(seed) => hex_bytes(&seed).map_err(|_e| {
                             format!("node.local_peer_seed should be a hex encoded string")
                         })?,
                         None => default_node_config.local_peer_seed,
