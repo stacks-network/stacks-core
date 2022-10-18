@@ -1290,15 +1290,12 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    pub fn bucket_candidates<C>(
+    pub fn bucket_candidates<C: ClarityConnection, E: From<db_error> + From<ChainstateError>> (
         &mut self,
         clarity_tx: &mut C,
     ) -> Result<(), E>
-        where
-            C: ClarityConnection,
-            E: From<db_error> + From<ChainstateError>,
-
     {
+        let settings = MemPoolWalkSettings::default();
         let start_time = Instant::now();
         let mut total_considered = 0;
 
@@ -1425,17 +1422,18 @@ impl MemPoolDB {
                 }
             };
 
-            // todo: add counting code here
-
+            // todo: add better code here
+            total_considered += 1;
+            
             // Bump nonces in the cache for the executed transaction
             nonce_cache.update(
-                consider.tx.metadata.origin_address,
+                candidate.origin_address,
                 expected_origin_nonce + 1,
                 self.conn(),
             );
-            if consider.tx.tx.auth.is_sponsored() {
+            if candidate.sponsor_address != candidate.origin_address {
                 nonce_cache.update(
-                    consider.tx.metadata.sponsor_address,
+                    candidate.sponsor_address,
                     expected_sponsor_nonce + 1,
                     self.conn(),
                 );
@@ -1454,7 +1452,7 @@ impl MemPoolDB {
             "considered_txs" => total_considered,
             "elapsed_ms" => start_time.elapsed().as_millis()
         );
-        Ok(total_considered)
+        Ok(())
     }
 
     ///
