@@ -420,7 +420,7 @@ impl PoxConstants {
         if !Self::has_pox_sunset(epoch_id) {
             false
         } else {
-            burn_block_height > self.sunset_end
+            burn_block_height >= self.sunset_end
         }
     }
 
