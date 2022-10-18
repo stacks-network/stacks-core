@@ -161,6 +161,10 @@ fn test_simple_read_only_violations() {
         "(define-map tokens { account: principal } { balance: int })
          (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
          (define-read-only (not-reading-only)
+            (replace-at (func1) u0 3))",
+        "(define-map tokens { account: principal } { balance: int })
+         (define-private (func1) (begin (map-set tokens (tuple (account tx-sender)) (tuple (balance 10))) (list 1 2)))
+         (define-read-only (not-reading-only)
             (as-max-len? (func1) 3))",
         "(define-read-only (not-reading-only)
             (stx-burn? u10 tx-sender))",
