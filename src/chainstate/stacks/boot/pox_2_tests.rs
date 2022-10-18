@@ -641,8 +641,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         &bob,
         0,
         512 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -694,8 +696,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         &alice,
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         12,
         tip.block_height,
     );
@@ -929,8 +933,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &alice,
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -939,8 +945,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &bob,
         0,
         1 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -1460,8 +1468,10 @@ fn stack_increase() {
         &alice,
         alice_nonce,
         first_lockup_amt,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -1741,8 +1751,10 @@ fn test_lock_period_invariant_extend_transition() {
     let alice_lockup = make_pox_2_extend(
         &alice,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
     );
 
@@ -1991,8 +2003,10 @@ fn test_pox_extend_transition_pox_2() {
         &bob,
         0,
         BOB_LOCKUP,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         3,
         tip.block_height,
     );
@@ -2001,8 +2015,10 @@ fn test_pox_extend_transition_pox_2() {
     let alice_lockup = make_pox_2_extend(
         &alice,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
     );
 
@@ -2017,8 +2033,10 @@ fn test_pox_extend_transition_pox_2() {
     let bob_extend = make_pox_2_extend(
         &bob,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         1,
     );
 
@@ -2853,8 +2871,10 @@ fn test_pox_2_getters() {
         &alice,
         0,
         LOCKUP_AMT,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         4,
         tip.block_height,
     );
@@ -3144,8 +3164,7 @@ fn test_get_pox_addrs() {
                             key,
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
-                            *hash_mode,
-                            key_to_stacks_addr(key).bytes,
+                            PoxAddress::from_legacy(*hash_mode, key_to_stacks_addr(key).bytes),
                             2,
                             tip.block_height,
                         );
@@ -3399,7 +3418,7 @@ fn test_stack_with_segwit() {
                 let mut block_txs = vec![coinbase_tx];
 
                 if tenure_id == 1 {
-                    let segwit_p2wpkh_lockup = make_pox_2_lockup_raw(
+                    let segwit_p2wpkh_lockup = make_pox_2_lockup(
                         &segwit_keys[0],
                         0,
                         1024 * POX_THRESHOLD_STEPS_USTX,
@@ -3409,7 +3428,7 @@ fn test_stack_with_segwit() {
                     );
                     block_txs.push(segwit_p2wpkh_lockup);
 
-                    let segwit_p2wsh_lockup = make_pox_2_lockup_raw(
+                    let segwit_p2wsh_lockup = make_pox_2_lockup(
                         &segwit_keys[1],
                         0,
                         1024 * POX_THRESHOLD_STEPS_USTX,
@@ -3419,7 +3438,7 @@ fn test_stack_with_segwit() {
                     );
                     block_txs.push(segwit_p2wsh_lockup);
 
-                    let segwit_p2tr_lockup = make_pox_2_lockup_raw(
+                    let segwit_p2tr_lockup = make_pox_2_lockup(
                         &segwit_keys[2],
                         0,
                         1024 * POX_THRESHOLD_STEPS_USTX,
@@ -3433,8 +3452,10 @@ fn test_stack_with_segwit() {
                         &segwit_keys[3],
                         0,
                         1024 * POX_THRESHOLD_STEPS_USTX,
-                        AddressHashMode::SerializeP2PKH,
-                        Hash160([0x04; 20]),
+                        PoxAddress::from_legacy(
+                            AddressHashMode::SerializeP2PKH,
+                            Hash160([0x04; 20]),
+                        ),
                         2,
                         tip.block_height,
                     );
