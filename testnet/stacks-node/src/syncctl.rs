@@ -27,8 +27,6 @@ pub struct PoxSyncWatchdogComms {
     inv_sync_passes: Arc<AtomicU64>,
     /// how many times have we done a download pass?
     download_passes: Arc<AtomicU64>,
-    /// What's the burnchain tip we last saw?
-    burnchain_tip_height: Arc<AtomicU64>,
     /// What's our last IBD status?
     last_ibd: Arc<AtomicBool>,
     /// Should keep running?
@@ -41,7 +39,6 @@ impl PoxSyncWatchdogComms {
             p2p_state_passes: Arc::new(AtomicU64::new(0)),
             inv_sync_passes: Arc::new(AtomicU64::new(0)),
             download_passes: Arc::new(AtomicU64::new(0)),
-            burnchain_tip_height: Arc::new(AtomicU64::new(0)),
             last_ibd: Arc::new(AtomicBool::new(true)),
             should_keep_running,
         }
