@@ -2443,6 +2443,306 @@ impl StacksBlockBuilder {
 
         Ok((block, consumed, size))
     }
+
+    pub fn count_mempool_size<'a, 'b>(
+        clarity_tx: &mut ClarityTx<'a, 'b>
+        mempool: &mut MemPoolDB,
+    ) -> Result<(StacksBlock, ExecutionCost, u64), Error> {
+        let mempool_settings = MemPoolWalkSettings::default();
+        let max_miner_time_ms = settings.max_miner_time_ms;
+
+        if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
+        } else {
+            return Err(Error::MemPoolError(
+                "Not a coinbase transaction".to_string(),
+            ));
+        }
+
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            parent_stacks_header.consensus_hash.clone(),
+            parent_stacks_header.anchored_header.block_hash(),
+            parent_stacks_header.stacks_block_height,
+        );
+
+        debug!(
+            "Build anchored block off of {}/{} height {}",
+            &tip_consensus_hash, &tip_block_hash, tip_height
+        );
+
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            parent_stacks_header,
+            proof,
+            total_burn,
+            pubkey_hash,
+        )?;
+
+        let ts_start = get_epoch_time_ms();
+
+        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+        let ast_rules = miner_epoch_info.ast_rules;
+        if ast_rules != ASTRules::Typical {
+            builder.header.version = STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE;
+        }
+
+        let (mut epoch_tx, confirmed_mblock_cost) =
+            builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
+        let stacks_epoch_id = epoch_tx.get_epoch();
+        let block_limit = epoch_tx
+            .block_limit()
+            .expect("Failed to obtain block limit from miner's block connection");
+
+        let mut tx_events = Vec::new();
+        tx_events.push(
+            builder
+                .try_mine_tx(&mut epoch_tx, coinbase_tx, ast_rules.clone())?
+                .convert_to_event(),
+        );
+
+        mempool.reset_last_known_nonces()?;
+
+        mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
+
+        let mut considered = HashSet::new(); // txids of all transactions we looked at
+        let mut mined_origin_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction origins to the nonces we used
+        let mut mined_sponsor_nonces: HashMap<StacksAddress, u64> = HashMap::new(); // map addrs of mined transaction sponsors to the nonces we used
+
+        let mut invalidated_txs = vec![];
+        let mut to_drop_and_blacklist = vec![];
+
+        let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
+        let deadline = ts_start + (max_miner_time_ms as u128);
+        let mut num_txs = 0;
+
+        debug!(
+            "Anchored block transaction selection begins (child of {})",
+            &parent_stacks_header.anchored_header.block_hash()
+        );
+        let result = {
+            let mut intermediate_result = Ok(0);
+            while block_limit_hit != BlockLimitFunction::LIMIT_REACHED {
+                let mut num_considered = 0;
+                intermediate_result = mempool.iterate_candidates(
+                    &mut epoch_tx,
+                    &mut tx_events,
+                    tip_height,
+                    mempool_settings.clone(),
+                    |epoch_tx, to_consider, estimator| {
+                        let txinfo = &to_consider.tx;
+                        let update_estimator = to_consider.update_estimate;
+
+                        if block_limit_hit == BlockLimitFunction::LIMIT_REACHED {
+                            return Ok(None);
+                        }
+                        if get_epoch_time_ms() >= deadline {
+                            debug!("Miner mining time exceeded ({} ms)", max_miner_time_ms);
+                            return Ok(None);
+                        }
+
+                        // skip transactions early if we can
+                        if considered.contains(&txinfo.tx.txid()) {
+                            return Ok(Some(
+                                TransactionResult::skipped(
+                                    &txinfo.tx,
+                                    "Transaction already considered.".to_string(),
+                                )
+                                    .convert_to_event(),
+                            ));
+                        }
+
+                        if let Some(nonce) = mined_origin_nonces.get(&txinfo.tx.origin_address()) {
+                            if *nonce >= txinfo.tx.get_origin_nonce() {
+                                return Ok(Some(
+                                    TransactionResult::skipped(
+                                        &txinfo.tx,
+                                        format!(
+                                            "Bad origin nonce, tx nonce {} versus {}.",
+                                            txinfo.tx.get_origin_nonce(),
+                                            *nonce
+                                        ),
+                                    )
+                                        .convert_to_event(),
+                                ));
+                            }
+                        }
+                        if let Some(sponsor_addr) = txinfo.tx.sponsor_address() {
+                            if let Some(nonce) = mined_sponsor_nonces.get(&sponsor_addr) {
+                                if let Some(sponsor_nonce) = txinfo.tx.get_sponsor_nonce() {
+                                    if *nonce >= sponsor_nonce {
+                                        return Ok(Some(
+                                            TransactionResult::skipped(
+                                                &txinfo.tx,
+                                                format!(
+                                                    "Bad sponsor nonce, tx nonce {} versus {}.",
+                                                    sponsor_nonce, *nonce
+                                                ),
+                                            )
+                                                .convert_to_event(),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+
+                        considered.insert(txinfo.tx.txid());
+                        num_considered += 1;
+
+                        let tx_result = builder.try_mine_tx_with_len(
+                            epoch_tx,
+                            &txinfo.tx,
+                            txinfo.metadata.len,
+                            &block_limit_hit,
+                            ast_rules,
+                        );
+
+                        let result_event = tx_result.convert_to_event();
+                        match tx_result {
+                            TransactionResult::Success(TransactionSuccess { receipt, .. }) => {
+                                num_txs += 1;
+                                if update_estimator {
+                                    if let Err(e) = estimator.notify_event(
+                                        &txinfo.tx.payload,
+                                        &receipt.execution_cost,
+                                        &block_limit,
+                                        &stacks_epoch_id,
+                                    ) {
+                                        warn!("Error updating estimator";
+                                              "txid" => %txinfo.metadata.txid,
+                                              "error" => ?e);
+                                    }
+                                }
+                                mined_origin_nonces.insert(
+                                    txinfo.tx.origin_address(),
+                                    txinfo.tx.get_origin_nonce(),
+                                );
+                                if let (Some(sponsor_addr), Some(sponsor_nonce)) =
+                                (txinfo.tx.sponsor_address(), txinfo.tx.get_sponsor_nonce())
+                                {
+                                    mined_sponsor_nonces.insert(sponsor_addr, sponsor_nonce);
+                                }
+                            }
+                            TransactionResult::Skipped(TransactionSkipped { error, .. })
+                            | TransactionResult::ProcessingError(TransactionError {
+                                                                     error, ..
+                                                                 }) => {
+                                match &error {
+                                    Error::StacksTransactionSkipped(_) => {}
+                                    Error::BlockTooBigError => {
+                                        // done mining -- our execution budget is exceeded.
+                                        // Make the block from the transactions we did manage to get
+                                        debug!("Block budget exceeded on tx {}", &txinfo.tx.txid());
+                                        if block_limit_hit == BlockLimitFunction::NO_LIMIT_HIT {
+                                            debug!("Switch to mining stx-transfers only");
+                                            block_limit_hit =
+                                                BlockLimitFunction::CONTRACT_LIMIT_HIT;
+                                        } else if block_limit_hit
+                                            == BlockLimitFunction::CONTRACT_LIMIT_HIT
+                                        {
+                                            debug!(
+                                                "Stop mining anchored block due to limit exceeded"
+                                            );
+                                            block_limit_hit = BlockLimitFunction::LIMIT_REACHED;
+                                            return Ok(None);
+                                        }
+                                    }
+                                    Error::TransactionTooBigError => {
+                                        invalidated_txs.push(txinfo.metadata.txid);
+                                    }
+                                    Error::InvalidStacksTransaction(_, true) => {
+                                        // if we have an invalid transaction that was quietly ignored, don't warn here either
+                                    }
+                                    e => {
+                                        warn!("Failed to apply tx {}: {:?}", &txinfo.tx.txid(), &e);
+                                        return Ok(Some(result_event));
+                                    }
+                                }
+                            }
+                            TransactionResult::Problematic(TransactionProblematic {
+                                                               tx, ..
+                                                           }) => {
+                                // drop from the mempool
+                                debug!("Drop and blacklist problematic transaction {}", &tx.txid());
+                                to_drop_and_blacklist.push(tx.txid());
+                            }
+                        }
+
+                        Ok(Some(result_event))
+                    },
+                );
+
+                if to_drop_and_blacklist.len() > 0 {
+                    let _ = mempool.drop_and_blacklist_txs(&to_drop_and_blacklist);
+                }
+
+                if intermediate_result.is_err() {
+                    break;
+                }
+
+                if num_considered == 0 {
+                    break;
+                }
+            }
+            debug!("Anchored block transaction selection finished (child of {}): {} transactions selected ({} considered)", &parent_stacks_header.anchored_header.block_hash(), num_txs, considered.len());
+            intermediate_result
+        };
+
+        mempool.drop_txs(&invalidated_txs)?;
+
+        if let Some(observer) = event_observer {
+            observer.mempool_txs_dropped(invalidated_txs, MemPoolDropReason::TOO_EXPENSIVE);
+            observer.mempool_txs_dropped(to_drop_and_blacklist, MemPoolDropReason::PROBLEMATIC);
+        }
+
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Failure building block: {}", e);
+                epoch_tx.rollback_block();
+                return Err(e);
+            }
+        }
+
+        // the prior do_rebuild logic wasn't necessary
+        // a transaction that caused a budget exception is rolled back in process_transaction
+
+        // save the block so we can build microblocks off of it
+        let block = builder.mine_anchored_block(&mut epoch_tx);
+        let size = builder.bytes_so_far;
+        let consumed = builder.epoch_finish(epoch_tx);
+
+        let ts_end = get_epoch_time_ms();
+
+        if let Some(observer) = event_observer {
+            observer.mined_block_event(
+                SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height + 1,
+                &block,
+                size,
+                &consumed,
+                &confirmed_mblock_cost,
+                tx_events,
+            );
+        }
+
+        debug!(
+            "Miner: mined anchored block";
+            "block_hash" => %block.block_hash(),
+            "height" => block.header.total_work.work,
+            "tx_count" => block.txs.len(),
+            "parent_stacks_block_hash" => %block.header.parent_block,
+            "parent_stacks_microblock" => %block.header.parent_microblock,
+            "parent_stacks_microblock_seq" => block.header.parent_microblock_sequence,
+            "block_size" => size,
+            "execution_consumed" => %consumed,
+            "assembly_time_ms" => ts_end.saturating_sub(ts_start),
+            "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
+                agg.saturating_add(tx.get_tx_fee())
+            })
+        );
+
+        Ok((block, consumed, size))
+    }
 }
 
 #[cfg(test)]

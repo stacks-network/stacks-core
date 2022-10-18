@@ -73,7 +73,7 @@ use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::clarity_vm::clarity::ClarityConnection;
 
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::miner::TransactionEvent;
+use crate::chainstate::stacks::miner::{TransactionEvent, TransactionSkippedEvent};
 use crate::chainstate::stacks::StacksBlock;
 use crate::codec::Error as codec_error;
 use crate::codec::StacksMessageCodec;
@@ -1249,6 +1249,27 @@ impl MemPoolDB {
         );
         Ok(total_considered)
     }
+
+    // pub fn classify_candidates<'a, 'b>(&mut self, clarity_tx: &mut ClarityTx<'a, 'b>) -> Result<(), E>
+    // where
+    //     E: From<db_error> + From<ChainstateError>,
+    // {
+    //     let mut tx_events = vec![];
+    //     self.iterate_candidates(
+    //         &mut clarity_tx,
+    //         &mut tx_events,
+    //         0,
+    //         MemPoolWalkSettings::default(),
+    //         |epoch_tx, to_consider, estimator| {
+    //             Ok(Some(TransactionEvent::Skipped(TransactionSkippedEvent {
+    //                 txid: to_consider.tx.tx.txid(),
+    //                 error: "Just counting.".to_string(),
+    //             })))
+    //         },
+    //     )?;
+    //
+    //     Ok(())
+    // }
 
     pub fn conn(&self) -> &DBConn {
         &self.db
