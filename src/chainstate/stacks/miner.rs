@@ -11427,7 +11427,11 @@ pub mod test {
             }
         }
 
-        mempool_settings.consider_no_estimate_tx_prob = consider_no_estimate_tx_prob;
+        mempool_settings.nonce_cache_size = nonce_and_candidate_cache_size;
+        mempool_settings.candidate_retry_cache_size =
+            nonce_and_candidate_cache_size;
+        mempool_settings.consider_no_estimate_tx_prob =
+            consider_no_estimate_tx_prob;
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
