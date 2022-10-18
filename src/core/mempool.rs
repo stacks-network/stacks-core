@@ -769,7 +769,7 @@ impl MemPoolTxInfo {
 struct NonceCache {
     cache: HashMap<StacksAddress, u64>,
     /// The maximum size that this cache can be.
-    max_size: usize,
+    max_cache_size: usize,
 }
 
 impl NonceCache {
@@ -779,7 +779,7 @@ impl NonceCache {
             .expect("Could not cast `nonce_cache_size` as `usize`.");
         Self {
             cache: HashMap::new(),
-            max_size,
+            max_cache_size: max_size,
         }
     }
 
@@ -787,6 +787,9 @@ impl NonceCache {
     where
         C: ClarityConnection,
     {
+        #[cfg(test)]
+        assert!(self.cache.len() <= self.max_cache_size);
+
         match self.cache.get(address) {
             Some(nonce) => *nonce,
             None => {
@@ -795,7 +798,7 @@ impl NonceCache {
                 // will be looked up every time. This is bad for performance
                 // but is unlikely to occur due to the typical number of
                 // transactions processed before filling a block.
-                if self.cache.len() < self.max_size {
+                if self.cache.len() < self.max_cache_size {
                     self.cache.insert(address.clone(), nonce);
                 }
                 nonce
@@ -818,7 +821,7 @@ struct CandidateCache {
     cache: VecDeque<MemPoolTxInfoPartial>,
     next: VecDeque<MemPoolTxInfoPartial>,
     /// The maximum size that this cache can be.
-    max_size: usize,
+    max_cache_size: usize,
 }
 
 impl CandidateCache {
@@ -829,7 +832,7 @@ impl CandidateCache {
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
-            max_size,
+            max_cache_size: max_size,
         }
     }
 
@@ -840,8 +843,13 @@ impl CandidateCache {
 
     /// Push a candidate to the cache for the next iteration.
     fn push(&mut self, tx: MemPoolTxInfoPartial) {
-        if self.next.len() < self.max_size {
+        if self.next.len() < self.max_cache_size {
             self.next.push_back(tx);
+        }
+
+        #[cfg(test)] {
+            assert!(self.cache.len() <= self.max_cache_size + 1);
+            assert!(self.next.len() <= self.max_cache_size + 1);
         }
     }
 
@@ -855,6 +863,11 @@ impl CandidateCache {
         // the `push` method.
         self.next.append(&mut self.cache);
         self.cache = std::mem::take(&mut self.next);
+
+        #[cfg(test)] {
+            assert!(self.cache.len() <= self.max_cache_size + 1);
+            assert!(self.next.len() <= self.max_cache_size + 1);
+        }
     }
 
     /// Total length of the cache.
