@@ -534,6 +534,18 @@ const MEMPOOL_SCHEMA_5: &'static [&'static str] = &[
     "#,
 ];
 
+const MEMPOOL_SCHEMA_6_NONCES: &'static [&'static str] = &[
+    r#"
+    CREATE TABLE nonces(
+        address TEXT PRIMARY KEY NOT NULL,
+        nonce INTEGER NOT NULL
+    );
+    "#,
+    r#"
+    INSERT INTO schema_version (version) VALUES (6)
+    "#,
+];
+
 const MEMPOOL_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS by_txid ON mempool(txid);",
     "CREATE INDEX IF NOT EXISTS by_height ON mempool(height);",
@@ -783,39 +795,74 @@ impl NonceCache {
         }
     }
 
-    fn get<C>(&mut self, address: &StacksAddress, clarity_tx: &mut C) -> u64
+    fn get<C>(&mut self, address: &StacksAddress, clarity_tx: &mut C, mempool_db: &DBConn) -> u64
     where
         C: ClarityConnection,
     {
         #[cfg(test)]
         assert!(self.cache.len() <= self.max_cache_size);
 
+        // Check in-memory cache
         match self.cache.get(address) {
             Some(nonce) => *nonce,
             None => {
-                let nonce = StacksChainState::get_nonce(clarity_tx, &address.clone().into());
-                // Simple size cap to the cache -- once it's full, all nonces
-                // will be looked up every time. This is bad for performance
-                // but is unlikely to occur due to the typical number of
-                // transactions processed before filling a block.
-                if self.cache.len() < self.max_cache_size {
-                    self.cache.insert(address.clone(), nonce);
+                // Check sqlite cache
+                let opt_nonce = match db_get_nonce(mempool_db, address) {
+                    Ok(opt_nonce) => opt_nonce,
+                    Err(e) => {
+                        warn!("error retrieving nonce from mempool db: {}", e);
+                        None
+                    }
+                };
+                match opt_nonce {
+                    Some(nonce) => nonce,
+                    None => {
+                        let nonce =
+                            StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+                        // Simple size cap to the cache -- once it's full, all nonces
+                        // will be looked up every time. This is bad for performance
+                        // but is unlikely to occur due to the typical number of
+                        // transactions processed before filling a block.
+                        if self.cache.len() < self.max_cache_size {
+                            self.cache.insert(address.clone(), nonce);
+                        } else {
+                            // The in-memory cache is full, write it to the db cache
+                            let _ = db_set_nonce(mempool_db, address, nonce);
+                        }
+                        nonce
+                    }
                 }
-                nonce
             }
         }
     }
 
-    fn increment(&mut self, address: StacksAddress) {
+    fn update(&mut self, address: StacksAddress, value: u64, mempool_db: &DBConn) {
         match self.cache.get_mut(&address) {
-            Some(mut nonce) => {
-                *nonce += 1;
+            Some(nonce) => {
+                *nonce = value;
             }
             None => {
-                // do nothing, not in cache yet
+                // The in-memory cache is full, write to the db cache
+                let _ = db_set_nonce(mempool_db, &address, value);
             }
         }
     }
+}
+
+fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<(), db_error> {
+    let addr_str = address.to_string();
+    let nonce_i64 = u64_to_sql(nonce)?;
+
+    let sql = "UPDATE nonces SET nonce = ? WHERE address = ?";
+    conn.execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+    Ok(())
+}
+
+fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, db_error> {
+    let addr_str = address.to_string();
+
+    let sql = "SELECT nonce FROM nonces WHERE address = ?";
+    query_row(conn, sql, rusqlite::params![&addr_str])
 }
 
 /// Cache potential candidate transactions for subsequent iterations.
@@ -969,6 +1016,9 @@ impl MemPoolDB {
                     MemPoolDB::denormalize_fee_rate(tx)?;
                 }
                 5 => {
+                    MemPoolDB::instantiate_nonces(tx)?;
+                }
+                6 => {
                     break;
                 }
                 _ => {
@@ -1025,6 +1075,15 @@ impl MemPoolDB {
     /// Instantiate the tx blacklist schema
     fn instantiate_tx_blacklist(tx: &DBTx) -> Result<(), db_error> {
         for sql_exec in MEMPOOL_SCHEMA_4_BLACKLIST {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Add the nonce table
+    fn instantiate_nonces(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in MEMPOOL_SCHEMA_6_NONCES {
             tx.execute_batch(sql_exec)?;
         }
 
@@ -1118,6 +1177,12 @@ impl MemPoolDB {
     pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
         let sql =
             "UPDATE mempool SET last_known_origin_nonce = NULL, last_known_sponsor_nonce = NULL";
+        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        Ok(())
+    }
+
+    pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+        let sql = "DELETE FROM nonces";
         self.db.execute(sql, rusqlite::NO_PARAMS)?;
         Ok(())
     }
@@ -1345,8 +1410,10 @@ impl MemPoolDB {
             };
 
             // Check the nonces.
-            let expected_origin_nonce = nonce_cache.get(&candidate.origin_address, clarity_tx);
-            let expected_sponsor_nonce = nonce_cache.get(&candidate.sponsor_address, clarity_tx);
+            let expected_origin_nonce =
+                nonce_cache.get(&candidate.origin_address, clarity_tx, self.conn());
+            let expected_sponsor_nonce =
+                nonce_cache.get(&candidate.sponsor_address, clarity_tx, self.conn());
             match order_nonces(
                 candidate.origin_nonce,
                 expected_origin_nonce,
@@ -1425,9 +1492,17 @@ impl MemPoolDB {
             }
 
             // Bump nonces in the cache for the executed transaction
-            nonce_cache.increment(consider.tx.metadata.origin_address);
+            nonce_cache.update(
+                consider.tx.metadata.origin_address,
+                expected_origin_nonce + 1,
+                self.conn(),
+            );
             if consider.tx.tx.auth.is_sponsored() {
-                nonce_cache.increment(consider.tx.metadata.sponsor_address);
+                nonce_cache.update(
+                    consider.tx.metadata.sponsor_address,
+                    expected_sponsor_nonce + 1,
+                    self.conn(),
+                );
             }
 
             // Reset for finding the next transaction to process

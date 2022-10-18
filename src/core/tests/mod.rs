@@ -336,7 +336,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_last_known_nonces()
+        .reset_nonce_cache()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -370,7 +370,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_last_known_nonces()
+        .reset_nonce_cache()
         .expect("Should be able to reset nonces");
 
     // The mempool iterator no longer does any consideration of what block accepted
@@ -406,7 +406,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_last_known_nonces()
+        .reset_nonce_cache()
         .expect("Should be able to reset nonces");
 
     chainstate.with_read_only_clarity_tx(
@@ -440,7 +440,7 @@ fn mempool_walk_over_fork() {
     );
 
     mempool
-        .reset_last_known_nonces()
+        .reset_nonce_cache()
         .expect("Should be able to reset nonces");
 
     // let's test replace-across-fork while we're here.

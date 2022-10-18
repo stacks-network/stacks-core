@@ -1010,7 +1010,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
-        mem_pool.reset_last_known_nonces()?;
+        mem_pool.reset_nonce_cache()?;
         let stacks_epoch_id = clarity_tx.get_epoch();
         let block_limit = clarity_tx
             .block_limit()
@@ -2201,7 +2201,7 @@ impl StacksBlockBuilder {
                 .convert_to_event(),
         );
 
-        mempool.reset_last_known_nonces()?;
+        mempool.reset_nonce_cache()?;
 
         mempool.estimate_tx_rates(100, &block_limit, &stacks_epoch_id)?;
 
@@ -11190,7 +11190,7 @@ pub mod test {
                     1,
                     &vec![StacksPublicKey::from_private(&privk)],
                 )
-                    .unwrap();
+                .unwrap();
                 (privk, addr)
             })
             .collect();
@@ -11199,11 +11199,7 @@ pub mod test {
             "mempool_walk_test_users_{}_rounds_{}_cache_size_{}_null_prob_{}",
             num_users, num_rounds, nonce_and_candidate_cache_size, consider_no_estimate_tx_prob
         );
-        let mut peer_config = TestPeerConfig::new(
-            &test_name,
-            2002,
-            2003,
-        );
+        let mut peer_config = TestPeerConfig::new(&test_name, 2002, 2003);
 
         peer_config.initial_balances = vec![];
         for (privk, addr) in &key_address_pairs {
@@ -11215,14 +11211,9 @@ pub mod test {
         let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
         let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-        let mut chainstate = instantiate_chainstate_with_balances(
-            false,
-            0x80000000,
-            &test_name,
-            vec![],
-        );
-        let chainstate_path =
-            chainstate_path(&test_name);
+        let mut chainstate =
+            instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+        let chainstate_path = chainstate_path(&test_name);
         let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
         let b_1 = make_block(
             &mut chainstate,
@@ -11287,7 +11278,7 @@ pub mod test {
                     round_index.try_into().unwrap(),
                     None,
                 )
-                    .unwrap();
+                .unwrap();
 
                 if transaction_counter & 1 == 0 {
                     mempool_tx
@@ -11311,10 +11302,8 @@ pub mod test {
         }
 
         mempool_settings.nonce_cache_size = nonce_and_candidate_cache_size;
-        mempool_settings.candidate_retry_cache_size =
-            nonce_and_candidate_cache_size;
-        mempool_settings.consider_no_estimate_tx_prob =
-            consider_no_estimate_tx_prob;
+        mempool_settings.candidate_retry_cache_size = nonce_and_candidate_cache_size;
+        mempool_settings.consider_no_estimate_tx_prob = consider_no_estimate_tx_prob;
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
@@ -11338,11 +11327,14 @@ pub mod test {
                         },
                     )
                     .unwrap();
-                assert_eq!(count_txs, transaction_counter, "Mempool should find all {} transactions", transaction_counter);
+                assert_eq!(
+                    count_txs, transaction_counter,
+                    "Mempool should find all {} transactions",
+                    transaction_counter
+                );
             },
         );
     }
-
 
     static CONTRACT: &'static str = "
 (define-map my-map int int)
