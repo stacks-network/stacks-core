@@ -210,7 +210,6 @@ use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
-use crate::stacks::vm::database::BurnStateDB;
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
@@ -1423,7 +1422,6 @@ impl BlockMinerThread {
     /// Return the microblocks we'll confirm, if there are any.
     fn load_and_vet_parent_microblocks(
         &mut self,
-        burn_db: &SortitionDB,
         chain_state: &mut StacksChainState,
         mem_pool: &mut MemPoolDB,
         parent_block_info: &mut ParentStacksBlockInfo,
@@ -1487,11 +1485,6 @@ impl BlockMinerThread {
                         parent_block_info.coinbase_nonce + 1 + i,
                         poison_payload.clone(),
                     );
-
-                    let stacks_epoch = burn_db
-                        .index_conn()
-                        .get_stacks_epoch(self.burn_block.block_height as u32)
-                        .expect("Could not find a stacks epoch.");
 
                     // submit the poison payload, privately, so we'll mine it when building the
                     // anchored block.
@@ -1645,7 +1638,6 @@ impl BlockMinerThread {
         // find the longest microblock tail we can build off of.
         // target it to the microblock tail in parent_block_info
         let microblocks_opt = self.load_and_vet_parent_microblocks(
-            &burn_db,
             &mut chain_state,
             &mut mem_pool,
             &mut parent_block_info,
