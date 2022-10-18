@@ -7990,4 +7990,54 @@ pub mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_get_set_ast_rules() {
+        let block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE - 1).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE).unwrap(),
+            ASTRules::PrecheckSize
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE + 1).unwrap(),
+            ASTRules::PrecheckSize
+        );
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1).unwrap();
+            tx.commit().unwrap();
+        }
+
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
+            ASTRules::PrecheckSize
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 2).unwrap(),
+            ASTRules::PrecheckSize
+        );
+    }
 }
