@@ -210,6 +210,11 @@ impl BitcoinRegtestController {
         )
     }
 
+    pub fn with_burnchain_test(config: Config, burnchain_config: Burnchain) -> Self {
+        let config_handle = ConfigHandle::new(config.clone());
+        Self::with_burnchain(config, config_handle, None, Some(burnchain_config), None)
+    }
+
     pub fn with_burnchain(
         config: Config,
         config_handle: ConfigHandle,
