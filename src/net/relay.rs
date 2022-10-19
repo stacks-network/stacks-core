@@ -4653,6 +4653,531 @@ pub mod test {
         })
     }
 
+    pub fn make_contract_tx(
+        sender: &StacksPrivateKey,
+        cur_nonce: u64,
+        tx_fee: u64,
+        name: &str,
+        contract: &str,
+    ) -> StacksTransaction {
+        let sender_spending_condition = TransactionSpendingCondition::new_singlesig_p2pkh(
+            StacksPublicKey::from_private(sender),
+        )
+        .expect("Failed to create p2pkh spending condition from public key.");
+
+        let spending_auth = TransactionAuth::Standard(sender_spending_condition);
+
+        let mut tx_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            spending_auth.clone(),
+            TransactionPayload::new_smart_contract(&name.to_string(), &contract.to_string())
+                .unwrap(),
+        );
+
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.auth.set_origin_nonce(cur_nonce);
+        tx_contract.set_tx_fee(tx_fee);
+
+        let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
+        tx_signer.sign_origin(sender).unwrap();
+
+        let tx_contract_signed = tx_signer.get_tx().unwrap();
+        tx_contract_signed
+    }
+
+    #[test]
+    fn test_static_problematic_tests() {
+        let spender_sk_1 = StacksPrivateKey::new();
+        let spender_sk_2 = StacksPrivateKey::new();
+        let spender_sk_3 = StacksPrivateKey::new();
+
+        let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+        let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
+        let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
+        let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+
+        let tx_edge = make_contract_tx(
+            &spender_sk_1,
+            0,
+            (tx_edge_body.len() * 100) as u64,
+            "test-edge",
+            &tx_edge_body,
+        );
+
+        // something just over the limit of the expression depth
+        let exceeds_repeat_factor = edge_repeat_factor + 1;
+        let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
+        let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
+        let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+
+        let tx_exceeds = make_contract_tx(
+            &spender_sk_2,
+            0,
+            (tx_exceeds_body.len() * 100) as u64,
+            "test-exceeds",
+            &tx_exceeds_body,
+        );
+
+        // something stupidly high over the expression depth
+        let high_repeat_factor = 128 * 1024;
+        let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
+        let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
+        let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+
+        let tx_high = make_contract_tx(
+            &spender_sk_3,
+            0,
+            (tx_high_body.len() * 100) as u64,
+            "test-high",
+            &tx_high_body,
+        );
+        assert!(
+            Relayer::static_check_problematic_relayed_tx(false, &tx_edge, ASTRules::Typical)
+                .is_ok()
+        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            &tx_exceeds,
+            ASTRules::Typical
+        )
+        .is_ok());
+        assert!(
+            Relayer::static_check_problematic_relayed_tx(false, &tx_high, ASTRules::Typical)
+                .is_ok()
+        );
+
+        assert!(
+            Relayer::static_check_problematic_relayed_tx(false, &tx_edge, ASTRules::Typical)
+                .is_ok()
+        );
+        assert!(!Relayer::static_check_problematic_relayed_tx(
+            false,
+            &tx_exceeds,
+            ASTRules::PrecheckSize
+        )
+        .is_ok());
+        assert!(!Relayer::static_check_problematic_relayed_tx(
+            false,
+            &tx_high,
+            ASTRules::PrecheckSize
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn process_new_blocks_rejects_problematic_asts() {
+        let privk = StacksPrivateKey::from_hex(
+            "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+        )
+        .unwrap();
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&privk)],
+        )
+        .unwrap();
+
+        let initial_balances = vec![(addr.to_account_principal(), 100000000000)];
+
+        let mut peer_config =
+            TestPeerConfig::new("process_new_blocks_rejects_problematic_asts", 32019, 32020);
+        peer_config.initial_balances = initial_balances;
+        peer_config.epochs = Some(vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 1,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 1,
+                end_height: i64::MAX as u64,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+        ]);
+
+        // activate new AST rules right away
+        let mut peer = TestPeer::new(peer_config);
+        let mut sortdb = peer.sortdb.take().unwrap();
+        {
+            let mut tx = sortdb
+                .tx_begin()
+                .expect("FATAL: failed to begin tx on sortition DB");
+            SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1)
+                .expect("FATAL: failed to override AST PrecheckSize rule height");
+            tx.commit()
+                .expect("FATAL: failed to commit sortition DB transaction");
+        }
+        peer.sortdb = Some(sortdb);
+
+        let chainstate_path = peer.chainstate_path.clone();
+
+        let first_stacks_block_height = {
+            let sn =
+                SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+                    .unwrap();
+            sn.block_height
+        };
+
+        let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+        let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+        let high_repeat_factor = 128 * 1024;
+        let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
+        let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
+        let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+
+        let bad_tx = make_contract_tx(
+            &privk,
+            0,
+            (tx_high_body.len() * 100) as u64,
+            "test-high",
+            &tx_high_body,
+        );
+        let bad_txid = bad_tx.txid();
+        let bad_tx_len = {
+            let mut bytes = vec![];
+            bad_tx.consensus_serialize(&mut bytes).unwrap();
+            bytes.len() as u64
+        };
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let mblock_privk = StacksPrivateKey::new();
+
+        // make one tenure with a valid block, but problematic microblocks
+        let (burn_ops, block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let coinbase_tx = make_coinbase(miner, 0);
+
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &parent_tip,
+                    vrf_proof.clone(),
+                    tip.total_burn,
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                )
+                .unwrap();
+
+                let block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    block_builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx.clone()],
+                )
+                .unwrap()
+                .0;
+
+                (block, vec![])
+            },
+        );
+
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch(&block, &consensus_hash, &vec![]);
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let (burn_ops, bad_block, mut microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+                let coinbase_tx = make_coinbase(miner, 0);
+
+                let mblock_privk = miner.next_microblock_privkey();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &parent_tip,
+                    vrf_proof.clone(),
+                    tip.total_burn,
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                )
+                .unwrap();
+
+                // this tx would be problematic without our checks
+                if let Err(ChainstateError::ProblematicTransaction(txid)) =
+                    StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        vec![coinbase_tx.clone(), bad_tx.clone()],
+                    )
+                {
+                    assert_eq!(txid, bad_txid);
+                } else {
+                    panic!("Did not get Error::ProblematicTransaction");
+                }
+
+                // make a bad block anyway
+                // don't worry about the state root
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &parent_tip,
+                    vrf_proof.clone(),
+                    tip.total_burn,
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                )
+                .unwrap();
+                let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    block_builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx.clone()],
+                )
+                .unwrap();
+
+                let mut bad_block = bad_block.0;
+                bad_block.txs.push(bad_tx.clone());
+
+                let txid_vecs = bad_block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.txid().as_bytes().to_vec())
+                    .collect();
+
+                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                bad_block.header.tx_merkle_root = merkle_tree.root();
+
+                let sort_ic = sortdb.index_conn();
+                chainstate
+                    .reload_unconfirmed_state(&sort_ic, parent_index_hash.clone())
+                    .unwrap();
+
+                // make a bad microblock
+                let mut microblock_builder = StacksMicroblockBuilder::new(
+                    parent_header_hash.clone(),
+                    parent_consensus_hash.clone(),
+                    chainstate,
+                    &sort_ic,
+                    BlockBuilderSettings::max_value(),
+                )
+                .unwrap();
+
+                // miner should fail with just the bad tx, since it's problematic
+                let mblock_err = microblock_builder
+                    .mine_next_microblock_from_txs(
+                        vec![(bad_tx.clone(), bad_tx_len)],
+                        &mblock_privk,
+                    )
+                    .unwrap_err();
+                if let ChainstateError::NoTransactionsToMine = mblock_err {
+                } else {
+                    panic!("Did not get NoTransactionsToMine");
+                }
+
+                let token_transfer = make_user_stacks_transfer(
+                    &privk,
+                    0,
+                    200,
+                    &recipient.to_account_principal(),
+                    123,
+                );
+                let tt_len = {
+                    let mut bytes = vec![];
+                    token_transfer.consensus_serialize(&mut bytes).unwrap();
+                    bytes.len() as u64
+                };
+
+                let mut bad_mblock = microblock_builder
+                    .mine_next_microblock_from_txs(
+                        vec![(token_transfer, tt_len), (bad_tx.clone(), bad_tx_len)],
+                        &mblock_privk,
+                    )
+                    .unwrap();
+
+                // miner shouldn't include the bad tx, since it's problematic
+                assert_eq!(bad_mblock.txs.len(), 1);
+                bad_mblock.txs.push(bad_tx.clone());
+
+                // force it in anyway
+                let txid_vecs = bad_mblock
+                    .txs
+                    .iter()
+                    .map(|tx| tx.txid().as_bytes().to_vec())
+                    .collect();
+
+                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                bad_mblock.header.tx_merkle_root = merkle_tree.root();
+                bad_mblock.sign(&mblock_privk).unwrap();
+
+                (bad_block, vec![bad_mblock])
+            },
+        );
+
+        let bad_mblock = microblocks.pop().unwrap();
+        let (_, _, new_consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch(&bad_block, &new_consensus_hash, &vec![]);
+
+        // stuff them all into each possible field of NetworkResult
+        // p2p messages
+        let nk = NeighborKey {
+            peer_version: 1,
+            network_id: 2,
+            addrbytes: PeerAddress([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]),
+            port: 19,
+        };
+        let preamble = Preamble {
+            peer_version: 1,
+            network_id: 2,
+            seq: 3,
+            burn_block_height: 4,
+            burn_block_hash: BurnchainHeaderHash([5u8; 32]),
+            burn_stable_block_height: 6,
+            burn_stable_block_hash: BurnchainHeaderHash([7u8; 32]),
+            additional_data: 8,
+            signature: MessageSignature([9u8; 65]),
+            payload_len: 10,
+        };
+        let bad_msgs = vec![
+            StacksMessage {
+                preamble: preamble.clone(),
+                relayers: vec![],
+                payload: StacksMessageType::Blocks(BlocksData {
+                    blocks: vec![BlocksDatum(new_consensus_hash.clone(), bad_block.clone())],
+                }),
+            },
+            StacksMessage {
+                preamble: preamble.clone(),
+                relayers: vec![],
+                payload: StacksMessageType::Microblocks(MicroblocksData {
+                    index_anchor_block: StacksBlockId::new(
+                        &new_consensus_hash,
+                        &bad_block.block_hash(),
+                    ),
+                    microblocks: vec![bad_mblock.clone()],
+                }),
+            },
+            StacksMessage {
+                preamble: preamble.clone(),
+                relayers: vec![],
+                payload: StacksMessageType::Transaction(bad_tx.clone()),
+            },
+        ];
+        let mut unsolicited = HashMap::new();
+        unsolicited.insert(nk.clone(), bad_msgs.clone());
+
+        let mut network_result = NetworkResult::new(0, 0, 0);
+        network_result.consume_unsolicited(unsolicited);
+
+        assert!(network_result.has_blocks());
+        assert!(network_result.has_microblocks());
+        assert!(network_result.has_transactions());
+
+        network_result.consume_http_uploads(
+            bad_msgs
+                .into_iter()
+                .map(|msg| msg.payload)
+                .collect::<Vec<_>>(),
+        );
+
+        assert!(network_result.has_blocks());
+        assert!(network_result.has_microblocks());
+        assert!(network_result.has_transactions());
+
+        assert_eq!(network_result.uploaded_transactions.len(), 1);
+        assert_eq!(network_result.uploaded_blocks.len(), 1);
+        assert_eq!(network_result.uploaded_microblocks.len(), 1);
+        assert_eq!(network_result.pushed_transactions.len(), 1);
+        assert_eq!(network_result.pushed_blocks.len(), 1);
+        assert_eq!(network_result.pushed_microblocks.len(), 1);
+
+        network_result
+            .blocks
+            .push((new_consensus_hash.clone(), bad_block.clone(), 123));
+        network_result.confirmed_microblocks.push((
+            new_consensus_hash.clone(),
+            vec![bad_mblock.clone()],
+            234,
+        ));
+
+        let mut sortdb = peer.sortdb.take().unwrap();
+        let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
+            Relayer::process_new_blocks(
+                &mut network_result,
+                &mut sortdb,
+                &mut peer.stacks_node.as_mut().unwrap().chainstate,
+                None,
+            )
+            .unwrap();
+
+        // despite this data showing up in all aspects of the network result, none of it actually
+        // gets relayed
+        assert_eq!(processed_blocks.len(), 0);
+        assert_eq!(processed_mblocks.len(), 0);
+        assert_eq!(relay_mblocks.len(), 0);
+        assert_eq!(bad_neighbors.len(), 0);
+
+        let txs_relayed = Relayer::process_transactions(
+            &mut network_result,
+            &sortdb,
+            &mut peer.stacks_node.as_mut().unwrap().chainstate,
+            &mut peer.mempool.as_mut().unwrap(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(txs_relayed.len(), 0);
+    }
+
     // TODO: process bans
     // TODO: test sending invalid blocks-available and microblocks-available (should result in a ban)
     // TODO: test sending invalid transactions (should result in a ban)
