@@ -1300,14 +1300,18 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    ///
     /// Iterate over candidates in the mempool
     /// `todo` will be called once for each transaction that is a valid
     /// candidate for inclusion in the next block, meaning its origin and
-    /// sponsor nonces are equal to the nonces of the corresponding accounts. 
+    /// sponsor nonces are equal to the nonces of the corresponding accounts.
     /// Best effort will be made to process the transactions in fee-rate order
     /// until the candidate cache is full, at which point, transactions with
-    /// a lower fee-rate may execute before those with a higher fee-rate.
+    /// a lower fee-rate may be considered before those with a higher fee-rate.
+    /// When the candidate cache fills, a subsequent call to
+    /// `iterate_candidates` will be needed to reconsider transactions which
+    /// were skipped on the first pass, but become valid after some lower
+    /// fee-rate transactions are considered.
+    ///
     /// The size of the candidate cache and the nonce cache are configurable
     /// in the settings struct. This method is interruptable -- in the
     /// `settings` struct, the caller may choose how long to spend iterating
