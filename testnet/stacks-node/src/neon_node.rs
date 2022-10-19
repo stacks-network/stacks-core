@@ -1640,7 +1640,6 @@ impl StacksNode {
         }
     }
 
-    ///
     /// Tell the relayer to fire off a tenure and a block commit op,
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
