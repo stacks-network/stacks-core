@@ -444,6 +444,8 @@ const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
         FOREIGN KEY (txid) REFERENCES mempool (txid) ON DELETE CASCADE ON UPDATE CASCADE
     );
     "#,
+    // The `last_known_*_nonce` columns are no longer used, beginning in schema 6,
+    // in favor of a separate `nonces` table and an in-memory cache.
     r#"
     ALTER TABLE mempool ADD COLUMN last_known_origin_nonce INTEGER;
     "#,
@@ -910,10 +912,7 @@ impl CandidateCache {
         }
 
         #[cfg(test)]
-        {
-            assert!(self.cache.len() <= self.max_cache_size + 1);
-            assert!(self.next.len() <= self.max_cache_size + 1);
-        }
+        assert!(self.cache.len() + self.next.len() <= self.max_cache_size);
     }
 
     /// Prepare for the next iteration, transferring transactions from `next` to `cache`.
@@ -1183,49 +1182,10 @@ impl MemPoolDB {
         })
     }
 
-    pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
-        let sql =
-            "UPDATE mempool SET last_known_origin_nonce = NULL, last_known_sponsor_nonce = NULL";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
-        Ok(())
-    }
-
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
         self.db.execute(sql, rusqlite::NO_PARAMS)?;
-        Ok(())
-    }
-
-    fn bump_last_known_nonces(&self, address: &StacksAddress) -> Result<(), db_error> {
-        let query_by = address.to_string();
-
-        let sql = "UPDATE mempool SET last_known_origin_nonce = last_known_origin_nonce + 1
-                   WHERE origin_address = ? AND last_known_origin_nonce IS NOT NULL";
-        self.db.execute(sql, &[&query_by])?;
-
-        let sql = "UPDATE mempool SET last_known_sponsor_nonce = last_known_sponsor_nonce + 1
-                   WHERE sponsor_address = ? AND last_known_sponsor_nonce IS NOT NULL";
-        self.db.execute(sql, &[&query_by])?;
-        Ok(())
-    }
-
-    fn update_last_known_nonces(
-        &self,
-        address: &StacksAddress,
-        nonce: u64,
-    ) -> Result<(), db_error> {
-        let addr_str = address.to_string();
-        let nonce_i64 = u64_to_sql(nonce)?;
-
-        let sql = "UPDATE mempool SET last_known_origin_nonce = ? WHERE origin_address = ?";
-        self.db
-            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
-
-        let sql = "UPDATE mempool SET last_known_sponsor_nonce = ? WHERE sponsor_address = ?";
-        self.db
-            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
-
         Ok(())
     }
 
