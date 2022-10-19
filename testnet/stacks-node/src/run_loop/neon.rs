@@ -41,7 +41,7 @@ use crate::{
 };
 
 use super::RunLoopCallbacks;
-use crate::config::{ConfigLoaderHandle, ConfigLoader, ConfigHandle};
+use crate::config::{ConfigHandle, ConfigLoader, ConfigLoaderHandle};
 use libc;
 
 pub const STDERR: i32 = 2;
@@ -217,9 +217,13 @@ impl RunLoop {
         &self.config
     }
 
-    pub fn config_loader_handle(&self) -> &ConfigLoaderHandle { &self.config_loader_handle }
+    pub fn config_loader_handle(&self) -> &ConfigLoaderHandle {
+        &self.config_loader_handle
+    }
 
-    pub fn config_handle(&self) -> ConfigHandle { self.config_loader_handle.get().get_config_handle().clone() }
+    pub fn config_handle(&self) -> ConfigHandle {
+        self.config_loader_handle.get().get_config_handle().clone()
+    }
 
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
         self.event_dispatcher.clone()

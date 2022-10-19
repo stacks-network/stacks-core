@@ -389,6 +389,7 @@ impl ConfigLoader {
     }
 
     pub fn reload(&mut self) {
+        info!("Reloading config");
         let config_path = match &self.config_path {
             Some(config_path) => config_path,
             None => {
@@ -397,7 +398,8 @@ impl ConfigLoader {
         };
 
         let config_file_time = match fs::metadata(&config_path)
-            .map(|m| m.modified()).and_then(convert::identity)
+            .map(|m| m.modified())
+            .and_then(convert::identity)
         {
             Ok(t) => t,
             Err(e) => {
@@ -427,7 +429,7 @@ impl ConfigLoader {
     fn load(config_path: &String) -> Result<Config, String> {
         let config_file = ConfigFile::from_path(&config_path)
             .map_err(|e| format!("Failed to load config file: {}", e))?;
-        let config = Config::from_config_file(config_file.clone())
+        let config = Config::from_config_file_with_options(config_file.clone(), false)
             .map_err(|e| format!("Failed to parse config file: {}", e))?;
         Ok(config)
     }
@@ -487,13 +489,13 @@ impl ConfigLoader {
 
 #[derive(Clone, Debug)]
 pub struct ConfigLoaderHandle {
-    handle: std::sync::Arc<std::sync::Mutex<RefCell<ConfigLoader>>>
+    handle: std::sync::Arc<std::sync::Mutex<RefCell<ConfigLoader>>>,
 }
 
 impl ConfigLoaderHandle {
     pub fn new(config_loader: ConfigLoader) -> ConfigLoaderHandle {
         ConfigLoaderHandle {
-            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config_loader)))
+            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config_loader))),
         }
     }
 
@@ -556,7 +558,7 @@ lazy_static! {
 
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        Config::from_config_file_with_options(config_file, false)
+        Config::from_config_file_with_options(config_file, true)
     }
 
     pub fn from_config_file_with_options(

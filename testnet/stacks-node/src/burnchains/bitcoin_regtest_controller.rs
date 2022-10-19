@@ -844,7 +844,8 @@ impl BitcoinRegtestController {
         } else {
             self.prepare_tx(
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte,
+                DUST_UTXO_LIMIT
+                    + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte,
                 None,
                 None,
                 0,
