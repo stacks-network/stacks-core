@@ -383,10 +383,20 @@ pub mod test_observer {
 }
 
 const PANIC_TIMEOUT_SECS: u64 = 600;
+
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
     btc_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
+) -> bool {
+    next_block_and_wait_with_timeout(btc_controller, blocks_processed, PANIC_TIMEOUT_SECS)
+}
+
+/// Returns `false` on a timeout, true otherwise.
+pub fn next_block_and_wait_with_timeout(
+    btc_controller: &mut BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    timeout: u64,
 ) -> bool {
     let current = blocks_processed.load(Ordering::SeqCst);
     eprintln!(
@@ -397,7 +407,7 @@ pub fn next_block_and_wait(
     btc_controller.build_next_block(1);
     let start = Instant::now();
     while blocks_processed.load(Ordering::SeqCst) <= current {
-        if start.elapsed() > Duration::from_secs(PANIC_TIMEOUT_SECS) {
+        if start.elapsed() > Duration::from_secs(timeout) {
             error!("Timed out waiting for block to process, trying to continue test");
             return false;
         }
@@ -4197,6 +4207,14 @@ fn cost_voting_integration() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
+    conf.miner.microblock_attempt_time_ms = 1_000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 5_000;
+    conf.burnchain.max_rbf = 10_000_000;
+    conf.node.wait_time_for_blocks = 1_000;
+
     test_observer::spawn();
 
     conf.events_observers.push(EventObserverConfig {
@@ -4970,8 +4988,13 @@ fn microblock_limit_hit_integration_test() {
     });
 
     conf.node.mine_microblocks = true;
-    conf.node.wait_time_for_microblocks = 30000;
+    // conf.node.wait_time_for_microblocks = 30000;
+    conf.node.wait_time_for_microblocks = 1000;
     conf.node.microblock_frequency = 1000;
+
+    conf.miner.microblock_attempt_time_ms = i64::max_value() as u64;
+    conf.burnchain.max_rbf = 10_000_000;
+    conf.node.wait_time_for_blocks = 1_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -5121,7 +5144,8 @@ fn block_large_tx_integration_test() {
     let spender_sk = StacksPrivateKey::new();
     let spender_addr = to_addr(&spender_sk);
 
-    let tx = make_contract_publish(&spender_sk, 0, 150_000, "small", &small_contract_src);
+    // higher fee for tx means it will get mined first
+    let tx = make_contract_publish(&spender_sk, 0, 671_000, "small", &small_contract_src);
     let tx_2 = make_contract_publish(&spender_sk, 1, 670_000, "over", &oversize_contract_src);
 
     let (mut conf, miner_account) = neon_integration_test_conf();
@@ -5140,6 +5164,10 @@ fn block_large_tx_integration_test() {
     conf.node.mine_microblocks = true;
     conf.node.wait_time_for_microblocks = 30000;
     conf.node.microblock_frequency = 1000;
+
+    conf.miner.microblock_attempt_time_ms = i64::max_value() as u64;
+    conf.burnchain.max_rbf = 10_000_000;
+    conf.node.wait_time_for_blocks = 1_000;
 
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
@@ -5185,18 +5213,16 @@ fn block_large_tx_integration_test() {
     assert_eq!(account.nonce, 0);
     assert_eq!(account.balance, 10000000);
 
-    submit_tx(&http_origin, &tx);
+    let normal_txid = submit_tx(&http_origin, &tx);
     let huge_txid = submit_tx(&http_origin, &tx_2);
 
-    eprintln!("Try to mine a too-big tx");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    sleep_ms(20_000);
+    eprintln!(
+        "Try to mine a too-big tx. Normal = {}, TooBig = {}",
+        &normal_txid, &huge_txid
+    );
+    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 1200);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     eprintln!("Finished trying to mine a too-big tx");
-
-    let res = get_account(&http_origin, &spender_addr);
-    assert_eq!(res.nonce, 1);
 
     let dropped_txs = test_observer::get_memtx_drops();
     assert_eq!(dropped_txs.len(), 1);
@@ -5280,6 +5306,11 @@ fn microblock_large_tx_integration_test_FLAKY() {
     conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+
+    conf.miner.microblock_attempt_time_ms = 1_000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.burnchain.max_rbf = 10_000_000;
+    conf.node.wait_time_for_blocks = 1_000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -5418,6 +5449,12 @@ fn pox_integration_test() {
         address: spender_3_addr.clone(),
         amount: third_bal,
     });
+
+    conf.miner.microblock_attempt_time_ms = 1_000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.burnchain.max_rbf = 10_000_000;
+    conf.node.wait_time_for_blocks = 1_000;
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
