@@ -1499,6 +1499,22 @@ impl MemPoolDB {
             match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
                 Some(tx_event) => {
                     match tx_event {
+                        TransactionEvent::Success(_) => {
+                            // Bump nonces in the cache for the executed transaction
+                            nonce_cache.update(
+                                consider.tx.metadata.origin_address,
+                                expected_origin_nonce + 1,
+                                self.conn(),
+                            );
+                            if consider.tx.tx.auth.is_sponsored() {
+                                nonce_cache.update(
+                                    consider.tx.metadata.sponsor_address,
+                                    expected_sponsor_nonce + 1,
+                                    self.conn(),
+                                );
+                            }
+                            output_events.push(tx_event);
+                        }
                         TransactionEvent::Skipped(_) => {
                             // don't push `Skipped` events to the observer
                         }
@@ -1511,20 +1527,6 @@ impl MemPoolDB {
                     debug!("Mempool iteration early exit from iterator");
                     break;
                 }
-            }
-
-            // Bump nonces in the cache for the executed transaction
-            nonce_cache.update(
-                consider.tx.metadata.origin_address,
-                expected_origin_nonce + 1,
-                self.conn(),
-            );
-            if consider.tx.tx.auth.is_sponsored() {
-                nonce_cache.update(
-                    consider.tx.metadata.sponsor_address,
-                    expected_sponsor_nonce + 1,
-                    self.conn(),
-                );
             }
 
             // Reset for finding the next transaction to process
