@@ -1196,15 +1196,21 @@ impl BlockMinerThread {
                 .keychain
                 .origin_address(self.config.is_mainnet())
                 .unwrap();
-            ParentStacksBlockInfo::lookup(
+            match ParentStacksBlockInfo::lookup(
                 chain_state,
                 burn_db,
                 &self.burn_block,
                 miner_address,
                 &stacks_tip.consensus_hash,
                 &stacks_tip.anchored_block_hash,
-            )
-            .ok()
+            ) {
+                Ok(parent_info) => Some(parent_info),
+                Err(Error::BurnchainTipChanged) => {
+                    self.globals.counters.bump_missed_tenures();
+                    None
+                }
+                Err(..) => None,
+            }
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
             let (network, _) = self.config.burnchain.get_bitcoin_network();
@@ -1294,6 +1300,13 @@ impl BlockMinerThread {
                             u16::MAX,
                         )
                     {
+                        debug!(
+                            "Microblocks descended from {}/{} ({}): {:?}",
+                            &prev_block.parent_consensus_hash,
+                            &stacks_parent_header.anchored_header.block_hash(),
+                            stream.len(),
+                            &stream
+                        );
                         if (prev_block.anchored_block.header.parent_microblock
                             == BlockHeaderHash([0u8; 32])
                             && stream.len() == 0)
@@ -1306,7 +1319,7 @@ impl BlockMinerThread {
                         {
                             // the chain tip hasn't changed since we attempted to build a block.  Use what we
                             // already have.
-                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {})",
+                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {} + 1)",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
@@ -1316,7 +1329,7 @@ impl BlockMinerThread {
                             // TODO: only consider rebuilding our anchored block if we (a) have
                             // time, and (b) the new microblocks are worth more than the new BTC
                             // fee minus the old BTC fee
-                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {})",
+                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {} + 1)",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
@@ -1788,6 +1801,7 @@ impl BlockMinerThread {
                     "miner_blocked" => %is_miner_blocked,
                     "has_unprocessed" => %has_unprocessed
                 );
+                self.globals.counters.bump_missed_tenures();
                 return None;
             }
         }
@@ -2525,6 +2539,23 @@ impl RelayerThread {
         self.miner_tip = best_tip;
     }
 
+    /// Try to resume microblock mining if we don't need to build an anchored block
+    fn try_resume_microblock_mining(&mut self) {
+        if self.miner_tip.is_some() {
+            // we won the highest tenure
+            if self.config.node.mine_microblocks {
+                // mine a microblock first
+                self.mined_stacks_block = true;
+            } else {
+                // mine a Stacks block first -- we won't build microblocks
+                self.mined_stacks_block = false;
+            }
+        } else {
+            // mine a Stacks block first -- we didn't win
+            self.mined_stacks_block = false;
+        }
+    }
+
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
     fn inner_generate_leader_key_register_op(
         address: StacksAddress,
@@ -3004,6 +3035,12 @@ impl RelayerThread {
                         }
                     }
                 }
+            }
+        } else {
+            // if we tried and failed to make an anchored block (e.g. because there's nothing to
+            // do), then resume microblock mining
+            if !self.mined_stacks_block {
+                self.try_resume_microblock_mining();
             }
         }
         None
