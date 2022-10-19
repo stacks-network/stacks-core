@@ -1304,9 +1304,10 @@ impl MemPoolDB {
     /// `todo` will be called once for each transaction that is a valid
     /// candidate for inclusion in the next block, meaning its origin and
     /// sponsor nonces are equal to the nonces of the corresponding accounts.
-    /// Best effort will be made to process the transactions in fee-rate order
-    /// until the candidate cache is full, at which point, transactions with
-    /// a lower fee-rate may be considered before those with a higher fee-rate.
+    /// Best effort will be made to process the transactions in fee-rate order.
+    /// That is, transactions will be processed in fee-rate order until the
+    /// candidate cache is full, at which point, transactions with a lower
+    /// fee-rate may be considered before those with a higher fee-rate.
     /// When the candidate cache fills, a subsequent call to
     /// `iterate_candidates` will be needed to reconsider transactions which
     /// were skipped on the first pass, but become valid after some lower
