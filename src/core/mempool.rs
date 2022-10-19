@@ -815,19 +815,24 @@ impl NonceCache {
                     }
                 };
                 match opt_nonce {
-                    Some(nonce) => nonce,
+                    Some(nonce) => {
+                        // Copy this into the in-memory cache if there is space
+                        if self.cache.len() < self.max_cache_size {
+                            self.cache.insert(address.clone(), nonce);
+                        }
+                        nonce
+                    }
                     None => {
                         let nonce =
                             StacksChainState::get_nonce(clarity_tx, &address.clone().into());
-                        // Simple size cap to the cache -- once it's full, all nonces
-                        // will be looked up every time. This is bad for performance
-                        // but is unlikely to occur due to the typical number of
-                        // transactions processed before filling a block.
+
+                        match db_set_nonce(mempool_db, address, nonce) {
+                            Ok(_) => (),
+                            Err(e) => warn!("error caching nonce to sqlite: {}", e),
+                        }
+
                         if self.cache.len() < self.max_cache_size {
                             self.cache.insert(address.clone(), nonce);
-                        } else {
-                            // The in-memory cache is full, write it to the db cache
-                            let _ = db_set_nonce(mempool_db, address, nonce);
                         }
                         nonce
                     }
@@ -837,14 +842,18 @@ impl NonceCache {
     }
 
     fn update(&mut self, address: StacksAddress, value: u64, mempool_db: &DBConn) {
+        // Sqlite cache
+        match db_set_nonce(mempool_db, &address, value) {
+            Ok(_) => (),
+            Err(e) => warn!("error caching nonce to sqlite: {}", e),
+        }
+
+        // In-memory cache
         match self.cache.get_mut(&address) {
             Some(nonce) => {
                 *nonce = value;
             }
-            None => {
-                // The in-memory cache is full, write to the db cache
-                let _ = db_set_nonce(mempool_db, &address, value);
-            }
+            None => (),
         }
     }
 }
@@ -1182,6 +1191,7 @@ impl MemPoolDB {
     }
 
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
         self.db.execute(sql, rusqlite::NO_PARAMS)?;
         Ok(())
@@ -1292,17 +1302,24 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  `todo` will be called once for each transaction whose origin nonce is equal
-    ///  to the origin account's nonce. At most one transaction per origin will be
-    ///  considered by this method, and transactions will be considered in
-    ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
-    ///  caller may choose how long to spend iterating before this method stops.
+    /// `todo` will be called once for each transaction that is a valid
+    /// candidate for inclusion in the next block, meaning its origin and
+    /// sponsor nonces are equal to the nonces of the corresponding accounts. 
+    /// Best effort will be made to process the transactions in fee-rate order
+    /// until the candidate cache is full, at which point, transactions with
+    /// a lower fee-rate may execute before those with a higher fee-rate.
+    /// The size of the candidate cache and the nonce cache are configurable
+    /// in the settings struct. This method is interruptable -- in the
+    /// `settings` struct, the caller may choose how long to spend iterating
+    /// before this method stops.
     ///
-    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
-    ///  that iteration through the mempool should be halted.
+    /// `todo` returns an option to a `TransactionEvent` representing the
+    /// outcome, or None to indicate that iteration through the mempool should
+    /// be halted.
     ///
-    /// `output_events` is modified in place, adding all substantive transaction events (success and error
-    /// events, but not skipped) output by `todo`.
+    /// `output_events` is modified in place, adding all substantive
+    /// transaction events (success and error events, but not skipped) output
+    /// by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
