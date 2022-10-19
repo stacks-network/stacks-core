@@ -5124,7 +5124,7 @@ pub mod test {
         let mut unsolicited = HashMap::new();
         unsolicited.insert(nk.clone(), bad_msgs.clone());
 
-        let mut network_result = NetworkResult::new(0, 0, 0);
+        let mut network_result = NetworkResult::new(0, 0, 0, 0);
         network_result.consume_unsolicited(unsolicited);
 
         assert!(network_result.has_blocks());
