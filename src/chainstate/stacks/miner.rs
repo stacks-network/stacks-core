@@ -11323,9 +11323,16 @@ pub mod test {
                             |_, available_tx, _| {
                                 count_txs += 1;
                                 Ok(Some(
-                                    TransactionResult::skipped(
+                                    // Generate any success result
+                                    TransactionResult::success(
                                         &available_tx.tx.tx,
-                                        "event not relevant to test".to_string(),
+                                        available_tx.tx.metadata.tx_fee,
+                                        StacksTransactionReceipt::from_stx_transfer(
+                                            available_tx.tx.tx.clone(),
+                                            vec![],
+                                            Value::okay(Value::Bool(true)).unwrap(),
+                                            ExecutionCost::zero(),
+                                        ),
                                     )
                                     .convert_to_event(),
                                 ))
