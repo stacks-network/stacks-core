@@ -5188,10 +5188,12 @@ fn block_large_tx_integration_test() {
     submit_tx(&http_origin, &tx);
     let huge_txid = submit_tx(&http_origin, &tx_2);
 
+    eprintln!("Try to mine a too-big tx");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(20_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!("Finished trying to mine a too-big tx");
 
     let res = get_account(&http_origin, &spender_addr);
     assert_eq!(res.nonce, 1);
@@ -7850,7 +7852,7 @@ fn test_flash_block_skip_tenure() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // fault injection: force tenures to take 11 seconds
+    // fault injection: force tenures to take too long
     std::env::set_var("STX_TEST_SLOW_TENURE".to_string(), "11000".to_string());
 
     for i in 0..10 {
@@ -7870,6 +7872,7 @@ fn test_flash_block_skip_tenure() {
     eprintln!("Miner account: {}", miner_account);
 
     let account = get_account(&http_origin, &miner_account);
+    eprintln!("account = {:?}", &account);
     assert_eq!(account.balance, 0);
     assert_eq!(account.nonce, 2);
 
@@ -8323,6 +8326,7 @@ fn test_problematic_blocks_are_not_mined() {
     );
 
     btc_regtest_controller.build_next_block(1);
+
     // wait for runloop to advance
     loop {
         sleep_ms(1_000);
@@ -8332,6 +8336,7 @@ fn test_problematic_blocks_are_not_mined() {
             break;
         }
     }
+
     let cur_ast_rules = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -8350,7 +8355,7 @@ fn test_problematic_blocks_are_not_mined() {
     eprintln!("old_tip_info = {:?}", &old_tip_info);
 
     // mine some blocks, and log problematic blocks
-    for _i in 0..5 {
+    for _i in 0..6 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
@@ -8720,7 +8725,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     eprintln!("old_tip_info = {:?}", &old_tip_info);
 
     // mine some blocks, and log problematic blocks
-    for _i in 0..5 {
+    for _i in 0..6 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
@@ -9093,7 +9098,7 @@ fn test_problematic_microblocks_are_not_mined() {
     eprintln!("old_tip_info = {:?}", &old_tip_info);
 
     // mine some microblocks, and log problematic microblocks
-    for _i in 0..5 {
+    for _i in 0..6 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
@@ -9475,7 +9480,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     eprintln!("old_tip_info = {:?}", &old_tip_info);
 
     // mine some blocks, and log problematic microblocks
-    for _i in 0..5 {
+    for _i in 0..6 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
