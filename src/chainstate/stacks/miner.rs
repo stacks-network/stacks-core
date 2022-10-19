@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::From;
@@ -751,7 +752,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         if ast_rules != ASTRules::Typical {
-            next_microblock_header.version = STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE;
+            next_microblock_header.version = cmp::max(
+                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+                next_microblock_header.version,
+            );
         }
 
         next_microblock_header.sign(miner_key).unwrap();
@@ -2287,7 +2291,10 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
         let ast_rules = miner_epoch_info.ast_rules;
         if ast_rules != ASTRules::Typical {
-            builder.header.version = STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE;
+            builder.header.version = cmp::max(
+                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+                builder.header.version,
+            );
         }
 
         let (mut epoch_tx, confirmed_mblock_cost) =
