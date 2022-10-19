@@ -25,6 +25,7 @@ use crate::chainstate::stacks::db::test::chainstate_path;
 use crate::chainstate::stacks::db::test::instantiate_chainstate;
 use crate::chainstate::stacks::db::test::instantiate_chainstate_with_balances;
 use crate::chainstate::stacks::db::StreamCursor;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::{
@@ -290,9 +291,16 @@ fn mempool_walk_over_fork() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -322,9 +330,16 @@ fn mempool_walk_over_fork() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -353,9 +368,16 @@ fn mempool_walk_over_fork() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -389,9 +411,16 @@ fn mempool_walk_over_fork() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -423,9 +452,16 @@ fn mempool_walk_over_fork() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -656,9 +692,16 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -670,6 +713,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Next with 0%
+    let _ = mempool.reset_nonce_cache();
     mempool_settings.consider_no_estimate_tx_prob = 0;
 
     chainstate.with_read_only_clarity_tx(
@@ -686,9 +730,16 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
@@ -700,6 +751,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     );
 
     // Then with with 100%
+    let _ = mempool.reset_nonce_cache();
     mempool_settings.consider_no_estimate_tx_prob = 100;
 
     chainstate.with_read_only_clarity_tx(
@@ -716,9 +768,16 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
                     |_, available_tx, _| {
                         count_txs += 1;
                         Ok(Some(
-                            TransactionResult::skipped(
+                            // Generate any success result
+                            TransactionResult::success(
                                 &available_tx.tx.tx,
-                                "event not relevant to test".to_string(),
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
                             )
                             .convert_to_event(),
                         ))
