@@ -818,6 +818,97 @@ simulating a miner.
         process::exit(0);
     }
 
+    if argv[1] == "try-mine" {
+        if argv.len() < 3 {
+            eprintln!(
+                "Usage: {} try-mine <working-dir> [min-fee [max-time]]
+
+Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
+assembly, but does not attempt to broadcast a block commit. This is useful for determining
+what transactions a given chain state would include in an anchor block, or otherwise
+simulating a miner.
+",
+                argv[0]
+            );
+            process::exit(1);
+        }
+
+        let start = get_epoch_time_ms();
+        let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+        let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+
+        let mut min_fee = u64::max_value();
+        let mut max_time = u64::max_value();
+
+        if argv.len() >= 4 {
+            min_fee = argv[3].parse().expect("Could not parse min_fee");
+        }
+        if argv.len() >= 5 {
+            max_time = argv[4].parse().expect("Could not parse max_time");
+        }
+
+        let sort_db = SortitionDB::open(&sort_db_path, false)
+            .expect(&format!("Failed to open {}", &sort_db_path));
+        let chain_id = CHAIN_ID_MAINNET;
+        let (chain_state, _) = StacksChainState::open(true, chain_id, &chain_state_path, None)
+            .expect("Failed to open stacks chain state");
+        let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+            .expect("Failed to get sortition chain tip");
+
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+
+        let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+            .expect("Failed to open mempool db");
+
+        let stacks_block = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+        let parent_header = StacksChainState::get_anchored_block_header_info(
+            chain_state.db(),
+            &stacks_block.consensus_hash,
+            &stacks_block.anchored_block_hash,
+        )
+            .expect("Failed to load chain tip header info")
+            .expect("Failed to load chain tip header info");
+
+        let sk = StacksPrivateKey::new();
+        let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        tx_auth.set_origin_nonce(0);
+
+        let mut coinbase_tx = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            tx_auth,
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        );
+
+        coinbase_tx.chain_id = chain_id;
+        coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+        let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+        tx_signer.sign_origin(&sk).unwrap();
+        let coinbase_tx = tx_signer.get_tx().unwrap();
+
+        let mut settings = BlockBuilderSettings::limited();
+        settings.max_miner_time_ms = max_time;
+        settings.mempool_settings.min_tx_fee = min_fee;
+        //
+        // let output_map = mempool_db.bucket_count_candidates()
+        // let result = StacksBlockBuilder::build_anchored_block(
+        //     &chain_state,
+        //     &sort_db.index_conn(),
+        //     &mut mempool_db,
+        //     &parent_header,
+        //     chain_tip.total_burn,
+        //     VRFProof::empty(),
+        //     Hash160([0; 20]),
+        //     &coinbase_tx,
+        //     settings,
+        //     None,
+        // );
+        //
+        // let stop = get_epoch_time_ms();
+
+        process::exit(0);
+    }
+
     if argv[1] == "decode-microblocks" {
         if argv.len() < 3 {
             eprintln!(

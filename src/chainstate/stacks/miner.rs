@@ -2443,6 +2443,45 @@ impl StacksBlockBuilder {
 
         Ok((block, consumed, size))
     }
+
+    pub fn bucket_count_mempool(
+        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortitionDBConn,
+        mempool: &mut MemPoolDB,
+        parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
+        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
+        proof: VRFProof, // proof over the burnchain's last seed
+        pubkey_hash: Hash160,
+        settings: MemPoolWalkSettings,
+    ) -> Result<(), Error> {
+        let (tip_consensus_hash, tip_block_hash, tip_height) = (
+            parent_stacks_header.consensus_hash.clone(),
+            parent_stacks_header.anchored_header.block_hash(),
+            parent_stacks_header.stacks_block_height,
+        );
+
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+        let mut builder = StacksBlockBuilder::make_block_builder(
+            chainstate.mainnet,
+            parent_stacks_header,
+            proof,
+            total_burn,
+            pubkey_hash,
+        )?;
+
+        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+        let (mut epoch_tx, confirmed_mblock_cost) =
+            builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
+
+
+        let count_map = mempool.bucket_count_candidates(&mut epoch_tx, settings)?;
+
+        info!(
+            "Count and bucket mempool @{}/{} height {}. Returns: {:?}",
+            &tip_consensus_hash, &tip_block_hash, tip_height, count_map,
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]

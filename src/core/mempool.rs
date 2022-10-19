@@ -1296,12 +1296,11 @@ impl MemPoolDB {
     ///   * nonce in the future
     pub fn bucket_count_candidates<
         C: ClarityConnection,
-        E: From<db_error> + From<ChainstateError>,
     >(
         &mut self,
         clarity_tx: &mut C,
         settings: MemPoolWalkSettings,
-    ) -> Result<HashMap<Ordering, u64>, E> {
+    ) -> Result<HashMap<Ordering, u64>, db_error> {
         debug!("Mempool walk to `bucket_candidates`");
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
         let sql = "
