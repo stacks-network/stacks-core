@@ -2473,7 +2473,6 @@ impl StacksBlockBuilder {
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
 
-
         let count_map = mempool.bucket_count_candidates(&mut epoch_tx, settings)?;
 
         info!(

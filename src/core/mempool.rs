@@ -1294,9 +1294,7 @@ impl MemPoolDB {
     ///   * nonce too low
     ///   * nonce ready to run
     ///   * nonce in the future
-    pub fn bucket_count_candidates<
-        C: ClarityConnection,
-    >(
+    pub fn bucket_count_candidates<C: ClarityConnection>(
         &mut self,
         clarity_tx: &mut C,
         settings: MemPoolWalkSettings,
