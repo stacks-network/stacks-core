@@ -73,6 +73,11 @@ jobs:
           - tests::epoch_205::test_cost_limit_switch_version205
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::bigger_microblock_streams_in_2_05
+          - tests::neon_integrations::test_problematic_txs_are_not_stored
+          - tests::neon_integrations::test_problematic_blocks_are_not_mined
+          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
+          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
