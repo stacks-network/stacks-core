@@ -211,7 +211,8 @@ fn main() {
         || config.burnchain.mode == "mainnet"
     {
         let config_loader = ConfigLoader::new(&config, start_config_path);
-        let mut run_loop = neon::RunLoop::new(config, config_loader);
+        let mut run_loop = neon::RunLoop::new(config);
+        run_loop.set_config_loader(config_loader);
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {
         println!("Burnchain mode '{}' not supported", config.burnchain.mode);

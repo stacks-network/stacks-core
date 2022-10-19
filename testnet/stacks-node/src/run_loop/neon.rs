@@ -43,6 +43,7 @@ use crate::{
 use super::RunLoopCallbacks;
 use crate::config::{ConfigHandle, ConfigLoader, ConfigLoaderHandle};
 use libc;
+use libc::newlocale;
 
 pub const STDERR: i32 = 2;
 
@@ -160,7 +161,7 @@ fn async_safe_write_stderr(msg: &str) {
 
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
-    pub fn new(config: Config, config_loader: ConfigLoader) -> Self {
+    pub fn new(config: Config) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running = Arc::new(AtomicBool::new(true));
         let pox_watchdog_comms = PoxSyncWatchdogComms::new(should_keep_running.clone());
@@ -169,10 +170,11 @@ impl RunLoop {
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
+        let config_loader_handle = ConfigLoaderHandle::new(ConfigLoader::new(&config, None));
 
         Self {
             config,
-            config_loader_handle: ConfigLoaderHandle::new(config_loader),
+            config_loader_handle,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
@@ -183,6 +185,10 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
         }
+    }
+
+    pub fn set_config_loader(&mut self, config_loader: ConfigLoader) {
+        self.config_loader_handle = ConfigLoaderHandle::new(config_loader);
     }
 
     pub fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
