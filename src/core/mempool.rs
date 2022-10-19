@@ -1290,169 +1290,80 @@ impl MemPoolDB {
         Ok(updated)
     }
 
-    pub fn bucket_candidates<C: ClarityConnection, E: From<db_error> + From<ChainstateError>> (
+    /// Counts and buckets the entire mempool DB into three buckets:
+    ///   * nonce too low
+    ///   * nonce ready to run
+    ///   * nonce in the future
+    pub fn bucket_count_candidates<
+        C: ClarityConnection,
+        E: From<db_error> + From<ChainstateError>,
+    >(
         &mut self,
         clarity_tx: &mut C,
-    ) -> Result<(), E>
-    {
-        let settings = MemPoolWalkSettings::default();
-        let start_time = Instant::now();
-        let mut total_considered = 0;
-
-        debug!("Mempool walk for {}ms", settings.max_walk_time_ms,);
-
-        let tx_consideration_sampler = Uniform::new(0, 100);
-        let mut rng = rand::thread_rng();
-        let mut candidate_cache = CandidateCache::new(settings.candidate_retry_cache_size);
+        settings: MemPoolWalkSettings,
+    ) -> Result<HashMap<Ordering, u64>, E> {
+        debug!("Mempool walk to `bucket_candidates`");
         let mut nonce_cache = NonceCache::new(settings.nonce_cache_size);
-
-        let sql = "
-             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
-             FROM mempool
-             WHERE fee_rate IS NULL
-             ";
-        let mut query_stmt = self
-            .db
-            .prepare(&sql)
-            .map_err(|err| Error::SqliteError(err))?;
-        let mut null_iterator = query_stmt
-            .query(NO_PARAMS)
-            .map_err(|err| Error::SqliteError(err))?;
-
         let sql = "
             SELECT txid, origin_nonce, origin_address, sponsor_nonce, sponsor_address, fee_rate
             FROM mempool
-            WHERE fee_rate IS NOT NULL
-            ORDER BY fee_rate DESC
             ";
         let mut query_stmt = self
             .db
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
-        let mut fee_iterator = query_stmt
+        let mut sql_iterator = query_stmt
             .query(NO_PARAMS)
             .map_err(|err| Error::SqliteError(err))?;
 
+        let mut result_map: HashMap<Ordering, u64> = HashMap::new();
         loop {
-            if start_time.elapsed().as_millis() > settings.max_walk_time_ms as u128 {
-                debug!("Mempool iteration deadline exceeded";
-                       "deadline_ms" => settings.max_walk_time_ms);
-                break;
-            }
-
-            let start_with_no_estimate =
-                tx_consideration_sampler.sample(&mut rng) < settings.consider_no_estimate_tx_prob;
-
-            // First, try to read from the retry list
-            let (candidate, update_estimate) = match candidate_cache.next() {
-                Some(tx) => {
-                    let update_estimate = tx.fee_rate.is_none();
-                    (tx, update_estimate)
-                }
+            let row = match sql_iterator.next().map_err(|err| Error::SqliteError(err))? {
+                Some(result) => result,
                 None => {
-                    // When the retry list is empty, read from the mempool db,
-                    // randomly selecting from either the null fee-rate transactions
-                    // or those with fee-rate estimates.
-                    let opt_tx = if start_with_no_estimate {
-                        null_iterator
-                            .next()
-                            .map_err(|err| Error::SqliteError(err))?
-                    } else {
-                        fee_iterator.next().map_err(|err| Error::SqliteError(err))?
-                    };
-                    match opt_tx {
-                        Some(row) => (MemPoolTxInfoPartial::from_row(row)?, start_with_no_estimate),
-                        None => {
-                            // If the selected iterator is empty, check the other
-                            match if start_with_no_estimate {
-                                fee_iterator.next().map_err(|err| Error::SqliteError(err))?
-                            } else {
-                                null_iterator
-                                    .next()
-                                    .map_err(|err| Error::SqliteError(err))?
-                            } {
-                                Some(row) => (
-                                    MemPoolTxInfoPartial::from_row(row)?,
-                                    !start_with_no_estimate,
-                                ),
-                                None => {
-                                    debug!("No more transactions to consider in mempool");
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    break;
                 }
             };
+
+            let tx_info = MemPoolTxInfoPartial::from_row(row)?;
 
             // Check the nonces.
             let expected_origin_nonce =
-                nonce_cache.get(&candidate.origin_address, clarity_tx, self.conn());
+                nonce_cache.get(&tx_info.origin_address, clarity_tx, self.conn());
             let expected_sponsor_nonce =
-                nonce_cache.get(&candidate.sponsor_address, clarity_tx, self.conn());
-            match order_nonces(
-                candidate.origin_nonce,
+                nonce_cache.get(&tx_info.sponsor_address, clarity_tx, self.conn());
+            let nonce_order = order_nonces(
+                tx_info.origin_nonce,
                 expected_origin_nonce,
-                candidate.sponsor_nonce,
+                tx_info.sponsor_nonce,
                 expected_sponsor_nonce,
-            ) {
-                Ordering::Less => {
-                    debug!(
-                        "Mempool: unexecutable: drop tx {}:{} ({})",
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default()
-                    );
-                    // This transaction cannot execute in this pass, just drop it
-                    continue;
-                }
-                Ordering::Greater => {
-                    debug!(
-                        "Mempool: nonces too high, cached for later {}:{} ({})",
-                        candidate.origin_address,
-                        candidate.origin_nonce,
-                        candidate.fee_rate.unwrap_or_default()
-                    );
-                    // This transaction could become runnable in this pass, save it for later
-                    candidate_cache.push(candidate);
-                    continue;
-                }
-                Ordering::Equal => {
-                    // Candidate transaction: fall through
-                }
-            };
+            );
 
-            // todo: add better code here
-            total_considered += 1;
-            
+            match result_map.get_mut(&nonce_order) {
+                Some(count) => {
+                    *count += 1;
+                }
+                None => {
+                    result_map.insert(nonce_order, 1);
+                }
+            }
+
             // Bump nonces in the cache for the executed transaction
             nonce_cache.update(
-                candidate.origin_address,
+                tx_info.origin_address,
                 expected_origin_nonce + 1,
                 self.conn(),
             );
-            if candidate.sponsor_address != candidate.origin_address {
+            if tx_info.sponsor_address != tx_info.origin_address {
                 nonce_cache.update(
-                    candidate.sponsor_address,
+                    tx_info.sponsor_address,
                     expected_sponsor_nonce + 1,
                     self.conn(),
                 );
             }
-
-            // Reset for finding the next transaction to process
-            debug!(
-                "Mempool: reset: retry list has {} entries",
-                candidate_cache.len()
-            );
-            candidate_cache.reset();
         }
 
-        debug!(
-            "Mempool iteration finished";
-            "considered_txs" => total_considered,
-            "elapsed_ms" => start_time.elapsed().as_millis()
-        );
-        Ok(())
+        Ok(result_map)
     }
 
     ///
