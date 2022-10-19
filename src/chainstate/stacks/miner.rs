@@ -11030,7 +11030,7 @@ pub mod test {
 
         let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
         let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
-        let mut sender_nonce = 0;
+        let sender_nonce = 0;
 
         let mut last_block = None;
         // send transactions to the mempool
@@ -11130,48 +11130,49 @@ pub mod test {
 
     #[test]
     fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_0() {
-        paramaterized_mempool_walk_test(1, 10, 2, 0)
+        paramaterized_mempool_walk_test(1, 10, 2, 0, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_0() {
-        paramaterized_mempool_walk_test(10, 3, 2, 0)
+        paramaterized_mempool_walk_test(10, 3, 2, 0, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_50() {
-        paramaterized_mempool_walk_test(1, 10, 2, 50)
+        paramaterized_mempool_walk_test(1, 10, 2, 50, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_50() {
-        paramaterized_mempool_walk_test(10, 3, 2, 50)
+        paramaterized_mempool_walk_test(10, 3, 2, 50, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_100() {
-        paramaterized_mempool_walk_test(1, 10, 2, 100)
+        paramaterized_mempool_walk_test(1, 10, 2, 100, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_100() {
-        paramaterized_mempool_walk_test(10, 3, 2, 100)
+        paramaterized_mempool_walk_test(10, 3, 2, 100, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_0() {
-        paramaterized_mempool_walk_test(10, 3, 2000, 0)
+        paramaterized_mempool_walk_test(10, 3, 2000, 0, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_50() {
-        paramaterized_mempool_walk_test(10, 3, 2000, 50)
+        paramaterized_mempool_walk_test(10, 3, 2000, 50, 30000)
     }
 
     #[test]
     fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_100() {
-        paramaterized_mempool_walk_test(10, 3, 2000, 100)
+        paramaterized_mempool_walk_test(10, 3, 2000, 100, 30000)
     }
+
     /// With the parameters given, create `num_rounds` transactions per each user in `num_users`.
     /// `nonce_and_candidate_cache_size` is the cache size used for both of the nonce cache
     /// and the candidate cache.
@@ -11180,6 +11181,7 @@ pub mod test {
         num_rounds: usize,
         nonce_and_candidate_cache_size: u64,
         consider_no_estimate_tx_prob: u8,
+        timeout_ms: u128,
     ) {
         let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..num_users)
             .map(|_user_index| {
@@ -11231,7 +11233,7 @@ pub mod test {
         mempool_settings.min_tx_fee = 10;
         let mut tx_events = Vec::new();
 
-        let mut txs = codec_all_transactions(
+        let txs = codec_all_transactions(
             &TransactionVersion::Testnet,
             0x80000000,
             &TransactionAnchorMode::Any,
@@ -11304,29 +11306,38 @@ pub mod test {
         mempool_settings.nonce_cache_size = nonce_and_candidate_cache_size;
         mempool_settings.candidate_retry_cache_size = nonce_and_candidate_cache_size;
         mempool_settings.consider_no_estimate_tx_prob = consider_no_estimate_tx_prob;
+        let deadline = get_epoch_time_ms() + timeout_ms;
         chainstate.with_read_only_clarity_tx(
             &TEST_BURN_STATE_DB,
             &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
             |clarity_conn| {
                 let mut count_txs = 0;
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        &mut tx_events,
-                        2,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            count_txs += 1;
-                            Ok(Some(
-                                TransactionResult::skipped(
-                                    &available_tx.tx.tx,
-                                    "event not relevant to test".to_string(),
-                                )
-                                .convert_to_event(),
-                            ))
-                        },
-                    )
-                    .unwrap();
+                // When the candidate cache fills, one pass cannot process all transactions
+                loop {
+                    if mempool
+                        .iterate_candidates::<_, ChainstateError, _>(
+                            clarity_conn,
+                            &mut tx_events,
+                            2,
+                            mempool_settings.clone(),
+                            |_, available_tx, _| {
+                                count_txs += 1;
+                                Ok(Some(
+                                    TransactionResult::skipped(
+                                        &available_tx.tx.tx,
+                                        "event not relevant to test".to_string(),
+                                    )
+                                    .convert_to_event(),
+                                ))
+                            },
+                        )
+                        .unwrap()
+                        == 0
+                    {
+                        break;
+                    }
+                    assert!(get_epoch_time_ms() < deadline, "test timed out");
+                }
                 assert_eq!(
                     count_txs, transaction_counter,
                     "Mempool should find all {} transactions",
