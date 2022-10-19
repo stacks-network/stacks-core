@@ -2444,6 +2444,7 @@ impl StacksBlockBuilder {
         Ok((block, consumed, size))
     }
 
+    /// Counts and buckets the entire mempool DB, by calling `MemPoolDB::iterate_candidates`.
     pub fn bucket_count_mempool(
         chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionDBConn,
