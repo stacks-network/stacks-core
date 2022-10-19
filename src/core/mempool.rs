@@ -853,8 +853,8 @@ fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<()
     let addr_str = address.to_string();
     let nonce_i64 = u64_to_sql(nonce)?;
 
-    let sql = "UPDATE nonces SET nonce = ? WHERE address = ?";
-    conn.execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+    let sql = "INSERT OR REPLACE INTO nonces (address, nonce) VALUES (?1, ?2)";
+    conn.execute(sql, rusqlite::params![&addr_str, nonce_i64])?;
     Ok(())
 }
 
