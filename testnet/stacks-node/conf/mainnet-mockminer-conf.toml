@@ -1,5 +1,5 @@
 [node]
-working_dir = "/dir/to/save/chainstate"
+working_dir = "/home/gregcoppola/spaces"
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 miner = true

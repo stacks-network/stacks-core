@@ -2455,13 +2455,16 @@ impl StacksBlockBuilder {
         pubkey_hash: Hash160,
         settings: MemPoolWalkSettings,
     ) -> Result<(), Error> {
+        info!("bucket_count_mempool");
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
             parent_stacks_header.stacks_block_height,
         );
 
+        info!("check");
         let (mut chainstate, _) = chainstate_handle.reopen()?;
+        info!("check");
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
             parent_stacks_header,
@@ -2469,11 +2472,14 @@ impl StacksBlockBuilder {
             total_burn,
             pubkey_hash,
         )?;
+        info!("check");
 
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
+        info!("check");
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
 
+        info!("check");
         let count_map = mempool.bucket_count_candidates(&mut epoch_tx, settings)?;
 
         info!(
