@@ -143,7 +143,6 @@ use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::mem;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
@@ -911,6 +910,7 @@ impl MicroblockMinerThread {
             {
                 use std::fs;
                 use std::io::Write;
+                use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this microblock somewhere
                     if !fs::metadata(&path).is_ok() {
@@ -2139,6 +2139,7 @@ impl RelayerThread {
             {
                 use std::fs;
                 use std::io::Write;
+                use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this block somewhere
                     if !fs::metadata(&path).is_ok() {
