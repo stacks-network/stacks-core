@@ -219,6 +219,7 @@ use stacks_common::util::vrf::VRFProof;
 use clarity::vm::ast::ASTRules;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
+const VRF_MOCK_MINER_KEY: u64 = 1;
 
 type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
@@ -1364,6 +1365,12 @@ impl BlockMinerThread {
     /// Returns Some(proof) if we could make the proof
     /// Return None if we could not make the proof
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
+        // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
+        // key
+        if self.config.node.mock_mining {
+            self.keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
+        }
+
         // Generates a proof out of the sortition hash provided in the params.
         let vrf_proof = match self.keychain.generate_proof(
             &self.registered_key.vrf_public_key,
@@ -3299,7 +3306,7 @@ impl PeerThread {
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
 
-        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2000);
+        let poll_timeout = cmp::min(5000, config.miner.first_attempt_time_ms / 2);
 
         PeerThread {
             config,
@@ -3851,7 +3858,7 @@ impl StacksNode {
 
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
-            let vrf_public_key = keychain.rotate_vrf_keypair(1);
+            let vrf_public_key = keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
                 block_height: 1,
                 op_vtxindex: 1,
