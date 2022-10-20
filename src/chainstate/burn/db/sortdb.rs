@@ -2475,8 +2475,8 @@ impl SortitionDB {
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
         match epoch {
             StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
-            StacksEpochId::Epoch2_05 => (version == "2" || version == "3" || version == "4"),
+            StacksEpochId::Epoch20 => version == "1" || version == "2" || version == "3",
+            StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
         }
     }
 
