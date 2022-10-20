@@ -791,7 +791,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
 
 #[test]
 /// This test verifies that when a transaction is skipped, other transactions
-/// from the same address with higher nonces are not included in a block.
+/// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_skipped_transaction() {
     let mut chainstate = instantiate_chainstate_with_balances(
         false,
@@ -908,7 +908,7 @@ fn test_iterate_candidates_skipped_transaction() {
 
 #[test]
 /// This test verifies that when a transaction reports a processing error, other transactions
-/// from the same address with higher nonces are not included in a block.
+/// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_processing_error_transaction() {
     let mut chainstate = instantiate_chainstate_with_balances(
         false,
@@ -1027,7 +1027,7 @@ fn test_iterate_candidates_processing_error_transaction() {
 
 #[test]
 /// This test verifies that when a transaction is skipped, other transactions
-/// from the same address with higher nonces are not included in a block.
+/// from the same address with higher nonces are not considered for inclusion in a block.
 fn test_iterate_candidates_problematic_transaction() {
     let mut chainstate = instantiate_chainstate_with_balances(
         false,
