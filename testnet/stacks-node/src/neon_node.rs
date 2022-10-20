@@ -1455,10 +1455,11 @@ impl BlockMinerThread {
                 Ok(x) => {
                     let num_mblocks = x.as_ref().map(|(mblocks, ..)| mblocks.len()).unwrap_or(0);
                     debug!(
-                        "Loaded {} microblocks descending from {}/{}",
+                        "Loaded {} microblocks descending from {}/{} (data: {})",
                         num_mblocks,
                         parent_consensus_hash,
-                        &stacks_parent_header.anchored_header.block_hash()
+                        &stacks_parent_header.anchored_header.block_hash(),
+                        x.is_some()
                     );
                     x
                 }
