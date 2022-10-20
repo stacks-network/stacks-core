@@ -444,6 +444,8 @@ const MEMPOOL_SCHEMA_2_COST_ESTIMATOR: &'static [&'static str] = &[
         FOREIGN KEY (txid) REFERENCES mempool (txid) ON DELETE CASCADE ON UPDATE CASCADE
     );
     "#,
+    // The `last_known_*_nonce` columns are no longer used, beginning in schema 6,
+    // in favor of a separate `nonces` table and an in-memory cache.
     r#"
     ALTER TABLE mempool ADD COLUMN last_known_origin_nonce INTEGER;
     "#,
@@ -815,19 +817,24 @@ impl NonceCache {
                     }
                 };
                 match opt_nonce {
-                    Some(nonce) => nonce,
+                    Some(nonce) => {
+                        // Copy this into the in-memory cache if there is space
+                        if self.cache.len() < self.max_cache_size {
+                            self.cache.insert(address.clone(), nonce);
+                        }
+                        nonce
+                    }
                     None => {
                         let nonce =
                             StacksChainState::get_nonce(clarity_tx, &address.clone().into());
-                        // Simple size cap to the cache -- once it's full, all nonces
-                        // will be looked up every time. This is bad for performance
-                        // but is unlikely to occur due to the typical number of
-                        // transactions processed before filling a block.
+
+                        match db_set_nonce(mempool_db, address, nonce) {
+                            Ok(_) => (),
+                            Err(e) => warn!("error caching nonce to sqlite: {}", e),
+                        }
+
                         if self.cache.len() < self.max_cache_size {
                             self.cache.insert(address.clone(), nonce);
-                        } else {
-                            // The in-memory cache is full, write it to the db cache
-                            let _ = db_set_nonce(mempool_db, address, nonce);
                         }
                         nonce
                     }
@@ -837,14 +844,18 @@ impl NonceCache {
     }
 
     fn update(&mut self, address: StacksAddress, value: u64, mempool_db: &DBConn) {
+        // Sqlite cache
+        match db_set_nonce(mempool_db, &address, value) {
+            Ok(_) => (),
+            Err(e) => warn!("error caching nonce to sqlite: {}", e),
+        }
+
+        // In-memory cache
         match self.cache.get_mut(&address) {
             Some(nonce) => {
                 *nonce = value;
             }
-            None => {
-                // The in-memory cache is full, write to the db cache
-                let _ = db_set_nonce(mempool_db, &address, value);
-            }
+            None => (),
         }
     }
 }
@@ -853,8 +864,8 @@ fn db_set_nonce(conn: &DBConn, address: &StacksAddress, nonce: u64) -> Result<()
     let addr_str = address.to_string();
     let nonce_i64 = u64_to_sql(nonce)?;
 
-    let sql = "UPDATE nonces SET nonce = ? WHERE address = ?";
-    conn.execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
+    let sql = "INSERT OR REPLACE INTO nonces (address, nonce) VALUES (?1, ?2)";
+    conn.execute(sql, rusqlite::params![&addr_str, nonce_i64])?;
     Ok(())
 }
 
@@ -901,10 +912,7 @@ impl CandidateCache {
         }
 
         #[cfg(test)]
-        {
-            assert!(self.cache.len() <= self.max_cache_size + 1);
-            assert!(self.next.len() <= self.max_cache_size + 1);
-        }
+        assert!(self.cache.len() + self.next.len() <= self.max_cache_size);
     }
 
     /// Prepare for the next iteration, transferring transactions from `next` to `cache`.
@@ -1174,48 +1182,10 @@ impl MemPoolDB {
         })
     }
 
-    pub fn reset_last_known_nonces(&mut self) -> Result<(), db_error> {
-        let sql =
-            "UPDATE mempool SET last_known_origin_nonce = NULL, last_known_sponsor_nonce = NULL";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
-        Ok(())
-    }
-
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
+        debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
         self.db.execute(sql, rusqlite::NO_PARAMS)?;
-        Ok(())
-    }
-
-    fn bump_last_known_nonces(&self, address: &StacksAddress) -> Result<(), db_error> {
-        let query_by = address.to_string();
-
-        let sql = "UPDATE mempool SET last_known_origin_nonce = last_known_origin_nonce + 1
-                   WHERE origin_address = ? AND last_known_origin_nonce IS NOT NULL";
-        self.db.execute(sql, &[&query_by])?;
-
-        let sql = "UPDATE mempool SET last_known_sponsor_nonce = last_known_sponsor_nonce + 1
-                   WHERE sponsor_address = ? AND last_known_sponsor_nonce IS NOT NULL";
-        self.db.execute(sql, &[&query_by])?;
-        Ok(())
-    }
-
-    fn update_last_known_nonces(
-        &self,
-        address: &StacksAddress,
-        nonce: u64,
-    ) -> Result<(), db_error> {
-        let addr_str = address.to_string();
-        let nonce_i64 = u64_to_sql(nonce)?;
-
-        let sql = "UPDATE mempool SET last_known_origin_nonce = ? WHERE origin_address = ?";
-        self.db
-            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
-
-        let sql = "UPDATE mempool SET last_known_sponsor_nonce = ? WHERE sponsor_address = ?";
-        self.db
-            .execute(sql, rusqlite::params![nonce_i64, &addr_str])?;
-
         Ok(())
     }
 
@@ -1365,17 +1335,30 @@ impl MemPoolDB {
 
     ///
     /// Iterate over candidates in the mempool
-    ///  `todo` will be called once for each transaction whose origin nonce is equal
-    ///  to the origin account's nonce. At most one transaction per origin will be
-    ///  considered by this method, and transactions will be considered in
-    ///  highest-fee-first order.  This method is interruptable -- in the `settings` struct, the
-    ///  caller may choose how long to spend iterating before this method stops.
+    /// `todo` will be called once for each transaction that is a valid
+    /// candidate for inclusion in the next block, meaning its origin and
+    /// sponsor nonces are equal to the nonces of the corresponding accounts.
+    /// Best effort will be made to process the transactions in fee-rate order.
+    /// That is, transactions will be processed in fee-rate order until the
+    /// candidate cache is full, at which point, transactions with a lower
+    /// fee-rate may be considered before those with a higher fee-rate.
+    /// When the candidate cache fills, a subsequent call to
+    /// `iterate_candidates` will be needed to reconsider transactions which
+    /// were skipped on the first pass, but become valid after some lower
+    /// fee-rate transactions are considered.
     ///
-    ///  `todo` returns an option to a `TransactionEvent` representing the outcome, or None to indicate
-    ///  that iteration through the mempool should be halted.
+    /// The size of the candidate cache and the nonce cache are configurable
+    /// in the settings struct. This method is interruptable -- in the
+    /// `settings` struct, the caller may choose how long to spend iterating
+    /// before this method stops.
     ///
-    /// `output_events` is modified in place, adding all substantive transaction events (success and error
-    /// events, but not skipped) output by `todo`.
+    /// `todo` returns an option to a `TransactionEvent` representing the
+    /// outcome, or None to indicate that iteration through the mempool should
+    /// be halted.
+    ///
+    /// `output_events` is modified in place, adding all substantive
+    /// transaction events (success and error events, but not skipped) output
+    /// by `todo`.
     pub fn iterate_candidates<F, E, C>(
         &mut self,
         clarity_tx: &mut C,
@@ -1550,6 +1533,22 @@ impl MemPoolDB {
             match todo(clarity_tx, &consider, self.cost_estimator.as_mut())? {
                 Some(tx_event) => {
                     match tx_event {
+                        TransactionEvent::Success(_) => {
+                            // Bump nonces in the cache for the executed transaction
+                            nonce_cache.update(
+                                consider.tx.metadata.origin_address,
+                                expected_origin_nonce + 1,
+                                self.conn(),
+                            );
+                            if consider.tx.tx.auth.is_sponsored() {
+                                nonce_cache.update(
+                                    consider.tx.metadata.sponsor_address,
+                                    expected_sponsor_nonce + 1,
+                                    self.conn(),
+                                );
+                            }
+                            output_events.push(tx_event);
+                        }
                         TransactionEvent::Skipped(_) => {
                             // don't push `Skipped` events to the observer
                         }
@@ -1562,20 +1561,6 @@ impl MemPoolDB {
                     debug!("Mempool iteration early exit from iterator");
                     break;
                 }
-            }
-
-            // Bump nonces in the cache for the executed transaction
-            nonce_cache.update(
-                consider.tx.metadata.origin_address,
-                expected_origin_nonce + 1,
-                self.conn(),
-            );
-            if consider.tx.tx.auth.is_sponsored() {
-                nonce_cache.update(
-                    consider.tx.metadata.sponsor_address,
-                    expected_sponsor_nonce + 1,
-                    self.conn(),
-                );
             }
 
             // Reset for finding the next transaction to process
