@@ -1161,7 +1161,7 @@ impl MemPoolDB {
             blacklist_max_size: DEFAULT_BLACKLIST_MAX_SIZE,
         })
     }
-    
+
     /// Open the mempool db within the chainstate directory.
     /// The chainstate must be instantiated already.
     pub fn open(
