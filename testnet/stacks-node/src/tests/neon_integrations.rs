@@ -1890,7 +1890,7 @@ fn microblock_fork_poison_integration_test() {
     let second_spender_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
     let second_spender_addr: PrincipalData = to_addr(&second_spender_sk).into();
 
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (mut conf, _) = neon_integration_test_conf();
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -1903,6 +1903,16 @@ fn microblock_fork_poison_integration_test() {
 
     // we'll manually post a forked stream to the node
     conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 5_000;
+    conf.node.wait_time_for_blocks = 1_000;
+
+    conf.miner.min_tx_fee = 1;
+    conf.miner.first_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
@@ -1944,19 +1954,20 @@ fn microblock_fork_poison_integration_test() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sleep_ms(10_000);
 
-    // let's query the miner's account nonce:
-    info!("Miner account: {}", miner_account);
-    let account = get_account(&http_origin, &miner_account);
-    assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
+    // turn off the miner for now, so we can ensure both of these get accepted and preprocessed
+    // before we try and mine an anchor block that confirms them
+    eprintln!("Disable miner");
+    signal_mining_blocked(miner_status.clone());
+    sleep_ms(10_000);
 
-    // and our first spender
+    // our first spender
     let account = get_account(&http_origin, &spender_addr);
     assert_eq!(account.balance, 100300);
     assert_eq!(account.nonce, 0);
 
-    // and our second spender
+    // our second spender
     let account = get_account(&http_origin, &second_spender_addr);
     assert_eq!(account.balance, 10000);
     assert_eq!(account.nonce, 0);
@@ -1975,11 +1986,6 @@ fn microblock_fork_poison_integration_test() {
 
     // TODO (hack) instantiate the sortdb in the burnchain
     let _ = btc_regtest_controller.sortdb_mut();
-
-    // turn off the miner for now, so we can ensure both of these get accepted and preprocessed
-    // before we try and mine an anchor block that confirms them
-    eprintln!("Disable miner");
-    signal_mining_blocked(miner_status.clone());
 
     // put each into a microblock
     let (first_microblock, second_microblock) = {
@@ -2067,13 +2073,15 @@ fn microblock_fork_poison_integration_test() {
 
     assert_eq!(res, format!("{}", &second_microblock.block_hash()));
 
-    eprintln!("Wait 10s and re-nable miner");
+    eprintln!("Wait 10s and re-enable miner");
     sleep_ms(10_000);
 
     // resume mining
     eprintln!("Enable miner");
     signal_mining_ready(miner_status.clone());
+    sleep_ms(10_000);
 
+    eprintln!("Attempt to mine poison-microblock");
     let mut found = false;
     for _i in 0..10 {
         if found {
