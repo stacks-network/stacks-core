@@ -1301,13 +1301,6 @@ impl BlockMinerThread {
                             u16::MAX,
                         )
                     {
-                        debug!(
-                            "Microblocks descended from {}/{} ({}): {:?}",
-                            &prev_block.parent_consensus_hash,
-                            &stacks_parent_header.anchored_header.block_hash(),
-                            stream.len(),
-                            &stream
-                        );
                         if (prev_block.anchored_block.header.parent_microblock
                             == BlockHeaderHash([0u8; 32])
                             && stream.len() == 0)
@@ -2748,9 +2741,13 @@ impl RelayerThread {
             return false;
         }
 
-        if self.mined_stacks_block && self.config.node.mine_microblocks {
-            debug!("Relayer: mined a Stacks block already; waiting for microblock miner");
-            return false;
+        if !self.config.node.mock_mining {
+            // mock miner can't mine microblocks yet, so don't stop it from trying multiple
+            // anchored blocks
+            if self.mined_stacks_block && self.config.node.mine_microblocks {
+                debug!("Relayer: mined a Stacks block already; waiting for microblock miner");
+                return false;
+            }
         }
 
         let mut miner_thread_state =
