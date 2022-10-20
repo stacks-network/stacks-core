@@ -789,6 +789,12 @@ impl Config {
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
+                nonce_cache_size: miner
+                    .nonce_cache_size
+                    .unwrap_or(miner_default_config.nonce_cache_size),
+                candidate_retry_cache_size: miner
+                    .candidate_retry_cache_size
+                    .unwrap_or(miner_default_config.candidate_retry_cache_size),
             },
             None => miner_default_config,
         };
@@ -1164,6 +1170,8 @@ impl Config {
                     self.miner.subsequent_attempt_time_ms
                 },
                 consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
+                nonce_cache_size: self.miner.nonce_cache_size,
+                candidate_retry_cache_size: self.miner.candidate_retry_cache_size,
             },
         }
     }
@@ -1708,6 +1716,8 @@ pub struct MinerConfig {
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
+    pub nonce_cache_size: u64,
+    pub candidate_retry_cache_size: u64,
 }
 
 impl MinerConfig {
@@ -1718,6 +1728,8 @@ impl MinerConfig {
             subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
+            nonce_cache_size: 10_000,
+            candidate_retry_cache_size: 10_000,
         }
     }
 }
@@ -1822,6 +1834,8 @@ pub struct MinerConfigFile {
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
+    pub nonce_cache_size: Option<u64>,
+    pub candidate_retry_cache_size: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
