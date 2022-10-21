@@ -2005,14 +2005,6 @@ impl RelayerThread {
             net_result.burn_height
         );
 
-        // if there are any blocks or microblocks, then stop mining so we can process
-        // them.
-        if net_result.has_blocks() || net_result.has_microblocks() {
-            // temporarily halt mining
-            debug!("Relayer: block mining to process newly-arrived blocks or microblocks");
-            signal_mining_blocked(self.globals.get_miner_status());
-        }
-
         if self.last_network_block_height != net_result.burn_height {
             // burnchain advanced; disable mining until we also do a download pass.
             self.last_network_block_height = net_result.burn_height;
@@ -2041,6 +2033,13 @@ impl RelayerThread {
                 )
                 .expect("BUG: failure processing network results")
         });
+
+        if net_receipts.num_new_blocks > 0 || net_receipts.num_new_confirmed_microblocks > 0 {
+            // if we received any new block data that could invalidate our view of the chain tip,
+            // then stop mining until we process it
+            debug!("Relayer: block mining to process newly-arrived blocks or microblocks");
+            signal_mining_blocked(self.globals.get_miner_status());
+        }
 
         let mempool_txs_added = net_receipts.mempool_txs_added.len();
         if mempool_txs_added > 0 {
