@@ -471,7 +471,7 @@ fn check_contract_call(
 
                     let trait_signature = checker
                         .contract_context
-                        .get_trait(&trait_id, checker.clarity_version)
+                        .get_trait(&trait_id)
                         .ok_or(CheckErrors::TraitReferenceUnknown(
                             trait_id.name.to_string(),
                         ))?;
@@ -525,7 +525,7 @@ fn check_contract_of(
 
     checker
         .contract_context
-        .get_trait(&trait_id, checker.clarity_version)
+        .get_trait(&trait_id)
         .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)

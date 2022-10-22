@@ -37,6 +37,106 @@ pub struct TypingContext<'a> {
     pub depth: u16,
 }
 
+enum TraitContext {
+    /// Traits stored in this context use the trait type-checking behavior defined in Clarity1
+    Clarity1(HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>),
+    /// Traits stored in this context use the new trait type-checking behavior defined in Clarity2
+    Clarity2 {
+        /// Aliases for locally defined traits and traits imported with `use-trait`
+        defined: HashSet<ClarityName>,
+        /// All traits which are defined or used in a contract
+        all: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
+    },
+}
+
+impl TraitContext {
+    pub fn new(clarity_version: ClarityVersion) -> TraitContext {
+        match clarity_version {
+            ClarityVersion::Clarity1 => Self::Clarity1(HashMap::new()),
+            ClarityVersion::Clarity2 => Self::Clarity2 {
+                defined: HashSet::new(),
+                all: HashMap::new(),
+            },
+        }
+    }
+
+    pub fn is_name_used(&self, name: &str) -> bool {
+        match self {
+            Self::Clarity1(map) => map.contains_key(name),
+            Self::Clarity2 { defined, all: _ } => defined.contains(name),
+        }
+    }
+
+    pub fn add_defined_trait(
+        &mut self,
+        contract_identifier: QualifiedContractIdentifier,
+        trait_name: ClarityName,
+        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+    ) -> CheckResult<()> {
+        match self {
+            Self::Clarity1(map) => {
+                map.insert(trait_name, trait_signature);
+            }
+            Self::Clarity2 { defined, all } => {
+                defined.insert(trait_name.clone());
+                all.insert(
+                    TraitIdentifier {
+                        name: trait_name,
+                        contract_identifier,
+                    },
+                    trait_signature,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_used_trait(
+        &mut self,
+        alias: ClarityName,
+        trait_id: TraitIdentifier,
+        trait_signature: BTreeMap<ClarityName, FunctionSignature>,
+    ) -> CheckResult<()> {
+        match self {
+            Self::Clarity1(map) => {
+                map.insert(trait_id.name, trait_signature);
+            }
+            Self::Clarity2 { defined, all } => {
+                defined.insert(alias);
+                all.insert(trait_id, trait_signature);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn get_trait(
+        &self,
+        trait_id: &TraitIdentifier,
+    ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
+        match self {
+            Self::Clarity1(map) => map.get(&trait_id.name),
+            Self::Clarity2 { defined: _, all } => all.get(trait_id),
+        }
+    }
+
+    pub fn into_contract_analysis(&mut self, contract_analysis: &mut ContractAnalysis) {
+        match self {
+            Self::Clarity1(map) => {
+                for (name, trait_signature) in map.drain() {
+                    contract_analysis.add_defined_trait(name, trait_signature);
+                }
+            }
+            Self::Clarity2 { defined: _, all } => {
+                for (trait_id, trait_signature) in all.drain() {
+                    if trait_id.contract_identifier == contract_analysis.contract_identifier {
+                        contract_analysis.add_defined_trait(trait_id.name, trait_signature);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub struct ContractContext {
     contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
@@ -47,11 +147,7 @@ pub struct ContractContext {
     persisted_variable_types: HashMap<ClarityName, TypeSignature>,
     fungible_tokens: HashSet<ClarityName>,
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
-    // Before Clarity2, traits are keyed by the trait name.
-    traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
-    // In Clarity2+, we key by the whole trait identifier, and keep track of defined traits.
-    defined_traits: HashSet<ClarityName>,
-    all_traits: HashMap<TraitIdentifier, BTreeMap<ClarityName, FunctionSignature>>,
+    traits: TraitContext,
     pub implemented_traits: HashSet<TraitIdentifier>,
 }
 
@@ -80,7 +176,10 @@ impl TypeMap {
 }
 
 impl ContractContext {
-    pub fn new(contract_identifier: QualifiedContractIdentifier) -> ContractContext {
+    pub fn new(
+        contract_identifier: QualifiedContractIdentifier,
+        clarity_version: ClarityVersion,
+    ) -> ContractContext {
         ContractContext {
             contract_identifier,
             variable_types: HashMap::new(),
@@ -91,9 +190,7 @@ impl ContractContext {
             persisted_variable_types: HashMap::new(),
             fungible_tokens: HashSet::new(),
             non_fungible_tokens: HashMap::new(),
-            traits: HashMap::new(),
-            defined_traits: HashSet::new(),
-            all_traits: HashMap::new(),
+            traits: TraitContext::new(clarity_version),
             implemented_traits: HashSet::new(),
         }
     }
@@ -111,7 +208,7 @@ impl ContractContext {
             || self.public_function_types.contains_key(name)
             || self.fungible_tokens.contains(name)
             || self.non_fungible_tokens.contains_key(name)
-            || self.traits.contains_key(name)
+            || self.traits.is_name_used(name)
             || self.map_types.contains_key(name)
         {
             Err(CheckError::new(CheckErrors::NameAlreadyUsed(
@@ -215,35 +312,21 @@ impl ContractContext {
         &mut self,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-        clarity_version: ClarityVersion,
     ) -> CheckResult<()> {
-        if clarity_version < ClarityVersion::Clarity2 {
-            self.traits.insert(trait_name, trait_signature);
-        } else {
-            self.defined_traits.insert(trait_name.clone());
-            self.all_traits.insert(
-                TraitIdentifier {
-                    name: trait_name,
-                    contract_identifier: self.contract_identifier.clone(),
-                },
-                trait_signature,
-            );
-        }
-        Ok(())
+        self.traits.add_defined_trait(
+            self.contract_identifier.clone(),
+            trait_name,
+            trait_signature,
+        )
     }
 
     pub fn add_used_trait(
         &mut self,
+        alias: ClarityName,
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-        clarity_version: ClarityVersion,
     ) -> CheckResult<()> {
-        if clarity_version < ClarityVersion::Clarity2 {
-            self.traits.insert(trait_id.name.clone(), trait_signature);
-        } else {
-            self.all_traits.insert(trait_id, trait_signature);
-        }
-        Ok(())
+        self.traits.add_used_trait(alias, trait_id, trait_signature)
     }
 
     pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) -> CheckResult<()> {
@@ -254,13 +337,8 @@ impl ContractContext {
     pub fn get_trait(
         &self,
         trait_id: &TraitIdentifier,
-        clarity_version: ClarityVersion,
     ) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {
-        if clarity_version < ClarityVersion::Clarity2 {
-            self.traits.get(&trait_id.name)
-        } else {
-            self.all_traits.get(trait_id)
-        }
+        self.traits.get_trait(trait_id)
     }
 
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
@@ -320,17 +398,7 @@ impl ContractContext {
             contract_analysis.add_non_fungible_token(name.into(), nft_type);
         }
 
-        if contract_analysis.clarity_version < ClarityVersion::Clarity2 {
-            for (name, trait_signature) in self.traits.drain() {
-                contract_analysis.add_defined_trait(name, trait_signature);
-            }
-        } else {
-            for (trait_id, trait_signature) in self.all_traits.drain() {
-                if trait_id.contract_identifier == contract_analysis.contract_identifier {
-                    contract_analysis.add_defined_trait(trait_id.name, trait_signature);
-                }
-            }
-        }
+        self.traits.into_contract_analysis(contract_analysis);
 
         for trait_identifier in self.implemented_traits.drain() {
             contract_analysis.add_implemented_trait(trait_identifier);

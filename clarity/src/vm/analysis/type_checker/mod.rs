@@ -710,7 +710,7 @@ fn lookup_trait<T: CostTracker>(
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
             return Ok(contract_context
-                .get_trait(&trait_id, clarity_version)
+                .get_trait(&trait_id)
                 .ok_or(CheckErrors::NoSuchTrait(
                     trait_id.contract_identifier.to_string(),
                     trait_id.name.to_string(),
@@ -718,7 +718,7 @@ fn lookup_trait<T: CostTracker>(
                 .clone());
         }
         if clarity_version >= ClarityVersion::Clarity2 {
-            if let Some(trait_sig) = contract_context.get_trait(trait_id, clarity_version) {
+            if let Some(trait_sig) = contract_context.get_trait(trait_id) {
                 return Ok(trait_sig.clone());
             }
         }
@@ -800,7 +800,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
-            contract_context: ContractContext::new(contract_identifier.clone()),
+            contract_context: ContractContext::new(contract_identifier.clone(), clarity_version.clone()),
             function_return_tracker: None,
             type_map: TypeMap::new(),
             clarity_version: clarity_version.clone(),
@@ -1433,7 +1433,6 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     self.contract_context.add_defined_trait(
                         trait_name,
                         trait_signature,
-                        self.clarity_version,
                     )?;
                 }
                 DefineFunctionsParsed::UseTrait {
@@ -1454,9 +1453,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
                             self.contract_context.add_used_trait(
+                                name.clone(),
                                 trait_identifier.clone(),
                                 trait_sig,
-                                self.clarity_version,
                             )?
                         }
                         None => {
