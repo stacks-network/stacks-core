@@ -471,7 +471,7 @@ impl<'a> ChainstateTx<'a> {
                 "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
             for tx_event in events.iter() {
                 let txid = tx_event.transaction.txid();
-                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
                 let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {

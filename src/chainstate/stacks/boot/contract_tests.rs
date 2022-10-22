@@ -5,6 +5,7 @@ use std::convert::TryInto;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::pox_2_tests::generate_pox_clarity_value;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_TESTNET_CODE,
@@ -14,6 +15,7 @@ use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
+use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
@@ -21,6 +23,7 @@ use crate::core::{
     POX_REWARD_CYCLE_LENGTH,
 };
 use crate::util_lib::db::{DBConn, FromRow};
+use clarity::types::Address;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -575,7 +578,7 @@ fn pox_2_contract_caller_units() {
     let cc = boot_code_id("stack-through", false);
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(cc.clone(),
+        env.initialize_versioned_contract(cc.clone(), ClarityVersion::Clarity2,
                                 "(define-public (cc-stack-stx (amount-ustx uint)
                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                            (start-burn-ht uint)
@@ -640,9 +643,19 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[0]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(3),
+                generate_pox_clarity_value("0000000000000000000000000000000000000000"),
+                Value::UInt(4),
                 Value::UInt(expected_unlock_height)
             )),
             "The stack-through contract should be an allowed caller for POX_ADDR[0] in the PoX2 contract",
@@ -741,9 +754,19 @@ fn pox_2_contract_caller_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[1]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(3),
+                generate_pox_clarity_value("0000000000000000000000000000000000000000"),
+                Value::UInt(4),
                 Value::UInt(expected_unlock_height)
             )),
             "The stack-through contract should be an allowed caller for User1 in the PoX2 contract",
@@ -855,9 +878,15 @@ fn pox_2_lock_extend_units() {
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        let principal = Value::Principal(
+            StacksAddress::from_string("ST3CPX0WZ5TPAYGMSGRRHJKF0PPJSYTFHSB6DASK3")
+                .unwrap()
+                .to_account_principal(),
+        );
+        let del_principal: PrincipalData = (&delegator).into();
         assert_eq!(
             env.execute_transaction(
-                (&delegator).into(),
+                del_principal.clone(),
                 None,
                 POX_2_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
@@ -872,10 +901,22 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "delegate-stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {}, delegator: '{} }} }})
+                "#,
                 Value::from(&USER_KEYS[0]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(3 * reward_cycle_len)
+                Value::UInt(2),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"), 
+                Value::UInt(4),
+                Value::UInt(3 * reward_cycle_len),
+                Value::Principal(del_principal),
+
             )),
             "delegate-stack-stx should work okay",
         );
@@ -914,9 +955,19 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[1]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(USTX_PER_HOLDER),
+                Value::UInt(3),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"), 
+                Value::UInt(4),
                 Value::UInt(4 * reward_cycle_len)
             )),
             "User1 should be able to stack-stx",
@@ -954,9 +1005,18 @@ fn pox_2_lock_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-extend", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ extend-count: {}, pox-addr: {}, 
+                    unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[1]),
-                Value::UInt(expected_user_1_unlock),
+                Value::UInt(1000000),
+                Value::UInt(0),
+                Value::UInt(20),
+                Value::UInt(9),
+                generate_pox_clarity_value("0000000000000000000000000200000000000000"),
+                Value::UInt(expected_user_1_unlock)
             )),
             "Should be able to stack-extend to exactly 12 cycles in the future",
         );
@@ -1128,9 +1188,10 @@ fn pox_2_delegate_extend_units() {
         );
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
+        let del_principal: PrincipalData = (&delegator).into();
         assert_eq!(
             env.execute_transaction(
-                (&delegator).into(),
+                del_principal.clone(),
                 None,
                 POX_2_CONTRACT_TESTNET.clone(),
                 "delegate-stack-stx",
@@ -1145,10 +1206,21 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "delegate-stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {}, delegator: '{} }} }})
+                "#,
                 Value::from(&USER_KEYS[0]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(*MIN_THRESHOLD - 1),
-                Value::UInt(450)
+                Value::UInt(2),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"), 
+                Value::UInt(5),
+                Value::UInt(450),
+                Value::Principal(del_principal.clone()),
             )),
             "Delegate should successfully stack through delegation from User0",
         );
@@ -1170,10 +1242,21 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, lock-amount: {}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "delegate-stack-stx", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ lock-amount: {}, lock-period: {}, pox-addr: {}, 
+                    start-burn-height: {}, unlock-burn-height: {}, delegator: '{} }} }})
+                "#,
                 Value::from(&USER_KEYS[1]),
+                Value::UInt(0),
+                Value::UInt(1000000),
+                Value::UInt(0),
                 Value::UInt(1),
-                Value::UInt(450)
+                Value::UInt(2),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"), 
+                Value::UInt(5),
+                Value::UInt(450),
+                Value::Principal(del_principal.clone()),
             )),
             "Delegate should successfully stack through delegation from User1",
         );
@@ -1187,9 +1270,20 @@ fn pox_2_delegate_extend_units() {
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(1)])
             )
             .unwrap()
-            .0
-            .to_string(),
-            "(ok true)".to_string(),
+            .0,
+            execute(&format!(
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-aggregation-commit", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ amount-ustx: {}, reward-cycle: {}, pox-addr: {} }} }})
+                "#,
+                Value::Principal(del_principal.clone()),
+                Value::UInt(0),
+                Value::UInt(0),
+                Value::UInt(0),
+                Value::UInt(6250),
+                Value::UInt(1),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"),
+            )),
             "Delegate should successfully aggregate commits for cycle 1",
         );
 
@@ -1202,9 +1296,20 @@ fn pox_2_delegate_extend_units() {
                 &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(2)])
             )
             .unwrap()
-            .0
-            .to_string(),
-            "(ok true)".to_string(),
+            .0,
+            execute(&format!(
+                r#"
+                    (ok {{ stacker: '{}, name: "stack-aggregation-commit", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ amount-ustx: {}, reward-cycle: {}, pox-addr: {} }} }})
+                "#,
+                Value::Principal(del_principal.clone()),
+                Value::UInt(0),
+                Value::UInt(0),
+                Value::UInt(0),
+                Value::UInt(6250),
+                Value::UInt(2),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"),
+            )),
             "Delegate should successfully aggregate commits for cycle 2",
         );
 
@@ -1257,10 +1362,20 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "delegate-stack-extend", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ delegator: '{}, extend-count: {}, 
+                    pox-addr: {}, unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[1]),
+                Value::UInt(1),
+                Value::UInt(999999),
+                Value::UInt(450),
+                Value::Principal(del_principal.clone()),
+                Value::UInt(10),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"),
                 // unlock-burn-height should be 10 reward cycles greater than prior unlock height
-                Value::UInt(450 + 10 * 150),
+                Value::UInt(450 + 10 * 150)
             )),
             "Delegate should be able to extend 12 cycles into future (current cycle is 0, previously stacked to 2, extend by 10 allowed).",
         );
@@ -1465,10 +1580,20 @@ fn pox_2_delegate_extend_units() {
             .unwrap()
             .0,
             execute(&format!(
-                "(ok {{ stacker: '{}, unlock-burn-height: {} }})",
+                r#"
+                    (ok {{ stacker: '{}, name: "delegate-stack-extend", locked: {}, balance: {}, 
+                    burnchain-unlock-height: {}, data: {{ delegator: '{}, extend-count: {}, 
+                    pox-addr: {}, unlock-burn-height: {} }} }})
+                "#,
                 Value::from(&USER_KEYS[0]),
+                Value::UInt(6249),
+                Value::UInt(993751),
+                Value::UInt(450),
+                Value::Principal(del_principal.clone()),
+                Value::UInt(9),
+                generate_pox_clarity_value("0000000000000000000000000100000000000000"), 
                 // unlock-burn-height should be 9 reward cycles greater than prior unlock height
-                Value::UInt(450 + 9 * 150),
+                Value::UInt(450 + 9 * 150)
             )),
             "Delegate successfully stack extends for User0 for 9 cycles",
         );
@@ -1483,9 +1608,20 @@ fn pox_2_delegate_extend_units() {
                     &symbols_from_values(vec![POX_ADDRS[1].clone(), Value::UInt(cycle)])
                 )
                     .unwrap()
-                    .0
-                    .to_string(),
-                "(ok true)".to_string(),
+                    .0,
+                    execute(&format!(
+                        r#"
+                            (ok {{ stacker: '{}, name: "stack-aggregation-commit", locked: {}, balance: {}, 
+                            burnchain-unlock-height: {}, data: {{ amount-ustx: {}, reward-cycle: {}, pox-addr: {} }} }})
+                        "#,
+                        Value::Principal(del_principal.clone()),
+                        Value::UInt(0),
+                        Value::UInt(0),
+                        Value::UInt(0),
+                        Value::UInt(6250),
+                        Value::UInt(cycle),
+                        generate_pox_clarity_value("0000000000000000000000000100000000000000"),
+                    )),
                 "For cycles in [3, 12), delegate has enough to successfully aggregate commit",
             );
 

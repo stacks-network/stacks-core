@@ -28,6 +28,7 @@ use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
     InterpreterResult, RuntimeErrorType,
 };
+use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::QualifiedContractIdentifier;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
