@@ -96,6 +96,9 @@ pub struct RelayerStats {
 pub struct ProcessedNetReceipts {
     pub mempool_txs_added: Vec<StacksTransaction>,
     pub processed_unconfirmed_state: ProcessedUnconfirmedState,
+    pub num_new_blocks: u64,
+    pub num_new_confirmed_microblocks: u64,
+    pub num_new_unconfirmed_microblocks: u64,
 }
 
 /// Private trait for keeping track of messages that can be relayed, so we can identify the peers
@@ -581,13 +584,21 @@ impl Relayer {
             return Ok(false);
         }
 
-        chainstate.preprocess_anchored_block(
+        let res = chainstate.preprocess_anchored_block(
             sort_ic,
             consensus_hash,
             block,
             &parent_block_snapshot.consensus_hash,
             download_time,
-        )
+        )?;
+        if res {
+            debug!(
+                "Stored incoming block {}/{}",
+                consensus_hash,
+                &block.block_hash()
+            );
+        }
+        Ok(res)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -1600,8 +1611,16 @@ impl Relayer {
         coord_comms: Option<&CoordinatorChannels>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<ProcessedNetReceipts, net_error> {
+        let mut num_new_blocks = 0;
+        let mut num_new_confirmed_microblocks = 0;
+        let mut num_new_unconfirmed_microblocks = 0;
         match Relayer::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
             Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
+                // report quantities of new data in the receipts
+                num_new_blocks = new_blocks.len() as u64;
+                num_new_confirmed_microblocks = new_confirmed_microblocks.len() as u64;
+                num_new_unconfirmed_microblocks = new_microblocks.len() as u64;
+
                 // attempt to relay messages (note that this is all best-effort).
                 // punish bad peers
                 if bad_block_neighbors.len() > 0 {
@@ -1722,6 +1741,9 @@ impl Relayer {
         let receipts = ProcessedNetReceipts {
             mempool_txs_added,
             processed_unconfirmed_state,
+            num_new_blocks,
+            num_new_confirmed_microblocks,
+            num_new_unconfirmed_microblocks,
         };
 
         Ok(receipts)
@@ -5116,7 +5138,7 @@ pub mod test {
         let mut unsolicited = HashMap::new();
         unsolicited.insert(nk.clone(), bad_msgs.clone());
 
-        let mut network_result = NetworkResult::new(0, 0, 0);
+        let mut network_result = NetworkResult::new(0, 0, 0, 0);
         network_result.consume_unsolicited(unsolicited);
 
         assert!(network_result.has_blocks());

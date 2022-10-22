@@ -79,9 +79,8 @@ pub use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-pub const STACKS_BLOCK_VERSION: u8 = 0;
+pub const STACKS_BLOCK_VERSION: u8 = 2;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
-pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
@@ -120,6 +119,8 @@ pub enum Error {
     PoxInsufficientBalance,
     PoxNoRewardCycle,
     ProblematicTransaction(Txid),
+    MinerAborted,
+    ChannelClosed(String),
 }
 
 impl From<marf_error> for Error {
@@ -195,6 +196,8 @@ impl fmt::Display for Error {
                 "Transaction {} is problematic and will not be mined again",
                 txid
             ),
+            Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
+            Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
         }
     }
 }
@@ -229,6 +232,8 @@ impl error::Error for Error {
             Error::PoxNoRewardCycle => None,
             Error::StacksTransactionSkipped(ref _r) => None,
             Error::ProblematicTransaction(ref _txid) => None,
+            Error::MinerAborted => None,
+            Error::ChannelClosed(ref _s) => None,
         }
     }
 }
@@ -263,6 +268,8 @@ impl Error {
             Error::PoxNoRewardCycle => "PoxNoRewardCycle",
             Error::StacksTransactionSkipped(ref _r) => "StacksTransactionSkipped",
             Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
+            Error::MinerAborted => "MinerAborted",
+            Error::ChannelClosed(ref _s) => "ChannelClosed",
         }
     }
 

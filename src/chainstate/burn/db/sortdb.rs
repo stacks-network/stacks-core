@@ -89,7 +89,7 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId, VRFSeed,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -1434,7 +1434,7 @@ impl<'a> SortitionHandleTx<'a> {
             )?;
         } else {
             // see if this block builds off of a Stacks block mined on this burnchain fork
-            let height_opt = match SortitionDB::get_accepted_stacks_block_pointer(
+            let parent_height_opt = match SortitionDB::get_accepted_stacks_block_pointer(
                 self,
                 &burn_tip.consensus_hash,
                 parent_stacks_block_hash,
@@ -1452,10 +1452,11 @@ impl<'a> SortitionHandleTx<'a> {
                     }
                 }
             };
-            match height_opt {
-                Some(height) => {
+            match parent_height_opt {
+                Some(parent_height) => {
                     if stacks_block_height > burn_tip.canonical_stacks_tip_height {
-                        assert!(stacks_block_height > height, "BUG: DB corruption -- block height {} <= {} means we accepted a block out-of-order", stacks_block_height, height);
+                        assert!(stacks_block_height > parent_height, "BUG: DB corruption -- block height {} <= {} means we accepted a block out-of-order", stacks_block_height, parent_height);
+
                         // This block builds off of a parent that is _concurrent_ with the memoized canonical stacks chain pointer.
                         // i.e. this block will reorg the Stacks chain on the canonical burnchain fork.
                         // Memoize this new stacks chain tip to the canonical burn chain snapshot.
@@ -1463,7 +1464,7 @@ impl<'a> SortitionHandleTx<'a> {
                         // are guaranteed by the Stacks chain state code that Stacks blocks in a given
                         // Stacks fork will be marked as accepted in sequential order (i.e. at height h, h+1,
                         // h+2, etc., without any gaps).
-                        debug!("Accepted Stacks block {}/{} builds on a previous canonical Stacks tip on this burnchain fork ({})", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash);
+                        debug!("Accepted Stacks block {}/{} ({}) builds on a previous canonical Stacks tip on this burnchain fork ({})", consensus_hash, stacks_block_hash, stacks_block_height, &burn_tip.burn_header_hash);
                         let args: &[&dyn ToSql] = &[
                             consensus_hash,
                             stacks_block_hash,
@@ -1477,7 +1478,7 @@ impl<'a> SortitionHandleTx<'a> {
                         // This block was mined on this fork, but it's acceptance doesn't overtake
                         // the current stacks chain tip.  Remember it so that we can process its children,
                         // which might do so later.
-                        debug!("Accepted Stacks block {}/{} builds on a non-canonical Stacks tip in this burnchain fork ({})", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash);
+                        debug!("Accepted Stacks block {}/{} ({}) builds on a non-canonical Stacks tip in this burnchain fork ({} height {})", consensus_hash, stacks_block_hash, stacks_block_height, &burn_tip.burn_header_hash, burn_tip.canonical_stacks_tip_height);
                     }
                     SortitionDB::insert_accepted_stacks_block_pointer(
                         self,
@@ -2475,8 +2476,8 @@ impl SortitionDB {
     pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
         match epoch {
             StacksEpochId::Epoch10 => false,
-            StacksEpochId::Epoch20 => (version == "1" || version == "2" || version == "3"),
-            StacksEpochId::Epoch2_05 => (version == "2" || version == "3" || version == "4"),
+            StacksEpochId::Epoch20 => version == "1" || version == "2" || version == "3",
+            StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
         }
     }
 
