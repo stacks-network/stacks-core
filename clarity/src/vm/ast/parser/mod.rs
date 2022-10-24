@@ -1059,6 +1059,18 @@ mod test {
         let string_with_multiple_slashes = r#"
         "hello\\\"world"
         "#;
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit + 1),
+            "} ".repeat(stack_limit + 1)
+        );
+        let exceeds_stack_depth_list = format!(
+            "{}u1 {}",
+            "(list ".repeat(stack_limit + 1),
+            ")".repeat(stack_limit + 1)
+        );
 
         assert!(match ast::parser::parse(&split_tokens).unwrap_err().err {
             ParseErrors::SeparatorExpected(_) => true,
@@ -1270,5 +1282,25 @@ mod test {
                 _ => false,
             }
         );
+
+        assert!(match ast::parser::parse(&exceeds_stack_depth_tuple)
+            .unwrap_err()
+            .err
+        {
+            ParseErrors::VaryExpressionStackDepthTooDeep => true,
+            x => {
+                panic!("Got {:?}", &x);
+            }
+        });
+
+        assert!(match ast::parser::parse(&exceeds_stack_depth_list)
+            .unwrap_err()
+            .err
+        {
+            ParseErrors::VaryExpressionStackDepthTooDeep => true,
+            x => {
+                panic!("Got {:?}", &x);
+            }
+        });
     }
 }

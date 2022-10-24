@@ -150,14 +150,14 @@ jobs:
           name: ${{ matrix.platform }}
           path: ${{ matrix.platform }}.zip
 
-  call-docker-platforms-workflow:
-    if: ${{ github.event.inputs.tag != '' }}
-    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
-    with:
-      tag: ${{ github.event.inputs.tag }}
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+#  call-docker-platforms-workflow:
+#    if: ${{ github.event.inputs.tag != '' }}
+#    uses: stacks-network/stacks-blockchain/.github/workflows/docker-platforms.yml@master
+#    with:
+#      tag: ${{ github.event.inputs.tag }}
+#    secrets:
+#      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+#      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
   # Build docker image, tag it with the git tag and `latest` if running on master branch, and publish under the following conditions
   # Will publish if:
