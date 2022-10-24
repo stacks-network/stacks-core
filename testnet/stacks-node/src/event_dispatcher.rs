@@ -55,6 +55,7 @@ struct ReceiptPayloadInfo<'a> {
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
+const STATUS_NON_RESP_TYPE: &str = "result_not_response_type";
 
 /// Update `serve()` in `neon_integrations.rs` with any new paths that need to be tested
 pub const PATH_MICROBLOCK_SUBMIT: &str = "new_microblocks";
@@ -205,7 +206,8 @@ impl EventObserver {
                 }
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-            _ => unreachable!(), // Transaction results should always be a Value::Response type
+            // Transaction results should always be a Value::Response type
+            _ => STATUS_NON_RESP_TYPE,
         };
 
         let (txid, raw_tx) = match tx {
