@@ -384,7 +384,7 @@ impl PoxConstants {
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25, 5, POX_V1_REGTEST_EARLY_UNLOCK_HEIGHT)
+        PoxConstants::new(10, 5, 3, 25, 5, BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap())
     }
 }
 
