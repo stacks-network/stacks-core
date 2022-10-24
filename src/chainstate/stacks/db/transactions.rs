@@ -890,8 +890,8 @@ impl StacksChainState {
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
 
-                let bt = backtrace::Backtrace::new();
-                info!("bt: {:?}", bt);
+                // let bt = backtrace::Backtrace::new();
+                // info!("bt: {:?}", bt);
                 let (result, asset_map, events) = match contract_call_resp {
                     Ok((return_value, asset_map, events)) => {
                         info!("Contract-call successfully processed";
