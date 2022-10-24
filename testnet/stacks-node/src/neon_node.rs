@@ -1647,10 +1647,21 @@ impl StacksNode {
     /// Tell the relayer to fire off a tenure and a block commit op,
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
-        if !self.is_miner {
-            // node is a follower, don't try to issue a tenure
-            return true;
-        }
+        // if !self.is_miner {
+        //     // node is a follower, don't try to issue a tenure
+        //     info!("this is a follower, let's send the 'count mempool' directive");
+        // 
+        //     let send_result =                     self.relay_channel
+        //         .send(RelayerDirective::CountMempool(
+        //             key.clone(),
+        //             burnchain_tip,
+        //             get_epoch_time_ms(),
+        //         ))
+        //         .is_ok();
+        //
+        //     info!("send_result: {}", send_result);
+        //     return true;
+        // }
 
         if let Some(burnchain_tip) = get_last_sortition(&self.last_sortition) {
             match self.leader_key_registration_state {
@@ -1660,13 +1671,29 @@ impl StacksNode {
                         &key.vrf_public_key, &burnchain_tip.burn_header_hash
                     );
 
-                    self.relay_channel
-                        .send(RelayerDirective::RunTenure(
-                            key.clone(),
-                            burnchain_tip,
-                            get_epoch_time_ms(),
-                        ))
-                        .is_ok()
+                    if self.is_miner {
+                        self.relay_channel
+                            .send(RelayerDirective::RunTenure(
+                                key.clone(),
+                                burnchain_tip,
+                                get_epoch_time_ms(),
+                            ))
+                            .is_ok()
+                    } else {
+                        info!("this is a follower, let's send the 'count mempool' directive");
+
+                        let send_result =                     self.relay_channel
+                            .send(RelayerDirective::CountMempool(
+                                key.clone(),
+                                burnchain_tip,
+                                get_epoch_time_ms(),
+                            ))
+                            .is_ok();
+
+                        info!("send_result: {}", send_result);
+                        true
+                    }
+
                 }
                 LeaderKeyRegistrationState::Inactive => {
                     warn!(
