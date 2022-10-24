@@ -1647,10 +1647,12 @@ impl StacksNode {
     /// Tell the relayer to fire off a tenure and a block commit op,
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
+        info!("relay_issue_tenure is_miner={}", self.is_miner);
+
         // if !self.is_miner {
         //     // node is a follower, don't try to issue a tenure
         //     info!("this is a follower, let's send the 'count mempool' directive");
-        // 
+        //
         //     let send_result =                     self.relay_channel
         //         .send(RelayerDirective::CountMempool(
         //             key.clone(),
