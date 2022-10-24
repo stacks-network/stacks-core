@@ -205,7 +205,10 @@ impl EventObserver {
                 }
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-            _ => unreachable!(), // Transaction results should always be a Value::Response type
+            // _ => unreachable!(), // Transaction results should always be a Value::Response type
+            // HACK: this _is_ reachable, not sure how yet, so just report one of these for now..
+            (true, _) => STATUS_RESP_POST_CONDITION,
+            (false, _) => STATUS_RESP_NOT_COMMITTED,
         };
 
         let (txid, raw_tx) = match tx {
