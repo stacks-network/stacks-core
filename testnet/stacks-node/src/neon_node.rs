@@ -98,6 +98,7 @@ enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
+    CountMempool(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
     RegisterKey(BlockSnapshot),
     RunMicroblockTenure(BlockSnapshot, u128), // time of issuance in ms
     Exit,
@@ -1224,6 +1225,9 @@ fn spawn_miner_relayer(
                             }
                         }
                     }
+                }
+                RelayerDirective::CountMempool(registered_key, last_burn_block, issue_timestamp_ms) => {
+                    info!("counting the mempool now!");
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                     if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
