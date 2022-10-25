@@ -402,76 +402,109 @@ fn check_contract_call(
             func_signature
         }
         SymbolicExpressionType::Atom(trait_instance) => {
-            match checker.contract_context.get_variable_type(trait_instance) {
-                // Constant principal literal, static dispatch
-                Some(TypeSignature::CallableType(CallableSubtype::Principal(
-                    contract_identifier,
-                ))) if checker.clarity_version >= ClarityVersion::Clarity2 => {
-                    let contract_call_function = {
-                        if let Some(FunctionType::Fixed(function)) = checker
-                            .db
-                            .get_public_function_type(&contract_identifier, func_name)?
-                        {
-                            Ok(function)
-                        } else if let Some(FunctionType::Fixed(function)) = checker
-                            .db
-                            .get_read_only_function_type(&contract_identifier, func_name)?
-                        {
-                            Ok(function)
-                        } else {
-                            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(
-                                contract_identifier.to_string(),
-                                func_name.to_string(),
-                            )))
-                        }
-                    }?;
+            if checker.clarity_version < ClarityVersion::Clarity2 {
+                // Dynamic dispatch
+                let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                    Some(trait_id) => trait_id,
+                    _ => {
+                        return Err(
+                            CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
+                        )
+                    }
+                };
 
-                    let func_signature = FunctionSignature::from(contract_call_function);
+                runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisGetFunctionEntry,
-                        checker,
-                        func_signature.total_type_size()?,
-                    )?;
+                let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                    CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                )?;
+                let func_signature =
+                    trait_signature
+                        .get(func_name)
+                        .ok_or(CheckErrors::TraitMethodUnknown(
+                            trait_id.name.to_string(),
+                            func_name.to_string(),
+                        ))?;
 
-                    func_signature
-                }
-                Some(var_type) if checker.clarity_version >= ClarityVersion::Clarity2 => {
-                    // Any other typed constant is an error
-                    return Err(CheckErrors::ExpectedCallableType(var_type.clone()).into());
-                }
-                _ => {
-                    // Dynamic dispatch
-                    let trait_id = match context.lookup_trait_reference_type(trait_instance) {
-                        Some(trait_id) => trait_id,
-                        _ => {
-                            return Err(CheckErrors::TraitReferenceUnknown(
-                                trait_instance.to_string(),
-                            )
-                            .into())
-                        }
-                    };
+                runtime_cost(
+                    ClarityCostFunction::AnalysisLookupFunctionTypes,
+                    &mut checker.cost_track,
+                    func_signature.total_type_size()?,
+                )?;
 
-                    runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
+                func_signature.clone()
+            } else {
+                // Clarity2+
+                match checker.contract_context.get_variable_type(trait_instance) {
+                    // Constant principal literal, static dispatch
+                    Some(TypeSignature::CallableType(CallableSubtype::Principal(
+                        contract_identifier,
+                    ))) => {
+                        let contract_call_function = {
+                            if let Some(FunctionType::Fixed(function)) = checker
+                                .db
+                                .get_public_function_type(&contract_identifier, func_name)?
+                            {
+                                Ok(function)
+                            } else if let Some(FunctionType::Fixed(function)) = checker
+                                .db
+                                .get_read_only_function_type(&contract_identifier, func_name)?
+                            {
+                                Ok(function)
+                            } else {
+                                Err(CheckError::new(CheckErrors::NoSuchPublicFunction(
+                                    contract_identifier.to_string(),
+                                    func_name.to_string(),
+                                )))
+                            }
+                        }?;
 
-                    let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
-                        CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
-                    )?;
-                    let func_signature =
-                        trait_signature
-                            .get(func_name)
-                            .ok_or(CheckErrors::TraitMethodUnknown(
+                        let func_signature = FunctionSignature::from(contract_call_function);
+
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisGetFunctionEntry,
+                            checker,
+                            func_signature.total_type_size()?,
+                        )?;
+
+                        func_signature
+                    }
+                    Some(var_type) => {
+                        // Any other typed constant is an error
+                        return Err(CheckErrors::ExpectedCallableType(var_type.clone()).into());
+                    }
+                    _ => {
+                        // Dynamic dispatch
+                        let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                            Some(trait_id) => trait_id,
+                            _ => {
+                                return Err(CheckErrors::TraitReferenceUnknown(
+                                    trait_instance.to_string(),
+                                )
+                                .into())
+                            }
+                        };
+
+                        runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
+
+                        let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                            CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                        )?;
+                        let func_signature = trait_signature.get(func_name).ok_or(
+                            CheckErrors::TraitMethodUnknown(
                                 trait_id.name.to_string(),
                                 func_name.to_string(),
-                            ))?;
+                            ),
+                        )?;
 
-                    runtime_cost(
-                        ClarityCostFunction::AnalysisLookupFunctionTypes,
-                        &mut checker.cost_track,
-                        func_signature.total_type_size()?,
-                    )?;
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisLookupFunctionTypes,
+                            &mut checker.cost_track,
+                            func_signature.total_type_size()?,
+                        )?;
 
-                    func_signature.clone()
+                        func_signature.clone()
+                    }
                 }
             }
         }
