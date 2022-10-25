@@ -1068,6 +1068,7 @@ fn spawn_miner_relayer(
             .expect("Database failure opening mempool");
 
         while let Ok(mut directive) = relay_channel.recv() {
+            info!("got directive {:?}", &directive);
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
                     debug!("Relayer: Handle network result");
