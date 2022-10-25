@@ -99,8 +99,17 @@ pub enum TypeSignature {
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>),
     CallableType(CallableSubtype),
-    // Used for list of callables which can later be coerced to principals
-    // or traits.
+    // Suppose we have a list of contract principal literals, e.g.
+    // `(list .foo .bar)`. This list could be used as a list of `principal`
+    // types, or it could be passed into a function where it is used a list of
+    // some trait type, which every contract in the list implements, e.g.
+    // `(list 4 <my-trait>)`. There could also be a trait value, `t`, in that
+    // list. In that case, the list could no longer be coerced to a list of
+    // principals, but it could be coerced to a list of traits, either the type
+    // of `t`, or a compatible sub-trait of that type. `ListUnionType` is a
+    // data structure to maintain the set of types in the list, so that when
+    // we reach the place where the coercion needs to happen, we can perform
+    // the check -- see `concretize` method.
     ListUnionType(HashSet<CallableSubtype>),
 }
 
