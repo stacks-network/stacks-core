@@ -292,16 +292,7 @@ fn eval_with_new_binding(
         return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into());
     }
 
-    // Beginning in Clarity 2, traits can be bound.
-    if checker.clarity_version >= ClarityVersion::Clarity2 {
-        if let TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) = bind_type {
-            inner_context.traits_references.insert(bind_name, trait_id);
-        } else {
-            inner_context.variable_types.insert(bind_name, bind_type);
-        }
-    } else {
-        inner_context.variable_types.insert(bind_name, bind_type);
-    }
+    inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
     checker.type_check(body, &inner_context)
 }

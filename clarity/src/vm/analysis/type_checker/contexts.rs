@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{CallableSubtype, FunctionSignature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -436,6 +436,24 @@ impl<'a> TypingContext<'a> {
                 Some(parent) => parent.lookup_variable_type(name),
                 None => None,
             },
+        }
+    }
+
+    pub fn add_variable_type(
+        &mut self,
+        name: ClarityName,
+        var_type: TypeSignature,
+        clarity_version: ClarityVersion,
+    ) {
+        // Beginning in Clarity 2, traits can be bound.
+        if clarity_version >= ClarityVersion::Clarity2 {
+            if let TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) = var_type {
+                self.traits_references.insert(name, trait_id);
+            } else {
+                self.variable_types.insert(name, var_type);
+            }
+        } else {
+            self.variable_types.insert(name, var_type);
         }
     }
 

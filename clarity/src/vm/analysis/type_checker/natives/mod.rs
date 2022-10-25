@@ -248,22 +248,7 @@ fn check_special_let(
             checker,
             typed_result.type_size()?,
         )?;
-        // Beginning in Clarity 2, traits can be propagated into let variables.
-        if checker.clarity_version >= ClarityVersion::Clarity2 {
-            if let TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) = typed_result {
-                out_context
-                    .traits_references
-                    .insert(var_name.clone(), trait_id);
-            } else {
-                out_context
-                    .variable_types
-                    .insert(var_name.clone(), typed_result);
-            }
-        } else {
-            out_context
-                .variable_types
-                .insert(var_name.clone(), typed_result);
-        }
+        out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
         Ok(())
     })?;
 
@@ -469,12 +454,9 @@ fn check_contract_call(
 
                     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
-                    let trait_signature = checker
-                        .contract_context
-                        .get_trait(&trait_id)
-                        .ok_or(CheckErrors::TraitReferenceUnknown(
-                            trait_id.name.to_string(),
-                        ))?;
+                    let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                        CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                    )?;
                     let func_signature =
                         trait_signature
                             .get(func_name)
