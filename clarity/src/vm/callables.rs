@@ -172,64 +172,77 @@ impl DefinedFunction {
         for arg in arg_iterator.drain(..) {
             let ((name, type_sig), value) = arg;
 
-            // Arguments containing principal literals can be implicitly cast to traits
-            // to match parameter types.
-            // e.g. `(some .foo)` to `(optional <trait>`)
-            // and traits can be implicitly cast to sub-traits
-            // e.g. `<foo-and-bar>` to `<foo>`
-            let cast_value =
-                if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-                    implicit_cast(type_sig, value)?
-                } else {
-                    value.clone()
-                };
-
-            match (&type_sig, &cast_value) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
-                    Value::Principal(PrincipalData::Contract(callee_contract_id)),
-                ) => {
-                    // Argument is a trait reference, probably leading to a dynamic contract call
-                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                    // The code fetching and checking the trait is implemented in the contract_call eval function.
-                    // Note that this case only shows up in Clarity1 when the implicit casting is skipped.
-                    context.callable_contracts.insert(
-                        name.clone(),
-                        CallableData {
-                            contract_identifier: callee_contract_id.clone(),
-                            trait_identifier: Some(trait_identifier.clone()),
-                        },
-                    );
-                }
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(_)),
-                    Value::CallableContract(CallableData {
-                        contract_identifier,
-                        trait_identifier,
-                    }),
-                ) => {
-                    // Argument is a trait reference, probably leading to a dynamic contract call.
-                    // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
-                    // The trait compatibility has been checked by the type-checker.
-                    context.callable_contracts.insert(
-                        name.clone(),
-                        CallableData {
-                            contract_identifier: contract_identifier.clone(),
-                            trait_identifier: trait_identifier.clone(),
-                        },
-                    );
-                }
-                _ => {
-                    if !type_sig.admits(&cast_value) {
-                        return Err(
-                            CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
+            // Clarity 1 behavior
+            if *env.contract_context.get_clarity_version() < ClarityVersion::Clarity2 {
+                match (type_sig, value) {
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+                        Value::Principal(PrincipalData::Contract(callee_contract_id)),
+                    ) => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The code fetching and checking the trait is implemented in the contract_call eval function.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: callee_contract_id.clone(),
+                                trait_identifier: Some(trait_identifier.clone()),
+                            },
                         );
                     }
+                    _ => {
+                        if !type_sig.admits(value) {
+                            return Err(CheckErrors::TypeValueError(
+                                type_sig.clone(),
+                                value.clone(),
+                            )
+                            .into());
+                        }
+                        if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
+                            return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                        }
+                    }
                 }
-            }
+            } else {
+                // Clarity 2+ behavior
+                // Arguments containing principal literals can be implicitly cast to traits
+                // to match parameter types.
+                // e.g. `(some .foo)` to `(optional <trait>`)
+                // and traits can be implicitly cast to sub-traits
+                // e.g. `<foo-and-bar>` to `<foo>`
+                let cast_value = clarity2_implicit_cast(type_sig, value)?;
 
-            if let Some(_) = context.variables.insert(name.clone(), cast_value) {
-                return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                match (&type_sig, &cast_value) {
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                        Value::CallableContract(CallableData {
+                            contract_identifier,
+                            trait_identifier,
+                        }),
+                    ) => {
+                        // Argument is a trait reference, probably leading to a dynamic contract call.
+                        // We keep a reference of the mapping (var-name: (callee_contract_id, trait_id)) in the context.
+                        // The trait compatibility has been checked by the type-checker.
+                        context.callable_contracts.insert(
+                            name.clone(),
+                            CallableData {
+                                contract_identifier: contract_identifier.clone(),
+                                trait_identifier: trait_identifier.clone(),
+                            },
+                        );
+                    }
+                    _ => {
+                        if !type_sig.admits(&cast_value) {
+                            return Err(
+                                CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
+                            );
+                        }
+                    }
+                }
+
+                if let Some(_) = context.variables.insert(name.clone(), cast_value) {
+                    return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                }
             }
         }
 
@@ -344,7 +357,7 @@ impl FunctionIdentifier {
 // recursing into compound types. This function does not check for legality of
 // these casts, as that is done in the type-checker. Note: depth of recursion
 // should be capped by earlier checks on the types/values.
-fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
+fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
     Ok(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),
@@ -352,14 +365,14 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
                 data: Some(inner_value),
             }),
         ) => Value::Optional(OptionalData {
-            data: Some(Box::new(implicit_cast(inner_type, inner_value)?)),
+            data: Some(Box::new(clarity2_implicit_cast(inner_type, inner_value)?)),
         }),
         (
             TypeSignature::ResponseType(inner_types),
             Value::Response(ResponseData { committed, data }),
         ) => Value::Response(ResponseData {
             committed: *committed,
-            data: Box::new(implicit_cast(
+            data: Box::new(clarity2_implicit_cast(
                 if *committed {
                     &inner_types.0
                 } else {
@@ -377,7 +390,10 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
         ) => {
             let mut values = Vec::with_capacity(data.len());
             for elem in data {
-                values.push(implicit_cast(list_type.get_list_item_type(), elem)?);
+                values.push(clarity2_implicit_cast(
+                    list_type.get_list_item_type(),
+                    elem,
+                )?);
             }
             let cast_list_type_data = ListTypeData::new_list(
                 list_type.get_list_item_type().clone(),
@@ -400,12 +416,13 @@ fn implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
                 let to_type = match tuple_type.get_type_map().get(name) {
                     Some(ty) => ty,
                     None => {
+                        // This should be unreachable if the type-checker has already run successfully
                         return Err(
                             CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
-                        )
+                        );
                     }
                 };
-                cast_data_map.insert(name.clone(), implicit_cast(to_type, field_value)?);
+                cast_data_map.insert(name.clone(), clarity2_implicit_cast(to_type, field_value)?);
             }
             Value::Tuple(TupleData {
                 type_signature: tuple_type.clone(),
@@ -460,7 +477,7 @@ fn test_implicit_cast() {
         contract_identifier: contract_identifier2.clone(),
         trait_identifier: None,
     });
-    let cast_contract = implicit_cast(&trait_ty, &contract).unwrap();
+    let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
     let cast_trait = cast_contract.expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
@@ -468,7 +485,7 @@ fn test_implicit_cast() {
     // (optional principal) -> (optional <trait>)
     let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
     let optional_contract = Value::some(contract.clone()).unwrap();
-    let cast_optional = implicit_cast(&optional_ty, &optional_contract).unwrap();
+    let cast_optional = clarity2_implicit_cast(&optional_ty, &optional_contract).unwrap();
     match &cast_optional.expect_optional().unwrap() {
         Value::CallableContract(CallableData {
             contract_identifier: contract_id,
@@ -484,7 +501,7 @@ fn test_implicit_cast() {
     let response_ok_ty =
         TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
     let response_contract = Value::okay(contract.clone()).unwrap();
-    let cast_response = implicit_cast(&response_ok_ty, &response_contract).unwrap();
+    let cast_response = clarity2_implicit_cast(&response_ok_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_ok().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
@@ -493,7 +510,7 @@ fn test_implicit_cast() {
     let response_err_ty =
         TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
     let response_contract = Value::error(contract.clone()).unwrap();
-    let cast_response = implicit_cast(&response_err_ty, &response_contract).unwrap();
+    let cast_response = clarity2_implicit_cast(&response_err_ty, &response_contract).unwrap();
     let cast_trait = cast_response.expect_result_err().expect_callable();
     assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
     assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
@@ -501,7 +518,7 @@ fn test_implicit_cast() {
     // (list principal) -> (list <trait>)
     let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
     let list_contract = Value::list_from(vec![contract.clone(), contract2.clone()]).unwrap();
-    let cast_list = implicit_cast(&list_ty, &list_contract).unwrap();
+    let cast_list = clarity2_implicit_cast(&list_ty, &list_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
         let cast_trait = item.expect_callable();
@@ -526,7 +543,7 @@ fn test_implicit_cast() {
         .unwrap(),
         data_map,
     });
-    let cast_tuple = implicit_cast(&tuple_ty, &tuple_contract).unwrap();
+    let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();
     let cast_trait = cast_tuple
         .expect_tuple()
         .get(&a_name)
@@ -544,7 +561,7 @@ fn test_implicit_cast() {
         Value::none(),
     ])
     .unwrap();
-    let cast_list = implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
+    let cast_list = clarity2_implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
         match item.expect_optional() {
@@ -564,7 +581,7 @@ fn test_implicit_cast() {
         Value::okay(contract2.clone()).unwrap(),
     ])
     .unwrap();
-    let cast_list = implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+    let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
         let cast_trait = item.expect_result_ok().expect_callable();
@@ -579,7 +596,7 @@ fn test_implicit_cast() {
         Value::error(contract2.clone()).unwrap(),
     ])
     .unwrap();
-    let cast_list = implicit_cast(&list_res_ty, &list_res_contract).unwrap();
+    let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
     let items = cast_list.expect_list();
     for item in items {
         let cast_trait = item.expect_result_err().expect_callable();
@@ -596,7 +613,7 @@ fn test_implicit_cast() {
     ])
     .unwrap();
     let opt_list_res_contract = Value::some(list_res_contract).unwrap();
-    let cast_opt = implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
+    let cast_opt = clarity2_implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
     let inner = cast_opt.expect_optional().unwrap();
     let items = inner.expect_list();
     for item in items {
@@ -608,7 +625,8 @@ fn test_implicit_cast() {
     let optional_optional_ty = TypeSignature::new_option(optional_ty.clone()).unwrap();
     let optional_contract = Value::some(contract.clone()).unwrap();
     let optional_optional_contract = Value::some(optional_contract.clone()).unwrap();
-    let cast_optional = implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
+    let cast_optional =
+        clarity2_implicit_cast(&optional_optional_ty, &optional_optional_contract).unwrap();
 
     match &cast_optional
         .expect_optional()
