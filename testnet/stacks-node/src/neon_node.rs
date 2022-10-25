@@ -1068,10 +1068,10 @@ fn spawn_miner_relayer(
             .expect("Database failure opening mempool");
 
         while let Ok(mut directive) = relay_channel.recv() {
-            info!("got directive {:?}", &directive);
+            info!("got directive");
             match directive {
                 RelayerDirective::HandleNetResult(ref mut net_result) => {
-                    debug!("Relayer: Handle network result");
+                    info!("Relayer: Handle network result");
                     let net_receipts = relayer
                         .process_network_result(
                             &local_peer,
@@ -1109,7 +1109,7 @@ fn spawn_miner_relayer(
                     send_unconfirmed_txs(&chainstate, unconfirmed_txs.clone());
                 }
                 RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
-                    debug!(
+                    info!(
                         "Relayer: Process tenure {}/{} in {}",
                         &consensus_hash, &block_header_hash, &burn_hash
                     );
@@ -1231,6 +1231,7 @@ fn spawn_miner_relayer(
                     info!("counting the mempool now!");
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
+                    info!("RunTenure");
                     if let Some(cur_sortition) = get_last_sortition(&last_sortition) {
                         if last_burn_block.sortition_id != cur_sortition.sortition_id {
                             debug!("Drop stale RunTenure for {}: current sortition is for {}", &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash);
@@ -1308,6 +1309,7 @@ fn spawn_miner_relayer(
                     debug!("Relayer: RunTenure finished at {} (in {}ms)", last_tenure_issue_time, last_tenure_issue_time.saturating_sub(tenure_begin));
                 }
                 RelayerDirective::RegisterKey(ref last_burn_block) => {
+                    info!("RegisterKey");
                     rotate_vrf_and_register(
                         is_mainnet,
                         &mut keychain,
@@ -1648,7 +1650,6 @@ impl StacksNode {
     /// Tell the relayer to fire off a tenure and a block commit op,
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
-        info!("relay_issue_tenure is_miner={}", self.is_miner);
 
         // if !self.is_miner {
         //     // node is a follower, don't try to issue a tenure
@@ -1666,7 +1667,12 @@ impl StacksNode {
         //     return true;
         // }
 
-        if let Some(burnchain_tip) = get_last_sortition(&self.last_sortition) {
+        let last_sorition = get_last_sortition(&self.last_sortition);
+
+        info!("relay_issue_tenure is_miner={}, last_sortition {:?}", self.is_miner, &last_sorition);
+
+        // info!("last_sortition {:?}", &last_sorition);
+        if let Some(burnchain_tip) =  last_sorition {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
                     debug!(
@@ -1699,7 +1705,7 @@ impl StacksNode {
 
                 }
                 LeaderKeyRegistrationState::Inactive => {
-                    warn!(
+                    info!(
                         "Tenure: skipped tenure because no active VRF key. Trying to register one."
                     );
                     self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
@@ -1707,10 +1713,13 @@ impl StacksNode {
                         .send(RelayerDirective::RegisterKey(burnchain_tip))
                         .is_ok()
                 }
-                LeaderKeyRegistrationState::Pending => true,
+                LeaderKeyRegistrationState::Pending => {
+                    info!("Pending");
+                    true
+                },
             }
         } else {
-            warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
+            info!("Tenure: Do not know the last burn block. As a miner, this is bad.");
             true
         }
     }
