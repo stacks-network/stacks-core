@@ -35,7 +35,7 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::core::mempool::MemPoolDB;
+use stacks::core::mempool::{MemPoolDB, MemPoolWalkSettings};
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::core::STACKS_EPOCH_2_05_MARKER;
 use stacks::cost_estimates::metrics::UnitMetric;
@@ -73,6 +73,7 @@ use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 use clarity::vm::ast::ASTRules;
+use stacks_common::util::vrf::VRFProof;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 
@@ -1229,6 +1230,18 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::CountMempool(last_burn_block, issue_timestamp_ms) => {
                     info!("counting the mempool now!");
+                    let mut settings = MemPoolWalkSettings::default();
+                    StacksBlockBuilder::bucket_count_mempool(
+                        &chainstate,
+                        &sortdb.index_conn(),
+                        &mut mem_pool,
+                        &parent_header,
+                        chain_tip.total_burn,
+                        VRFProof::empty(),
+                        Hash160([0; 20]),
+                        settings,
+                    )
+                        .expect("`bucket_count_mempool` failed.");
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
                     info!("RunTenure");
