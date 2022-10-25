@@ -524,6 +524,9 @@ impl TypeSignature {
         }
     }
 
+    /// Concretize the type. The input to this method may include
+    /// `ListUnioonType` and the `CallableType` variant for a `principal.
+    /// This method turns these "temporary" types into actual types.
     pub fn concretize(&self) -> Result<TypeSignature> {
         match self {
             ListUnionType(types) => {
