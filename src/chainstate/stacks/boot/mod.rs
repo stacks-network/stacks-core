@@ -625,8 +625,9 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        info!("in get_reward_addresses_pox_2"); 
         if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_2_NAME)? {
-            debug!(
+            info!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
             );
@@ -643,7 +644,7 @@ impl StacksChainState {
             )?
             .expect_u128();
 
-        debug!(
+        info!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
             block_id, reward_cycle, num_addrs
         );
@@ -692,7 +693,7 @@ impl StacksChainState {
                 .expect_optional()
                 .map(|value| value.expect_principal());
 
-            debug!(
+            info!(
                 "Parsed PoX reward address";
                 "stacked_ustx" => total_ustx,
                 "reward_address" => %reward_address,

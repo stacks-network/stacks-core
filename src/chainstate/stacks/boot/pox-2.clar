@@ -619,7 +619,7 @@
           until-burn-ht: until-burn-ht,
           pox-addr: pox-addr })
 
-      (ok true)))
+      (ok (map-get? delegation-state {stacker: tx-sender}))))
 
 ;; Commit partially stacked STX.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,

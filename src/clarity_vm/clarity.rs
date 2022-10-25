@@ -908,6 +908,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 receipt
             });
 
+            info!("initialized pox-2 contract: {:?}", pox_2_contract_id); 
             if initialization_receipt.result != Value::okay_true()
                 || initialization_receipt.post_condition_aborted
             {

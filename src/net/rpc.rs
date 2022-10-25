@@ -278,9 +278,9 @@ impl RPCPoxInfoData {
             })
             .ok_or(net_error::NotFoundError)?;
 
-        let pox_contract_name = burnchain
-            .pox_constants
-            .active_pox_contract(current_burn_height);
+        let pox_contract_name = sortdb.pox_constants.active_pox_contract(
+            current_burn_height
+        );
 
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
@@ -406,12 +406,14 @@ impl RPCPoxInfoData {
             - i64::try_from(burnchain_tip.block_height).map_err(|_| {
                 net_error::ChainstateError("Burn block height overflowed i64".into())
             })?;
-
-        let cur_cycle_pox_contract =
-            pox_consts.active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id));
-        let next_cycle_pox_contract = pox_consts
-            .active_pox_contract(burnchain.reward_cycle_to_block_height(reward_cycle_id + 1));
-
+        
+        let cur_cycle_pox_contract = sortdb.pox_constants.active_pox_contract(
+            burnchain.reward_cycle_to_block_height(reward_cycle_id)
+        );
+        let next_cycle_pox_contract = sortdb.pox_constants.active_pox_contract(
+            burnchain.reward_cycle_to_block_height(reward_cycle_id + 1)
+        );
+       
         let cur_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
             &sortdb,
             tip,

@@ -140,6 +140,7 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::DelegateStx(_) => {
+                    
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::TransferStx(_) => {

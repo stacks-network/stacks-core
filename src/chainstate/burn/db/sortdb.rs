@@ -24,6 +24,7 @@ use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::tests::BurnStateDB;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -374,10 +375,10 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
         let reward_addr = serde_json::from_str(&reward_addr_str)
                        .expect("CORRUPTION: DB stored bad transition ops"); 
 
-        let delegated_ustx_str: String = row.get_unwrap("stacked_ustx");
+        let delegated_ustx_str: String = row.get_unwrap("delegated_ustx");
         let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
-        let until_burn_height = u64::from_column(row, "until_block_height")?;
+        let until_burn_height = u64::from_column(row, "until_burn_height")?;
         
         Ok(DelegateStxOp {
             txid,
@@ -665,7 +666,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         delegate_to TEXT NOT NULL,
         reward_addr TEXT NOT NULL,
         delegated_ustx TEXT NOT NULL,
-        until_burn_height INTEGER NOT NULL,
+        until_burn_height INTEGER,
 
         PRIMARY KEY(txid)
     );"#,
@@ -2646,7 +2647,7 @@ impl SortitionDB {
             StacksEpochId::Epoch10 => true,
             StacksEpochId::Epoch20 => version == "1" || version == "2" || version == "3",
             StacksEpochId::Epoch2_05 => version == "2" || version == "3",
-            StacksEpochId::Epoch21 => version == "3",
+            StacksEpochId::Epoch21 => version == "4",
         }
     }
 
