@@ -479,6 +479,10 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
     true
 }
 
+/// Returns Ok if actual_trait is compliant with expected_trait.
+/// This means that actual_trait implements all functions from expected_trait
+/// with compatible functions, and may optionally include other functions not
+/// included in expected_trait.
 pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
