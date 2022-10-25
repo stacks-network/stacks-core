@@ -1236,7 +1236,6 @@ fn spawn_miner_relayer(
                         &sortdb.index_conn(),
                         &mut mem_pool,
                         &parent_header,
-                        chain_tip.total_burn,
                         VRFProof::empty(),
                         Hash160([0; 20]),
                         settings,
