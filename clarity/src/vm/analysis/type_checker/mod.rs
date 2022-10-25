@@ -619,20 +619,10 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             if atom_trait_id != expected_trait_id {
-                let atom_trait = lookup_trait(
-                    db,
-                    contract_context,
-                    &atom_trait_id,
-                    ClarityVersion::Clarity2,
-                    tracker,
-                )?;
-                let expected_trait = lookup_trait(
-                    db,
-                    contract_context,
-                    expected_trait_id,
-                    ClarityVersion::Clarity2,
-                    tracker,
-                )?;
+                let atom_trait =
+                    clarity2_lookup_trait(db, contract_context, &atom_trait_id, tracker)?;
+                let expected_trait =
+                    clarity2_lookup_trait(db, contract_context, expected_trait_id, tracker)?;
                 clarity2_trait_check_trait_compliance(
                     db,
                     contract_context,
@@ -662,13 +652,8 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     return Err(CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
                 }
             };
-            let expected_trait = lookup_trait(
-                db,
-                contract_context,
-                expected_trait_id,
-                ClarityVersion::Clarity2,
-                tracker,
-            )?;
+            let expected_trait =
+                clarity2_lookup_trait(db, contract_context, expected_trait_id, tracker)?;
             contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
         }
         (
@@ -699,11 +684,10 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     Ok(expected_type.clone())
 }
 
-fn lookup_trait<T: CostTracker>(
+fn clarity2_lookup_trait<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
-    clarity_version: ClarityVersion,
     tracker: &mut T,
 ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
     if let Some(contract_context) = contract_context {
@@ -717,10 +701,8 @@ fn lookup_trait<T: CostTracker>(
                 ))?
                 .clone());
         }
-        if clarity_version >= ClarityVersion::Clarity2 {
-            if let Some(trait_sig) = contract_context.get_trait(trait_id) {
-                return Ok(trait_sig.clone());
-            }
+        if let Some(trait_sig) = contract_context.get_trait(trait_id) {
+            return Ok(trait_sig.clone());
         }
     }
 
@@ -800,7 +782,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
-            contract_context: ContractContext::new(contract_identifier.clone(), clarity_version.clone()),
+            contract_context: ContractContext::new(
+                contract_identifier.clone(),
+                clarity_version.clone(),
+            ),
             function_return_tracker: None,
             type_map: TypeMap::new(),
             clarity_version: clarity_version.clone(),
@@ -1430,10 +1415,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         self,
                         trait_type_size(&trait_signature)?,
                     )?;
-                    self.contract_context.add_defined_trait(
-                        trait_name,
-                        trait_signature,
-                    )?;
+                    self.contract_context
+                        .add_defined_trait(trait_name, trait_signature)?;
                 }
                 DefineFunctionsParsed::UseTrait {
                     name,
