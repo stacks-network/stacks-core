@@ -98,7 +98,7 @@ enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
-    CountMempool(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
+    CountMempool(BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
     RegisterKey(BlockSnapshot),
     RunMicroblockTenure(BlockSnapshot, u128), // time of issuance in ms
     Exit,
@@ -1227,7 +1227,7 @@ fn spawn_miner_relayer(
                         }
                     }
                 }
-                RelayerDirective::CountMempool(registered_key, last_burn_block, issue_timestamp_ms) => {
+                RelayerDirective::CountMempool(last_burn_block, issue_timestamp_ms) => {
                     info!("counting the mempool now!");
                 }
                 RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
@@ -1651,21 +1651,24 @@ impl StacksNode {
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
 
-        // if !self.is_miner {
-        //     // node is a follower, don't try to issue a tenure
-        //     info!("this is a follower, let's send the 'count mempool' directive");
-        //
-        //     let send_result =                     self.relay_channel
-        //         .send(RelayerDirective::CountMempool(
-        //             key.clone(),
-        //             burnchain_tip,
-        //             get_epoch_time_ms(),
-        //         ))
-        //         .is_ok();
-        //
-        //     info!("send_result: {}", send_result);
-        //     return true;
-        // }
+        if !self.is_miner {
+            let last_sorition = get_last_sortition(&self.last_sortition);
+
+            if let Some(burnchain_tip) =  last_sorition {
+                // node is a follower, don't try to issue a tenure
+                info!("this is a follower, let's send the 'count mempool' directive");
+
+                let send_result = self.relay_channel
+                    .send(RelayerDirective::CountMempool(
+                        burnchain_tip,
+                        get_epoch_time_ms(),
+                    ))
+                    .is_ok();
+
+                info!("send_result: {}", send_result);
+            }
+            return true;
+        }
 
         let last_sorition = get_last_sortition(&self.last_sortition);
 
@@ -1693,7 +1696,6 @@ impl StacksNode {
 
                         let send_result =                     self.relay_channel
                             .send(RelayerDirective::CountMempool(
-                                key.clone(),
                                 burnchain_tip,
                                 get_epoch_time_ms(),
                             ))
