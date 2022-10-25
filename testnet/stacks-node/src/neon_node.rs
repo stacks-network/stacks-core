@@ -73,6 +73,7 @@ use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
 use clarity::vm::ast::ASTRules;
+use stacks_common::types::Address;
 use stacks_common::util::vrf::VRFProof;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -99,7 +100,7 @@ enum RelayerDirective {
     HandleNetResult(NetworkResult),
     ProcessTenure(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
     RunTenure(RegisteredKey, BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
-    CountMempool(BlockSnapshot, u128), // (vrf key, chain tip, time of issuance in ms)
+    CountMempool(BlockSnapshot, u128),             // (vrf key, chain tip, time of issuance in ms)
     RegisterKey(BlockSnapshot),
     RunMicroblockTenure(BlockSnapshot, u128), // time of issuance in ms
     Exit,
@@ -141,14 +142,15 @@ fn fault_injection_long_tenure() {
 #[cfg(not(test))]
 fn fault_injection_long_tenure() {}
 
-enum Error {
+pub enum Error {
     HeaderNotFoundForChainTip,
     WinningVtxNotFoundForChainTip,
     SnapshotNotFoundForChainTip,
     BurnchainTipChanged,
 }
 
-struct MiningTenureInformation {
+#[derive(Debug, Clone, PartialEq)]
+pub struct MiningTenureInformation {
     stacks_parent_header: StacksHeaderInfo,
     /// the consensus hash of the sortition that selected the Stacks block parent
     parent_consensus_hash: ConsensusHash,
@@ -1230,12 +1232,34 @@ fn spawn_miner_relayer(
                 }
                 RelayerDirective::CountMempool(last_burn_block, issue_timestamp_ms) => {
                     info!("counting the mempool now!");
+                    let stacks_tip = chainstate
+                        .get_stacks_chain_tip(&sortdb)
+                        .expect("FATAL: could not query chain tip").expect("no chain tip");
+
+                    let miner_address = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
+
+                    let MiningTenureInformation {
+                        mut stacks_parent_header,
+                        parent_consensus_hash,
+                        parent_block_burn_height,
+                        parent_block_total_burn,
+                        parent_winning_vtxindex,
+                        coinbase_nonce,
+                    }= StacksNode::get_mining_tenure_information(
+                            &mut chainstate,
+                            &mut sortdb,
+                            &last_burn_block,
+                            miner_address,
+                            &stacks_tip.consensus_hash,
+                            &stacks_tip.anchored_block_hash,
+                        ).map_err ({ |_| panic!() })
+                            .expect("problem");
                     let mut settings = MemPoolWalkSettings::default();
                     StacksBlockBuilder::bucket_count_mempool(
                         &chainstate,
                         &sortdb.index_conn(),
                         &mut mem_pool,
-                        &parent_header,
+                        &stacks_parent_header,
                         VRFProof::empty(),
                         Hash160([0; 20]),
                         settings,
@@ -1662,15 +1686,15 @@ impl StacksNode {
     /// Tell the relayer to fire off a tenure and a block commit op,
     /// if it is time to do so.
     pub fn relayer_issue_tenure(&mut self) -> bool {
-
         if !self.is_miner {
             let last_sorition = get_last_sortition(&self.last_sortition);
 
-            if let Some(burnchain_tip) =  last_sorition {
+            if let Some(burnchain_tip) = last_sorition {
                 // node is a follower, don't try to issue a tenure
                 info!("this is a follower, let's send the 'count mempool' directive");
 
-                let send_result = self.relay_channel
+                let send_result = self
+                    .relay_channel
                     .send(RelayerDirective::CountMempool(
                         burnchain_tip,
                         get_epoch_time_ms(),
@@ -1684,10 +1708,13 @@ impl StacksNode {
 
         let last_sorition = get_last_sortition(&self.last_sortition);
 
-        info!("relay_issue_tenure is_miner={}, last_sortition {:?}", self.is_miner, &last_sorition);
+        info!(
+            "relay_issue_tenure is_miner={}, last_sortition {:?}",
+            self.is_miner, &last_sorition
+        );
 
         // info!("last_sortition {:?}", &last_sorition);
-        if let Some(burnchain_tip) =  last_sorition {
+        if let Some(burnchain_tip) = last_sorition {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
                     debug!(
@@ -1706,7 +1733,8 @@ impl StacksNode {
                     } else {
                         info!("this is a follower, let's send the 'count mempool' directive");
 
-                        let send_result =                     self.relay_channel
+                        let send_result = self
+                            .relay_channel
                             .send(RelayerDirective::CountMempool(
                                 burnchain_tip,
                                 get_epoch_time_ms(),
@@ -1716,7 +1744,6 @@ impl StacksNode {
                         info!("send_result: {}", send_result);
                         true
                     }
-
                 }
                 LeaderKeyRegistrationState::Inactive => {
                     info!(
@@ -1730,7 +1757,7 @@ impl StacksNode {
                 LeaderKeyRegistrationState::Pending => {
                     info!("Pending");
                     true
-                },
+                }
             }
         } else {
             info!("Tenure: Do not know the last burn block. As a miner, this is bad.");
@@ -1778,7 +1805,7 @@ impl StacksNode {
     /// This is used to mitigate (but not eliminate) a TOCTTOU issue with mining: the caller's
     /// conception of the sortition history tip may have become stale by the time they call this
     /// method, in which case, mining should *not* happen (since the block will be invalid).
-    fn get_mining_tenure_information(
+    pub fn get_mining_tenure_information(
         chain_state: &mut StacksChainState,
         burn_db: &mut SortitionDB,
         check_burn_block: &BlockSnapshot,

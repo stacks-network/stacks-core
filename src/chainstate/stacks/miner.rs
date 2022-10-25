@@ -2451,7 +2451,6 @@ impl StacksBlockBuilder {
         burn_dbconn: &SortitionDBConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
-        total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
         proof: VRFProof, // proof over the burnchain's last seed
         pubkey_hash: Hash160,
         settings: MemPoolWalkSettings,
@@ -2466,6 +2465,7 @@ impl StacksBlockBuilder {
         info!("check");
         let (mut chainstate, _) = chainstate_handle.reopen()?;
         info!("check");
+        let total_burn = 0u64;
         let mut builder = StacksBlockBuilder::make_block_builder(
             chainstate.mainnet,
             parent_stacks_header,
