@@ -133,6 +133,7 @@ fn bitcoind_integration_test() {
     conf.miner.min_tx_fee = 0;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.segwit = true;
 
     conf.initial_balances.push(InitialBalance {
         address: to_addr(
