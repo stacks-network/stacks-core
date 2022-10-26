@@ -119,7 +119,19 @@ fn bitcoind_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+    bitcoind_integration(false);
+}
 
+#[test]
+#[ignore]
+fn bitcoind_integration_test_segwit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    bitcoind_integration(true);
+}
+
+fn bitcoind_integration(segwit_flag: bool) {
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
     conf.burnchain.burn_fee_cap = BITCOIND_INT_TEST_COMMITS;
@@ -133,7 +145,7 @@ fn bitcoind_integration_test() {
     conf.miner.min_tx_fee = 0;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
-    conf.miner.segwit = true;
+    conf.miner.segwit = segwit_flag;
 
     conf.initial_balances.push(InitialBalance {
         address: to_addr(
