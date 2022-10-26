@@ -179,7 +179,7 @@ fn bitcoind_integration(segwit_flag: bool) {
     run_loop
         .callbacks
         .on_burn_chain_initialized(|burnchain_controller| {
-            burnchain_controller.bootstrap_chain(201);
+            burnchain_controller.bootstrap_chain(2001);
         });
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
