@@ -7823,14 +7823,14 @@ fn test_chainwork_first_intervals() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    
+
     btc_regtest_controller.bootstrap_chain(2016 * 2 - 1);
 
     eprintln!("Chain bootstrapped...");
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    
+
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -7867,7 +7867,6 @@ fn test_chainwork_partial_interval() {
     wait_for_runloop(&blocks_processed);
     channel.stop_chains_coordinator();
 }
-
 
 #[test]
 #[ignore]
@@ -9837,7 +9836,7 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
-            u32::MAX
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 

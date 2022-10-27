@@ -26,9 +26,9 @@ pub mod types;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use crate::vm::errors::{Error, RuntimeErrorType};
 
+use crate::vm::ast::parser::parse_in_epoch;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ast::parser::parse_in_epoch;
 
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
@@ -88,10 +88,20 @@ pub fn build_ast_with_rules<T: CostTracker>(
     ruleset: ASTRules,
 ) -> ParseResult<ContractAST> {
     match ruleset {
-        ASTRules::Typical => build_ast_typical(contract_identifier, source_code, cost_track, clarity_version, epoch),
-        ASTRules::PrecheckSize => {
-            build_ast_precheck_size(contract_identifier, source_code, cost_track, clarity_version, epoch)
-        }
+        ASTRules::Typical => build_ast_typical(
+            contract_identifier,
+            source_code,
+            cost_track,
+            clarity_version,
+            epoch,
+        ),
+        ASTRules::PrecheckSize => build_ast_precheck_size(
+            contract_identifier,
+            source_code,
+            cost_track,
+            clarity_version,
+            epoch,
+        ),
     }
 }
 
@@ -259,15 +269,19 @@ pub fn build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
-    epoch_id: StacksEpochId
+    epoch_id: StacksEpochId,
 ) -> ParseResult<ContractAST> {
-    build_ast_typical(contract_identifier, source_code, cost_track, clarity_version, epoch_id)
+    build_ast_typical(
+        contract_identifier,
+        source_code,
+        cost_track,
+        clarity_version,
+        epoch_id,
+    )
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use stacks_common::types::StacksEpochId;
     use crate::vm::ast::errors::ParseErrors;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::ast::{build_ast, build_ast_with_rules, ASTRules};
@@ -275,10 +289,12 @@ mod test {
     use crate::vm::costs::*;
     use crate::vm::representations::depth_traverse;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::ClarityVersion;
     use crate::vm::ClarityCostFunction;
     use crate::vm::ClarityName;
+    use crate::vm::ClarityVersion;
     use crate::vm::MAX_CALL_STACK_DEPTH;
+    use stacks_common::types::StacksEpochId;
+    use std::collections::HashMap;
 
     #[derive(PartialEq, Debug)]
     struct UnitTestTracker {

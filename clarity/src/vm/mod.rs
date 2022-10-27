@@ -85,8 +85,8 @@ use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use self::analysis::ContractAnalysis;
-use self::ast::ContractAST;
 use self::ast::ASTRules;
+use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 
@@ -498,7 +498,7 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
         ast::ASTRules::PrecheckSize,
         use_mainnet,
     );
-    
+
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -532,8 +532,15 @@ pub fn execute_with_parameters(
         epoch,
     );
     global_context.execute(|g| {
-        let parsed =
-            ast::build_ast_with_rules(&contract_id, program, &mut (), clarity_version, epoch, ast_rules)?.expressions;
+        let parsed = ast::build_ast_with_rules(
+            &contract_id,
+            program,
+            &mut (),
+            clarity_version,
+            epoch,
+            ast_rules,
+        )?
+        .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
@@ -541,7 +548,13 @@ pub fn execute_with_parameters(
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_with_parameters(program, version, StacksEpochId::Epoch20, ast::ASTRules::PrecheckSize, false)
+    execute_with_parameters(
+        program,
+        version,
+        StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
+        false,
+    )
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.

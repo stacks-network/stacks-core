@@ -428,7 +428,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
-                    ASTRules::PrecheckSize
+                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -889,7 +889,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &pox_2_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize
+                    ASTRules::PrecheckSize,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -1351,7 +1351,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1404,7 +1404,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -1432,7 +1432,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -1462,7 +1462,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 assert!(format!(
@@ -1516,7 +1516,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1576,7 +1576,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1668,7 +1668,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1799,7 +1799,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2157,7 +2157,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(

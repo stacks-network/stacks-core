@@ -20,17 +20,18 @@ pub mod v2;
 use self::v1::parse as parse_v1;
 use self::v2::parse as parse_v2;
 
-use stacks_common::types::StacksEpochId;
 use crate::vm::ast::errors::ParseResult;
 use crate::vm::representations::PreSymbolicExpression;
+use stacks_common::types::StacksEpochId;
 
 /// Parse a program based on which epoch is active
-pub fn parse_in_epoch(source_code: &str, epoch_id: StacksEpochId) -> ParseResult<Vec<PreSymbolicExpression>> {
+pub fn parse_in_epoch(
+    source_code: &str,
+    epoch_id: StacksEpochId,
+) -> ParseResult<Vec<PreSymbolicExpression>> {
     if epoch_id >= StacksEpochId::Epoch21 {
         parse_v2(source_code)
-    }
-    else {
+    } else {
         parse_v1(source_code)
     }
 }
-

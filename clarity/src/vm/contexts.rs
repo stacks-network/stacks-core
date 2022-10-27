@@ -693,7 +693,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             contract_identifier.issuer.clone().into(),
             sponsor.clone(),
             None,
-            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content, ast_rules),
+            |exec_env| {
+                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
+            },
         )
     }
 
@@ -712,7 +714,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content, ast_rules),
+            |exec_env| {
+                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
+            },
         )
     }
 
@@ -996,7 +1000,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules
+            rules,
         )?
         .expressions;
 
@@ -1051,7 +1055,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules
+            rules,
         )?
         .expressions;
 
@@ -1264,7 +1268,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             self,
             clarity_version,
             self.global_context.epoch_id,
-            ast_rules
+            ast_rules,
         )?;
         self.initialize_contract_from_ast(
             contract_identifier,

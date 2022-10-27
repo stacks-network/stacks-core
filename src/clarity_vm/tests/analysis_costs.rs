@@ -92,7 +92,10 @@ pub fn test_tracked_costs(
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch, ast_rules: ASTRules::PrecheckSize };
+    let burn_state_db = UnitTestBurnStateDB {
+        epoch_id: epoch,
+        ast_rules: ASTRules::PrecheckSize,
+    };
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -135,7 +138,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, version, contract_trait, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    version,
+                    contract_trait,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
@@ -163,7 +171,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, version, contract_other, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &other_contract_id,
+                    version,
+                    contract_other,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
@@ -191,7 +204,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, version, &contract_self, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &self_contract_id,
+                    version,
+                    &contract_self,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,

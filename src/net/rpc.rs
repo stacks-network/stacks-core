@@ -2026,8 +2026,13 @@ impl ConversationHttp {
                 })?;
 
             if Relayer::do_static_problematic_checks()
-                && !Relayer::static_check_problematic_relayed_tx(chainstate.mainnet, stacks_epoch.epoch_id, &tx, ast_rules)
-                    .is_ok()
+                && !Relayer::static_check_problematic_relayed_tx(
+                    chainstate.mainnet,
+                    stacks_epoch.epoch_id,
+                    &tx,
+                    ast_rules,
+                )
+                .is_ok()
             {
                 debug!(
                     "Transaction {} is problematic in rules {:?}; will not store or relay",
@@ -2242,7 +2247,10 @@ impl ConversationHttp {
             Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)?;
         let ast_rules =
             SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)?;
-        let epoch_id = SortitionDB::get_stacks_epoch(&sort_handle, parent_block_snapshot.block_height)?.expect("FATAL: no epoch defined").epoch_id;
+        let epoch_id =
+            SortitionDB::get_stacks_epoch(&sort_handle, parent_block_snapshot.block_height)?
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
 
         let (response, accepted) = if !Relayer::static_check_problematic_relayed_microblock(
             chainstate.mainnet,

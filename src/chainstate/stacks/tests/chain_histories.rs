@@ -58,8 +58,8 @@ use crate::cost_estimates::UnitEstimator;
 use crate::types::chainstate::SortitionId;
 use crate::util_lib::boot::boot_code_addr;
 
-use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::LimitedCostTracker;
 
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;

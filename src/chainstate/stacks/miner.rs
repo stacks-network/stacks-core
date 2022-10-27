@@ -902,9 +902,12 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         // preemptively skip problematic transactions
-        if let Err(e) =
-            Relayer::static_check_problematic_relayed_tx(clarity_tx.config.mainnet, clarity_tx.get_epoch(), &tx, ast_rules)
-        {
+        if let Err(e) = Relayer::static_check_problematic_relayed_tx(
+            clarity_tx.config.mainnet,
+            clarity_tx.get_epoch(),
+            &tx,
+            ast_rules,
+        ) {
             info!(
                 "Detected problematic tx {} while mining; dropping from mempool",
                 tx.txid()
@@ -1033,7 +1036,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             }
                             continue;
                         }
-                        TransactionResult::Problematic(TransactionProblematic { tx: _tx, .. }) => {
+                        TransactionResult::Problematic(TransactionProblematic {
+                            tx: _tx, ..
+                        }) => {
                             test_debug!("Exclude problematic tx {} from microblock", _tx.txid());
                             continue;
                         }

@@ -187,8 +187,14 @@ pub trait TransactionConnection: ClarityConnection {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result =
-                ast::build_ast_with_rules(identifier, contract_content, &mut cost_track, clarity_version, epoch_id, ast_rules);
+            let ast_result = ast::build_ast_with_rules(
+                identifier,
+                contract_content,
+                &mut cost_track,
+                clarity_version,
+                epoch_id,
+                ast_rules,
+            );
 
             let mut contract_ast = match ast_result {
                 Ok(x) => x,

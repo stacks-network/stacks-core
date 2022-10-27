@@ -181,7 +181,12 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "second".into());
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract, None, ASTRules::PrecheckSize)
+        .initialize_contract(
+            token_contract_id.clone(),
+            contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
     owned_env
         .initialize_contract(
@@ -837,7 +842,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     let token_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_0, None, ASTRules::PrecheckSize)
+        .initialize_contract(
+            token_contract_id.clone(),
+            bad_0,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -845,7 +855,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_1, None, ASTRules::PrecheckSize)
+        .initialize_contract(
+            token_contract_id.clone(),
+            bad_1,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -853,7 +868,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract, None, ASTRules::PrecheckSize)
+        .initialize_contract(
+            token_contract_id.clone(),
+            contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(

@@ -65,13 +65,13 @@ use clarity::vm::costs::LimitedCostTracker;
 
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
-use crate::core::*;
-use crate::core::tests::make_block;
 use crate::core::mempool::MemPoolWalkSettings;
+use crate::core::tests::make_block;
+use crate::core::*;
 
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::get_epoch_time_ms;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
@@ -4280,9 +4280,8 @@ fn test_fee_order_mismatch_nonce_order() {
     let chainstate_path = peer.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn =
-            SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
-                .unwrap();
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
         sn.block_height
     };
 
@@ -4292,8 +4291,8 @@ fn test_fee_order_mismatch_nonce_order() {
 
     let mut last_block = None;
     // send transactions to the mempool
-    let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
-        .unwrap();
+    let tip =
+        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
 
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -4326,8 +4325,7 @@ fn test_fee_order_mismatch_nonce_order() {
             let parent_header_hash = parent_tip.anchored_header.block_hash();
             let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-            let mut mempool =
-                MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
             let coinbase_tx = make_coinbase(miner, 0);
 
@@ -4611,4 +4609,3 @@ fn paramaterized_mempool_walk_test(
         },
     );
 }
-

@@ -145,7 +145,7 @@ pub trait BurnStateDB {
     /// the epoch enclosing `height`.
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
-    
+
     fn get_ast_rules(&self, height: u32) -> ASTRules;
 
     /// Get the PoX payout addresses for a given burnchain block
@@ -238,11 +238,11 @@ impl BurnStateDB for &dyn BurnStateDB {
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
     }
-    
+
     fn get_ast_rules(&self, height: u32) -> ASTRules {
         (*self).get_ast_rules(height)
     }
-    
+
     fn get_pox_payout_addrs(
         &self,
         height: u32,

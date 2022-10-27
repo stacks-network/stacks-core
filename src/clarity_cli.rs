@@ -159,7 +159,7 @@ struct EvalInput {
 fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
-    clarity_version: ClarityVersion
+    clarity_version: ClarityVersion,
 ) -> Result<Vec<SymbolicExpression>, Error> {
     let ast = build_ast_with_rules(
         contract_identifier,
@@ -470,7 +470,7 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
             &mut (),
             clarity_version,
             DEFAULT_CLI_EPOCH,
-            ASTRules::Typical
+            ASTRules::Typical,
         )?
         .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -842,7 +842,11 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
         );
 
         let mut ast = friendly_expect(
-            parse(&contract_identifier, &contract_content, ClarityVersion::Clarity2),
+            parse(
+                &contract_identifier,
+                &contract_content,
+                ClarityVersion::Clarity2,
+            ),
             "Failed to parse program.",
         );
 
@@ -862,7 +866,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                         ClarityVersion::Clarity2,
                         &contract_content,
                         None,
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
             }
@@ -1109,7 +1113,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             };
 
             // TODO: Add --clarity_version as command line argument
-            let mut ast = friendly_expect(parse(&contract_id, &content, ClarityVersion::Clarity2), "Failed to parse program");
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity2),
+                "Failed to parse program",
+            );
 
             let contract_analysis_res = {
                 if argv.len() >= 3 {
@@ -1273,8 +1280,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 ClarityVersion::Clarity2,
             );
 
-            let mut ast =
-                friendly_expect(parse(&contract_id, &content, ClarityVersion::Clarity2), "Failed to parse program.");
+            let mut ast = friendly_expect(
+                parse(&contract_id, &content, ClarityVersion::Clarity2),
+                "Failed to parse program.",
+            );
             match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                 Ok(_) => {
                     let result = vm_env
@@ -1335,7 +1344,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &mut placeholder_context)
-                            .eval_read_only_with_rules(&evalInput.contract_identifier, &evalInput.content, ASTRules::PrecheckSize)
+                            .eval_read_only_with_rules(
+                                &evalInput.contract_identifier,
+                                &evalInput.content,
+                                ASTRules::PrecheckSize,
+                            )
                     });
                 (header_db, marf, result_and_cost)
             });
@@ -1400,13 +1413,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 None
             };
             let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, coverage.as_mut(), |vm_env| {
-                    vm_env.get_exec_environment(None, None, &mut placeholder_context).eval_read_only_with_rules(
-                        &evalInput.contract_identifier,
-                        &evalInput.content,
-                        ASTRules::PrecheckSize,
-                    )
-                });
+                let result_and_cost = with_env_costs(
+                    mainnet,
+                    &header_db,
+                    &mut marf,
+                    coverage.as_mut(),
+                    |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only_with_rules(
+                                &evalInput.contract_identifier,
+                                &evalInput.content,
+                                ASTRules::PrecheckSize,
+                            )
+                    },
+                );
                 let (result, cost) = result_and_cost;
 
                 (marf, (result, cost))
@@ -1483,13 +1504,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 ClarityVersion::Clarity2,
             );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
-                let result_and_cost = with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
-                    vm_env.get_exec_environment(None, None, &mut placeholder_context).eval_read_only_with_rules(
-                        &contract_identifier,
-                        &content,
-                        ASTRules::PrecheckSize,
-                    )
-                });
+                let result_and_cost =
+                    with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
+                        vm_env
+                            .get_exec_environment(None, None, &mut placeholder_context)
+                            .eval_read_only_with_rules(
+                                &contract_identifier,
+                                &content,
+                                ASTRules::PrecheckSize,
+                            )
+                    });
                 (marf, result_and_cost)
             });
 
@@ -1564,7 +1588,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             // TODO: Add --clarity_version as command line argument
             let mut ast = friendly_expect(
-                parse(&contract_identifier, &contract_content, ClarityVersion::Clarity2),
+                parse(
+                    &contract_identifier,
+                    &contract_content,
+                    ClarityVersion::Clarity2,
+                ),
                 "Failed to parse program.",
             );
 
@@ -1603,8 +1631,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
-                            let result_and_cost =
-                                with_env_costs(mainnet, &header_db, &mut marf, coverage.as_mut(), |vm_env| {
+                            let result_and_cost = with_env_costs(
+                                mainnet,
+                                &header_db,
+                                &mut marf,
+                                coverage.as_mut(),
+                                |vm_env| {
                                     vm_env.initialize_versioned_contract(
                                         contract_identifier,
                                         ClarityVersion::Clarity2,
@@ -1612,7 +1644,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                         None,
                                         ASTRules::PrecheckSize,
                                     )
-                                });
+                                },
+                            );
                             let (result, cost) = result_and_cost;
                             (header_db, marf, Ok((analysis, (result, cost))))
                         }

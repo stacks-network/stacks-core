@@ -195,6 +195,7 @@ use stacks::net::{
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
 };
+use stacks::types::StacksEpochId;
 use stacks::util::get_epoch_time_ms;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
@@ -202,7 +203,6 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
-use stacks::types::StacksEpochId;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
@@ -951,13 +951,14 @@ impl MicroblockMinerThread {
             error!("Failed to get AST rules for microblock: {}", e);
             e
         })?;
-        
-        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), burn_height).map_err(|e| {
-            error!("Failed to get epoch for microblock: {}", e);
-            e
-        })?
-        .expect("FATAL: no epoch defined")
-        .epoch_id;
+
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), burn_height)
+            .map_err(|e| {
+                error!("Failed to get epoch for microblock: {}", e);
+                e
+            })?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
 
         let mint_result = {
             let ic = sortdb.index_conn();
@@ -1193,7 +1194,7 @@ impl BlockMinerThread {
             event_dispatcher: rt.event_dispatcher.clone(),
         }
     }
-    
+
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
         if epoch_id < StacksEpochId::Epoch21 && self.config.miner.block_reward_recipient.is_some() {
@@ -1205,7 +1206,11 @@ impl BlockMinerThread {
     }
 
     /// Create a coinbase transaction.
-    fn inner_generate_coinbase_tx(&mut self, nonce: u64, epoch_id: StacksEpochId) -> StacksTransaction {
+    fn inner_generate_coinbase_tx(
+        &mut self,
+        nonce: u64,
+        epoch_id: StacksEpochId,
+    ) -> StacksTransaction {
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
@@ -1682,9 +1687,11 @@ impl BlockMinerThread {
         };
 
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
-        let sunset_burn = self
-            .burnchain
-            .expected_sunset_burn(self.burn_block.block_height + 1, burn_fee_cap, target_epoch_id);
+        let sunset_burn = self.burnchain.expected_sunset_burn(
+            self.burn_block.block_height + 1,
+            burn_fee_cap,
+            target_epoch_id,
+        );
         let rest_commit = burn_fee_cap - sunset_burn;
 
         let commit_outs = if self.burn_block.block_height + 1
@@ -1742,7 +1749,8 @@ impl BlockMinerThread {
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
         let mut burn_db =
-            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone()).expect("FATAL: could not open sortition DB");
+            SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
+                .expect("FATAL: could not open sortition DB");
 
         let (mut chain_state, _) = StacksChainState::open(
             self.config.is_mainnet(),
@@ -1763,7 +1771,11 @@ impl BlockMinerThread {
 
         let tenure_begin = get_epoch_time_ms();
 
-        let target_epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1).ok()?.expect("FATAL: no epoch defined").epoch_id;
+        let target_epoch_id =
+            SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
+                .ok()?
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let attempt = self.get_mine_attempt(&chain_state, &parent_block_info)?;
         let vrf_proof = self.make_vrf_proof()?;
@@ -1775,7 +1787,8 @@ impl BlockMinerThread {
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
 
         // create our coinbase
-        let coinbase_tx = self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce, target_epoch_id);
+        let coinbase_tx =
+            self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce, target_epoch_id);
 
         // find the longest microblock tail we can build off of.
         // target it to the microblock tail in parent_block_info
@@ -1880,7 +1893,7 @@ impl BlockMinerThread {
             parent_block_info.parent_block_burn_height,
             parent_block_info.parent_winning_vtxindex,
             &vrf_proof,
-            target_epoch_id
+            target_epoch_id,
         )?;
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
@@ -1992,8 +2005,8 @@ impl RelayerThread {
         let is_mainnet = config.is_mainnet();
         let chain_id = config.burnchain.chain_id;
 
-        let sortdb =
-            SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants).expect("FATAL: failed to open burnchain DB");
+        let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
+            .expect("FATAL: failed to open burnchain DB");
 
         let (chainstate, _) = StacksChainState::open(
             is_mainnet,
@@ -3414,8 +3427,8 @@ impl PeerThread {
         let burn_db_path = config.get_burn_db_file_path();
         let stacks_chainstate_path = config.get_chainstate_path_str();
 
-        let sortdb =
-            SortitionDB::open(&burn_db_path, false, runloop.get_burnchain().pox_constants).expect("FATAL: could not open sortition DB");
+        let sortdb = SortitionDB::open(&burn_db_path, false, runloop.get_burnchain().pox_constants)
+            .expect("FATAL: could not open sortition DB");
         let (chainstate, _) = StacksChainState::open(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -3828,8 +3841,12 @@ impl StacksNode {
         atlas_config: &AtlasConfig,
         burnchain: Burnchain,
     ) -> PeerNetwork {
-        let sortdb = SortitionDB::open(&config.get_burn_db_file_path(), true, burnchain.pox_constants.clone())
-            .expect("Error while instantiating sor/tition db");
+        let sortdb = SortitionDB::open(
+            &config.get_burn_db_file_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while instantiating sor/tition db");
 
         let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");
@@ -3966,8 +3983,12 @@ impl StacksNode {
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let mut sortdb = SortitionDB::open(&config.get_burn_db_file_path(), true, burnchain.pox_constants.clone())
-            .expect("Error while instantiating sor/tition db");
+        let mut sortdb = SortitionDB::open(
+            &config.get_burn_db_file_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while instantiating sor/tition db");
 
         Self::setup_ast_size_precheck(&config, &mut sortdb);
 

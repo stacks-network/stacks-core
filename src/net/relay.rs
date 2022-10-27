@@ -566,7 +566,9 @@ impl Relayer {
         let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
             .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
         let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
-        let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?.expect("FATAL: no epoch defined").epoch_id;
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
         debug!(
             "Current AST rules for block {}/{} height {} sortitioned at {} is {:?}",
             consensus_hash,
@@ -575,7 +577,12 @@ impl Relayer {
             &block_sn.block_height,
             &ast_rules
         );
-        if !Relayer::static_check_problematic_relayed_block(chainstate.mainnet, epoch_id, block, ast_rules) {
+        if !Relayer::static_check_problematic_relayed_block(
+            chainstate.mainnet,
+            epoch_id,
+            block,
+            ast_rules,
+        ) {
             warn!(
                 "Block is problematic; will not store or relay";
                 "stacks_block_hash" => %block.block_hash(),
@@ -878,7 +885,8 @@ impl Relayer {
                     continue;
                 }
             };
-            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height) {
+            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
+            {
                 Ok(Some(epoch)) => epoch.epoch_id,
                 Ok(None) => {
                     panic!("FATAL: no epoch defined");
@@ -975,7 +983,9 @@ impl Relayer {
                     SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
                         .ok_or(net_error::DBError(db_error::NotFoundError))?;
                 let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height)?;
-                let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)?.expect("FATAL: no epoch defined").epoch_id;
+                let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)?
+                    .expect("FATAL: no epoch defined")
+                    .epoch_id;
 
                 for mblock in mblock_data.microblocks.iter() {
                     debug!(
@@ -1126,8 +1136,8 @@ impl Relayer {
         );
         match tx.payload {
             TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) => {
-                let clarity_version = clarity_version_opt
-                    .unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
+                let clarity_version =
+                    clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
 
                 if ast_rules == ASTRules::PrecheckSize {
                     let origin = tx.get_origin();
@@ -1153,7 +1163,8 @@ impl Relayer {
                     let contract_code_str = smart_contract.code_body.to_string();
 
                     // make sure that the AST isn't unreasonably big
-                    let ast_res = ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
+                    let ast_res =
+                        ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
                     match ast_res {
                         Ok(_) => {}
                         Err(parse_error) => match parse_error.err {
@@ -1185,7 +1196,9 @@ impl Relayer {
         ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules).is_ok() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
                 info!(
                     "Block {} with tx {} will not be stored or relayed",
                     block.block_hash(),
@@ -1210,7 +1223,9 @@ impl Relayer {
         ast_rules: ASTRules,
     ) -> bool {
         for tx in mblock.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules).is_ok() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
                 info!(
                     "Microblock {} with tx {} will not be stored relayed",
                     mblock.block_hash(),
@@ -1389,7 +1404,11 @@ impl Relayer {
 
     /// Filter out problematic transactions from the network result.
     /// Modifies network_result in-place.
-    fn filter_problematic_transactions(network_result: &mut NetworkResult, mainnet: bool, epoch_id: StacksEpochId) {
+    fn filter_problematic_transactions(
+        network_result: &mut NetworkResult,
+        mainnet: bool,
+        epoch_id: StacksEpochId,
+    ) {
         // filter out transactions that prove problematic
         let mut filtered_pushed_transactions = HashMap::new();
         let mut filtered_uploaded_transactions = vec![];
@@ -1464,7 +1483,9 @@ impl Relayer {
                 return Ok(vec![]);
             }
         };
-        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?.expect("FATAL: no epoch defined").epoch_id;
+        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
 
         let chain_height = chain_tip.height;
         Relayer::filter_problematic_transactions(network_result, chainstate.mainnet, epoch_id);
@@ -2227,13 +2248,13 @@ pub mod test {
     use clarity::vm::ast::ASTRules;
     use clarity::vm::MAX_CALL_STACK_DEPTH;
 
-    use crate::chainstate::stacks::tests::make_coinbase;
-    use crate::chainstate::stacks::tests::make_coinbase_with_nonce;
-    use crate::chainstate::stacks::tests::make_user_stacks_transfer;
-    use crate::chainstate::stacks::tests::make_smart_contract_with_version;
-    use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::miner::BlockBuilderSettings;
     use crate::chainstate::stacks::miner::StacksMicroblockBuilder;
+    use crate::chainstate::stacks::test::codec_all_transactions;
+    use crate::chainstate::stacks::tests::make_coinbase;
+    use crate::chainstate::stacks::tests::make_coinbase_with_nonce;
+    use crate::chainstate::stacks::tests::make_smart_contract_with_version;
+    use crate::chainstate::stacks::tests::make_user_stacks_transfer;
     use crate::core::*;
     use stacks_common::address::AddressHashMode;
     use stacks_common::types::chainstate::StacksBlockId;
@@ -4783,10 +4804,13 @@ pub mod test {
             "test-high",
             &tx_high_body,
         );
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, StacksEpochId::Epoch2_05, &tx_edge, ASTRules::Typical)
-                .is_ok()
-        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
+            &tx_edge,
+            ASTRules::Typical
+        )
+        .is_ok());
         assert!(Relayer::static_check_problematic_relayed_tx(
             false,
             StacksEpochId::Epoch2_05,
@@ -4794,15 +4818,21 @@ pub mod test {
             ASTRules::Typical
         )
         .is_ok());
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, StacksEpochId::Epoch2_05, &tx_high, ASTRules::Typical)
-                .is_ok()
-        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
+            &tx_high,
+            ASTRules::Typical
+        )
+        .is_ok());
 
-        assert!(
-            Relayer::static_check_problematic_relayed_tx(false, StacksEpochId::Epoch2_05, &tx_edge, ASTRules::Typical)
-                .is_ok()
-        );
+        assert!(Relayer::static_check_problematic_relayed_tx(
+            false,
+            StacksEpochId::Epoch2_05,
+            &tx_edge,
+            ASTRules::Typical
+        )
+        .is_ok());
         assert!(!Relayer::static_check_problematic_relayed_tx(
             false,
             StacksEpochId::Epoch2_05,

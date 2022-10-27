@@ -87,7 +87,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
             &mut (),
             ClarityVersion::latest(),
             StacksEpochId::latest(),
-            ASTRules::PrecheckSize
+            ASTRules::PrecheckSize,
         )?
         .expressions;
         vm::eval_all(&parsed, &mut contract_context, g, None)

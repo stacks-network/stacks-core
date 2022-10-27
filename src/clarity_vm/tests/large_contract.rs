@@ -667,7 +667,12 @@ pub fn rollback_log_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -742,7 +747,12 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -820,7 +830,12 @@ pub fn argument_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -914,7 +929,12 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract_ok,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
@@ -935,7 +955,12 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err, ASTRules::PrecheckSize)
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    clarity_version,
+                    &contract_err,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -1022,7 +1047,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract, ASTRules::PrecheckSize)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            ASTRules::PrecheckSize,
+                        )
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
@@ -1039,7 +1069,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract, ASTRules::PrecheckSize)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            ASTRules::PrecheckSize,
+                        )
                         .unwrap();
                     assert!(format!(
                         "{:?}",

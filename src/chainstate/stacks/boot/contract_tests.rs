@@ -568,8 +568,13 @@ fn pox_2_contract_caller_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None, ASTRules::PrecheckSize)
-            .unwrap()
+        env.initialize_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            &POX_2_TESTNET_CODE,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
 
     let cc = boot_code_id("stack-through", false);
@@ -798,7 +803,7 @@ fn pox_2_lock_extend_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
@@ -1666,7 +1671,8 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
+        let (ast, analysis) =
+            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
         tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
