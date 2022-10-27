@@ -771,7 +771,7 @@ impl SpvClient {
             // check work
             let chain_tip = self.get_headers_height()?;
             self.validate_header_work(
-                (chain_tip - 1) / BLOCK_DIFFICULTY_CHUNK_SIZE,
+                (insert_height.saturating_sub(1)) / BLOCK_DIFFICULTY_CHUNK_SIZE,
                 chain_tip / BLOCK_DIFFICULTY_CHUNK_SIZE + 1,
             )
             .map_err(|e| {
@@ -784,6 +784,7 @@ impl SpvClient {
         } else {
             // fetching headers in descending order, so verify that the last item in
             // `block_headers` connects to a child in the DB (if it has one)
+            let headers_len = block_headers.len() as u64;
             self.insert_block_headers_before(insert_height, block_headers)
                 .map_err(|e| {
                     error!("Failed to insert block headers: {:?}", &e);
@@ -797,7 +798,9 @@ impl SpvClient {
                 insert_height / BLOCK_DIFFICULTY_CHUNK_SIZE + 1
             };
 
-            self.validate_header_work(interval_start, interval_start + 1)
+            let interval_end = (insert_height + 1 + headers_len) / BLOCK_DIFFICULTY_CHUNK_SIZE + 1;
+
+            self.validate_header_work(interval_start, interval_end)
                 .map_err(|e| {
                     error!(
                         "Received headers with bad target, difficulty, or continuity: {:?}",
@@ -1597,5 +1600,153 @@ mod test {
         for i in 99..100 {
             spv_client.validate_header_work(i, i + 1).unwrap();
         }
+    }
+
+    #[test]
+    fn test_spv_check_work_bad_blocks_rejected() {
+        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+            eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
+            return;
+        }
+        let db_path_source = env::var("BLOCKSTACK_SPV_HEADERS_DB").unwrap();
+        let db_path = "/tmp/test_spv_check_work_reorg_accepted.dat".to_string();
+
+        if fs::metadata(&db_path).is_ok() {
+            fs::remove_file(&db_path).unwrap();
+        }
+
+        fs::copy(&db_path_source, &db_path).unwrap();
+
+        // set up SPV client so we don't have chain work at first
+        let mut spv_client =
+            SpvClient::new(&db_path, 0, None, BitcoinNetworkType::Mainnet, true, false).unwrap();
+
+        assert!(
+            spv_client.get_headers_height().unwrap() >= 40317,
+            "This test needs headers up to 40317"
+        );
+        spv_client.drop_headers(40317).unwrap();
+
+        // update chain work
+        let total_work_before = spv_client.update_chain_work().unwrap();
+
+        // fake block headers for mainnet 40319-40320, which is on a difficulty adjustment boundary
+        let bad_headers = vec![
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000003ae696c44274e40817d4acaf40c1ff1853411d4f0573421caf5faa07",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "f1b2e16f74ee0e90cad3dc2e5be4806ff0581ed50a9cb3dfeee591dac76b17a7",
+                    )
+                    .unwrap(),
+                    time: 1654939798,
+                    bits: 386485098,
+                    nonce: 1,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "2c32da7fbdcef6ba34bcc5cc9707f2b351dbf094b4df5d3a2a38ea47b3e61f35",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "b4d736ca74838036ebd19b085c3eeb9ffec2307f6452347cdd8ddaa249686f39",
+                    )
+                    .unwrap(),
+                    time: 1654939798,
+                    bits: 486575299,
+                    nonce: 1,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "7c1d4fd424f626c13bcd5442db080df9000d8f3dbfa1809ba1b05ddcdba58dd5",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "cd71b0c247cfa777748c84d5376ad6a4a19e7802793dfd27c4d5834aa4393299",
+                    )
+                    .unwrap(),
+                    time: 1654996886,
+                    bits: 0x1d00ffff,
+                    nonce: 178162936,
+                },
+                tx_count: VarInt(0),
+            },
+            LoneBlockHeader {
+                header: BlockHeader {
+                    version: 1,
+                    prev_blockhash: Sha256dHash::from_hex(
+                        "000000008a8cab438b9c98599c5363c7a4eff5b246871dd7c3f46886da375170",
+                    )
+                    .unwrap(),
+                    merkle_root: Sha256dHash::from_hex(
+                        "cd71b0c247cfa777748c84d5376ad6a4a19e7802793dfd27c4d5834aa4393299",
+                    )
+                    .unwrap(),
+                    time: 1655018902,
+                    bits: 0x1d00ffff,
+                    nonce: 168408960,
+                },
+                tx_count: VarInt(0),
+            },
+        ];
+
+        // should fail
+        if let btc_error::InvalidPoW = spv_client
+            .handle_headers(40317, bad_headers.clone())
+            .unwrap_err()
+        {
+        } else {
+            panic!("Bad PoW headers accepted");
+        }
+    }
+
+    #[test]
+    fn test_witness_size() {
+        use stacks_common::deps_common::bitcoin::blockdata::script::Script;
+        use stacks_common::deps_common::bitcoin::blockdata::transaction::OutPoint;
+        use stacks_common::deps_common::bitcoin::blockdata::transaction::TxIn;
+        use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
+        use std::mem;
+
+        println!("OutPoint size in memory {}", mem::size_of::<OutPoint>());
+        println!("TxIn in memory {}", mem::size_of::<TxIn>());
+        println!("TxOut size in memory {}", mem::size_of::<TxOut>());
+        println!("Script size in memory {}", mem::size_of::<Script>());
+        println!("tx size in memory {}", mem::size_of::<Transaction>());
+        println!("vector size in memory {}", mem::size_of::<Vec<u8>>());
+
+        // number of items in the witness stack for our attack vector
+        let length = 1_500_000;
+
+        let witness = {
+            let mut witness: Vec<Vec<u8>> = vec![];
+            for i in 0..length {
+                witness.push(vec![]);
+            }
+            witness
+        };
+        println!(
+            "witness size in memory {}",
+            mem::size_of::<Vec<u8>>() * witness.len()
+        );
+
+        // serialize witness
+        let encoded_tx = serialize(&witness).unwrap();
+
+        println!("witness size serialized {}", encoded_tx.len());
+
+        let deserialized: Vec<Vec<u8>> = deserialize(&encoded_tx).unwrap();
     }
 }

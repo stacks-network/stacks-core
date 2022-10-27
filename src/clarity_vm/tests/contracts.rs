@@ -25,6 +25,7 @@ use rstest_reuse::{self, *};
 
 use crate::chainstate::burn::BlockSnapshot;
 use clarity::vm::ast;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
@@ -74,7 +75,7 @@ fn test_get_burn_block_info_eval() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
-                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::UnknownFunction(func_name) = check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
@@ -95,7 +96,7 @@ fn test_get_burn_block_info_eval() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
-                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::UnknownFunction(func_name) = check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
@@ -116,7 +117,7 @@ fn test_get_burn_block_info_eval() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -186,7 +187,7 @@ fn test_get_block_info_eval_v210() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
-                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
                     assert_eq!(name, "block-reward");
@@ -207,7 +208,7 @@ fn test_get_block_info_eval_v210() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let res =
-                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize);
             if let Err(ClarityError::Analysis(check_error)) = res {
                 if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
                     assert_eq!(name, "block-reward");
@@ -230,7 +231,7 @@ fn test_get_block_info_eval_v210() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| false)

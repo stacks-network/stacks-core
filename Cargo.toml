@@ -135,5 +135,4 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node",
-    "testnet/puppet-chain"]
+    "testnet/stacks-node"]

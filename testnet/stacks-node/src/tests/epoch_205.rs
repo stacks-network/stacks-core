@@ -547,7 +547,7 @@ fn transition_empty_blocks() {
 
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
     let mut bitcoin_controller =
-        BitcoinRegtestController::new_dummy(conf.clone(), burnchain.clone());
+        BitcoinRegtestController::new_dummy(conf.clone());
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {
