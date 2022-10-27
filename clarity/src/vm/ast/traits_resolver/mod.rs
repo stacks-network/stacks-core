@@ -154,7 +154,7 @@ impl TraitsResolver {
                 | DefineFunctions::FungibleToken
                 | DefineFunctions::NonFungibleToken => {
                     if args.len() > 0 {
-                        self.probe_for_generics(&args[1..], &mut referenced_traits, false)?;
+                        self.probe_for_generics(args[1..].to_vec(), &mut referenced_traits, false)?;
                     }
                 }
             };
