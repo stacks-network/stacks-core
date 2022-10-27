@@ -1033,8 +1033,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             }
                             continue;
                         }
-                        TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
-                            test_debug!("Exclude problematic tx {} from microblock", tx.txid());
+                        TransactionResult::Problematic(TransactionProblematic { tx: _tx, .. }) => {
+                            test_debug!("Exclude problematic tx {} from microblock", _tx.txid());
                             continue;
                         }
                     }
