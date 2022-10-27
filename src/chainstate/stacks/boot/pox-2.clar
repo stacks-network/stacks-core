@@ -898,6 +898,7 @@
             data: {
                 increase-by: increase-by, 
                 total-locked: new-total-locked,
+                pox-addr: (get pox-addr stacker-state), 
             }
           })
       )))
