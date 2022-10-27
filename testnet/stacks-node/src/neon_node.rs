@@ -149,7 +149,6 @@ use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::BurnchainSigner;
-use stacks::burnchains::PoxConstants;
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -203,6 +202,7 @@ use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
+use stacks::types::StacksEpochId;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
@@ -1664,6 +1664,7 @@ impl BlockMinerThread {
         parent_block_burn_height: u64,
         parent_winning_vtxindex: u16,
         vrf_proof: &VRFProof,
+        target_epoch_id: StacksEpochId,
     ) -> Option<BlockstackOperationType> {
         // let's figure out the recipient set!
         let recipients = match get_next_recipients(
@@ -1683,7 +1684,7 @@ impl BlockMinerThread {
         let burn_fee_cap = self.config.burnchain.burn_fee_cap;
         let sunset_burn = self
             .burnchain
-            .expected_sunset_burn(self.burn_block.block_height + 1, burn_fee_cap);
+            .expected_sunset_burn(self.burn_block.block_height + 1, burn_fee_cap, target_epoch_id);
         let rest_commit = burn_fee_cap - sunset_burn;
 
         let commit_outs = if self.burn_block.block_height + 1
@@ -1879,6 +1880,7 @@ impl BlockMinerThread {
             parent_block_info.parent_block_burn_height,
             parent_block_info.parent_winning_vtxindex,
             &vrf_proof,
+            target_epoch_id
         )?;
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
