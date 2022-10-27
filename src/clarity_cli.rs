@@ -1288,7 +1288,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 Ok(_) => {
                     let result = vm_env
                         .get_exec_environment(None, None, &mut placeholder_context)
-                        .eval_raw(&content);
+                        .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
                     match result {
                         Ok(x) => (
                             0,
