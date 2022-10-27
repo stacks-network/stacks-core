@@ -29,6 +29,7 @@ This release will contain consensus-breaking changes.
 
 ### Changed
 
+- The new minimum Rust version is 1.61
 - The act of walking the mempool will now cache address nonces in RAM and to a
   temporary mempool table used for the purpose, instead of unconditionally
 querying them from the chainstate MARF.  This builds upon improvements to mempool
