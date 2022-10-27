@@ -372,6 +372,21 @@ fn handle_pox_v2_api_contract_call(
     Ok(())
 }
 
+/// Is a PoX-1 function read-only?
+/// i.e. can we call it without incurring an error?
+fn is_pox_v1_read_only(func_name: &str) -> bool {
+    func_name == "get-pox-rejection"
+        || func_name == "is-pox-active"
+        || func_name == "get-stacker-info"
+        || func_name == "get-reward-set-size"
+        || func_name == "get-total-ustx-stacked"
+        || func_name == "get-reward-set-pox-address"
+        || func_name == "get-stacking-minimum"
+        || func_name == "can-stack-stx"
+        || func_name == "minimal-can-stack-stx"
+        || func_name == "get-pox-info"
+}
+
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(
     global_context: &mut GlobalContext,
@@ -382,12 +397,16 @@ pub fn handle_contract_call_special_cases(
     result: &Value,
 ) -> Result<()> {
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
-        if global_context.database.get_v1_unlock_height()
-            <= global_context.database.get_current_burnchain_block_height()
+        if !is_pox_v1_read_only(function_name)
+            && global_context.database.get_v1_unlock_height()
+                <= global_context.database.get_current_burnchain_block_height()
         {
+            // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
             warn!("PoX-1 Lock attempted on an account after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
                   "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "function_name" => function_name,
+                  "contract_id" => %contract_id
             );
             return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
         }

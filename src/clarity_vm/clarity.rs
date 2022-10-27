@@ -764,6 +764,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // C'est la vie.
 
                 // initialize with a synthetic transaction
+                debug!("Instantiate .costs-2 contract");
                 let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_2_contract_tx,
@@ -787,6 +788,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             // NOTE: we don't set self.epoch to Epoch2_05 here, even though we probably
             // should, because doing so risks a chain split.
 
+            debug!("Epoch 2.05 initialized");
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }
@@ -882,6 +884,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch21;
 
                 // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &pox_2_contract_id);
                 let receipt = StacksChainState::process_transaction_payload(
                     tx_conn,
                     &pox_2_contract_tx,
@@ -923,6 +926,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
+            debug!("Epoch 2.1 initialized");
             (old_cost_tracker, Ok(initialization_receipt))
         })
     }

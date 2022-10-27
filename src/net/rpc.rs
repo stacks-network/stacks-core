@@ -270,18 +270,17 @@ impl RPCPoxInfoData {
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
-
-        let current_burn_height = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    clarity_db.get_current_burnchain_block_height() as u64
-                })
-            })
-            .ok_or(net_error::NotFoundError)?;
+        let current_burn_height =
+            SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?.block_height;
 
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(current_burn_height);
+
+        debug!(
+            "Active PoX contract is '{}' (current_burn_height = {}, v1_unlock_height = {}",
+            &pox_contract_name, current_burn_height, burnchain.pox_constants.v1_unlock_height
+        );
 
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
@@ -307,7 +306,7 @@ impl RPCPoxInfoData {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
-                    ClarityVersion::Clarity1,
+                    ClarityVersion::Clarity2,
                     sender,
                     None,
                     cost_track,

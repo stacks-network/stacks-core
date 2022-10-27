@@ -149,6 +149,7 @@ use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::BurnchainSigner;
+use stacks::burnchains::PoxConstants;
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -620,7 +621,6 @@ struct ParentStacksBlockInfo {
     coinbase_nonce: u64,
 }
 
-/// States we can be in when registering a leader VRF key
 enum LeaderKeyRegistrationState {
     /// Not started yet
     Inactive,
