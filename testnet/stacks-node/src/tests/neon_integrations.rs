@@ -5129,6 +5129,7 @@ fn block_large_tx_integration_test() {
 
 #[test]
 #[ignore]
+#[allow(non_snake_case)]
 fn microblock_large_tx_integration_test_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -7814,7 +7815,7 @@ fn test_flash_block_skip_tenure() {
 #[test]
 #[ignore]
 fn test_chainwork_first_intervals() {
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (conf, _) = neon_integration_test_conf();
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -7822,7 +7823,6 @@ fn test_chainwork_first_intervals() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
     
     btc_regtest_controller.bootstrap_chain(2016 * 2 - 1);
 
@@ -7830,7 +7830,6 @@ fn test_chainwork_first_intervals() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let missed_tenures = run_loop.get_missed_tenures_arc();
     
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -7844,7 +7843,7 @@ fn test_chainwork_first_intervals() {
 #[test]
 #[ignore]
 fn test_chainwork_partial_interval() {
-    let (mut conf, miner_account) = neon_integration_test_conf();
+    let (conf, _) = neon_integration_test_conf();
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
         .start_bitcoind()
@@ -7852,7 +7851,6 @@ fn test_chainwork_partial_interval() {
         .expect("Failed starting bitcoind");
 
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(2016 - 1);
 
@@ -7860,7 +7858,6 @@ fn test_chainwork_partial_interval() {
 
     let mut run_loop = neon::RunLoop::new(conf);
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let missed_tenures = run_loop.get_missed_tenures_arc();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -9840,6 +9837,7 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
+            u32::MAX
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
