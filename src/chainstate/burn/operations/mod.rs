@@ -49,11 +49,11 @@ use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::types::chainstate::BurnchainHeaderHash;
 
+pub mod delegate_stx;
 pub mod leader_block_commit;
 /// This module contains all burn-chain operations
 pub mod leader_key_register;
 pub mod stack_stx;
-pub mod delegate_stx;
 pub mod transfer_stx;
 pub mod user_burn_support;
 
@@ -81,7 +81,7 @@ pub enum Error {
     // leader key register related errors
     LeaderKeyAlreadyRegistered,
 
-    // user burn supports related errors 
+    // user burn supports related errors
     UserBurnSupportBadConsensusHash,
     UserBurnSupportNoLeaderKey,
     UserBurnSupportNotSupported,
@@ -90,11 +90,11 @@ pub enum Error {
     TransferStxMustBePositive,
     TransferStxSelfSend,
 
-    // stack stx related errors 
+    // stack stx related errors
     StackStxMustBePositive,
     StackStxInvalidCycles,
 
-    // errors associated with delegate stx 
+    // errors associated with delegate stx
     DelegateStxMustBePositive,
 }
 
@@ -289,7 +289,7 @@ pub struct DelegateStxOp {
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
     pub reward_addr: Option<PoxAddress>,
     pub delegated_ustx: u128,
-    pub until_burn_height: Option<u64>, 
+    pub until_burn_height: Option<u64>,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID

@@ -50,8 +50,9 @@ use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp, DelegateStxOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -140,7 +141,6 @@ impl BurnchainStateTransition {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::DelegateStx(_) => {
-                    
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::TransferStx(_) => {

@@ -4610,7 +4610,7 @@ impl StacksChainState {
     pub fn process_stacking_ops(
         clarity_tx: &mut ClarityTx,
         operations: Vec<StackStxOp>,
-        active_pox_contract: &str, 
+        active_pox_contract: &str,
     ) -> Vec<StacksTransactionReceipt> {
         let mut all_receipts = vec![];
         let mainnet = clarity_tx.config.mainnet;
@@ -4650,18 +4650,18 @@ impl StacksChainState {
                 Ok((value, _, events)) => {
                     if let Value::Response(ref resp) = value {
                         if !resp.committed {
-                            debug!("StackStx burn op rejected by PoX contract.";
+                            info!("StackStx burn op rejected by PoX contract.";
                                    "txid" => %txid,
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
-                            debug!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
+                            info!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
                             .sub(&cost_so_far)
                             .expect("BUG: cost declined between executions");
-
+                        info!("Stack burn cost: {:?}", execution_cost);
                         let receipt = StacksTransactionReceipt {
                             transaction: TransactionOrigin::Burn(txid),
                             events,
@@ -4770,7 +4770,7 @@ impl StacksChainState {
                 reward_addr,
                 delegated_ustx,
                 until_burn_height,
-                delegate_to, 
+                delegate_to,
                 block_height,
                 txid,
                 burn_header_hash,
@@ -4779,15 +4779,17 @@ impl StacksChainState {
             let reward_addr_val = if let Some(addr) = &reward_addr {
                 // this .expect() should be unreachable since we coerce the hash mode when
                 // we parse the DelegateStxOp from a burnchain transaction
-                let clar_addr = addr.as_clarity_tuple()
+                let clar_addr = addr
+                    .as_clarity_tuple()
                     .expect("FATAL: delegate-stx operation has no hash mode")
                     .into();
-                Value::some(clar_addr)
-                    .expect("FATAL: the tuple for pox address should be small enough to wrap as an option.")
+                Value::some(clar_addr).expect(
+                    "FATAL: the tuple for pox address should be small enough to wrap as an option.",
+                )
             } else {
                 Value::none()
-            }; 
-            
+            };
+
             let until_burn_height_val = if let Some(height) = until_burn_height {
                 Value::some(Value::UInt(u128::from(height)))
                     .expect("FATAL: construction of an optional uint Clarity value should succeed.")
@@ -4802,8 +4804,8 @@ impl StacksChainState {
                     "delegate-stx",
                     &[
                         Value::UInt(delegated_ustx),
-                        Value::Principal(delegate_to.into()), 
-                        until_burn_height_val, 
+                        Value::Principal(delegate_to.into()),
+                        until_burn_height_val,
                         reward_addr_val,
                     ],
                     |_, _| false,
@@ -4818,7 +4820,7 @@ impl StacksChainState {
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
-                            let reward_addr_fmt = format!("{:?}", reward_addr); 
+                            let reward_addr_fmt = format!("{:?}", reward_addr);
                             let delegate_to_fmt = format!("{:?}", delegate_to);
                             info!("Processed DelegateStx burnchain op"; "resp" => %resp.data, "amount_ustx" => delegated_ustx, "delegate_to" => delegate_to_fmt, "until_burn_height" => until_burn_height, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => reward_addr_fmt, "txid" => %txid);
                         }
@@ -4858,7 +4860,6 @@ impl StacksChainState {
 
         all_receipts
     }
-
 
     /// Process a single anchored block.
     /// Return the fees and burns.
@@ -5123,7 +5124,11 @@ impl StacksChainState {
                 }
             }
         }
-        Ok((all_stacking_burn_ops, all_transfer_burn_ops, all_delegate_burn_ops))
+        Ok((
+            all_stacking_burn_ops,
+            all_transfer_burn_ops,
+            all_delegate_burn_ops,
+        ))
     }
 
     /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
@@ -5165,18 +5170,24 @@ impl StacksChainState {
                 panic!("FATAL: processed a block in Epoch 1.0");
             }
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                let (stack_ops, transfer_ops) = StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?; 
+                let (stack_ops, transfer_ops) =
+                    StacksChainState::get_stacking_and_transfer_burn_ops_v205(
+                        sortdb_conn,
+                        burn_tip,
+                    )?;
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
                 Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 => StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                chainstate_tx,
-                parent_index_hash,
-                sortdb_conn,
-                burn_tip,
-                burn_tip_height,
-                cur_epoch.start_height,
-            ),
+            StacksEpochId::Epoch21 => {
+                StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                    chainstate_tx,
+                    parent_index_hash,
+                    sortdb_conn,
+                    burn_tip,
+                    burn_tip_height,
+                    cur_epoch.start_height,
+                )
+            }
         }
     }
 
@@ -5250,7 +5261,7 @@ impl StacksChainState {
         burn_dbconn: &'b dyn BurnStateDB,
         sortition_dbconn: &'b dyn SortitionDBRef,
         conn: &Connection, // connection to the sortition DB
-        pox_constants: &PoxConstants, 
+        pox_constants: &PoxConstants,
         chain_tip: &StacksHeaderInfo,
         burn_tip: BurnchainHeaderHash,
         burn_tip_height: u32,
@@ -5415,7 +5426,7 @@ impl StacksChainState {
             StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
 
         let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height as u64);
-        
+
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
             &mut clarity_tx,
@@ -5426,9 +5437,10 @@ impl StacksChainState {
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
-        // DelegateStx ops are allowed after epoch 2.1
+        // DelegateStx ops are allowed from epoch 2.1 onward. 
+        // The query for the delegate ops only returns anything in and after Epoch 2.1, 
+        // but we do a second check here just to be safe. 
         if evaluated_epoch >= StacksEpochId::Epoch21 {
-            info!("PROCESS DELEGATE OPS: {:?}, active contract: {:?}", delegate_burn_ops, active_pox_contract);
             tx_receipts.extend(StacksChainState::process_delegate_ops(
                 &mut clarity_tx,
                 delegate_burn_ops.clone(),
@@ -6227,7 +6239,7 @@ impl StacksChainState {
         // attach the block to the chain state and calculate the next chain tip.
         // Execute the confirmed microblocks' transactions against the chain state, and then
         // execute the anchored block's transactions against the chain state.
-        let pox_constants = sort_tx.context.pox_constants.clone(); 
+        let pox_constants = sort_tx.context.pox_constants.clone();
         let (epoch_receipt, clarity_commit) = match StacksChainState::append_block(
             &mut chainstate_tx,
             clarity_instance,
@@ -11584,7 +11596,6 @@ pub mod test {
         del_op
     }
 
-
     /// Verify that the stacking and transfer operations on the burnchain work as expected in
     /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
     /// they are mined (including the one they are in).  This test verifies that TransferSTX
@@ -11608,14 +11619,17 @@ pub mod test {
         )
         .unwrap();
 
-        let del_addrs: Vec<_> = (0..num_blocks).map(|_| StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
-            )
-            .unwrap()
-        ).collect();
+        let del_addrs: Vec<_> = (0..num_blocks)
+            .map(|_| {
+                StacksAddress::from_public_keys(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    &AddressHashMode::SerializeP2PKH,
+                    1,
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                )
+                .unwrap()
+            })
+            .collect();
 
         let recipient_privk = StacksPrivateKey::new();
         let recipient_addr = StacksAddress::from_public_keys(
@@ -11627,11 +11641,12 @@ pub mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut init_balances:  Vec<(PrincipalData, u64)> = del_addrs.iter().map(
-                |addr| (addr.to_account_principal(), initial_balance)
-            ).collect(); 
+        let mut init_balances: Vec<(PrincipalData, u64)> = del_addrs
+            .iter()
+            .map(|addr| (addr.to_account_principal(), initial_balance))
+            .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
-        peer_config.initial_balances = init_balances; 
+        peer_config.initial_balances = init_balances;
         peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
 
         let mut peer = TestPeer::new(peer_config);
@@ -11647,7 +11662,7 @@ pub mod test {
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
-            let del_addr = del_addrs[tenure_id]; 
+            let del_addr = del_addrs[tenure_id];
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -11721,65 +11736,76 @@ pub mod test {
                 (vec![], None, None)
             };
 
-            let (mut expected_transfer_ops, mut expected_del_ops) = if tenure_id == 0 || tenure_id - 1 < 5 {
+            let (mut expected_transfer_ops, mut expected_del_ops) = if tenure_id == 0
+                || tenure_id - 1 < 5
+            {
                 // all contiguous blocks up to now, so only expect this block's stx-transfer
-                (vec![make_transfer_op(
-                    &addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )], 
-                vec![make_delegate_op(
-                    &del_addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )])
+                (
+                    vec![make_transfer_op(
+                        &addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                    vec![make_delegate_op(
+                        &del_addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                )
             } else if (tenure_id - 1) % 2 == 0 {
                 // no sortition in the last burn block, so only expect this block's stx-transfer
-                (vec![make_transfer_op(
-                    &addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )],
-                vec![make_delegate_op(
-                    &del_addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )])
+                (
+                    vec![make_transfer_op(
+                        &addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                    vec![make_delegate_op(
+                        &del_addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                )
             } else {
                 // last sortition had no block, so expect both the previous block's
                 // stx-transfer *and* this block's stx-transfer
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             };
 
             // add one stx-transfer burn op per block
-            let mut transfer_stx_burn_ops = vec![BlockstackOperationType::TransferStx(make_transfer_op(
-                &addr,
-                &recipient_addr,
-                tip.block_height + 1,
-                tenure_id,
-            ))];
+            let mut transfer_stx_burn_ops = vec![BlockstackOperationType::TransferStx(
+                make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+            )];
             burn_ops.append(&mut transfer_stx_burn_ops);
 
             // add one delegate-stx burn op per block
-            let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(make_delegate_op(
-                &del_addr,
-                &recipient_addr,
-                tip.block_height + 1,
-                tenure_id,
-            ))];
+            let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(
+                make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
+            )];
             burn_ops.append(&mut del_stx_burn_ops);
-
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
@@ -11863,23 +11889,22 @@ pub mod test {
             1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
         );
 
-        for i in 0..(num_blocks-1) {
-            let del_addr = del_addrs[i]; 
-            let result = eval_at_tip(&mut peer, "pox-2", &format!("
-                (get-delegation-info '{})", &del_addr
-            ));
-    
-            let data = result.expect_optional().unwrap().expect_tuple().data_map;
-            let delegation_amt = data
-                .get("amount-ustx")
-                .cloned()
-                .unwrap()
-                .expect_u128();
-    
-            assert_eq!(
-                delegation_amt,
-                1000 * (i as u128 + 1)
+        for i in 0..(num_blocks - 1) {
+            let del_addr = del_addrs[i];
+            let result = eval_at_tip(
+                &mut peer,
+                "pox-2",
+                &format!(
+                    "
+                (get-delegation-info '{})",
+                    &del_addr
+                ),
             );
+
+            let data = result.expect_optional().unwrap().expect_tuple().data_map;
+            let delegation_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
+
+            assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }
     }
 
@@ -11908,14 +11933,17 @@ pub mod test {
         )
         .unwrap();
 
-        let del_addrs: Vec<_> = (0..num_blocks).map(|_| StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
-            )
-            .unwrap()
-        ).collect();
+        let del_addrs: Vec<_> = (0..num_blocks)
+            .map(|_| {
+                StacksAddress::from_public_keys(
+                    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                    &AddressHashMode::SerializeP2PKH,
+                    1,
+                    &vec![StacksPublicKey::from_private(&StacksPrivateKey::new())],
+                )
+                .unwrap()
+            })
+            .collect();
 
         let recipient_privk = StacksPrivateKey::new();
         let recipient_addr = StacksAddress::from_public_keys(
@@ -11927,15 +11955,16 @@ pub mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut init_balances:  Vec<(PrincipalData, u64)> = del_addrs.iter().map(
-                |addr| (addr.to_account_principal(), initial_balance)
-            ).collect(); 
+        let mut init_balances: Vec<(PrincipalData, u64)> = del_addrs
+            .iter()
+            .map(|addr| (addr.to_account_principal(), initial_balance))
+            .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
-        let num_epochs = epochs.len(); 
-        epochs[num_epochs-1].block_limit.runtime = 10_000_000; 
-        epochs[num_epochs-1].block_limit.read_length = 10_000_000; 
+        let num_epochs = epochs.len();
+        epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
+        epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
 
         let mut peer = TestPeer::new(peer_config);
@@ -11951,7 +11980,7 @@ pub mod test {
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
-            let del_addr = del_addrs[tenure_id]; 
+            let del_addr = del_addrs[tenure_id];
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -12022,154 +12051,438 @@ pub mod test {
                 (vec![], None, None)
             };
 
-            let (mut expected_transfer_ops, mut expected_delegate_ops) = if tenure_id == 0 || tenure_id - 1 < 5 {
+            let (mut expected_transfer_ops, mut expected_delegate_ops) = if tenure_id == 0
+                || tenure_id - 1 < 5
+            {
                 // all contiguous blocks up to now, so only expect this block's stx-transfer
-                (vec![make_transfer_op(
-                    &addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )], 
-                vec![make_delegate_op(
-                    &del_addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )])
+                (
+                    vec![make_transfer_op(
+                        &addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                    vec![make_delegate_op(
+                        &del_addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                )
             } else if tenure_id - 1 == 5 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 6 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 7 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-3], &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 3],
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 8 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-4], &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_delegate_op(&del_addrs[tenure_id-3], &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 4],
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 3],
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 9 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-5], &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_delegate_op(&del_addrs[tenure_id-4], &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_delegate_op(&del_addrs[tenure_id-3], &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 5],
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 4],
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 3],
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 10 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 5, tenure_id - 6),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ], 
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-6], &recipient_addr, tip.block_height - 5, tenure_id - 6),
-                    make_delegate_op(&del_addrs[tenure_id-5], &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_delegate_op(&del_addrs[tenure_id-4], &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_delegate_op(&del_addrs[tenure_id-3], &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 5,
+                            tenure_id - 6,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 6],
+                            &recipient_addr,
+                            tip.block_height - 5,
+                            tenure_id - 6,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 5],
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 4],
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 3],
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else if tenure_id - 1 == 11 {
-                (vec![
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 5, tenure_id - 6),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ],
-                vec![
-                    make_delegate_op(&del_addrs[tenure_id-6], &recipient_addr, tip.block_height - 5, tenure_id - 6),
-                    make_delegate_op(&del_addrs[tenure_id-5], &recipient_addr, tip.block_height - 4, tenure_id - 5),
-                    make_delegate_op(&del_addrs[tenure_id-4], &recipient_addr, tip.block_height - 3, tenure_id - 4),
-                    make_delegate_op(&del_addrs[tenure_id-3], &recipient_addr, tip.block_height - 2, tenure_id - 3),
-                    make_delegate_op(&del_addrs[tenure_id-2], &recipient_addr, tip.block_height - 1, tenure_id - 2),
-                    make_delegate_op(&del_addrs[tenure_id-1], &recipient_addr, tip.block_height, tenure_id - 1),
-                    make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
-                ])
+                (
+                    vec![
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 5,
+                            tenure_id - 6,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_transfer_op(
+                            &addr,
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
+                        make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                    ],
+                    vec![
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 6],
+                            &recipient_addr,
+                            tip.block_height - 5,
+                            tenure_id - 6,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 5],
+                            &recipient_addr,
+                            tip.block_height - 4,
+                            tenure_id - 5,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 4],
+                            &recipient_addr,
+                            tip.block_height - 3,
+                            tenure_id - 4,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 3],
+                            &recipient_addr,
+                            tip.block_height - 2,
+                            tenure_id - 3,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 2],
+                            &recipient_addr,
+                            tip.block_height - 1,
+                            tenure_id - 2,
+                        ),
+                        make_delegate_op(
+                            &del_addrs[tenure_id - 1],
+                            &recipient_addr,
+                            tip.block_height,
+                            tenure_id - 1,
+                        ),
+                        make_delegate_op(
+                            &del_addr,
+                            &recipient_addr,
+                            tip.block_height + 1,
+                            tenure_id,
+                        ),
+                    ],
+                )
             } else {
-                (vec![make_transfer_op(
-                    &addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )],
-                vec![make_delegate_op(
-                    &del_addr,
-                    &recipient_addr,
-                    tip.block_height + 1,
-                    tenure_id,
-                )])
+                (
+                    vec![make_transfer_op(
+                        &addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                    vec![make_delegate_op(
+                        &del_addr,
+                        &recipient_addr,
+                        tip.block_height + 1,
+                        tenure_id,
+                    )],
+                )
             };
 
             // add one stx-transfer burn op per block
-            let mut transfer_stx_burn_ops = vec![BlockstackOperationType::TransferStx(make_transfer_op(
-                &addr,
-                &recipient_addr,
-                tip.block_height + 1,
-                tenure_id,
-            ))];
+            let mut transfer_stx_burn_ops = vec![BlockstackOperationType::TransferStx(
+                make_transfer_op(&addr, &recipient_addr, tip.block_height + 1, tenure_id),
+            )];
             burn_ops.append(&mut transfer_stx_burn_ops);
 
             // add one delegate-stx burn op per block
-            let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(make_delegate_op(
-                &del_addr,
-                &recipient_addr,
-                tip.block_height + 1,
-                tenure_id,
-            ))];
+            let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(
+                make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
+            )];
             burn_ops.append(&mut del_stx_burn_ops);
 
             let (_, burn_header_hash, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
@@ -12273,27 +12586,26 @@ pub mod test {
                     + 19000)
         );
 
-        for i in 0..(num_blocks-1) {
+        for i in 0..(num_blocks - 1) {
             // skipped tenure 6's DelegateSTX
-            if i == 5 { 
-                continue
+            if i == 5 {
+                continue;
             }
-            let del_addr = del_addrs[i]; 
-            let result = eval_at_tip(&mut peer, "pox-2", &format!("
-                (get-delegation-info '{})", &del_addr
-            ));
-    
-            let data = result.expect_optional().unwrap().expect_tuple().data_map;
-            let delegation_amt = data
-                .get("amount-ustx")
-                .cloned()
-                .unwrap()
-                .expect_u128();
-    
-            assert_eq!(
-                delegation_amt,
-                1000 * (i as u128 + 1)
+            let del_addr = del_addrs[i];
+            let result = eval_at_tip(
+                &mut peer,
+                "pox-2",
+                &format!(
+                    "
+                (get-delegation-info '{})",
+                    &del_addr
+                ),
             );
+
+            let data = result.expect_optional().unwrap().expect_tuple().data_map;
+            let delegation_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
+
+            assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }
     }
 

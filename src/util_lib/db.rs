@@ -284,7 +284,7 @@ pub fn u64_opt_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
             }
             Ok(Some(num as i64))
         }
-        None => Ok(None)
+        None => Ok(None),
     }
 }
 

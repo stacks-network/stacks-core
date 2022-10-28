@@ -385,7 +385,7 @@ pub fn handle_contract_call_special_cases(
         if global_context.database.get_v1_unlock_height()
             <= global_context.database.get_current_burnchain_block_height()
         {
-            warn!("PoX-1 Lock attempted on an account after v1 unlock height";
+            warn!("PoX-1 function call attempted after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
                   "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
             );

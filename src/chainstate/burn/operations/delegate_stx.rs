@@ -1,14 +1,14 @@
-use std::io::{Read, Write};
-use crate::chainstate::burn::operations::{
-    parse_u64_from_be, parse_u128_from_be, BlockstackOperationType, PreStxOp, DelegateStxOp,
-};
+use crate::burnchains::BurnchainTransaction;
 use crate::burnchains::{BurnchainBlockHeader, Txid};
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::burnchains::{BurnchainTransaction};
-use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use crate::chainstate::burn::operations::Error as op_error;
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::chainstate::burn::operations::{
+    parse_u128_from_be, parse_u64_from_be, BlockstackOperationType, DelegateStxOp, PreStxOp,
+};
 use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use std::io::{Read, Write};
 
 struct ParsedData {
     delegated_ustx: u128,
@@ -25,7 +25,6 @@ impl DelegateStxOp {
         delegated_ustx: u128,
         until_burn_height: Option<u64>,
     ) -> DelegateStxOp {
-
         DelegateStxOp {
             sender: sender.clone(),
             delegate_to: delegate_to.clone(),
@@ -60,33 +59,27 @@ impl DelegateStxOp {
             0      2  3                19           28
             |------|--|----------------|------------|
              magic  op delegated ustx   until burn height
-                                                              
+
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
         // magic + op are omitted
         if data.len() < 17 {
             // too short to have required data
-            warn!(
-                "DELEGATE_STX payload is malformed ({} bytes)",
-                data.len()
-            );
+            warn!("DELEGATE_STX payload is malformed ({} bytes)", data.len());
             return None;
         }
 
         let delegated_ustx = parse_u128_from_be(&data[0..16]).unwrap();
 
-        // `until_burn_height` is type Option<u64>. 
+        // `until_burn_height` is type Option<u64>.
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
-        // If the first byte is 1, then the next 8 bytes are parse 
+        // If the first byte is 1, then the next 8 bytes are parse
         let until_burn_height = {
             if data[16] == 1 {
                 if data.len() < 25 {
                     // too short to have required data
-                    warn!(
-                        "DELEGATE_STX payload is malformed ({} bytes)",
-                        data.len()
-                    );
+                    warn!("DELEGATE_STX payload is malformed ({} bytes)", data.len());
                     return None;
                 }
                 let burn_height = parse_u64_from_be(&data[17..25]).unwrap();
@@ -94,16 +87,14 @@ impl DelegateStxOp {
             } else if data[16] == 0 {
                 None
             } else {
-                warn!(
-                    "DELEGATE_STX payload is malformed (invalid byte value for option flag)"
-                );
+                warn!("DELEGATE_STX payload is malformed (invalid byte value for option flag)");
                 return None;
             }
         };
 
         Some(ParsedData {
             delegated_ustx,
-            until_burn_height, 
+            until_burn_height,
         })
     }
 
@@ -158,12 +149,12 @@ impl DelegateStxOp {
             Some(outputs[1].address.clone().coerce_hash_mode())
         } else {
             None
-        }; 
-        
+        };
+
         Ok(DelegateStxOp {
             sender: sender.clone(),
             reward_addr: reward_addr,
-            delegate_to: output, 
+            delegate_to: output,
             delegated_ustx: data.delegated_ustx,
             until_burn_height: data.until_burn_height,
             txid: tx.txid(),
@@ -173,7 +164,6 @@ impl DelegateStxOp {
         })
     }
 
-    
     pub fn check(&self) -> Result<(), op_error> {
         if self.delegated_ustx == 0 {
             warn!("Invalid DelegateStxOp, must have positive ustx");
@@ -182,7 +172,6 @@ impl DelegateStxOp {
 
         Ok(())
     }
-       
 }
 
 impl StacksMessageCodec for DelegateStxOp {
@@ -192,7 +181,7 @@ impl StacksMessageCodec for DelegateStxOp {
             0      2  3                19           28
             |------|--|----------------|------------|
              magic  op delegated ustx   until burn height
-                                                          
+
 
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -218,27 +207,28 @@ impl StacksMessageCodec for DelegateStxOp {
     }
 }
 
-
 mod tests {
+    use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use crate::burnchains::bitcoin::{
+        BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
+    };
+    use crate::burnchains::BurnchainTransaction;
+    use crate::burnchains::{bitcoin::BitcoinTransaction, Txid};
+    use crate::chainstate::burn::operations::DelegateStxOp;
+    use crate::chainstate::burn::operations::Error as op_error;
+    use crate::chainstate::burn::Opcodes;
+    use crate::chainstate::stacks::address::PoxAddress;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::types::chainstate::StacksAddress;
     use clarity::address::AddressHashMode;
     use clarity::types::chainstate::BurnchainHeaderHash;
     use stacks_common::util::hash::*;
-    use crate::burnchains::BurnchainTransaction;
-    use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-    use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput};
-    use crate::burnchains::{Txid, bitcoin::BitcoinTransaction};
-    use crate::chainstate::burn::Opcodes;
-    use crate::chainstate::burn::operations::DelegateStxOp;
-    use crate::types::chainstate::StacksAddress;
-    use crate::chainstate::stacks::address::PoxAddress;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::burn::operations::Error as op_error;
 
     #[test]
     fn test_parse_delegate_stx_height_is_none() {
-        let mut data = vec![1; 17]; 
-        // Set the 16th byte to none, which signifies that `until_burn_height` is None. 
-        data[16] = 0; 
+        let mut data = vec![1; 17];
+        // Set the 16th byte to none, which signifies that `until_burn_height` is None.
+        data[16] = 0;
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
@@ -301,7 +291,7 @@ mod tests {
         );
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
-        assert_eq!(op.until_burn_height, None); 
+        assert_eq!(op.until_burn_height, None);
     }
 
     #[test]
@@ -319,16 +309,14 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
             }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([2; 20]),
-                    },
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
                 },
-            ],
+            }],
         };
 
         let sender = StacksAddress {
@@ -344,13 +332,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(&op.sender, &sender);
-        assert_eq!(
-            &op.reward_addr,
-            &None
-        );
+        assert_eq!(&op.reward_addr, &None);
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
-        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8]))); 
+        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     }
 
     #[test]
@@ -368,16 +353,14 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
             }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([2; 20]),
-                    },
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
                 },
-            ],
+            }],
         };
 
         let sender = StacksAddress {
@@ -389,14 +372,15 @@ mod tests {
             &BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
             &sender,
-        ).unwrap_err(); 
+        )
+        .unwrap_err();
         assert!(match err {
             op_error::ParseError => true,
             _ => false,
-        }); 
+        });
 
-        // Data is length 17. The 16th byte is set to 1, which signals that until_burn_height 
-        // is Some(u64), so the deserialize function expects another 8 bytes 
+        // Data is length 17. The 16th byte is set to 1, which signals that until_burn_height
+        // is Some(u64), so the deserialize function expects another 8 bytes
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,
@@ -409,16 +393,14 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
             }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([2; 20]),
-                    },
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
                 },
-            ],
+            }],
         };
 
         let sender = StacksAddress {
@@ -430,16 +412,17 @@ mod tests {
             &BurnchainHeaderHash([0; 32]),
             &BurnchainTransaction::Bitcoin(tx.clone()),
             &sender,
-        ).unwrap_err(); 
+        )
+        .unwrap_err();
         assert!(match err {
             op_error::ParseError => true,
             _ => false,
         });
     }
 
-    // This test sets the op code to the op code of the StackStx 
+    // This test sets the op code to the op code of the StackStx
     // operation. Thus, attempting to parse the tx as a DelegateStx
-    // operation will fail. 
+    // operation will fail.
     #[test]
     fn test_parse_delegate_stx_wrong_op_code() {
         let tx = BitcoinTransaction {
@@ -454,16 +437,14 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
             }],
-            outputs: vec![
-                BitcoinTxOutput {
-                    units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
-                        network_id: BitcoinNetworkType::Mainnet,
-                        bytes: Hash160([2; 20]),
-                    },
+            outputs: vec![BitcoinTxOutput {
+                units: 10,
+                address: BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([2; 20]),
                 },
-            ],
+            }],
         };
 
         let sender = StacksAddress {
@@ -484,8 +465,8 @@ mod tests {
         });
     }
 
-    // This test constructs a tx with zero outputs, which causes 
-    // an error during parsing. 
+    // This test constructs a tx with zero outputs, which causes
+    // an error during parsing.
     #[test]
     fn test_parse_delegate_stx_zero_outputs() {
         let tx = BitcoinTransaction {
@@ -584,7 +565,6 @@ mod tests {
         );
         assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
-        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8]))); 
+        assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     }
-
 }

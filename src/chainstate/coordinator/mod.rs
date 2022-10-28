@@ -226,10 +226,9 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
-        info!("in get_reward_set"); 
         let registered_addrs =
             chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
-        info!("in get_reward_set: got registered addrs"); 
+
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
@@ -237,7 +236,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             &registered_addrs[..],
             liquid_ustx,
         );
-        info!("in get_reward_set: got participation"); 
+        info!("in get_reward_set: got participation");
 
         if !burnchain
             .pox_constants
@@ -448,7 +447,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
     if burnchain.is_reward_cycle_start(burn_height) {
-        info!("Beginning reward cycle";
+        debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
               "prepare_phase_length" => burnchain.pox_constants.prepare_length);
@@ -464,7 +463,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                 &consensus_hash,
                 &stacks_block_hash,
             )?;
-            info!("Anchor block known: {:?}", anchor_block_known); 
             let anchor_status = if anchor_block_known {
                 let block_id = StacksBlockId::new(&consensus_hash, &stacks_block_hash);
                 let reward_set = provider.get_reward_set(

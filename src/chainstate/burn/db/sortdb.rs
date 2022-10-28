@@ -74,7 +74,7 @@ use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_to_sql, u64_opt_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    u64_opt_to_sql, u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::Value;
@@ -373,13 +373,13 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
         let delegate_to = StacksAddress::from_column(row, "delegate_to")?;
         let reward_addr_str: String = row.get_unwrap("reward_addr");
         let reward_addr = serde_json::from_str(&reward_addr_str)
-                       .expect("CORRUPTION: DB stored bad transition ops"); 
+            .expect("CORRUPTION: DB stored bad transition ops");
 
         let delegated_ustx_str: String = row.get_unwrap("delegated_ustx");
         let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let until_burn_height = u64::from_column(row, "until_burn_height")?;
-        
+
         Ok(DelegateStxOp {
             txid,
             vtxindex,
@@ -393,7 +393,6 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
         })
     }
 }
-
 
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row<'a>(row: &'a Row) -> Result<TransferStxOp, db_error> {
@@ -654,8 +653,7 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
-    r#"
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -669,8 +667,7 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
         until_burn_height INTEGER,
 
         PRIMARY KEY(txid)
-    );"#,
-];
+    );"#];
 
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_burn_header_hash";

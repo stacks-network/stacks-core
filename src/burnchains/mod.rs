@@ -348,10 +348,7 @@ impl PoxConstants {
 
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
-        Self::static_active_pox_contract(
-            self.v1_unlock_height as u64, 
-            burn_height
-        )
+        Self::static_active_pox_contract(self.v1_unlock_height as u64, burn_height)
     }
 
     pub fn reward_slots(&self) -> u32 {

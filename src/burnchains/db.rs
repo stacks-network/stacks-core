@@ -864,21 +864,23 @@ mod tests {
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (pre_delegate_stx_0_txid.clone(), 1),
             }],
-            outputs: vec![BitcoinTxOutput {
-                units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
-                    network_id: BitcoinNetworkType::Mainnet,
-                    bytes: Hash160([2; 20]),
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    },
                 },
-            }, BitcoinTxOutput {
-                units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
-                    network_id: BitcoinNetworkType::Mainnet,
-                    bytes: Hash160([1; 20]),
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress {
+                        addrtype: BitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    },
                 },
-            }
             ],
         };
 
@@ -930,7 +932,11 @@ mod tests {
 
         let ops_0 = vec![pre_delegate_stx_0, delegate_stx_0];
 
-        let ops_1 = vec![delegate_stx_1, delegate_stx_0_second_attempt, delegate_stx_2];
+        let ops_1 = vec![
+            delegate_stx_1,
+            delegate_stx_0_second_attempt,
+            delegate_stx_2,
+        ];
 
         let block_height_0 = 501;
         let block_hash_0 = BurnchainHeaderHash([2; 32]);
@@ -1008,7 +1014,7 @@ mod tests {
             assert_eq!(op.delegated_ustx, u128::from_be_bytes([1; 16]));
             assert_eq!(op.delegate_to, StacksAddress::new(22, Hash160([2u8; 20])));
             assert_eq!(&op.reward_addr, &expected_reward_addr);
-            assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8]))); 
+            assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
         } else {
             panic!("EXPECTED to parse a delegate stx op");
         }

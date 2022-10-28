@@ -2339,7 +2339,7 @@ impl StacksChainState {
             &index_block_hash,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
-            burn_delegate_stx_ops, 
+            burn_delegate_stx_ops,
         )?;
 
         if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts
