@@ -1,9 +1,10 @@
 [package]
 name = "stacks-node"
 version = "0.1.0"
-authors = ["Ludo Galabru <ludovic@blockstack.com>"]
+authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2021"
 resolver = "2"
+rust-version = "1.61" 
 
 [dependencies]
 lazy_static = "1.4.0"

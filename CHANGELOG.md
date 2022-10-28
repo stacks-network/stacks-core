@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.05.0.5.0]
+
+### Changed
+
+- The act of walking the mempool will now cache address nonces in RAM and to a
+  temporary mempool table used for the purpose, instead of unconditionally
+querying them from the chainstate MARF.  This builds upon improvements to mempool
+goodput over 2.05.0.4.0 (#3337).
+- The node and miner implementation has been refactored to remove write-lock
+  contention that can arise when the node's chains-coordinator thread attempts to store and
+process newly-discovered (or newly-mined) blocks, and when the node's relayer
+thread attempts to mine a new block.  In addition, the miner logic has been
+moved to a separate thread in order to avoid starving the relayer thread (which
+must handle block and transaction propagation, as well as block-processing).
+The refactored miner thread will be preemptively terminated and restarted
+by the arrival of new Stacks blocks or burnchain blocks, which further
+prevents the miner from holding open write-locks in the underlying
+chainstate databases when there is new chain data to discover (which would
+invalidate the miner's work anyway).  (#3335).
+
+### Fixed
+
+- Fixed `pow` documentation in Clarity (#3338).
+- Backported unit tests that were omitted in the 2.05.0.3.0 release (#3348).
+
 ## [2.05.0.4.0]
 
 ### Fixed
