@@ -1,4 +1,4 @@
-# Stacks 2.0
+# Stacks 2.1
 
 Reference implementation of the [Stacks blockchain](https://github.com/blockstack/stacks) in Rust.
 
