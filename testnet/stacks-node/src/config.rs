@@ -2,6 +2,8 @@ use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use rand::RngCore;
 
@@ -10,6 +12,7 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
@@ -401,7 +404,7 @@ impl Config {
                     name: node.name.unwrap_or(default_node_config.name),
                     seed: match node.seed {
                         Some(seed) => hex_bytes(&seed)
-                            .map_err(|e| format!("node.seed should be a hex encoded string"))?,
+                            .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
                     },
                     working_dir: std::env::var("STACKS_WORKING_DIR")
@@ -416,7 +419,7 @@ impl Config {
                         None => format!("http://{}", rpc_bind),
                     },
                     local_peer_seed: match node.local_peer_seed {
-                        Some(seed) => hex_bytes(&seed).map_err(|e| {
+                        Some(seed) => hex_bytes(&seed).map_err(|_e| {
                             format!("node.local_peer_seed should be a hex encoded string")
                         })?,
                         None => default_node_config.local_peer_seed,
@@ -435,6 +438,9 @@ impl Config {
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
+                    wait_time_for_blocks: node
+                        .wait_time_for_blocks
+                        .unwrap_or(default_node_config.wait_time_for_blocks),
                     prometheus_bind: node.prometheus_bind,
                     marf_cache_strategy: node.marf_cache_strategy,
                     marf_defer_hashing: node
@@ -596,6 +602,7 @@ impl Config {
                 probability_pick_no_estimate_tx: miner
                     .probability_pick_no_estimate_tx
                     .unwrap_or(miner_default_config.probability_pick_no_estimate_tx),
+                wait_for_block_download: miner_default_config.wait_for_block_download,
                 nonce_cache_size: miner
                     .nonce_cache_size
                     .unwrap_or(miner_default_config.nonce_cache_size),
@@ -954,6 +961,7 @@ impl Config {
         &self,
         attempt: u64,
         microblocks: bool,
+        miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
@@ -980,6 +988,7 @@ impl Config {
                 nonce_cache_size: self.miner.nonce_cache_size,
                 candidate_retry_cache_size: self.miner.candidate_retry_cache_size,
             },
+            miner_status,
         }
     }
 }
@@ -1142,6 +1151,7 @@ pub struct NodeConfig {
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
+    pub wait_time_for_blocks: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1336,7 +1346,7 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1354,7 +1364,7 @@ impl FeeEstimationConfig {
 
     // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
     // is uniform with bounds [+/- 0.5].
-    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1415,6 +1425,7 @@ impl NodeConfig {
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
+            wait_time_for_blocks: 30_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -1459,6 +1470,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
+        debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -1523,6 +1535,9 @@ pub struct MinerConfig {
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
+    /// Wait for a downloader pass before mining.
+    /// This can only be disabled in testing; it can't be changed in the config file.
+    pub wait_for_block_download: bool,
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
 }
@@ -1535,6 +1550,7 @@ impl MinerConfig {
             subsequent_attempt_time_ms: 30_000,
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
+            wait_for_block_download: true,
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
         }
@@ -1602,6 +1618,7 @@ pub struct NodeConfigFile {
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub wait_time_for_blocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
