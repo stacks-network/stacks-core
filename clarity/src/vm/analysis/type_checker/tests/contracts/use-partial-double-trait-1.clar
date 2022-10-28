@@ -1,5 +1,5 @@
 (use-trait double .double-trait.double-method)
 
-(define-public (call-double (double <double>))
-  (contract-call? double foo u5)
+(define-public (call-double (d <double>))
+  (contract-call? d foo u5)
 )
