@@ -383,3 +383,48 @@ pub fn special_slice(
     }?;
     Ok(sliced_seq)
 }
+
+pub fn special_replace_at(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(3, args)?;
+
+    // Set the input to runtime_cost to 0, since replacing an element at an index is an O(1) operation.
+    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
+
+    let seq = eval(&args[0], env, context)?;
+    let seq_type = TypeSignature::type_of(&seq);
+    let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
+        seq_subtype.unit_type()
+    } else {
+        return Err(CheckErrors::ExpectedSequence(seq_type).into());
+    };
+    let index_val = eval(&args[1], env, context)?;
+    let new_element = eval(&args[2], env, context)?;
+
+    if expected_elem_type != TypeSignature::NoType && !expected_elem_type.admits(&new_element) {
+        return Err(CheckErrors::TypeValueError(expected_elem_type, new_element).into());
+    }
+
+    let index = if let Value::UInt(index_u128) = index_val {
+        if let Ok(index_usize) = usize::try_from(index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
+    } else {
+        return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index_val).into());
+    };
+
+    if let Value::Sequence(data) = seq {
+        let seq_len = data.len();
+        if index >= seq_len {
+            return Ok(Value::none());
+        }
+        data.replace_at(index, new_element)
+    } else {
+        return Err(CheckErrors::ExpectedSequence(seq_type).into());
+    }
+}

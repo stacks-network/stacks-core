@@ -131,6 +131,13 @@ impl SequenceSubtype {
             SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),
         }
     }
+
+    pub fn is_list_type(&self) -> bool {
+        match &self {
+            SequenceSubtype::ListType(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
