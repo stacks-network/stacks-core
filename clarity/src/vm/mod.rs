@@ -190,7 +190,11 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
                 runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
                 Ok(value.clone())
             } else if let Some(callable_data) = context.lookup_callable_contract(name) {
-                Ok(Value::CallableContract(callable_data.clone()))
+                if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+                    Ok(callable_data.contract_identifier.clone().into())
+                } else {
+                    Ok(Value::CallableContract(callable_data.clone()))
+                }
             } else {
                 Err(CheckErrors::UndefinedVariable(name.to_string()).into())
             }
