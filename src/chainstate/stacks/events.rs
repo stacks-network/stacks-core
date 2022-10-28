@@ -16,7 +16,6 @@ pub use clarity::vm::events::StacksTransactionEvent;
 pub enum TransactionOrigin {
     Stacks(StacksTransaction),
     Burn(Txid),
-    NetworkProtocol,
 }
 
 impl From<StacksTransaction> for TransactionOrigin {
@@ -30,7 +29,6 @@ impl TransactionOrigin {
         match self {
             TransactionOrigin::Burn(txid) => txid.clone(),
             TransactionOrigin::Stacks(tx) => tx.txid(),
-            TransactionOrigin::NetworkProtocol => Txid([0; 32]),
         }
     }
     /// Serialize this origin type to a string that can be stored in
@@ -39,7 +37,6 @@ impl TransactionOrigin {
         match self {
             TransactionOrigin::Burn(txid) => format!("BTC({})", txid),
             TransactionOrigin::Stacks(tx) => to_hex(&tx.serialize_to_vec()),
-            TransactionOrigin::NetworkProtocol => "InternalNetworkBookkeeping".into(),
         }
     }
 }

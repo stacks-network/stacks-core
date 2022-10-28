@@ -160,12 +160,10 @@ pub trait CostEstimator: Send {
             let current_txid = match current_receipt.transaction {
                 TransactionOrigin::Burn(_) => continue,
                 TransactionOrigin::Stacks(ref tx) => tx.txid(),
-                TransactionOrigin::NetworkProtocol => continue,
             };
             let tx_payload = match current_receipt.transaction {
                 TransactionOrigin::Burn(_) => continue,
                 TransactionOrigin::Stacks(ref tx) => &tx.payload,
-                TransactionOrigin::NetworkProtocol => continue,
             };
 
             if let Err(e) = self.notify_event(

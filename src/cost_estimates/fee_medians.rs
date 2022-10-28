@@ -318,7 +318,6 @@ fn fee_rate_and_weight_from_receipt(
     let (payload, fee, tx_size) = match tx_receipt.transaction {
         TransactionOrigin::Stacks(ref tx) => Some((&tx.payload, tx.get_tx_fee(), tx.tx_len())),
         TransactionOrigin::Burn(_) => None,
-        TransactionOrigin::NetworkProtocol => None,
     }?;
     let scalar_cost = match payload {
         TransactionPayload::TokenTransfer(_, _, _) => {

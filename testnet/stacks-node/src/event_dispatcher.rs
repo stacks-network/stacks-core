@@ -213,7 +213,6 @@ impl EventObserver {
                 let bytes = tx.serialize_to_vec();
                 (txid, bytes_to_hex(&bytes))
             }
-            TransactionOrigin::NetworkProtocol => ("NetworkProtocol".into(), "00".into()),
         };
 
         let raw_result = {
