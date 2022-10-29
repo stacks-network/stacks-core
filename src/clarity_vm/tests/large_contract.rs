@@ -43,6 +43,7 @@ use stacks_common::util::hash::hex_bytes;
 
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
+use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::clarity::TransactionConnection;
 
 use crate::vm::tests::with_memory_environment;
@@ -1108,13 +1109,21 @@ fn test_deep_tuples() {
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
-    for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
+    for (i, version) in [ClarityVersion::Clarity1, ClarityVersion::Clarity2]
+        .iter()
+        .enumerate()
+    {
         let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &test_block_headers(0),
+            &test_block_headers(i as u8),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
+        if *version == ClarityVersion::Clarity2 {
+            block.set_epoch(StacksEpochId::Epoch21);
+        } else {
+            block.set_epoch(StacksEpochId::Epoch2_05);
+        }
 
         let stack_limit =
             (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
@@ -1125,6 +1134,12 @@ fn test_deep_tuples() {
         );
 
         let error = block.as_transaction(|tx| {
+            if *version == ClarityVersion::Clarity2 {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch21);
+            } else {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
+            }
+
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a checkerror
             let analysis_resp = tx.analyze_smart_contract(
@@ -1144,6 +1159,8 @@ fn test_deep_tuples() {
                 eprintln!("Other error: {:?}", other);
             }
         }
+
+        block.rollback_block();
     }
 }
 
@@ -1160,13 +1177,21 @@ fn test_deep_tuples_ast_precheck() {
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
-    for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
+    for (i, version) in [ClarityVersion::Clarity1, ClarityVersion::Clarity2]
+        .iter()
+        .enumerate()
+    {
         let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &test_block_headers(0),
+            &test_block_headers(i as u8),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB_AST_PRECHECK,
         );
+        if *version == ClarityVersion::Clarity2 {
+            block.set_epoch(StacksEpochId::Epoch21);
+        } else {
+            block.set_epoch(StacksEpochId::Epoch2_05);
+        }
 
         let stack_limit =
             (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
@@ -1179,6 +1204,11 @@ fn test_deep_tuples_ast_precheck() {
         );
 
         let error = block.as_transaction(|tx| {
+            if *version == ClarityVersion::Clarity2 {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch21);
+            } else {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
+            }
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a checkerror
             let analysis_resp = tx.analyze_smart_contract(
@@ -1198,6 +1228,8 @@ fn test_deep_tuples_ast_precheck() {
                 eprintln!("Other error: {:?}", other);
             }
         }
+
+        block.rollback_block();
     }
 }
 
@@ -1214,13 +1246,21 @@ fn test_deep_type_nesting() {
     );
     let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
 
-    for version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
+    for (i, version) in [ClarityVersion::Clarity1, ClarityVersion::Clarity2]
+        .iter()
+        .enumerate()
+    {
         let mut block = clarity.begin_test_genesis_block(
             &StacksBlockId::sentinel(),
-            &test_block_headers(0),
+            &test_block_headers(i as u8),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
         );
+        if *version == ClarityVersion::Clarity2 {
+            block.set_epoch(StacksEpochId::Epoch21);
+        } else {
+            block.set_epoch(StacksEpochId::Epoch2_05);
+        }
 
         let stack_limit =
             (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
@@ -1239,6 +1279,11 @@ fn test_deep_type_nesting() {
         );
 
         let error = block.as_transaction(|tx| {
+            if *version == ClarityVersion::Clarity2 {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch21);
+            } else {
+                assert_eq!(tx.get_epoch(), StacksEpochId::Epoch2_05);
+            }
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a checkerror
             let analysis_resp = tx.analyze_smart_contract(
@@ -1258,5 +1303,6 @@ fn test_deep_type_nesting() {
                 eprintln!("Other error: {:?}", other);
             }
         }
+        block.rollback_block();
     }
 }
