@@ -995,6 +995,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     pub fn destruct(self) -> WritableMarfStore<'a> {
         self.datastore
     }
+
+    #[cfg(test)]
+    pub fn set_epoch(&mut self, epoch_id: StacksEpochId) {
+        self.epoch = epoch_id;
+    }
 }
 
 impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
