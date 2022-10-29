@@ -8098,6 +8098,7 @@ fn spawn_follower_node(
     (conf, blocks_processed, pox_sync, channel)
 }
 
+// TODO: test in epoch 2.1 with parser_v2
 #[test]
 #[ignore]
 fn test_problematic_blocks_are_not_mined() {
@@ -8450,6 +8451,7 @@ fn test_problematic_blocks_are_not_mined() {
     follower_channel.stop_chains_coordinator();
 }
 
+// TODO: test in epoch 2.1 with parser_v2
 #[test]
 #[ignore]
 fn test_problematic_blocks_are_not_relayed_or_stored() {
@@ -8832,6 +8834,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     follower_channel.stop_chains_coordinator();
 }
 
+// TODO: test in epoch 2.1 with parser_v2
 #[test]
 #[ignore]
 fn test_problematic_microblocks_are_not_mined() {
@@ -8972,7 +8975,7 @@ fn test_problematic_microblocks_are_not_mined() {
     // Third block will be the first mined Stacks block.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    debug!(
+    info!(
         "Submit problematic tx_exceeds transaction {}",
         &tx_exceeds_txid
     );
@@ -8985,6 +8988,10 @@ fn test_problematic_microblocks_are_not_mined() {
     std::env::set_var(
         "STACKS_DISABLE_TX_PROBLEMATIC_CHECK".to_string(),
         "0".to_string(),
+    );
+    info!(
+        "Submitted problematic tx_exceeds transaction {}",
+        &tx_exceeds_txid
     );
 
     let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
@@ -9046,7 +9053,7 @@ fn test_problematic_microblocks_are_not_mined() {
     assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool
-    debug!("Submit problematic tx_high transaction {}", &tx_high_txid);
+    info!("Submit problematic tx_high transaction {}", &tx_high_txid);
     std::env::set_var(
         "STACKS_DISABLE_TX_PROBLEMATIC_CHECK".to_string(),
         "1".to_string(),
@@ -9057,8 +9064,16 @@ fn test_problematic_microblocks_are_not_mined() {
         "STACKS_DISABLE_TX_PROBLEMATIC_CHECK".to_string(),
         "0".to_string(),
     );
+    info!(
+        "Submitted problematic tx_high transaction {}",
+        &tx_high_txid
+    );
 
     btc_regtest_controller.build_next_block(1);
+    info!(
+        "Mined block after submitting problematic tx_high transaction {}",
+        &tx_high_txid
+    );
 
     // wait for runloop to advance
     loop {
@@ -9193,6 +9208,7 @@ fn test_problematic_microblocks_are_not_mined() {
     follower_channel.stop_chains_coordinator();
 }
 
+// TODO: test in epoch 2.1 with parser_v2
 #[test]
 #[ignore]
 fn test_problematic_microblocks_are_not_relayed_or_stored() {
