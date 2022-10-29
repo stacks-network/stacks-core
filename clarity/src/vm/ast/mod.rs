@@ -26,13 +26,15 @@ pub mod types;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use crate::vm::errors::{Error, RuntimeErrorType};
 
-use crate::vm::ast::parser::parse_in_epoch;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;
 
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
 use self::expression_identifier::ExpressionIdentifier;
+use self::parser::v1::parse as parse_v1;
+use self::parser::v1::parse_no_stack_limit as parse_v1_no_stack_limit;
+use self::parser::v2::parse as parse_v2;
 use self::stack_depth_checker::StackDepthChecker;
 use self::stack_depth_checker::VaryStackDepthChecker;
 use self::sugar_expander::SugarExpander;
@@ -42,6 +44,7 @@ pub use self::types::ContractAST;
 use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::diagnostic::{Diagnostic, Level};
+use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::ClarityVersion;
 
 /// Legacy function
@@ -62,6 +65,23 @@ define_u8_enum!(ASTRules {
     PrecheckSize = 1
 });
 
+/// Parse a program based on which epoch is active
+fn parse_in_epoch(
+    source_code: &str,
+    epoch_id: StacksEpochId,
+    ast_rules: ASTRules,
+) -> ParseResult<Vec<PreSymbolicExpression>> {
+    if epoch_id >= StacksEpochId::Epoch21 {
+        parse_v2(source_code)
+    } else {
+        if ast_rules == ASTRules::Typical {
+            parse_v1_no_stack_limit(source_code)
+        } else {
+            parse_v1(source_code)
+        }
+    }
+}
+
 /// This is the part of the AST parser that runs without respect to cost analysis, specifically
 /// pertaining to verifying that the AST is reasonably-sized.
 /// Used mainly to filter transactions that might be too costly, as an optimization heuristic.
@@ -71,7 +91,7 @@ pub fn ast_check_size(
     clarity_version: ClarityVersion,
     epoch_id: StacksEpochId,
 ) -> ParseResult<ContractAST> {
-    let pre_expressions = parse_in_epoch(source_code, epoch_id)?;
+    let pre_expressions = parse_in_epoch(source_code, epoch_id, ASTRules::PrecheckSize)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     StackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
     VaryStackDepthChecker::run_pass(&mut contract_ast, clarity_version)?;
@@ -119,6 +139,7 @@ fn build_ast_typical<T: CostTracker>(
         cost_track,
         clarity_version,
         epoch,
+        ASTRules::Typical,
         true,
     )?;
     Ok(contract)
@@ -141,17 +162,19 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
         cost_track,
         clarity_version,
         epoch,
+        ASTRules::PrecheckSize,
         false,
     )
     .unwrap()
 }
 
-pub fn inner_build_ast<T: CostTracker>(
+fn inner_build_ast<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
+    ast_rules: ASTRules,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
@@ -172,7 +195,11 @@ pub fn inner_build_ast<T: CostTracker>(
             parser::v2::parse_collect_diagnostics(source_code)
         }
     } else {
-        match parser::v1::parse(source_code) {
+        let parse_result = match ast_rules {
+            ASTRules::Typical => parse_v1_no_stack_limit(source_code),
+            ASTRules::PrecheckSize => parse_v1(source_code),
+        };
+        match parse_result {
             Ok(pre_expressions) => (pre_expressions, vec![], true),
             Err(error) if error_early => return Err(error),
             Err(error) => (vec![], vec![error.diagnostic], false),
@@ -200,6 +227,19 @@ pub fn inner_build_ast<T: CostTracker>(
         }
         _ => (),
     }
+
+    if ast_rules != ASTRules::Typical {
+        // run extra stack-depth pass for tuples
+        match VaryStackDepthChecker::run_pass(&mut contract_ast, clarity_version) {
+            Err(e) if error_early => return Err(e),
+            Err(e) => {
+                diagnostics.push(e.diagnostic);
+                success = false;
+            }
+            _ => (),
+        }
+    }
+
     match ExpressionIdentifier::run_pre_expression_pass(&mut contract_ast, clarity_version) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
@@ -257,6 +297,7 @@ fn build_ast_precheck_size<T: CostTracker>(
         cost_track,
         clarity_version,
         epoch,
+        ASTRules::PrecheckSize,
         true,
     )?;
     Ok(contract)
@@ -341,7 +382,109 @@ mod test {
     }
 
     #[test]
-    fn test_cost_tracking_deep_contracts() {
+    fn test_cost_tracking_deep_contracts_2_05() {
+        let clarity_version = ClarityVersion::Clarity1;
+        let stack_limit =
+            (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
+        let exceeds_stack_depth_tuple = format!(
+            "{}u1 {}",
+            "{ a : ".repeat(stack_limit + 1),
+            "} ".repeat(stack_limit + 1)
+        );
+
+        // for deep lists, a test like this works:
+        //   it can assert a limit, that you can also verify
+        //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser lexer limits
+        //   and see that it produces the same result
+        let exceeds_stack_depth_list = format!(
+            "{}u1 {}",
+            "(list ".repeat(stack_limit + 1),
+            ")".repeat(stack_limit + 1)
+        );
+
+        // with old rules, this is just ExpressionStackDepthTooDeep
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_list,
+            &mut cost_track,
+            clarity_version,
+            StacksEpochId::Epoch2_05,
+            ASTRules::Typical,
+        )
+        .expect_err("Contract should error in parsing");
+
+        let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+
+        // with new rules, this is now VaryExpressionStackDepthTooDeep
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_list,
+            &mut cost_track,
+            clarity_version,
+            StacksEpochId::Epoch2_05,
+            ASTRules::PrecheckSize,
+        )
+        .expect_err("Contract should error in parsing");
+
+        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+
+        // you cannot do the same for tuples!
+        // in ASTRules::Typical, this passes
+        let mut cost_track = UnitTestTracker::new();
+        let _ = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_tuple,
+            &mut cost_track,
+            clarity_version,
+            StacksEpochId::Epoch2_05,
+            ASTRules::Typical,
+        )
+        .expect("Contract should parse with ASTRules::Typical");
+
+        // this actually won't even error without
+        //  the VaryStackDepthChecker changes.
+        let mut cost_track = UnitTestTracker::new();
+        let err = build_ast_with_rules(
+            &QualifiedContractIdentifier::transient(),
+            &exceeds_stack_depth_tuple,
+            &mut cost_track,
+            clarity_version,
+            StacksEpochId::Epoch2_05,
+            ASTRules::PrecheckSize,
+        )
+        .expect_err("Contract should error in parsing with ASTRules::PrecheckSize");
+
+        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_list_cost_state = UnitTestTracker {
+            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
+            invocation_count: 1,
+            cost_addition_count: 1,
+        };
+
+        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_list_cost_state, cost_track);
+    }
+
+    #[test]
+    fn test_cost_tracking_deep_contracts_2_1() {
         for clarity_version in &[ClarityVersion::Clarity1, ClarityVersion::Clarity2] {
             let stack_limit =
                 (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
@@ -383,7 +526,7 @@ mod test {
             assert_eq!(&expected_err, &err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
-            // with new rules, this is now VaryExpressionStackDepthTooDeep
+            // in 2.1, this is still ExpressionStackDepthTooDeep
             let mut cost_track = UnitTestTracker::new();
             let err = build_ast_with_rules(
                 &QualifiedContractIdentifier::transient(),
@@ -395,7 +538,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
                 invocation_count: 1,
@@ -405,8 +548,7 @@ mod test {
             assert_eq!(&expected_err, &err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
-            // you cannot do the same for tuples!
-            // in ASTRules::Typical, this passes
+            // in 2.1, ASTRules::Typical is ignored -- this still fails to parse
             let mut cost_track = UnitTestTracker::new();
             let _ = build_ast_with_rules(
                 &QualifiedContractIdentifier::transient(),
@@ -416,10 +558,19 @@ mod test {
                 StacksEpochId::Epoch21,
                 ASTRules::Typical,
             )
-            .expect("Contract should aprse with ASTRules::Typical");
+            .expect_err("Contract should error in parsing");
 
-            // this actually won't even error without
-            //  the VaryStackDepthChecker changes.
+            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_list_cost_state = UnitTestTracker {
+                invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
+                invocation_count: 1,
+                cost_addition_count: 1,
+            };
+
+            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_list_cost_state, cost_track);
+
+            // in 2.1, ASTRules::PrecheckSize is still ignored -- this still fails to parse
             let mut cost_track = UnitTestTracker::new();
             let err = build_ast_with_rules(
                 &QualifiedContractIdentifier::transient(),
@@ -429,9 +580,9 @@ mod test {
                 StacksEpochId::Epoch21,
                 ASTRules::PrecheckSize,
             )
-            .expect_err("Contract should error in parsing with ASTRules::PrecheckSize");
+            .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
                 invocation_count: 1,
