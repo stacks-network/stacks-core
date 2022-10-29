@@ -1139,13 +1139,18 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let mut alice_txs = HashMap::new();
     let mut bob_txs = HashMap::new();
     let mut charlie_txs = HashMap::new();
-    let mut network_protocol_txs = vec![];
+    // let mut network_protocol_txs = vec![];
+    let mut coinbase_txs = vec![];
 
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
 
     for b in blocks.into_iter() {
-        for r in b.receipts.into_iter() {
+        for (i, r) in b.receipts.into_iter().enumerate() {
+            if i == 0 {
+                coinbase_txs.push(r); 
+                continue; 
+            }
             match r.transaction {
                 TransactionOrigin::Stacks(ref t) => {
                     let addr = t.auth.origin().address_testnet();
@@ -1161,9 +1166,6 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
                         );
                         charlie_txs.insert(t.auth.get_origin_nonce(), r);
                     }
-                }
-                TransactionOrigin::NetworkProtocol => {
-                    network_protocol_txs.push(r);
                 }
                 _ => {}
             }
@@ -1184,10 +1186,11 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         "Bob tx0 should have committed okay"
     );
 
-    assert_eq!(network_protocol_txs.len(), 8);
+    assert_eq!(coinbase_txs.len(), 17);
 
-    // Check that the internal call to "handle-unlock" has a well-formed print event
-    let auto_unlock_tx = network_protocol_txs[7].events[0].clone();
+    // Check that the event produced by "handle-unlock" has a well-formed print event
+    // and that this event is included as part of the coinbase tx 
+    let auto_unlock_tx = coinbase_txs[16].events[0].clone();
     let auto_unlock_op_data = HashMap::from([
         ("first-cycle-locked", Value::UInt(8)),
         ("first-unlocked-cycle", Value::UInt(8)),
@@ -1749,9 +1752,11 @@ fn stack_increase() {
 
     // Check that the call to `stack-increase` has a well-formed print event.
     let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
     let stack_op_data = HashMap::from([
         ("increase-by", Value::UInt(5120000000000)),
         ("total-locked", Value::UInt(10240000000000)),
+        ("pox-addr", pox_addr_val),
     ]);
     let common_data = PoxPrintFields {
         op_name: "stack-increase".to_string(),

@@ -178,6 +178,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub applied_epoch_transition: bool,
     pub burn_stack_stx_ops: Vec<StackStxOp>,
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
+    pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
 pub struct DummyEventDispatcher;
@@ -5285,31 +5286,18 @@ impl StacksChainState {
 
         let evaluated_epoch = clarity_tx.get_epoch();
 
-        if evaluated_epoch >= StacksEpochId::Epoch21 {
-            let events = Self::check_and_handle_reward_start(
+        let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
+            Self::check_and_handle_reward_start(
                 burn_tip_height.into(),
                 burn_dbconn,
                 sortition_dbconn,
                 &mut clarity_tx,
                 chain_tip,
                 &parent_sortition_id,
-            )?;
-
-            let unlock_tx = StacksTransactionReceipt {
-                transaction: TransactionOrigin::NetworkProtocol,
-                events,
-                post_condition_aborted: false,
-                result: Value::okay_true(),
-                stx_burned: 0,
-                contract_analysis: None,
-                execution_cost: ExecutionCost::zero(),
-                microblock_header: None,
-                tx_index: 0,
-                vm_error: None,
-            };
-
-            tx_receipts.push(unlock_tx);
-        }
+            )?
+        } else {
+            vec![]
+        }; 
 
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
@@ -5333,6 +5321,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops: stacking_burn_ops,
             burn_transfer_stx_ops: transfer_burn_ops,
+            auto_unlock_events,
         })
     }
 
@@ -5521,6 +5510,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            mut auto_unlock_events,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5690,6 +5680,18 @@ impl StacksChainState {
                     }
                 } else {
                     warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
+                }
+            }
+            // if any, append auto unlock events to the coinbase receipt
+            if auto_unlock_events.len() > 0 {
+                // Receipts are appended in order, so the first receipt should be
+                // the one of the coinbase transaction
+                if let Some(receipt) = tx_receipts.get_mut(0) {
+                    if receipt.is_coinbase_tx() {
+                        receipt.events.append(&mut auto_unlock_events);
+                    }
+                } else {
+                    warn!("Unable to attach auto unlock events, block's first transaction is not a coinbase transaction")
                 }
             }
 
