@@ -6363,6 +6363,15 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.connection_options.max_block_push = 1000;
     conf_bootstrap_node.connection_options.max_microblock_push = 1000;
 
+    conf_bootstrap_node.node.mine_microblocks = true;
+    conf_bootstrap_node.miner.microblock_attempt_time_ms = 2_000;
+    conf_bootstrap_node.node.wait_time_for_microblocks = 0;
+    conf_bootstrap_node.node.microblock_frequency = 0;
+    conf_bootstrap_node.miner.first_attempt_time_ms = 1_000_000;
+    conf_bootstrap_node.miner.subsequent_attempt_time_ms = 1_000_000;
+    conf_bootstrap_node.burnchain.max_rbf = 1000000;
+    conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
+
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6385,6 +6394,15 @@ fn antientropy_integration_test() {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
         });
+
+    conf_follower_node.node.mine_microblocks = true;
+    conf_follower_node.miner.microblock_attempt_time_ms = 2_000;
+    conf_follower_node.node.wait_time_for_microblocks = 0;
+    conf_follower_node.node.microblock_frequency = 0;
+    conf_follower_node.miner.first_attempt_time_ms = 1_000_000;
+    conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
+    conf_follower_node.burnchain.max_rbf = 1000000;
+    conf_follower_node.node.wait_time_for_blocks = 1_000;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
@@ -6618,6 +6636,15 @@ fn atlas_stress_integration_test() {
 
     conf_bootstrap_node.miner.first_attempt_time_ms = u64::max_value();
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = u64::max_value();
+
+    conf_bootstrap_node.node.mine_microblocks = true;
+    conf_bootstrap_node.miner.microblock_attempt_time_ms = 2_000;
+    conf_bootstrap_node.node.wait_time_for_microblocks = 0;
+    conf_bootstrap_node.node.microblock_frequency = 0;
+    conf_bootstrap_node.miner.first_attempt_time_ms = 1_000_000;
+    conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
+    conf_bootstrap_node.burnchain.max_rbf = 1000000;
+    conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -10015,8 +10042,8 @@ fn test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain() {
     conf.miner.microblock_attempt_time_ms = 2_000;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 0;
-    conf.miner.first_attempt_time_ms = 1;
-    conf.miner.subsequent_attempt_time_ms = 1;
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 5_000;
     conf.burnchain.max_rbf = 1000000;
     conf.node.wait_time_for_blocks = 1_000;
 
