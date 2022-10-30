@@ -1127,11 +1127,25 @@ fn test_deep_tuples() {
 
         let stack_limit =
             (AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) + 1) as usize;
-        let exceeds_stack_depth_tuple = format!(
-            "{}u1 {}",
-            "{ a : ".repeat(stack_limit + 5),
-            "} ".repeat(stack_limit + 5)
-        );
+
+        let meets_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(31), "} ".repeat(31));
+        let exceeds_stack_depth_tuple = format!("{}u1 {}", "{ a : ".repeat(32), "} ".repeat(32));
+
+        let _res = block.as_transaction(|tx| {
+            //  basically, without the new stack depth checks in the lexer/parser,
+            //    and without the VaryStackDepthChecker, this next call will return a checkerror
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                *version,
+                &meets_stack_depth_tuple,
+                ASTRules::PrecheckSize,
+            );
+            eprintln!(
+                "analyze_smart_contract() with meets_stack_depth_tuple: {}",
+                analysis_resp.is_ok()
+            );
+            analysis_resp.unwrap()
+        });
 
         let error = block.as_transaction(|tx| {
             if *version == ClarityVersion::Clarity2 {
