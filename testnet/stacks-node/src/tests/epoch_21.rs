@@ -1291,9 +1291,9 @@ fn transition_removes_pox_sunset() {
     conf.burnchain.max_rbf = 1000000;
     conf.node.wait_time_for_microblocks = 0;
     conf.node.microblock_frequency = 1_000;
-    conf.miner.first_attempt_time_ms = 2_000;
-    conf.miner.subsequent_attempt_time_ms = 5_000;
-    conf.node.wait_time_for_blocks = 1_000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
 
     // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
     let first_sortition_height = 201;
