@@ -200,3 +200,31 @@ impl Keychain {
         BurnchainOpSigner::new(self.secret_keys[0], false)
     }
 }
+
+#[test]
+fn rotate_vrf_keypair_test() {
+    let seed = vec![0; 32];
+    let mut keychain = Keychain::default(seed.clone());
+    let secret_state = keychain.hashed_secret_state;
+    let secret_key_count = keychain.vrf_secret_keys.len();
+    let block_height = 201;
+
+    let new_vrf_pubkey = keychain.rotate_vrf_keypair(block_height);
+
+    assert_eq!(keychain.vrf_secret_keys.len(), secret_key_count + 1);
+
+    let mut new_secret_state = secret_state.to_bytes().to_vec();
+    new_secret_state.extend_from_slice(&block_height.to_be_bytes());
+    let new_seed = Sha256Sum::from_data(&new_secret_state);
+    let computed_privkey = VRFPrivateKey::from_bytes(new_seed.as_bytes()).unwrap();
+    let computed_pubkey = VRFPublicKey::from_private(&computed_privkey);
+    assert_eq!(computed_pubkey, new_vrf_pubkey);
+}
+
+#[test]
+fn rotate_vrf_keypair_fixed_value_test() {
+    let mut keychain = Keychain::default(vec![0; 32]);
+    let new_vrf_pubkey = keychain.rotate_vrf_keypair(201);
+    // saved from bitcoind_integration_test
+    assert_eq!("63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6", new_vrf_pubkey.to_hex());
+}
