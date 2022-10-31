@@ -1140,8 +1140,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     for b in blocks.into_iter() {
         for (i, r) in b.receipts.into_iter().enumerate() {
             if i == 0 {
-                coinbase_txs.push(r); 
-                continue; 
+                coinbase_txs.push(r);
+                continue;
             }
             match r.transaction {
                 TransactionOrigin::Stacks(ref t) => {
@@ -1181,11 +1181,13 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     assert_eq!(coinbase_txs.len(), 17);
 
     // Check that the event produced by "handle-unlock" has a well-formed print event
-    // and that this event is included as part of the coinbase tx 
+    // and that this event is included as part of the coinbase tx
     let auto_unlock_tx = coinbase_txs[16].events[0].clone();
+    let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
     let auto_unlock_op_data = HashMap::from([
         ("first-cycle-locked", Value::UInt(8)),
         ("first-unlocked-cycle", Value::UInt(8)),
+        ("pox-addr", pox_addr_val),
     ]);
     let common_data = PoxPrintFields {
         op_name: "handle-unlock".to_string(),

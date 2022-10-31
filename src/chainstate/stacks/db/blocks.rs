@@ -5297,7 +5297,7 @@ impl StacksChainState {
             )?
         } else {
             vec![]
-        }; 
+        };
 
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(

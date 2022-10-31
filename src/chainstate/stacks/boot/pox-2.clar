@@ -365,6 +365,7 @@
               data: {
                   first-cycle-locked: first-cycle-locked,
                   first-unlocked-cycle: cycle-to-unlock,
+                  pox-addr: (get pox-addr user-stacking-state),
               }
             })
         )))
