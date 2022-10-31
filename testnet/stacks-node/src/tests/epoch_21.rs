@@ -1429,7 +1429,7 @@ fn transition_removes_pox_sunset() {
     let pox_info = get_pox_info(&http_origin);
 
     // pox is still "active" despite unlock, because there's enough participation, and also even
-    // though the v1 blocok height has passed, the pox-2 contract won't be managing reward sets
+    // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
     // until the next reward cycle
     eprintln!("pox_info in pox-2 = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
