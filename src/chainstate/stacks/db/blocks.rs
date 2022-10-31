@@ -1501,7 +1501,7 @@ impl StacksChainState {
                 }
             }
 
-            test_debug!(
+            debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
@@ -1533,6 +1533,16 @@ impl StacksChainState {
             }
         }
         ret.reverse();
+
+        if ret.len() > 0 {
+            // should start with 0
+            if ret[0].header.sequence != 0 {
+                warn!("Invalid microblock stream from {}/{} to {}: sequence does not start with 0, but with {}",
+                      parent_consensus_hash, parent_anchored_block_hash, tip_microblock_hash, ret[0].header.sequence);
+
+                return Ok(None);
+            }
+        }
         Ok(Some(ret))
     }
 
@@ -1617,10 +1627,11 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let mut ret = vec![];
+        let mut ret: Vec<StacksMicroblock> = vec![];
         let mut tip: Option<StacksMicroblock> = None;
         let mut fork_poison = None;
         let mut expected_sequence = start_seq;
+        let mut parents: HashMap<BlockHeaderHash, usize> = HashMap::new();
 
         // load associated staging microblock data, but best-effort.
         // Stop loading once we find a fork juncture.
@@ -1657,6 +1668,22 @@ impl StacksChainState {
                 break;
             }
 
+            if let Some(idx) = parents.get(&mblock.header.prev_block) {
+                let conflict = ret[*idx].clone();
+                warn!(
+                    "Microblock fork found: microblocks {} and {} share parent {}",
+                    mblock.block_hash(),
+                    conflict.block_hash(),
+                    &mblock.header.prev_block
+                );
+                fork_poison = Some(TransactionPayload::PoisonMicroblock(
+                    mblock.header,
+                    conflict.header,
+                ));
+                ret.pop(); // last microblock pushed (i.e. the tip) conflicts with mblock
+                break;
+            }
+
             // expect forks, so expected_sequence may not always increase
             expected_sequence =
                 cmp::min(mblock.header.sequence, expected_sequence).saturating_add(1);
@@ -1677,6 +1704,10 @@ impl StacksChainState {
             }
 
             tip = Some(mblock.clone());
+
+            let prev_block = mblock.header.prev_block.clone();
+            parents.insert(prev_block, ret.len());
+
             ret.push(mblock);
         }
         if fork_poison.is_none() && ret.len() == 0 {
@@ -3453,6 +3484,20 @@ impl StacksChainState {
         Ok(count - to_write)
     }
 
+    /// Check whether or not there exists a Stacks block at or higher than a given height that is
+    /// unprocessed.  This is used by miners to determine whether or not the block-commit they're
+    /// about to send is about to be invalidated
+    pub fn has_higher_unprocessed_blocks(conn: &DBConn, height: u64) -> Result<bool, Error> {
+        let sql =
+            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        let res = conn
+            .query_row(sql, args, |_r| Ok(()))
+            .optional()
+            .map(|x| x.is_some())?;
+        Ok(res)
+    }
+
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
         microblocks: &Vec<StacksMicroblock>,
@@ -3793,6 +3838,49 @@ impl StacksChainState {
         Ok(Some((block_commit.burn_fee, sortition_burns)))
     }
 
+    /// Do we already have an anchored block?
+    pub fn has_anchored_block(
+        conn: &DBConn,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+    ) -> Result<bool, Error> {
+        let index_block_hash =
+            StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
+        if StacksChainState::has_stored_block(
+            &conn,
+            blocks_path,
+            consensus_hash,
+            &block.block_hash(),
+        )? {
+            debug!(
+                "Block already stored and processed: {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        } else if StacksChainState::has_staging_block(conn, consensus_hash, &block.block_hash())? {
+            debug!(
+                "Block already stored (but not processed): {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
+            debug!(
+                "Block already stored to chunk store: {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Pre-process and store an anchored block to staging, queuing it up for
     /// subsequent processing once all of its ancestors have been processed.
     ///
@@ -3828,43 +3916,21 @@ impl StacksChainState {
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
         let blocks_path = self.blocks_path.clone();
+
+        // optimistic check (before opening a tx): already in queue or already processed?
+        if StacksChainState::has_anchored_block(
+            self.db(),
+            &self.blocks_path,
+            consensus_hash,
+            block,
+        )? {
+            return Ok(false);
+        }
+
         let mut block_tx = self.db_tx_begin()?;
 
-        // already in queue or already processed?
-        let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
-        if StacksChainState::has_stored_block(
-            &block_tx,
-            &blocks_path,
-            consensus_hash,
-            &block.block_hash(),
-        )? {
-            debug!(
-                "Block already stored and processed: {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_staging_block(
-            &block_tx,
-            consensus_hash,
-            &block.block_hash(),
-        )? {
-            debug!(
-                "Block already stored (but not processed): {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
-            debug!(
-                "Block already stored to chunk store: {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
+        // already in queue or already processed (within the tx; things might have changed)
+        if StacksChainState::has_anchored_block(&block_tx, &blocks_path, consensus_hash, block)? {
             return Ok(false);
         }
 
