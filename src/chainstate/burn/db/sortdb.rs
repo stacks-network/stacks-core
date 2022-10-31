@@ -269,7 +269,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
-            .expect("DB Corruption: Sunset burn is not parseable as u64");
+            .expect("DB Corruption: burn fee is not parseable as u64");
 
         let sunset_burn = sunset_burn_str
             .parse::<u64>()
