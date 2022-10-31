@@ -226,6 +226,8 @@ use clarity::vm::types::PrincipalData;
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
 
+pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
+
 /// Inject a fault into the system: delay sending a transaction by one block, and send all
 /// transactions that were previosuly delayed to the given burnchain block.  Return `true` if the
 /// burnchain transaction should be sent; `false` if not.
@@ -2914,6 +2916,7 @@ impl RelayerThread {
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-block-{}", self.local_peer.data_url))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || miner_thread_state.run_tenure())
             .map_err(|e| {
                 error!("Relayer: Failed to start tenure thread: {:?}", &e);
@@ -3030,6 +3033,7 @@ impl RelayerThread {
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-microblock-{}", self.local_peer.data_url))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 Some(MinerThreadResult::Microblock(
                     microblock_thread_state.try_mine_microblock(miner_tip.clone()),
@@ -4031,6 +4035,7 @@ impl StacksNode {
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 Self::relayer_main(relayer_thread, relay_recv);
             })
@@ -4039,6 +4044,7 @@ impl StacksNode {
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
         let p2p_thread = PeerThread::new(runloop, p2p_net, attachments_receiver);
         let p2p_thread_handle = thread::Builder::new()
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name(format!(
                 "p2p-({},{})",
                 &config.node.p2p_bind, &config.node.rpc_bind
