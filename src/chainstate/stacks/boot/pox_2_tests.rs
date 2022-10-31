@@ -180,8 +180,7 @@ pub fn check_stacking_state_invariants(
         .clone()
         .expect_u128();
     let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
-    let pox_addr =
-        PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr).unwrap();
+    let pox_addr = PoxAddress::try_from_pox_tuple(false, pox_addr).unwrap();
 
     let reward_indexes: Vec<u128> = stacking_state_entry
         .get_owned("reward-set-indexes")
@@ -247,9 +246,7 @@ pub fn check_stacking_state_invariants(
             );
 
             let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
-            let entry_pox_addr =
-                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), &entry_pox_addr)
-                    .unwrap();
+            let entry_pox_addr = PoxAddress::try_from_pox_tuple(false, &entry_pox_addr).unwrap();
 
             assert_eq!(
                 &entry_pox_addr, &pox_addr,
