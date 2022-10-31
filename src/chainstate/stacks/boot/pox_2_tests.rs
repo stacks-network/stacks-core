@@ -1633,7 +1633,7 @@ fn test_lock_period_invariant_extend_transition() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "test_pox_extend_transition_pox_2",
+        "test_invariant_exten_transition",
         6002,
         Some(epochs.clone()),
         Some(&observer),
