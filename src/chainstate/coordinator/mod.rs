@@ -236,7 +236,6 @@ impl RewardSetProvider for OnChainRewardSetProvider {
             &registered_addrs[..],
             liquid_ustx,
         );
-        info!("in get_reward_set: got participation");
 
         if !burnchain
             .pox_constants

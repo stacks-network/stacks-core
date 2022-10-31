@@ -809,7 +809,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::DelegateStx as u8 => {
-                let pre_stx_txid = StackStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_txid = DelegateStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
                     Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
                     None => burnchain_db.get_burnchain_op(pre_stx_txid),

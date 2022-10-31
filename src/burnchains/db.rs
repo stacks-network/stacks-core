@@ -799,9 +799,9 @@ mod tests {
             .unwrap();
         assert_eq!(ops.len(), 0);
 
-        // let's mine a block with a pre-stack-stx tx, and a delegate-stx tx,
-        //    the delegate-stx tx should _fail_ to verify, because there's no
-        //    corresponding pre-stack-stx.
+        // let's mine a block with a pre-stx tx, and an invalid delegate-stx tx,
+        //    the delegate-stx tx should _fail_ to verify, because there's it
+        //    doesn't set the txid of the pre-stx in its input.
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
@@ -828,7 +828,7 @@ mod tests {
             }],
         };
 
-        // this one will not have a corresponding pre_stack_stx tx.
+        // this one will not have a corresponding pre_stx tx.
         let delegate_stx_0 = BitcoinTransaction {
             txid: Txid([4; 32]),
             vtxindex: 1,
@@ -851,7 +851,7 @@ mod tests {
             }],
         };
 
-        // this one will have a corresponding pre_stack_stx tx.
+        // this one will have a corresponding pre_stx tx.
         let delegate_stx_0_second_attempt = BitcoinTransaction {
             txid: Txid([4; 32]),
             vtxindex: 2,
@@ -884,7 +884,7 @@ mod tests {
             ],
         };
 
-        // this one won't have a corresponding pre_stack_stx tx.
+        // this one won't have a corresponding pre_stx tx.
         let delegate_stx_1 = BitcoinTransaction {
             txid: Txid([3; 32]),
             vtxindex: 3,
@@ -907,7 +907,8 @@ mod tests {
             }],
         };
 
-        // this one won't use the correct output
+        // This one won't use the correct output from the pre stx transaction.
+        // It tries to use the second output from the pre stx tx, which DNE.
         let delegate_stx_2 = BitcoinTransaction {
             txid: Txid([8; 32]),
             vtxindex: 4,

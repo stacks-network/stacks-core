@@ -4650,18 +4650,18 @@ impl StacksChainState {
                 Ok((value, _, events)) => {
                     if let Value::Response(ref resp) = value {
                         if !resp.committed {
-                            info!("StackStx burn op rejected by PoX contract.";
+                            debug!("StackStx burn op rejected by PoX contract.";
                                    "txid" => %txid,
                                    "burn_block" => %burn_header_hash,
                                    "contract_call_ecode" => %resp.data);
                         } else {
-                            info!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
+                            debug!("Processed StackStx burnchain op"; "amount_ustx" => stacked_ustx, "num_cycles" => num_cycles, "burn_block_height" => block_height, "sender" => %sender, "reward_addr" => %reward_addr, "txid" => %txid);
                         }
                         let mut execution_cost = clarity_tx.cost_so_far();
                         execution_cost
                             .sub(&cost_so_far)
                             .expect("BUG: cost declined between executions");
-                        info!("Stack burn cost: {:?}", execution_cost);
+
                         let receipt = StacksTransactionReceipt {
                             transaction: TransactionOrigin::Burn(txid),
                             events,
@@ -4756,6 +4756,7 @@ impl StacksChainState {
 
     /// Process any Delegate-related bitcoin operations
     ///  that haven't been processed in this Stacks fork yet.
+    /// This function should only be called from Epoch 2.1 onwards.
     pub fn process_delegate_ops(
         clarity_tx: &mut ClarityTx,
         operations: Vec<DelegateStxOp>,
@@ -4784,7 +4785,7 @@ impl StacksChainState {
                     .expect("FATAL: delegate-stx operation has no hash mode")
                     .into();
                 Value::some(clar_addr).expect(
-                    "FATAL: the tuple for pox address should be small enough to wrap as an option.",
+                    "FATAL: the tuple for pox address should be small enough to wrap as a Clarity option.",
                 )
             } else {
                 Value::none()
@@ -5437,9 +5438,9 @@ impl StacksChainState {
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
-        // DelegateStx ops are allowed from epoch 2.1 onward. 
-        // The query for the delegate ops only returns anything in and after Epoch 2.1, 
-        // but we do a second check here just to be safe. 
+        // DelegateStx ops are allowed from epoch 2.1 onward.
+        // The query for the delegate ops only returns anything in and after Epoch 2.1,
+        // but we do a second check here just to be safe.
         if evaluated_epoch >= StacksEpochId::Epoch21 {
             tx_receipts.extend(StacksChainState::process_delegate_ops(
                 &mut clarity_tx,
@@ -11596,9 +11597,9 @@ pub mod test {
         del_op
     }
 
-    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in
     /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
-    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX & DelegateSTX
     /// operations are picked up and applied as expected in the given Stacks fork, even though
     /// there are empty sortitions.
     #[test]
@@ -11648,6 +11649,7 @@ pub mod test {
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.initial_balances = init_balances;
         peer_config.epochs = Some(StacksEpoch::unit_test_2_1(0));
+        peer_config.burnchain.pox_constants.v1_unlock_height = 26;
 
         let mut peer = TestPeer::new(peer_config);
 
@@ -11740,6 +11742,7 @@ pub mod test {
                 || tenure_id - 1 < 5
             {
                 // all contiguous blocks up to now, so only expect this block's stx-transfer
+                // ditto for delegate stx
                 (
                     vec![make_transfer_op(
                         &addr,
@@ -11756,6 +11759,7 @@ pub mod test {
                 )
             } else if (tenure_id - 1) % 2 == 0 {
                 // no sortition in the last burn block, so only expect this block's stx-transfer
+                // ditto for delegate stx
                 (
                     vec![make_transfer_op(
                         &addr,
@@ -11773,6 +11777,7 @@ pub mod test {
             } else {
                 // last sortition had no block, so expect both the previous block's
                 // stx-transfer *and* this block's stx-transfer
+                // ditto for delegate stx
                 (
                     vec![
                         make_transfer_op(&addr, &recipient_addr, tip.block_height, tenure_id - 1),
@@ -11894,11 +11899,7 @@ pub mod test {
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
-                &format!(
-                    "
-                (get-delegation-info '{})",
-                    &del_addr
-                ),
+                &format!("(get-delegation-info '{})", &del_addr),
             );
 
             let data = result.expect_optional().unwrap().expect_tuple().data_map;
@@ -11908,9 +11909,9 @@ pub mod test {
         }
     }
 
-    /// Verify that the stacking and transfer operations on the burnchain work as expected in
+    /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in
     /// Stacks 2.1.  That is, they're up for consideration in the 6 subsequent sortiitons after
-    /// they are mined (including the one they are in).  This test verifies that TransferSTX
+    /// they are mined (including the one they are in).  This test verifies that TransferSTX & DelegateSTX
     /// operations are only dropped from consideration if there are more than 6 sortitions
     /// between when they are mined and when the next Stacks block is mined.
     #[test]
@@ -11966,6 +11967,7 @@ pub mod test {
         epochs[num_epochs - 1].block_limit.runtime = 10_000_000;
         epochs[num_epochs - 1].block_limit.read_length = 10_000_000;
         peer_config.epochs = Some(epochs);
+        peer_config.burnchain.pox_constants.v1_unlock_height = 26;
 
         let mut peer = TestPeer::new(peer_config);
 

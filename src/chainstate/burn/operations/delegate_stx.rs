@@ -16,29 +16,6 @@ struct ParsedData {
 }
 
 impl DelegateStxOp {
-    // CHECK
-    #[cfg(test)]
-    pub fn new(
-        sender: &StacksAddress,
-        delegate_to: &StacksAddress,
-        reward_addr: &Option<PoxAddress>,
-        delegated_ustx: u128,
-        until_burn_height: Option<u64>,
-    ) -> DelegateStxOp {
-        DelegateStxOp {
-            sender: sender.clone(),
-            delegate_to: delegate_to.clone(),
-            reward_addr: reward_addr.clone(),
-            delegated_ustx,
-            until_burn_height,
-            // to be filled in
-            txid: Txid([0u8; 32]),
-            vtxindex: 0,
-            block_height: 0,
-            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        }
-    }
-
     pub fn from_tx(
         block_header: &BurnchainBlockHeader,
         tx: &BurnchainTransaction,
@@ -62,6 +39,10 @@ impl DelegateStxOp {
 
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
+             `until_burn_height` is encoded as follows: the first byte is an option marker
+               - if it is set to 1, the parse function attempts to parse the next 8 bytes as a u64
+               - if it is set to 0, the value is interpreteted as None
+
         */
         // magic + op are omitted
         if data.len() < 17 {
@@ -74,7 +55,7 @@ impl DelegateStxOp {
 
         // `until_burn_height` is type Option<u64>.
         // The first byte of it marks whether it is none or some (0 = none, 1 = some)
-        // If the first byte is 1, then the next 8 bytes are parse
+        // If the first byte is 1, then the next 8 bytes are parsed
         let until_burn_height = {
             if data[16] == 1 {
                 if data.len() < 25 {
@@ -96,6 +77,23 @@ impl DelegateStxOp {
             delegated_ustx,
             until_burn_height,
         })
+    }
+
+    pub fn get_sender_txid(tx: &BurnchainTransaction) -> Result<&Txid, op_error> {
+        match tx.get_input_tx_ref(0) {
+            Some((ref txid, vout)) => {
+                if *vout != 1 {
+                    warn!("Invalid tx: DelegateStxOp must spend the second output of the PreStxOp");
+                    Err(op_error::InvalidInput)
+                } else {
+                    Ok(txid)
+                }
+            }
+            None => {
+                warn!("Invalid tx: DelegateStxOp must have at least one input");
+                Err(op_error::InvalidInput)
+            }
+        }
     }
 
     pub fn parse_from_tx(
@@ -134,7 +132,7 @@ impl DelegateStxOp {
             op_error::ParseError
         })?;
 
-        let output = outputs[0]
+        let delegate_to = outputs[0]
             .address
             .clone()
             .try_into_stacks_address()
@@ -153,8 +151,8 @@ impl DelegateStxOp {
 
         Ok(DelegateStxOp {
             sender: sender.clone(),
-            reward_addr: reward_addr,
-            delegate_to: output,
+            reward_addr,
+            delegate_to,
             delegated_ustx: data.delegated_ustx,
             until_burn_height: data.until_burn_height,
             txid: tx.txid(),
@@ -224,6 +222,7 @@ mod tests {
     use clarity::types::chainstate::BurnchainHeaderHash;
     use stacks_common::util::hash::*;
 
+    // Parse a DelegateStx op in which the height is set to None.
     #[test]
     fn test_parse_delegate_stx_height_is_none() {
         let mut data = vec![1; 17];
@@ -294,6 +293,7 @@ mod tests {
         assert_eq!(op.until_burn_height, None);
     }
 
+    // Parse a DelegateStx op in which the reward pox address is None.
     #[test]
     fn test_parse_delegate_stx_pox_addr_is_none() {
         // Remove the second OP_RETURN, which is parsed as `pox_addr` if it is set
@@ -338,6 +338,7 @@ mod tests {
         assert_eq!(op.until_burn_height, Some(u64::from_be_bytes([1; 8])));
     }
 
+    // Fail to parse a DelegateStx op that has a too-short data field.
     #[test]
     fn test_parse_delegate_stx_too_short() {
         // Data is shorter than length 17.
@@ -466,7 +467,8 @@ mod tests {
     }
 
     // This test constructs a tx with zero outputs, which causes
-    // an error during parsing.
+    // an error during parsing, since the parser expects at least
+    // one output.
     #[test]
     fn test_parse_delegate_stx_zero_outputs() {
         let tx = BitcoinTransaction {
@@ -502,7 +504,9 @@ mod tests {
         });
     }
 
-    fn test_parse_delegate_stx_bad_op_return() {
+    // Parse a normal DelegateStx op.
+    #[test]
+    fn test_parse_delegate_stx() {
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,

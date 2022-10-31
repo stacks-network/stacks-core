@@ -727,10 +727,7 @@ impl StacksChainState {
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
-        info!(
-            "get reward addr: active pox contract: {}",
-            pox_contract_name
-        );
+
         match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),

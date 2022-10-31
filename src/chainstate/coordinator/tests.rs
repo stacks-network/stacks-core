@@ -2303,8 +2303,9 @@ fn test_stx_transfer_btc_ops() {
     }
 }
 
-#[cfg(test)]
-fn get_delegation_info(
+// This helper function retrieves the delegation info from the delegate address
+// from the pox-2 contract.
+fn get_delegation_info_pox_2(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
@@ -2346,21 +2347,22 @@ fn get_delegation_info(
 
 // This test ensures that delegate stx burn ops are applied as expected.
 // In this test, the burn chain does not fork at all.
-// First, it sends a DelegateSTX operation in burn block n. The stacks
+// First, a DelegateSTX operation is sent in burn block n. The stacks
 // blockchain does not fork for the next 10 blocks, and the test verifies
-// that the delegation persists for the next 40 or so blocks.
-// Second, it sends a DelegateSTX operation in burn block m. This time,
+// that this delegation persists for the next 40 or so blocks.
+// Second, a DelegateSTX operation is sent in burn block m. This time,
 // the stacks blockchain forks off the stacks block built off of burn
 // block m for the next 10 blocks. The test verifies that this delegate
-// stx operation is only processed in the stacks block built off of burn
-// blocks m+1 to m+7 inclusive.
+// stx operation is only processed and active in the stacks block built off
+// of burn blocks m+1 to m+7 inclusive. From block m+8 onward, the
+// delegation does not persist.
 //
 // The chain in this test looks something like this, where Bi represents the
 // ith burn block, and Sj represents the jth stacks block.
 
 //          1st op sent       2nd op sent
 //              ^                 ^
-// B0 -> .. -> B10 -> B11 -> ... B20 -> B21 -> B22 -> B23 -> B24 -> ... -> B30 -> B31
+// B2 -> .. -> B12 -> B13 -> ... B22 -> B23 -> B24 -> B25 -> B26 -> ... -> B32 -> B33
 // S0 -> .. -> S10 -> S11 -> ... S20 -> S21
 //                                \ _ _ _ _ _  S22
 //                                \ _ _ _ _ _ _ _ _  S23
@@ -2464,7 +2466,6 @@ fn test_delegate_stx_btc_ops() {
                 10000,
                 vrf_key,
                 ix as u32,
-                // next_block_recipients.as_ref(),
                 None,
             )
         } else {
@@ -2478,7 +2479,6 @@ fn test_delegate_stx_btc_ops() {
                 1000,
                 vrf_key,
                 ix as u32,
-                // next_block_recipients.as_ref(),
                 None,
             )
         };
@@ -2511,7 +2511,7 @@ fn test_delegate_stx_btc_ops() {
             }));
         } else if ix == 1 {
             // The effects of this operation should never materialize,
-            // since this operation was sent before 2.1 was active.
+            // since this operation was sent before 2.1 is active.
             ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
                 sender: first_del.clone(),
                 delegate_to: delegator_addr.clone(),
@@ -2584,16 +2584,16 @@ fn test_delegate_stx_btc_ops() {
 
         let parent_tip = StacksBlockId::new(&tip.consensus_hash, &block_hash);
 
-        // check our delegated balance
+        // check our delegated balance after Epoch 2.1 begins (at burn height 8)
         let mut chainstate = get_chainstate(path);
-        if ix >= 10 {
-            let first_delegation_info = get_delegation_info(
+        if ix >= 6 {
+            let first_delegation_info = get_delegation_info_pox_2(
                 &mut chainstate,
                 &sort_db.index_conn(),
                 &parent_tip,
                 &first_del,
             );
-            let second_delegation_info = get_delegation_info(
+            let second_delegation_info = get_delegation_info_pox_2(
                 &mut chainstate,
                 &sort_db.index_conn(),
                 &parent_tip,
@@ -3137,16 +3137,15 @@ fn test_epoch_switch_pox_contract_instantiation() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // The line going down represents the epoch boundary. Want to ensure that the pox-2
-        // contract DNE for all blocks after the epoch transition height, and does exist for
-        // blocks after the boundary.
+        // Want to ensure that the pox-2 contract DNE for all blocks after the epoch transition height,
+        // and does exist for blocks after the boundary.
         //                              Epoch 2.1 transition
         //                                       ^
         //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> ..
         //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6
-        //                                  |\
-        //                                  | \
-        //                                  |  _ _ _ _ S7 -> S8 -> ..
+        //                                  \
+        //                                    \
+        //                                      _ _ _  S7 -> S8 -> ..
         let parent = if ix == 0 {
             BlockHeaderHash([0; 32])
         } else if ix == 7 {
@@ -3289,7 +3288,6 @@ fn test_epoch_switch_pox_contract_instantiation() {
     }
 }
 
-#[cfg(test)]
 fn get_total_stacked_info(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
@@ -3323,10 +3321,10 @@ fn get_total_stacked_info(
         .unwrap()
 }
 
-// This test verifies that the correct contract is used for PoX for stacking operations. 
+// This test verifies that the correct contract is used for PoX for stacking operations.
 // Need to ensure that after v1_unlock_height, stacking operations are executed in the "pox-2" contract.
-// After the transition to Epoch 2.1 but before v1_unlock_height, stacking operations that are 
-// sent in occur in the "pox.clar" contract. 
+// After the transition to Epoch 2.1 but before v1_unlock_height, stacking operations that are
+// sent should occur in the "pox.clar" contract.
 #[test]
 fn test_epoch_verify_active_pox_contract() {
     let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
@@ -3346,8 +3344,8 @@ fn test_epoch_verify_active_pox_contract() {
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
         (stacker.clone().into(), balance),
-        (stacker_2.clone().into(), balance)
-        ];
+        (stacker_2.clone().into(), balance),
+    ];
 
     setup_states(
         &[path],
@@ -3379,7 +3377,6 @@ fn test_epoch_verify_active_pox_contract() {
 
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut reward_recipients = HashSet::new();
     for ix in 0..20 {
         let vrf_key = &vrf_keys[ix];
         let miner = &committers[ix];
@@ -3387,9 +3384,10 @@ fn test_epoch_verify_active_pox_contract() {
         let mut burnchain = get_burnchain_db(path, pox_consts.clone());
         let mut chainstate = get_chainstate(path);
 
-        // The line going down represents the epoch boundary. Want to ensure that the pox-2
-        // contract DNE for all blocks before the boundary, and does exist for blocks after the
-        // boundary.
+        // Want to ensure that the correct PoX contract is used in the various phases.
+        // The pox-2 contract should be used for stacking operations at and after B12.
+        // Bi represents the ith burn block, and Sj represents the jth stacks block.
+        //
         //                              Epoch 2.1 transition         active pox contract switch
         //                                       ^                                ^
         //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12
@@ -3412,21 +3410,10 @@ fn test_epoch_verify_active_pox_contract() {
         };
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
-        if reward_cycle_info.is_some() {
-            // clear the reward recipients tracker, since those
-            //  recipients are now eligible again in the new reward cycle
-            reward_recipients.clear();
-        }
+
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
             .test_get_next_block_recipients(&burnchain_conf, reward_cycle_info.as_ref())
             .unwrap();
-
-        if let Some(ref next_block_recipients) = next_block_recipients {
-            for (addr, _) in next_block_recipients.recipients.iter() {
-                eprintln!("At iteration: {}, inserting address ... {}", ix, addr);
-                reward_recipients.insert(addr.clone());
-            }
-        }
 
         let (good_op, block) = if ix == 0 {
             make_genesis_block_with_recipients(
@@ -3493,14 +3480,14 @@ fn test_epoch_verify_active_pox_contract() {
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
         } else if ix == 7 {
-            // This will be sent in the first block of epoch 2.1, and will lead 
-            // to a state change in `pox.clar`. 
-            // The active contract is `pox.clar`, since the v1_unlock_height 
-            // has not been reached. 
+            // This will be sent in the first block of epoch 2.1, and will lead
+            // to a state change in `pox.clar`.
+            // The active contract is `pox.clar`, since the v1_unlock_height
+            // has not been reached.
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
                 sender: stacker_2.clone(),
                 reward_addr: rewards.clone(),
-                stacked_ustx: stacked_amt*2,
+                stacked_ustx: stacked_amt * 2,
                 num_cycles: 5,
                 txid: next_txid(),
                 vtxindex: 6,
@@ -3508,8 +3495,8 @@ fn test_epoch_verify_active_pox_contract() {
                 burn_header_hash: BurnchainHeaderHash([0; 32]),
             }));
         } else if ix == pox_v1_unlock_ht as usize - 1 {
-            // This will be sent when the burn_block_height == v1_unlock_height, 
-            // and leads to a state change in `pox-2.clar`. 
+            // This will be sent when the burn_block_height == v1_unlock_height,
+            // and leads to a state change in `pox-2.clar`.
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
                 sender: stacker_2.clone(),
                 reward_addr: rewards.clone(),
@@ -3568,14 +3555,14 @@ fn test_epoch_verify_active_pox_contract() {
                 assert_eq!(amount_locked_pox_1, stacked_amt);
             } else if curr_reward_cycle == 2 {
                 // This assertion checks that we are in Epoch 2.1
-                assert!(burn_block_height >= 8); 
+                assert!(burn_block_height >= 8);
                 // This is a result of the second stack stx sent.
-                assert_eq!(amount_locked_pox_1, stacked_amt*2);
+                assert_eq!(amount_locked_pox_1, stacked_amt * 2);
             } else {
                 assert_eq!(amount_locked_pox_1, 0);
             }
         } else {
-            // The query fails after v1_unlock_height due to the contract call special case 
+            // The query fails after v1_unlock_height due to the contract call special case
             // handler detecting that a call to `pox.clar` is occurring at a burn block height
             // greater than or equal to the v1_unlock_height.
             assert!(amount_locked_pox_1_res.is_err());
@@ -3594,7 +3581,9 @@ fn test_epoch_verify_active_pox_contract() {
             let amount_locked_pox_2 = amount_locked_pox_2_res
                 .expect("Should be able to query pox-2.clar for total locked ustx");
             if curr_reward_cycle == 3 {
-                // This is a result of the third stack stx sent. 
+                // This assertion checks that the burn height is at or after the v1_unlock_height
+                assert!(burn_block_height >= pox_v1_unlock_ht as u64);
+                // This is a result of the third stack stx sent.
                 assert_eq!(amount_locked_pox_2, stacked_amt);
             } else {
                 assert_eq!(amount_locked_pox_2, 0);
