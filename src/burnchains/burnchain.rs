@@ -474,7 +474,7 @@ impl Burnchain {
         })
     }
 
-    /// BROKEN; DO NOT USE IN NEW CODE
+    #[deprecated(note = "BROKEN; DO NOT USE IN NEW CODE")]
     pub fn is_mainnet(&self) -> bool {
         self.network_id == NETWORK_ID_MAINNET
     }
@@ -1492,7 +1492,6 @@ impl Burnchain {
             })
             .unwrap();
 
-        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
@@ -1506,29 +1505,19 @@ impl Burnchain {
                             continue;
                         }
 
-                        if is_mainnet {
-                            // NOTE: This code block is unreachable due to a bug in
-                            // self.is_mainnet() 
-                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                      "block_height" => last_processed.block_height);
-                                continue;
-                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-                                       "block_height" => last_processed.block_height);
-                                continue;
-                            }
-                        }
-
-                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height)
-                            .expect(&format!("FATAL: no epoch defined for height {}", block_height));
+                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height).expect(
+                            &format!("FATAL: no epoch defined for height {}", block_height),
+                        );
 
                         let epoch_id = epochs[epoch_index].epoch_id;
 
                         let insert_start = get_epoch_time_ms();
-                        last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block, epoch_id)?;
+                        last_processed = Burnchain::process_block(
+                            &myself,
+                            &mut burnchain_db,
+                            &burnchain_block,
+                            epoch_id,
+                        )?;
                         if !coord_comm.announce_new_burn_block() {
                             return Err(burnchain_error::CoordinatorClosed);
                         }
