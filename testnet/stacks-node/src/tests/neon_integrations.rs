@@ -142,6 +142,12 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     // if there's just one node, then this must be true for tests to pass
     conf.miner.wait_for_block_download = false;
 
+    conf.node.mine_microblocks = true;
+    conf.miner.microblock_attempt_time_ms = 2_000;
+    conf.node.microblock_frequency = 0;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_blocks = 1_000;    
+
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
     (conf, miner_account)
