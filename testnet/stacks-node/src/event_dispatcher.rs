@@ -36,6 +36,7 @@ use super::config::{EventKeyType, EventObserverConfig};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
+use stacks::chainstate::stacks::TransactionPayload;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -203,7 +204,17 @@ impl EventObserver {
                 }
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-            _ => unreachable!(), // Transaction results should always be a Value::Response type
+            _ => {
+                if let TransactionOrigin::Stacks(inner_tx) = &tx {
+                    if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
+                        STATUS_RESP_TRUE
+                    } else {
+                        unreachable!() // Transaction results should otherwise always be a Value::Response type
+                    }
+                } else {
+                    unreachable!() // Transaction results should always be a Value::Response type
+                }
+            }
         };
 
         let (txid, raw_tx) = match tx {

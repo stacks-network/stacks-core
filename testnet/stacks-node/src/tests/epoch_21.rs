@@ -1287,6 +1287,14 @@ fn transition_removes_pox_sunset() {
         amount: first_bal,
     });
 
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
+
     // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
     let first_sortition_height = 201;
     let reward_cycle_len = 15;
@@ -1355,13 +1363,14 @@ fn transition_removes_pox_sunset() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    stacks::util::sleep_ms(10_000);
 
     let sort_height = channel.get_sortitions_processed();
 
     // let's query the miner's account nonce:
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
+    assert!(account.nonce >= 1);
 
     // and our potential spenders:
     let account = get_account(&http_origin, &spender_addr);

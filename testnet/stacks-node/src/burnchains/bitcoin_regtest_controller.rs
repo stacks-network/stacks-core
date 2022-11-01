@@ -75,13 +75,14 @@ pub struct BitcoinRegtestController {
     burnchain_db: Option<BurnchainDB>,
     chain_tip: Option<BurnchainTip>,
     use_coordinator: Option<CoordinatorChannels>,
-    burnchain_config: Burnchain,
+    burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
     allow_rbf: bool,
 }
 
-struct OngoingBlockCommit {
+#[derive(Clone)]
+pub struct OngoingBlockCommit {
     payload: LeaderBlockCommitOp,
     utxos: UTXOSet,
     fees: LeaderBlockCommitFees,
@@ -253,8 +254,6 @@ impl BitcoinRegtestController {
             runtime: indexer_runtime,
         };
 
-        let burnchain_config = burnchain.unwrap_or_else(|| Self::default_burnchain(&config));
-
         Self {
             use_coordinator: coordinator_channel,
             config,
@@ -262,7 +261,7 @@ impl BitcoinRegtestController {
             db: None,
             burnchain_db: None,
             chain_tip: None,
-            burnchain_config,
+            burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running,
             allow_rbf: true,
@@ -271,7 +270,7 @@ impl BitcoinRegtestController {
 
     /// create a dummy bitcoin regtest controller.
     ///   used just for submitting bitcoin ops.
-    pub fn new_dummy(config: Config, burnchain: Burnchain) -> Self {
+    pub fn new_dummy(config: Config) -> Self {
         let (network, _) = config.burnchain.get_bitcoin_network();
         let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
             .expect("Bitcoin network unsupported");
@@ -307,32 +306,63 @@ impl BitcoinRegtestController {
             db: None,
             burnchain_db: None,
             chain_tip: None,
-            burnchain_config: burnchain,
+            burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
             allow_rbf: true,
         }
     }
 
-    fn default_burnchain(config: &Config) -> Burnchain {
-        let (network_name, _network_type) = config.burnchain.get_bitcoin_network();
-        let working_dir = config.get_burn_db_path();
-        let mut burnchain = Burnchain::new(&working_dir, &config.burnchain.chain, &network_name)
-            .expect("Failed to instantiate burnchain");
-        config.update_pox_constants(&mut burnchain.pox_constants);
-
-        burnchain
+    /// Creates a dummy bitcoin regtest controller, with the given ongoing block-commits
+    pub fn new_ongoing_dummy(config: Config, ongoing: Option<OngoingBlockCommit>) -> Self {
+        let mut ret = Self::new_dummy(config);
+        ret.ongoing_block_commit = ongoing;
+        ret
     }
 
+    /// Get an owned copy of the ongoing block commit state
+    pub fn get_ongoing_commit(&self) -> Option<OngoingBlockCommit> {
+        self.ongoing_block_commit.clone()
+    }
+
+    /// Set the ongoing block commit state
+    pub fn set_ongoing_commit(&mut self, ongoing: Option<OngoingBlockCommit>) {
+        self.ongoing_block_commit = ongoing;
+    }
+
+    /// Get the default Burnchain instance from our config
+    fn default_burnchain(&self) -> Burnchain {
+        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
+        match &self.burnchain_config {
+            Some(burnchain) => burnchain.clone(),
+            None => {
+                let working_dir = self.config.get_burn_db_path();
+                match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
+                    Ok(burnchain) => burnchain,
+                    Err(e) => {
+                        error!("Failed to instantiate burnchain: {}", e);
+                        panic!()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the PoX constants in use
     pub fn get_pox_constants(&self) -> PoxConstants {
         let burnchain = self.get_burnchain();
         burnchain.pox_constants
     }
 
+    /// Get the Burnchain in use
     pub fn get_burnchain(&self) -> Burnchain {
-        self.burnchain_config.clone()
+        match self.burnchain_config {
+            Some(ref burnchain) => burnchain.clone(),
+            None => self.default_burnchain(),
+        }
     }
 
+    /// Helium (devnet) blocks receiver.  Returns the new burnchain tip.
     fn receive_blocks_helium(&mut self) -> BurnchainTip {
         let mut burnchain = self.get_burnchain();
         let (block_snapshot, state_transition) = loop {
@@ -1685,6 +1715,7 @@ impl SerializedTx {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ParsedUTXO {
     txid: String,
     vout: u32,

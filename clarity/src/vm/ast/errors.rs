@@ -33,6 +33,7 @@ pub enum ParseErrors {
     MemoryBalanceExceeded(u64, u64),
     TooManyExpressions,
     ExpressionStackDepthTooDeep,
+    VaryExpressionStackDepthTooDeep,
     FailedCapturingInput,
     SeparatorExpected(String),
     SeparatorExpectedAfterColon(String),
@@ -259,6 +260,10 @@ impl DiagnosableError for ParseErrors {
                 format!("use of undeclared trait <{}>", trait_name)
             }
             ParseErrors::ExpressionStackDepthTooDeep => format!(
+                "AST has too deep of an expression nesting. The maximum stack depth is {}",
+                MAX_CALL_STACK_DEPTH
+            ),
+            ParseErrors::VaryExpressionStackDepthTooDeep => format!(
                 "AST has too deep of an expression nesting. The maximum stack depth is {}",
                 MAX_CALL_STACK_DEPTH
             ),
