@@ -1011,16 +1011,20 @@ impl Node {
         self.config
             .update_pox_constants(&mut burnchain.pox_constants);
 
-        let commit_outs =
-            if !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1) {
-                RewardSetInfo::into_commit_outs(None, self.config.is_mainnet())
-            } else {
-                vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
-            };
+        let commit_outs = if burnchain_tip.block_snapshot.block_height + 1
+            < burnchain.pox_constants.sunset_end
+            && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
+        {
+            RewardSetInfo::into_commit_outs(None, self.config.is_mainnet())
+        } else {
+            vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
+        };
+
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash,
             burn_fee,
             input: (Txid([0; 32]), 0),

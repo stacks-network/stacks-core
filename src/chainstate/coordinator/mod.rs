@@ -445,7 +445,20 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
+    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
+        &format!("FATAL: no epoch defined for burn height {}", burn_height),
+    );
+
     if burnchain.is_reward_cycle_start(burn_height) {
+        if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(burn_height, epoch_at_height.epoch_id)
+        {
+            return Ok(Some(RewardCycleInfo {
+                anchor_status: PoxAnchorBlockStatus::NotSelected,
+            }));
+        }
+
         debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,

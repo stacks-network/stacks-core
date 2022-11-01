@@ -425,6 +425,7 @@ mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x22; 32]),
             new_seed: VRFSeed::from_hex(
                 "3333333333333333333333333333333333333333333333333333333333333333",

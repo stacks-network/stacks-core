@@ -240,6 +240,8 @@ pub struct LeaderBlockCommitOp {
 
     /// PoX/Burn outputs
     pub commit_outs: Vec<PoxAddress>,
+    // PoX sunset burn
+    pub sunset_burn: u64,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
