@@ -2204,6 +2204,28 @@ to deserialize the type, the method returns `none`.
 "#,
 };
 
+const REPLACE_AT: SpecialAPI = SpecialAPI {
+    input_type: "sequence_A, uint, A",
+    output_type: "(optional sequence_A)",
+    snippet: "replace-at ${1:sequence} ${2:index} ${3:element}",
+    signature: "(replace-at sequence index element)",
+    description: "The `replace-at` function takes in a sequence, an index, and an element, 
+and returns a new sequence with the data at the index position replaced with the given element. 
+The given element's type must match the type of the sequence, and must correspond to a single 
+index of the input sequence. The return type on success is the same type as the input sequence. 
+
+If the provided index is out of bounds, this functions returns `none`.
+",
+    example: r#"
+(replace-at u"ab" u1 u"c") ;; Returns (some u"ac")
+(replace-at 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
+(replace-at "abcd" u3 "e") ;; Returns (some "abce")
+(replace-at (list 1) u0 10) ;; Returns (some (10))
+(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
+(replace-at (list 1 2) u3 4) ;; Returns none
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2307,6 +2329,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
+        ReplaceAt => make_for_special(&REPLACE_AT, function),
     }
 }
 

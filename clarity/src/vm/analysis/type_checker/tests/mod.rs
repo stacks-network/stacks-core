@@ -1453,6 +1453,229 @@ fn test_slice_utf8() {
 }
 
 #[test]
+fn test_replace_at_list() {
+    let good = [
+        "(replace-at (list 2 3 4 5 6 7 8) u0 10)",
+        "(replace-at (list u0 u1 u2 u3 u4) u3 u10)",
+        "(replace-at (list true) u0 false)",
+        "(replace-at (list 2 3 4 5 6 7 8) u6 10)",
+        "(replace-at (list (list 1) (list 2)) u0 (list 33))",
+        "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
+        "(replace-at (list (list 1 2 3)) u0 (list 0))",
+    ];
+    let expected = [
+        "(optional (list 7 int))",
+        "(optional (list 5 uint))",
+        "(optional (list 1 bool))",
+        "(optional (list 7 int))",
+        "(optional (list 2 (list 1 int)))",
+        "(optional (list 2 (list 2 int)))",
+        "(optional (list 1 (list 3 int)))",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(replace-at (list 2 3) u0 (list 4))",
+        "(replace-at (list 2 3) u0 true)",
+        "(replace-at (list 2 3) 0 4)",
+        "(replace-at (list 2 3) u0 4 5)",
+        "(replace-at (list u0) u0)",
+        "(replace-at (list (list 1) (list 2)) u0 (list 33 44))",
+    ];
+
+    let bad_expected = [
+        CheckErrors::TypeError(
+            IntType,
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+        ),
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 4),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+            SequenceType(ListType(ListTypeData::new_list(IntType, 2).unwrap())),
+        ),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_replace_at_buff() {
+    let good = [
+        "(replace-at 0x00112233 u0 0x44)",
+        "(replace-at 0x00112233 u3 0x66)",
+        "(replace-at 0x00 u0 0x22)",
+        "(replace-at 0x001122334455 u2 0x66)",
+    ];
+    let expected = [
+        "(optional (buff 4))",
+        "(optional (buff 4))",
+        "(optional (buff 1))",
+        "(optional (buff 6))",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(replace-at 0x0011 u0 (list 0))",
+        "(replace-at 0x0011 u0 \"a\")",
+        "(replace-at 0x0011 0 0x22)",
+        "(replace-at 0x0011 u0 0x44 0x55)",
+        "(replace-at 0x11 u0)",
+        "(replace-at 0x001122334455 u2 0x6677)",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_two = BufferLength::try_from(2u32).unwrap();
+    let bad_expected = [
+        CheckErrors::TypeError(
+            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+        ),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 4),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(BufferType(buff_len.clone())),
+            SequenceType(BufferType(buff_len_two.clone())),
+        ),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_replace_at_ascii() {
+    let good = [
+        "(replace-at \"abcd\" u0 \"f\")",
+        "(replace-at \"abcd\" u3 \"f\")",
+        "(replace-at \"a\" u0 \"f\")",
+        "(replace-at \"abcdefg\" u2 \"h\")",
+    ];
+    let expected = [
+        "(optional (string-ascii 4))",
+        "(optional (string-ascii 4))",
+        "(optional (string-ascii 1))",
+        "(optional (string-ascii 7))",
+        "(optional (string-ascii 7))",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(replace-at \"abcd\" u0 (list 0))",
+        "(replace-at \"abcd\" u0 0x00)",
+        "(replace-at \"abcd\" 0 \"e\")",
+        "(replace-at \"abcd\" u0 \"a\" \"d\")",
+        "(replace-at \"abcd\" u0)",
+        "(replace-at \"abcdefg\" u2 \"hi\")",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_two = BufferLength::try_from(2u32).unwrap();
+    let bad_expected = [
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(BufferType(buff_len.clone())),
+        ),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 4),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(StringType(ASCII(buff_len.clone()))),
+            SequenceType(StringType(ASCII(buff_len_two.clone()))),
+        ),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_replace_at_utf8() {
+    let good = [
+        "(replace-at u\"abcd\" u0 u\"f\")",
+        "(replace-at u\"abcd\" u3 u\"f\")",
+        "(replace-at u\"a\" u0 u\"f\")",
+        "(replace-at u\"abcdefg\" u2 u\"h\")",
+    ];
+    let expected = [
+        "(optional (string-utf8 4))",
+        "(optional (string-utf8 4))",
+        "(optional (string-utf8 1))",
+        "(optional (string-utf8 7))",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+
+    let bad = [
+        "(replace-at u\"abcd\" u0 (list 0))",
+        "(replace-at u\"abcd\" u0 0x00)",
+        "(replace-at u\"abcd\" 0 u\"a\")",
+        "(replace-at u\"abcd\" u0 u\"a\" u\"d\")",
+        "(replace-at u\"abcd\" u0)",
+        "(replace-at u\"abcdefg\" u2 u\"hi\")",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let str_len = StringUTF8Length::try_from(1u32).unwrap();
+    let str_len_two = StringUTF8Length::try_from(2u32).unwrap();
+    let bad_expected = [
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(str_len.clone()))),
+            SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
+        ),
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(str_len.clone()))),
+            SequenceType(BufferType(buff_len.clone())),
+        ),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::IncorrectArgumentCount(3, 4),
+        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrors::TypeError(
+            SequenceType(StringType(UTF8(str_len.clone()))),
+            SequenceType(StringType(UTF8(str_len_two.clone()))),
+        ),
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
 fn test_native_concat() {
     let good = ["(concat (list 2 3) (list 4 5))"];
     let expected = ["(list 4 int)"];

@@ -96,6 +96,7 @@ impl OngoingBlockCommit {
 
 #[derive(Clone)]
 struct LeaderBlockCommitFees {
+    sunset_fee: u64,
     fee_rate: u64,
     sortition_fee: u64,
     outputs_len: u64,
@@ -123,6 +124,12 @@ impl LeaderBlockCommitFees {
         payload: &LeaderBlockCommitOp,
         config: &Config,
     ) -> LeaderBlockCommitFees {
+        let sunset_fee = if payload.sunset_burn > 0 {
+            cmp::max(payload.sunset_burn, DUST_UTXO_LIMIT)
+        } else {
+            0
+        };
+
         let number_of_transfers = payload.commit_outs.len() as u64;
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         let sortition_fee = value_per_transfer * number_of_transfers;
@@ -131,6 +138,7 @@ impl LeaderBlockCommitFees {
         let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
 
         LeaderBlockCommitFees {
+            sunset_fee,
             fee_rate,
             sortition_fee,
             outputs_len: number_of_transfers,
@@ -154,11 +162,14 @@ impl LeaderBlockCommitFees {
     }
 
     pub fn estimated_amount_required(&self) -> u64 {
-        self.estimated_miner_fee() + self.rbf_fee() + self.sortition_fee
+        self.estimated_miner_fee() + self.rbf_fee() + self.sunset_fee + self.sortition_fee
     }
 
     pub fn total_spent(&self) -> u64 {
-        self.fee_rate * self.final_size + self.spent_in_attempts + self.sortition_fee
+        self.fee_rate * self.final_size
+            + self.spent_in_attempts
+            + self.sunset_fee
+            + self.sortition_fee
     }
 
     pub fn amount_per_output(&self) -> u64 {
@@ -166,7 +177,7 @@ impl LeaderBlockCommitFees {
     }
 
     pub fn total_spent_in_outputs(&self) -> u64 {
-        self.sortition_fee
+        self.sunset_fee + self.sortition_fee
     }
 
     pub fn min_tx_size(&self) -> u64 {
@@ -955,7 +966,7 @@ impl BitcoinRegtestController {
         };
 
         let consensus_output = TxOut {
-            value: 0,
+            value: estimated_fees.sunset_fee,
             script_pubkey: Builder::new()
                 .push_opcode(opcodes::All::OP_RETURN)
                 .push_slice(&op_bytes)
@@ -1680,10 +1691,6 @@ pub struct ParsedUTXO {
     script_pub_key: String,
     amount: Box<RawValue>,
     confirmations: u32,
-    spendable: bool,
-    solvable: bool,
-    desc: Option<String>,
-    safe: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

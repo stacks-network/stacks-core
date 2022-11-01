@@ -10,6 +10,7 @@ use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
 use stacks::burnchains::BurnchainSigner;
+use stacks::burnchains::PoxConstants;
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -68,7 +69,7 @@ use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain};
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::stacks::vm::database::BurnStateDB;
 use stacks::monitoring;
 
@@ -414,6 +415,7 @@ fn inner_generate_block_commit_op(
     parent_winning_vtx: u16,
     vrf_seed: VRFSeed,
     commit_outs: Vec<PoxAddress>,
+    sunset_burn: u64,
     current_burn_height: u64,
 ) -> BlockstackOperationType {
     let (parent_block_ptr, parent_vtxindex) = (parent_burnchain_height, parent_winning_vtx);
@@ -421,6 +423,7 @@ fn inner_generate_block_commit_op(
     let burn_parent_modulus = (current_burn_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
     BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+        sunset_burn,
         block_header_hash,
         burn_fee,
         input: (Txid([0; 32]), 0),
@@ -2167,9 +2170,26 @@ impl StacksNode {
             }
         };
 
-        let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1) {
+        let epoch_id = SortitionDB::get_stacks_epoch(burn_db.conn(), burn_block.block_height + 1)
+            .expect("FATAL: unable to read sortition DB")
+            .expect("FATAL: no epoch defined for current block height")
+            .epoch_id;
+
+        let sunset_burn =
+            burnchain.expected_sunset_burn(burn_block.block_height + 1, burn_fee_cap, epoch_id);
+        let rest_commit = burn_fee_cap - sunset_burn;
+
+        let commit_outs = if !burnchain.is_in_prepare_phase(burn_block.block_height + 1)
+            && (!PoxConstants::has_pox_sunset(epoch_id)
+                || !burnchain
+                    .pox_constants
+                    .is_after_pox_sunset_end(burn_block.block_height + 1, epoch_id))
+        {
+            // not in prepare phase, and if we have a sunset, it's not yet completed
             RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
         } else {
+            // in prepare phase, or either there's no sunset at all in this epoch, or if there is,
+            // it has completed.
             vec![PoxAddress::standard_burn_address(config.is_mainnet())]
         };
 
@@ -2177,7 +2197,7 @@ impl StacksNode {
         let op = inner_generate_block_commit_op(
             keychain.get_burnchain_signer(),
             anchored_block.block_hash(),
-            burn_fee_cap,
+            rest_commit,
             &registered_key,
             parent_block_burn_height
                 .try_into()
@@ -2185,8 +2205,11 @@ impl StacksNode {
             parent_winning_vtxindex,
             VRFSeed::from_proof(&vrf_proof),
             commit_outs,
+            sunset_burn,
             burn_block.block_height,
         );
+
+        debug!("Leader block commit: {:?}", &op);
 
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
