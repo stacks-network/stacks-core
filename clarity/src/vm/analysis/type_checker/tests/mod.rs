@@ -637,6 +637,9 @@ fn test_index_of() {
         "(index-of \"abcd\" \"z\")",
         "(index-of u\"abcd\" u\"e\")",
         "(index-of 0xfedb 0x01)",
+        "(index-of (list) none)",    // cannot determine type of list element
+        "(index-of (list) (ok u1))", // cannot determine complete type of list element
+        "(index-of (list) (err none))", // cannot determine complete type of list element
     ];
 
     let expected = "(optional uint)";

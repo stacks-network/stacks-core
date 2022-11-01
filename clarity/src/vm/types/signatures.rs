@@ -484,7 +484,8 @@ impl TypeSignature {
                     false
                 }
             }
-            NoType => panic!("NoType should never be asked to admit."),
+            // NoType => panic!("NoType should never be asked to admit."),
+            NoType => true,
             _ => other == self,
         }
     }
