@@ -82,3 +82,7 @@ net-test/mnt/archive/*
 *.profraw
 *.profdata
 lcov.info
+
+# patch
+*.orig
+*.rej
