@@ -39,7 +39,40 @@ impl BitcoinCoreController {
     pub fn start_bitcoind(&mut self) -> BitcoinResult<()> {
         std::fs::create_dir_all(&self.config.get_burnchain_path_str()).unwrap();
 
-        let mut command = Command::new("bitcoind");
+        let mut command = match env::var("BITCOIND_DOCKER") == Ok("1".into()) {
+            true => {
+                eprintln!("using docker for bitcoind");
+                let mut command = Command::new("docker");
+                command
+                    .arg("run")
+                    .arg("--rm")
+                    .arg(&format!(
+                        "--publish={}:18444",
+                        self.config.burnchain.peer_port
+                    ))
+                    .arg(&format!(
+                        "--publish={}:18443",
+                        self.config.burnchain.rpc_port
+                    ))
+                    .arg("ruimarinho/bitcoin-core:22")
+                    .arg("-rpcallowip=172.17.0.0/16")
+                    .arg("-rpcbind=0.0.0.0");
+                command
+            }
+            false => {
+                let mut command = Command::new("bitcoind");
+                command
+                    .arg("-rpcbind=127.0.0.1")
+                    .arg(&format!("-port={}", self.config.burnchain.peer_port))
+                    .arg(&format!(
+                        "-datadir={}",
+                        self.config.get_burnchain_path_str()
+                    ))
+                    .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
+                command
+            }
+        };
+
         command
             .stdout(Stdio::piped())
             .arg("-regtest")
@@ -48,14 +81,7 @@ impl BitcoinCoreController {
             .arg("-rest")
             .arg("-txindex=1")
             .arg("-server=1")
-            .arg("-listenonion=0")
-            .arg("-rpcbind=127.0.0.1")
-            .arg(&format!("-port={}", self.config.burnchain.peer_port))
-            .arg(&format!(
-                "-datadir={}",
-                self.config.get_burnchain_path_str()
-            ))
-            .arg(&format!("-rpcport={}", self.config.burnchain.rpc_port));
+            .arg("-listenonion=0");
 
         match (
             &self.config.burnchain.username,
