@@ -252,6 +252,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let burn_fee_str: String = row.get_unwrap("burn_fee");
         let input_json: String = row.get_unwrap("input");
         let apparent_sender_json: String = row.get_unwrap("apparent_sender");
+        let sunset_burn_str: String = row.get_unwrap("sunset_burn");
 
         let commit_outs = serde_json::from_value(row.get_unwrap("commit_outs"))
             .expect("Unparseable value stored to database");
@@ -268,7 +269,11 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
         let burn_fee = burn_fee_str
             .parse::<u64>()
-            .expect("DB Corruption: burn is not parseable as u64");
+            .expect("DB Corruption: burn fee is not parseable as u64");
+
+        let sunset_burn = sunset_burn_str
+            .parse::<u64>()
+            .expect("DB Corruption: Sunset burn is not parseable as u64");
 
         let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
 
@@ -286,6 +291,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             input,
             apparent_sender,
             commit_outs,
+            sunset_burn,
             txid,
             vtxindex,
             block_height,
@@ -523,7 +529,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         memo TEXT,
         commit_outs TEXT,
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
-        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers (OBSOLETE; IGNORED)
+        sunset_burn TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,
         apparent_sender TEXT NOT NULL,
         burn_parent_modulus INTEGER NOT NULL,
@@ -1540,6 +1546,9 @@ impl<'a> SortitionHandleTx<'a> {
                         // This block was mined on this fork, but it's acceptance doesn't overtake
                         // the current stacks chain tip.  Remember it so that we can process its children,
                         // which might do so later.
+                        //
+                        // TODO: flip a coin here to decide the tie (or use the burn block hash or
+                        // whatever)
                         debug!("Accepted Stacks block {}/{} builds on a non-canonical Stacks tip in this burnchain fork ({})", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash);
                     }
                     SortitionDB::insert_accepted_stacks_block_pointer(
@@ -3052,6 +3061,12 @@ impl SortitionDB {
                 BurnchainError::MissingParentBlock
             })?;
 
+        let cur_epoch = SortitionDB::get_stacks_epoch(self.conn(), burn_header.block_height)?
+            .expect(&format!(
+                "FATAL: no epoch defined for burn height {}",
+                burn_header.block_height
+            ));
+
         let mut sortition_db_handle = SortitionHandleTx::begin(self, &parent_sort_id)?;
         let parent_snapshot = sortition_db_handle
             .get_block_snapshot(&burn_header.parent_block_hash, &parent_sort_id)?
@@ -3066,12 +3081,24 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
-        let reward_set_info = sortition_db_handle.pick_recipients(
-            burnchain,
-            burn_header.block_height,
-            &reward_set_vrf_hash,
-            next_pox_info.as_ref(),
-        )?;
+        let reward_set_info = if cur_epoch.epoch_id < StacksEpochId::Epoch21
+            && burn_header.block_height >= burnchain.pox_constants.sunset_end
+        {
+            test_debug!(
+                "No recipients for burn height {}: epoch = {}, sunset_end = {}",
+                burnchain.pox_constants.sunset_end,
+                cur_epoch.epoch_id,
+                burn_header.block_height
+            );
+            None
+        } else {
+            sortition_db_handle.pick_recipients(
+                burnchain,
+                burn_header.block_height,
+                &reward_set_vrf_hash,
+                next_pox_info.as_ref(),
+            )?
+        };
 
         // Get any initial mining bonus which would be due to the winner of this block.
         let bonus_remaining =
@@ -3128,15 +3155,28 @@ impl SortitionDB {
             .sortition_hash
             .mix_burn_header(&parent_snapshot.burn_header_hash);
 
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self.conn(), parent_snapshot.block_height + 1)?.expect(
+                &format!(
+                    "FATAL: no epoch defined for burn height {}",
+                    parent_snapshot.block_height + 1
+                ),
+            );
+
         let mut sortition_db_handle =
             SortitionHandleTx::begin(self, &parent_snapshot.sortition_id)?;
-
-        sortition_db_handle.pick_recipients(
-            burnchain,
-            parent_snapshot.block_height + 1,
-            &reward_set_vrf_hash,
-            next_pox_info,
-        )
+        if cur_epoch.epoch_id < StacksEpochId::Epoch21
+            && parent_snapshot.block_height + 1 >= burnchain.pox_constants.sunset_end
+        {
+            Ok(None)
+        } else {
+            sortition_db_handle.pick_recipients(
+                burnchain,
+                parent_snapshot.block_height + 1,
+                &reward_set_vrf_hash,
+                next_pox_info,
+            )
+        }
     }
 
     pub fn is_stacks_block_in_sortition_set(
@@ -4190,7 +4230,7 @@ impl<'a> SortitionHandleTx<'a> {
             &tx_input_str,
             sort_id,
             &serde_json::to_value(&block_commit.commit_outs).unwrap(),
-            &0i64,
+            &block_commit.sunset_burn.to_string(),
             &apparent_sender_str,
             &block_commit.burn_parent_modulus,
         ];
@@ -5040,6 +5080,7 @@ pub mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -5861,6 +5902,7 @@ pub mod tests {
         };
 
         let block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -7988,6 +8030,7 @@ pub mod tests {
         };
 
         let genesis_block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222221")
                     .unwrap(),
@@ -8030,6 +8073,7 @@ pub mod tests {
 
         // descends from genesis
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -8071,6 +8115,7 @@ pub mod tests {
 
         // descends from block_commit_1
         let block_commit_1_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
                     .unwrap(),
@@ -8112,6 +8157,7 @@ pub mod tests {
 
         // descends from genesis_block_commit
         let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
                     .unwrap(),

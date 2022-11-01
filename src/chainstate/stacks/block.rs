@@ -1295,6 +1295,7 @@ mod test {
         };
 
         let mut block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: header.block_hash(),
             new_seed: VRFSeed::from_proof(&header.proof),
             parent_block_ptr: 0,
