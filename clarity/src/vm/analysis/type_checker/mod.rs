@@ -259,7 +259,9 @@ impl FunctionType {
                         .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
                     let trait_definition = db
                         .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
-                        .unwrap()
+                        .map_err(|_| CheckErrors::NoSuchContract(
+                            trait_id.contract_identifier.to_string(),
+                        ))?
                         .ok_or(CheckErrors::NoSuchContract(
                             trait_id.contract_identifier.to_string(),
                         ))?;
