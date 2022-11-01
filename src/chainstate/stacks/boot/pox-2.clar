@@ -607,6 +607,13 @@
       ;; delegate-stx no longer requires the delegator to not currently
       ;;  be stacking.
 
+      ;; pox-addr, if given, must be valid
+      (match pox-addr
+         address
+            (asserts! (check-pox-addr-version (get version address))
+                (err ERR_STACKING_INVALID_POX_ADDRESS))
+         true)
+
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
