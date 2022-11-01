@@ -579,9 +579,10 @@ impl LeaderBlockCommitOp {
 
                         if check_recipients.len() == 1 {
                             // If the number of recipients in the set was odd, we need to pad
-                            // with a burn address
-                            check_recipients
-                                .push(PoxAddress::standard_burn_address(burnchain.is_mainnet()))
+                            // with a burn address.
+                            // NOTE: this used the old burnchain.is_mainnet() code, which always
+                            // returns false
+                            check_recipients.push(PoxAddress::standard_burn_address(false))
                         }
 
                         if self.commit_outs.len() != check_recipients.len() {
