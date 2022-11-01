@@ -299,7 +299,11 @@ impl LeaderBlockCommitOp {
         }
 
         // check if we've reached PoX disable
-        let (commit_outs, sunset_burn, burn_fee, apparent_sender) = if burnchain.pox_constants.is_after_pox_sunset_end(block_height, epoch_id) || burnchain.is_in_prepare_phase(block_height) {
+        let (commit_outs, sunset_burn, burn_fee, apparent_sender) = if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(block_height, epoch_id)
+            || burnchain.is_in_prepare_phase(block_height)
+        {
             // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
             // we're in the prepare phase.
             // should be only one burn output.

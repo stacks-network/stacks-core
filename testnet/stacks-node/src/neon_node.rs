@@ -425,7 +425,9 @@ impl Globals {
             counters,
             sync_comms,
             should_keep_running,
-            leader_key_registration_state: Arc::new(Mutex::new(LeaderKeyRegistrationState::Inactive)),
+            leader_key_registration_state: Arc::new(Mutex::new(
+                LeaderKeyRegistrationState::Inactive,
+            )),
             #[cfg(test)]
             delayed_txs: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -551,7 +553,7 @@ impl Globals {
         match self.leader_key_registration_state.lock() {
             Ok(ref mut leader_key_registration_state) => {
                 **leader_key_registration_state = LeaderKeyRegistrationState::Pending(txid);
-            },
+            }
             Err(_e) => {
                 error!("FATAL: failed to lock leader key registration state mutex");
                 panic!();
@@ -562,7 +564,11 @@ impl Globals {
     /// Advance the leader key registration state to active, given the VRF key registration ops
     /// we've discovered in a given snapshot.
     /// The runloop thread calls this whenever it processes a sortition.
-    pub fn try_activate_leader_key_registration(&self, burn_block_height: u64, key_registers: Vec<LeaderKeyRegisterOp>) -> bool {
+    pub fn try_activate_leader_key_registration(
+        &self,
+        burn_block_height: u64,
+        key_registers: Vec<LeaderKeyRegisterOp>,
+    ) -> bool {
         let mut activated = false;
         match self.leader_key_registration_state.lock() {
             Ok(ref mut leader_key_registration_state) => {
@@ -2063,7 +2069,8 @@ impl BlockMinerThread {
             attempt,
         );
         if send_tx {
-            let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
+            let res =
+                bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
             if res.is_none() {
                 if !self.config.node.mock_mining {
                     warn!("Relayer: Failed to submit Bitcoin transaction");
@@ -2824,20 +2831,21 @@ impl RelayerThread {
             return;
         }
 
-        let cur_epoch = SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block.block_height)
-            .expect("FATAL: failed to query sortition DB")
-            .expect("FATAL: no epoch defined")
-            .epoch_id;
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block.block_height)
+                .expect("FATAL: failed to query sortition DB")
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
 
         let vrf_pk = self.keychain.rotate_vrf_keypair(burn_block.block_height);
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-        let op = Self::inner_generate_leader_key_register_op(
-            vrf_pk,
-            burnchain_tip_consensus_hash,
-        );
+        let op = Self::inner_generate_leader_key_register_op(vrf_pk, burnchain_tip_consensus_hash);
 
         let mut one_off_signer = self.keychain.generate_op_signer();
-        if let Some(txid) = self.bitcoin_controller.submit_operation(cur_epoch, op, &mut one_off_signer, 1) {
+        if let Some(txid) =
+            self.bitcoin_controller
+                .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
+        {
             // advance key registration state
             self.last_vrf_key_burn_height = burn_block.block_height;
             self.globals.set_pending_leader_key_registration(txid);
@@ -4180,7 +4188,8 @@ impl StacksNode {
         if let Some(burnchain_tip) = self.globals.get_last_sortition() {
             if !ibd {
                 // try and register a VRF key before issuing a tenure
-                let leader_key_registration_state = self.globals.get_leader_key_registration_state();
+                let leader_key_registration_state =
+                    self.globals.get_leader_key_registration_state();
                 match leader_key_registration_state {
                     LeaderKeyRegistrationState::Active(ref key) => {
                         debug!(
@@ -4208,8 +4217,7 @@ impl StacksNode {
                     }
                     LeaderKeyRegistrationState::Pending(..) => true,
                 }
-            }
-            else {
+            } else {
                 // still sync'ing so just try again later
                 true
             }
@@ -4303,7 +4311,8 @@ impl StacksNode {
 
         if !ibd {
             // only bother with this if we're sync'ed
-            self.globals.try_activate_leader_key_registration(block_height, key_registers);
+            self.globals
+                .try_activate_leader_key_registration(block_height, key_registers);
         }
 
         self.globals.set_last_sortition(block_snapshot);

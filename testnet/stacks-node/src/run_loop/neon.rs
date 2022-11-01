@@ -17,7 +17,7 @@ use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
-use stacks::burnchains::{Burnchain};
+use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
@@ -305,41 +305,31 @@ impl RunLoop {
                 Err(e) => warn!("Error when creating wallet: {:?}", e),
                 _ => {}
             }
-            let mut btc_addrs = vec![
-                (
-                    StacksEpochId::Epoch2_05,
-                    // legacy
-                    BitcoinAddress::from_bytes_legacy(
-                        self.config.burnchain.get_bitcoin_network().1,
-                        LegacyBitcoinAddressType::PublicKeyHash,
-                        &Hash160::from_data(&op_signer.get_public_key().to_bytes()).0,
-                    )
-                    .expect("FATAL: failed to construct legacy bitcoin address"),
-                ),
-            ];
+            let mut btc_addrs = vec![(
+                StacksEpochId::Epoch2_05,
+                // legacy
+                BitcoinAddress::from_bytes_legacy(
+                    self.config.burnchain.get_bitcoin_network().1,
+                    LegacyBitcoinAddressType::PublicKeyHash,
+                    &Hash160::from_data(&op_signer.get_public_key().to_bytes()).0,
+                )
+                .expect("FATAL: failed to construct legacy bitcoin address"),
+            )];
             if self.config.miner.segwit {
-                btc_addrs.push(
-                    (
-                        StacksEpochId::Epoch21,
-                        // segwit p2wpkh
-                        BitcoinAddress::from_bytes_segwit_p2wpkh(
-                            self.config.burnchain.get_bitcoin_network().1,
-                            &Hash160::from_data(&op_signer.get_public_key().to_bytes_compressed()).0,
-                        )
-                        .expect("FATAL: failed to construct segwit p2wpkh address"),
+                btc_addrs.push((
+                    StacksEpochId::Epoch21,
+                    // segwit p2wpkh
+                    BitcoinAddress::from_bytes_segwit_p2wpkh(
+                        self.config.burnchain.get_bitcoin_network().1,
+                        &Hash160::from_data(&op_signer.get_public_key().to_bytes_compressed()).0,
                     )
-                );
+                    .expect("FATAL: failed to construct segwit p2wpkh address"),
+                ));
             }
 
             for (epoch_id, btc_addr) in btc_addrs.into_iter() {
                 info!("Miner node: checking UTXOs at address: {}", &btc_addr);
-                let utxos = burnchain.get_utxos(
-                    epoch_id,
-                    &op_signer.get_public_key(),
-                    1,
-                    None,
-                    0,
-                );
+                let utxos = burnchain.get_utxos(epoch_id, &op_signer.get_public_key(), 1, None, 0);
                 if utxos.is_none() {
                     warn!("UTXOs not found for {}. If this is unexpected, please ensure that your bitcoind instance is indexing transactions for the address {} (importaddress)", btc_addr, btc_addr);
                 } else {
