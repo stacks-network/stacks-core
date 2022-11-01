@@ -623,7 +623,6 @@ impl Node {
         let mut last_sortitioned_block = None;
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
-        let is_mainnet = self.config.is_mainnet();
 
         for op in ops.iter() {
             match op {
