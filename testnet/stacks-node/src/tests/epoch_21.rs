@@ -56,7 +56,6 @@ use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
 
 use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::operations::BurnchainOpSigner;
-use crate::tests::neon_integrations::get_balance;
 use crate::Keychain;
 
 use stacks_common::util::sleep_ms;
@@ -112,6 +111,8 @@ fn advance_to_2_1(
         4 * prepare_phase_len / 5,
         5,
         15,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
         u32::max_value(),
     ));
     burnchain_config.pox_constants = pox_constants.clone();
@@ -646,6 +647,8 @@ fn transition_fixes_bitcoin_rigidity() {
         4 * prepare_phase_len / 5,
         5,
         15,
+        (16 * reward_cycle_len - 1).into(),
+        (17 * reward_cycle_len).into(),
         u32::max_value(),
     );
     burnchain_config.pox_constants = pox_constants.clone();
@@ -1067,6 +1070,8 @@ fn transition_adds_get_pox_addr_recipients() {
         4 * prepare_phase_len / 5,
         1,
         1,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
         v1_unlock_height,
     );
 
@@ -1449,4 +1454,311 @@ fn transition_adds_mining_from_segwit() {
             .into_bytes(),
     );
     assert!(addr.is_some());
+}
+
+/// Verify that a sunset-in-progress will be halted by the epoch 2.1 transition
+#[test]
+#[ignore]
+fn transition_removes_pox_sunset() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    let pox_pubkey = Secp256k1PublicKey::from_hex(
+        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
+    )
+    .unwrap();
+    let pox_pubkey_hash = bytes_to_hex(
+        &Hash160::from_node_public_key(&pox_pubkey)
+            .to_bytes()
+            .to_vec(),
+    );
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: first_bal,
+    });
+
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
+
+    // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
+    let first_sortition_height = 201;
+    let reward_cycle_len = 15;
+    let prepare_phase_len = 5;
+    let sunset_start_rc = 16;
+    let sunset_end_rc = 20;
+    let epoch_21_rc = 18;
+
+    let epoch_21 = epoch_21_rc * reward_cycle_len + 1;
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = 1;
+    epochs[2].start_height = 1;
+    epochs[2].end_height = epoch_21;
+    epochs[3].start_height = epoch_21;
+
+    conf.burnchain.epochs = Some(epochs);
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len as u32,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        (sunset_start_rc * reward_cycle_len - 1).into(),
+        (sunset_end_rc * reward_cycle_len).into(),
+        (epoch_21 as u32) + 1,
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(first_sortition_height);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+    let thread_burnchain = burnchain_config.clone();
+
+    thread::spawn(move || run_loop.start(Some(thread_burnchain), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    stacks::util::sleep_ms(10_000);
+
+    let sort_height = channel.get_sortitions_processed();
+
+    // let's query the miner's account nonce:
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert!(account.nonce >= 1);
+
+    // and our potential spenders:
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.balance, first_bal as u128);
+    assert_eq!(account.nonce, 0);
+
+    let pox_info = get_pox_info(&http_origin);
+
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+    assert_eq!(pox_info.current_cycle.is_pox_active, false);
+    assert_eq!(pox_info.next_cycle.stacked_ustx, 0);
+
+    let tx = make_contract_call(
+        &spender_sk,
+        0,
+        260,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox",
+        "stack-stx",
+        &[
+            Value::UInt(first_bal as u128 - 260 * 3),
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                ClarityVersion::Clarity1,
+            )
+            .unwrap()
+            .unwrap(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    // okay, let's push that stacking transaction!
+    submit_tx(&http_origin, &tx);
+
+    let mut sort_height = channel.get_sortitions_processed();
+    eprintln!("Sort height pox-1: {}", sort_height);
+
+    // advance to next reward cycle
+    for _i in 0..(reward_cycle_len * 2 + 2) {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height pox-1: {} <= {}", sort_height, epoch_21);
+    }
+
+    // pox must activate
+    let pox_info = get_pox_info(&http_origin);
+    eprintln!("pox_info in pox-1 = {:?}", &pox_info);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+
+    // advance to 2.1
+    while sort_height <= epoch_21 + 1 {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height pox-1: {} <= {}", sort_height, epoch_21);
+    }
+
+    let pox_info = get_pox_info(&http_origin);
+
+    // pox is still "active" despite unlock, because there's enough participation, and also even
+    // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
+    // until the next reward cycle
+    eprintln!("pox_info in pox-2 = {:?}", &pox_info);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox")
+    );
+
+    // re-stack
+    let tx = make_contract_call(
+        &spender_sk,
+        1,
+        260 * 2,
+        &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+        "pox-2",
+        "stack-stx",
+        &[
+            Value::UInt(first_bal as u128 - 260 * 3),
+            execute(
+                &format!("{{ hashbytes: 0x{}, version: 0x00 }}", pox_pubkey_hash),
+                ClarityVersion::Clarity2,
+            )
+            .unwrap()
+            .unwrap(),
+            Value::UInt(sort_height as u128),
+            Value::UInt(12),
+        ],
+    );
+
+    // okay, let's push that stacking transaction!
+    submit_tx(&http_origin, &tx);
+
+    eprintln!("Try and confirm pox-2 stack-stx");
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    sort_height = channel.get_sortitions_processed();
+    eprintln!(
+        "Sort height pox-1 to pox-2 with stack-stx to pox-2: {}",
+        sort_height
+    );
+
+    let pox_info = get_pox_info(&http_origin);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+
+    // get pox back online
+    while sort_height <= epoch_21 + reward_cycle_len {
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        sort_height = channel.get_sortitions_processed();
+        eprintln!("Sort height pox-2: {}", sort_height);
+    }
+
+    let pox_info = get_pox_info(&http_origin);
+    eprintln!("pox_info = {:?}", &pox_info);
+    assert_eq!(pox_info.current_cycle.is_pox_active, true);
+
+    // first full reward cycle with pox-2
+    assert_eq!(
+        &pox_info.contract_id,
+        &format!("ST000000000000000000002AMW42H.pox-2")
+    );
+
+    let burn_blocks = test_observer::get_burn_blocks();
+    let mut pox_out_opt = None;
+    for (i, block) in burn_blocks.into_iter().enumerate() {
+        let recipients: Vec<(String, u64)> = block
+            .get("reward_recipients")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| {
+                let recipient: String = value
+                    .get("recipient")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                let amount = value.get("amt").unwrap().as_u64().unwrap();
+                (recipient, amount)
+            })
+            .collect();
+
+        if (i as u64) < (sunset_start_rc * reward_cycle_len) {
+            // before sunset
+            if recipients.len() >= 1 {
+                for (_, amt) in recipients.into_iter() {
+                    pox_out_opt = if let Some(pox_out) = pox_out_opt.clone() {
+                        Some(std::cmp::max(amt, pox_out))
+                    } else {
+                        Some(amt)
+                    };
+                }
+            }
+        } else if (i as u64) >= (sunset_start_rc * reward_cycle_len) && (i as u64) + 1 < epoch_21 {
+            // some sunset burn happened
+            let pox_out = pox_out_opt.clone().unwrap();
+            if recipients.len() >= 1 {
+                for (_, amt) in recipients.into_iter() {
+                    assert!(amt < pox_out);
+                }
+            }
+        } else if (i as u64) + 1 >= epoch_21 {
+            // no sunset burn happened
+            let pox_out = pox_out_opt.clone().unwrap();
+            if recipients.len() >= 1 {
+                for (_, amt) in recipients.into_iter() {
+                    // NOTE: odd number of reward cycles
+                    if !burnchain_config.is_in_prepare_phase((i + 2) as u64) {
+                        assert_eq!(amt, pox_out);
+                    }
+                }
+            }
+        }
+    }
+
+    test_observer::clear();
+    channel.stop_chains_coordinator();
 }

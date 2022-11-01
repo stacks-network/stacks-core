@@ -127,8 +127,8 @@ impl BurnSamplePoint {
     ///
     /// All operations need to be supplied in an ordered Vec of Vecs containing
     ///   the ops at each block height in a mining commit window.  Normally, this window
-    ///   is the constant `MINING_COMMITMENT_WINDOW`, except during prepare-phases.
-    ///   In this particular case, the window is only one block.  The code does not
+    ///   is the constant `MINING_COMMITMENT_WINDOW`, except during prepare-phases and post-PoX
+    ///   sunset.  In either of these two cases, the window is only one block.  The code does not
     ///   consider which window is active; it merely deduces it by inspecting the length of the
     ///   given `block_commits` argument.
     ///
@@ -151,7 +151,7 @@ impl BurnSamplePoint {
     ///     `missed_commits.len() = block_commits.len() - 1`
     /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
     ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
-    ///     during a prepare phase, and must have only one (burn) output.
+    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
     ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
     ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
     ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
@@ -524,6 +524,7 @@ mod tests {
             input: (input_txid, 3),
             apparent_sender: BurnchainSigner::new_p2pkh(&StacksPublicKey::new()),
             commit_outs: vec![],
+            sunset_burn: 0,
             txid,
             vtxindex: 0,
             block_height: block_ht,
@@ -534,6 +535,111 @@ mod tests {
             },
             burn_header_hash: BurnchainHeaderHash([0; 32]),
         }
+    }
+
+    #[test]
+    fn make_mean_min_median_sunset_in_window() {
+        //    miner 1:  3 4 5 4 5 4
+        //       ub  :  1 0 0 0 0 0
+        //                    | sunset end
+        //    miner 2:  1 3 3 3 3 3
+        //       ub  :  1 0 0 0 0 0
+        //              0 1 0 0 0 0
+        //                   ..
+
+        // miner 1 => min = 1, median = 1, last_burn = 4
+        // miner 2 => min = 1, median = 1, last_burn = 3
+
+        let mut commits = vec![
+            vec![
+                make_block_commit(3, 1, 1, 1, None, 1),
+                make_block_commit(1, 2, 2, 2, None, 1),
+            ],
+            vec![
+                make_block_commit(4, 3, 3, 3, Some(1), 2),
+                make_block_commit(3, 4, 4, 4, Some(2), 2),
+            ],
+            vec![
+                make_block_commit(5, 5, 5, 5, Some(3), 3),
+                make_block_commit(3, 6, 6, 6, Some(4), 3),
+            ],
+            vec![
+                make_block_commit(4, 7, 7, 7, Some(5), 4),
+                make_block_commit(3, 8, 8, 8, Some(6), 4),
+            ],
+            vec![
+                make_block_commit(5, 9, 9, 9, Some(7), 5),
+                make_block_commit(3, 10, 10, 10, Some(8), 5),
+            ],
+            vec![
+                make_block_commit(4, 11, 11, 11, Some(9), 6),
+                make_block_commit(3, 12, 12, 12, Some(10), 6),
+            ],
+        ];
+        let user_burns = vec![
+            vec![make_user_burn(1, 1, 1, 1, 1), make_user_burn(1, 2, 2, 2, 1)],
+            vec![make_user_burn(1, 4, 4, 4, 2)],
+            vec![make_user_burn(1, 6, 6, 6, 3)],
+            vec![make_user_burn(1, 8, 8, 8, 4)],
+            vec![make_user_burn(1, 10, 10, 10, 5)],
+            vec![make_user_burn(1, 12, 12, 12, 6)],
+        ];
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, true, true, true],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        // block-commits are currently malformed -- the post-sunset commits spend the wrong UTXO.
+        assert_eq!(result[0].burns, 1);
+        assert_eq!(result[1].burns, 1);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
+
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 0);
+
+        // now correct the back pointers so that they point
+        //   at the correct UTXO position *post-sunset*
+        for (ix, window_slice) in commits.iter_mut().enumerate() {
+            if ix >= 4 {
+                for commit in window_slice.iter_mut() {
+                    commit.input.1 = 2;
+                }
+            }
+        }
+
+        //    miner 1:  3 4 5 4 5 4
+        //    miner 2:  1 3 3 3 3 3
+        // miner 1 => min = 3, median = 4, last_burn = 4
+        // miner 2 => min = 1, median = 3, last_burn = 3
+
+        let mut result = BurnSamplePoint::make_min_median_distribution(
+            commits.clone(),
+            vec![vec![]; (MINING_COMMITMENT_WINDOW - 1) as usize],
+            vec![false, false, false, true, true, true],
+        );
+
+        assert_eq!(result.len(), 2, "Should be two miners");
+
+        result.sort_by_key(|sample| sample.candidate.txid);
+
+        assert_eq!(result[0].burns, 4);
+        assert_eq!(result[1].burns, 3);
+
+        // make sure that we're associating with the last commit in the window.
+        assert_eq!(result[0].candidate.txid, commits[5][0].txid);
+        assert_eq!(result[1].candidate.txid, commits[5][1].txid);
+
+        assert_eq!(result[0].user_burns.len(), 0);
+        assert_eq!(result[1].user_burns.len(), 0);
     }
 
     #[test]
@@ -1002,6 +1108,7 @@ mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -1046,6 +1153,7 @@ mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
                     .unwrap(),
@@ -1090,6 +1198,7 @@ mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
                     .unwrap(),
