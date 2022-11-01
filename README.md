@@ -8,7 +8,7 @@ Stacks 2.0 is a layer-1 blockchain that connects to Bitcoin for security and ena
 
 ## Repository
 
-| Blockstack Topic/Tech      | Where to learn more more                                                          |
+| Blockstack Topic/Tech      | Where to learn more                                                               |
 | -------------------------- | --------------------------------------------------------------------------------- |
 | Stacks 2.0                 | [master branch](https://github.com/blockstack/stacks-blockchain/tree/master)      |
 | Stacks 1.0                 | [legacy branch](https://github.com/blockstack/stacks-blockchain/tree/stacks-1.0)  |
@@ -55,7 +55,7 @@ to upgrade to `2.0.10.1.0` or `2.0.10.0.1`. However, upgrading to `2.0.11.0.0` w
 - [x] [SIP 001: Burn Election](https://github.com/stacksgov/sips/blob/main/sips/sip-001/sip-001-burn-election.md)
 - [x] [SIP 002: Clarity, a language for predictable smart contracts](https://github.com/stacksgov/sips/blob/main/sips/sip-002/sip-002-smart-contract-language.md)
 - [x] [SIP 003: Peer Network](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)
-- [x] [SIP 004: Cryptographic Committment to Materialized Views](https://github.com/stacksgov/sips/blob/main/sips/sip-004/sip-004-materialized-view.md)
+- [x] [SIP 004: Cryptographic Commitment to Materialized Views](https://github.com/stacksgov/sips/blob/main/sips/sip-004/sip-004-materialized-view.md)
 - [x] [SIP 005: Blocks, Transactions, and Accounts](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
 - [x] [SIP 006: Clarity Execution Cost Assessment](https://github.com/stacksgov/sips/blob/main/sips/sip-006/sip-006-runtime-cost-assessment.md)
 - [x] [SIP 007: Stacking Consensus](https://github.com/stacksgov/sips/blob/main/sips/sip-007/sip-007-stacking-consensus.md)
@@ -330,9 +330,8 @@ miner = True
 seed = "YOUR PRIVATE KEY"
 # How long to wait for microblocks to arrive before mining a block to confirm them (in milliseconds)
 wait_time_for_microblocks = 10000
-# Run as a mock-miner, to test mining without spending BTC.
-# Mutually exclusive with `miner`.
-#mock_miner = True
+# Run as a mock-miner, to test mining without spending BTC. Needs miner=True.
+#mock_mining = True
 
 [miner]
 # Smallest allowed tx fee, in microSTX
@@ -358,7 +357,7 @@ INFO [1630127492.062652] [testnet/stacks-node/src/run_loop/neon.rs:164] [main] U
 
 ### Configuring Cost and Fee Estimation
 
-Fee and cost estimators can be configure via the config section `[fee_estimation]`:
+Fee and cost estimators can be configured via the config section `[fee_estimation]`:
 
 ```
 [fee_estimation]
@@ -405,7 +404,7 @@ that the change is not consensus-breaking.  So, the release manager must first
 determine whether there are any "non-consensus-breaking changes that require a
 fresh chainstate". This means, in other words, that the database schema has
 changed, but an automatic migration was not implemented. Then, the release manager 
-should determine whether this is a feature release, as opposed to a hot fix or a
+should determine whether this is a feature release, as opposed to a hotfix or a
 patch. Given the answers to these questions, the version number can be computed.
 
 1. The release manager enumerates the PRs or issues that would _block_

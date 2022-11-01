@@ -153,7 +153,9 @@ impl TraitsResolver {
                 | DefineFunctions::PersistedVariable
                 | DefineFunctions::FungibleToken
                 | DefineFunctions::NonFungibleToken => {
-                    self.probe_for_generics(args[1..].to_vec(), &mut referenced_traits, false)?;
+                    if args.len() > 0 {
+                        self.probe_for_generics(args[1..].to_vec(), &mut referenced_traits, false)?;
+                    }
                 }
             };
         }

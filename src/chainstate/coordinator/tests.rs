@@ -530,12 +530,15 @@ fn make_genesis_block_with_recipients(
 
     let iconn = sort_db.index_conn();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
@@ -745,12 +748,15 @@ fn make_stacks_block_with_input(
     )
     .unwrap();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
