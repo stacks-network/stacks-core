@@ -912,7 +912,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             }
                             continue;
                         }
-                        TransactionResult::Problematic(TransactionProblematic { _tx, .. }) => {
+                        TransactionResult::Problematic(TransactionProblematic { tx: _tx, .. }) => {
                             test_debug!("Exclude problematic tx {} from microblock", _tx.txid());
                             continue;
                         }
