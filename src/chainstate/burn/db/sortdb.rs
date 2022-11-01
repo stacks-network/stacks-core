@@ -24,7 +24,6 @@ use std::ops::DerefMut;
 use std::{cmp, fmt, fs, str::FromStr};
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::tests::BurnStateDB;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;

@@ -513,7 +513,7 @@ impl SequenceData {
     }
 
     pub fn is_list(&self) -> bool {
-        if let SequenceData::List(x) = self {
+        if let SequenceData::List(_x) = self {
             true
         } else {
             false

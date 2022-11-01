@@ -1479,6 +1479,7 @@ impl BitcoinRegtestController {
                 self.build_transfer_stacks_tx(payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
+            BlockstackOperationType::DelegateStx(_payload) => unimplemented!(),
         };
 
         transaction.map(|tx| SerializedTx::new(tx))
