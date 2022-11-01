@@ -397,7 +397,16 @@ impl PoxConstants {
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(10, 5, 3, 25, 5, BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap())
+        PoxConstants::new(
+            10,
+            5,
+            3,
+            25,
+            5,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT.try_into().unwrap(),
+        )
     }
 
     /// Return true if PoX should sunset at all

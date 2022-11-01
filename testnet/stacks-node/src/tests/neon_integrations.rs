@@ -2224,7 +2224,6 @@ fn microblock_integration_test() {
     submit_tx(&http_origin, &tx);
 
     info!("Try to mine a microblock-only tx");
-        include_data_events: false,
 
     // now let's mine a couple blocks, and then check the sender's nonce.
     // this one wakes up our node, so that it'll mine a microblock _and_ an anchor block.

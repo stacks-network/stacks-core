@@ -2,9 +2,9 @@ use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
-use std::thread::sleep;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread::sleep;
 
 use rand::RngCore;
 
