@@ -161,6 +161,9 @@ pub const POX_TESTNET_CYCLE_LENGTH: u128 = 1050;
 pub const POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT: u32 = 1_000_000;
 pub const POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT: u32 = 2_000_000;
 
+/// Burn block height at which the ASTRules::PrecheckSize becomes the default behavior on mainnet
+pub const AST_RULES_PRECHECK_SIZE: u64 = 752000; // on or about Aug 30 2022
+
 // Stacks 1.0 did not allow smart contracts so all limits are 0.
 pub const BLOCK_LIMIT_MAINNET_10: ExecutionCost = ExecutionCost {
     write_length: 0,

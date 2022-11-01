@@ -1,3 +1,4 @@
+/// Only used by the Helium (Mocknet) node
 use super::node::ChainTip;
 use super::{BurnchainTip, Config};
 

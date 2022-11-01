@@ -18,6 +18,7 @@ use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -91,7 +92,10 @@ pub fn test_tracked_costs(
     let trait_contract_id =
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-trait".into());
 
-    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
+    let burn_state_db = UnitTestBurnStateDB {
+        epoch_id: epoch,
+        ast_rules: ASTRules::PrecheckSize,
+    };
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -134,7 +138,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, version, contract_trait)
+                .analyze_smart_contract(
+                    &trait_contract_id,
+                    version,
+                    contract_trait,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
@@ -162,7 +171,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, version, contract_other)
+                .analyze_smart_contract(
+                    &other_contract_id,
+                    version,
+                    contract_other,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
@@ -190,7 +204,12 @@ pub fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, version, &contract_self)
+                .analyze_smart_contract(
+                    &self_contract_id,
+                    version,
+                    &contract_self,
+                    ASTRules::PrecheckSize,
+                )
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,

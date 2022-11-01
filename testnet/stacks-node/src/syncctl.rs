@@ -168,7 +168,7 @@ const PER_SAMPLE_WAIT_MS: u64 = 1000;
 impl PoxSyncWatchdog {
     pub fn new(
         config: &Config,
-        should_keep_running: Arc<AtomicBool>,
+        watchdog_comms: PoxSyncWatchdogComms,
     ) -> Result<PoxSyncWatchdog, String> {
         let mainnet = config.is_mainnet();
         let chain_id = config.burnchain.chain_id;
@@ -205,7 +205,7 @@ impl PoxSyncWatchdog {
             steady_state_burnchain_sync_interval: burnchain_poll_time,
             steady_state_resync_ts: 0,
             chainstate: chainstate,
-            relayer_comms: PoxSyncWatchdogComms::new(should_keep_running),
+            relayer_comms: watchdog_comms,
         })
     }
 

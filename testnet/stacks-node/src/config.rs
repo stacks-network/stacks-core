@@ -3,6 +3,8 @@ use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::thread::sleep;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use rand::RngCore;
 
@@ -12,6 +14,7 @@ use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
@@ -557,6 +560,9 @@ impl Config {
                     wait_time_for_microblocks: node
                         .wait_time_for_microblocks
                         .unwrap_or(default_node_config.wait_time_for_microblocks),
+                    wait_time_for_blocks: node
+                        .wait_time_for_blocks
+                        .unwrap_or(default_node_config.wait_time_for_blocks),
                     prometheus_bind: node.prometheus_bind,
                     marf_cache_strategy: node.marf_cache_strategy,
                     marf_defer_hashing: node
@@ -696,7 +702,9 @@ impl Config {
                     rbf_fee_increment: burnchain
                         .rbf_fee_increment
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
+                    // will be overwritten below
                     epochs: default_burnchain_config.epochs,
+                    ast_precheck_size_height: burnchain.ast_precheck_size_height,
                     pox_2_activation: burnchain
                         .pox_2_activation
                         .or(default_burnchain_config.pox_2_activation),
@@ -743,6 +751,13 @@ impl Config {
                     PrincipalData::parse(&c)
                         .expect(&format!("FATAL: not a valid principal identifier: {}", c))
                 }),
+                wait_for_block_download: miner_default_config.wait_for_block_download,
+                nonce_cache_size: miner
+                    .nonce_cache_size
+                    .unwrap_or(miner_default_config.nonce_cache_size),
+                candidate_retry_cache_size: miner
+                    .candidate_retry_cache_size
+                    .unwrap_or(miner_default_config.candidate_retry_cache_size),
             },
             None => miner_default_config,
         };
@@ -1097,6 +1112,7 @@ impl Config {
         &self,
         attempt: u64,
         microblocks: bool,
+        miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
@@ -1120,7 +1136,10 @@ impl Config {
                     self.miner.subsequent_attempt_time_ms
                 },
                 consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
+                nonce_cache_size: self.miner.nonce_cache_size,
+                candidate_retry_cache_size: self.miner.candidate_retry_cache_size,
             },
+            miner_status,
         }
     }
 }
@@ -1179,6 +1198,7 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
+    pub ast_precheck_size_height: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1208,6 +1228,7 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
+            ast_precheck_size_height: None,
         }
     }
 
@@ -1274,6 +1295,7 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_2_activation: Option<u32>,
+    pub ast_precheck_size_height: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1294,6 +1316,7 @@ pub struct NodeConfig {
     pub microblock_frequency: u64,
     pub max_microblocks: u64,
     pub wait_time_for_microblocks: u64,
+    pub wait_time_for_blocks: u64,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: bool,
@@ -1488,7 +1511,7 @@ impl FeeEstimationConfig {
         }
     }
 
-    pub fn make_scalar_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_scalar_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1506,7 +1529,7 @@ impl FeeEstimationConfig {
 
     // Creates a fuzzed WeightedMedianFeeRateEstimator with window_size 5. The fuzz
     // is uniform with bounds [+/- 0.5].
-    pub fn make_fuzzed_weighted_median_fee_estimator<CM: 'static + CostMetric>(
+    pub fn make_fuzzed_weighted_median_fee_estimator<CM: CostMetric + 'static>(
         &self,
         mut estimates_path: PathBuf,
         metric: CM,
@@ -1567,6 +1590,7 @@ impl NodeConfig {
             microblock_frequency: 30_000,
             max_microblocks: u16::MAX as u64,
             wait_time_for_microblocks: 30_000,
+            wait_time_for_blocks: 30_000,
             prometheus_bind: None,
             marf_cache_strategy: None,
             marf_defer_hashing: true,
@@ -1611,6 +1635,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
+        debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -1676,6 +1701,11 @@ pub struct MinerConfig {
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
+    /// Wait for a downloader pass before mining.
+    /// This can only be disabled in testing; it can't be changed in the config file.
+    pub wait_for_block_download: bool,
+    pub nonce_cache_size: u64,
+    pub candidate_retry_cache_size: u64,
 }
 
 impl MinerConfig {
@@ -1687,6 +1717,9 @@ impl MinerConfig {
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
             block_reward_recipient: None,
+            wait_for_block_download: true,
+            nonce_cache_size: 10_000,
+            candidate_retry_cache_size: 10_000,
         }
     }
 }
@@ -1753,6 +1786,7 @@ pub struct NodeConfigFile {
     pub microblock_frequency: Option<u64>,
     pub max_microblocks: Option<u64>,
     pub wait_time_for_microblocks: Option<u64>,
+    pub wait_time_for_blocks: Option<u64>,
     pub prometheus_bind: Option<String>,
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
@@ -1793,6 +1827,8 @@ pub struct MinerConfigFile {
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
+    pub nonce_cache_size: Option<u64>,
+    pub candidate_retry_cache_size: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

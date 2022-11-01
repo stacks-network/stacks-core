@@ -14,3 +14,7 @@ serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 toml = "0.5"
 rand = "0.7.2"
+
+[workspace]
+members = [
+    "."]
