@@ -2493,7 +2493,17 @@ fn test_delegate_stx_btc_ops() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
-    let pox_consts = Some(PoxConstants::new(5, 3, 3, 25, 5, pox_v1_unlock_ht));
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
@@ -3223,7 +3233,8 @@ fn test_epoch_switch_pox_contract_instantiation() {
     let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
     let _r = std::fs::remove_dir_all(path);
 
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10));
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
@@ -3465,7 +3476,17 @@ fn test_epoch_verify_active_pox_contract() {
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, pox_v1_unlock_ht));
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
@@ -3481,6 +3502,7 @@ fn test_epoch_verify_active_pox_contract() {
         (stacker_2.clone().into(), balance),
     ];
 
+    let first_block_ht = burnchain_conf.first_block_height;
     setup_states_with_epochs(
         &[path],
         &vrf_keys,
@@ -3488,7 +3510,11 @@ fn test_epoch_verify_active_pox_contract() {
         pox_consts.clone(),
         Some(initial_balances),
         StacksEpochId::Epoch21,
-        Some(StacksEpoch::all(0, 5, epoch_switch_ht)),
+        Some(StacksEpoch::all(
+            first_block_ht,
+            first_block_ht + 4,
+            first_block_ht + 8,
+        )),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
@@ -3634,7 +3660,7 @@ fn test_epoch_verify_active_pox_contract() {
             ops.push(BlockstackOperationType::StackStx(StackStxOp {
                 sender: stacker_2.clone(),
                 reward_addr: rewards.clone(),
-                stacked_ustx: stacked_amt,
+                stacked_ustx: stacked_amt * 4,
                 num_cycles: 1,
                 txid: next_txid(),
                 vtxindex: 7,
@@ -3681,9 +3707,10 @@ fn test_epoch_verify_active_pox_contract() {
             false,
         );
 
+        let amount_locked_pox_1 = amount_locked_pox_1_res
+            .expect("Should be able to query pox.clar for total locked ustx");
+
         if burn_block_height <= pox_v1_unlock_ht.into() {
-            let amount_locked_pox_1 = amount_locked_pox_1_res
-                .expect("Should be able to query pox.clar for total locked ustx");
             if curr_reward_cycle == 1 {
                 // This is a result of the first stack stx sent.
                 assert_eq!(amount_locked_pox_1, stacked_amt);
@@ -3696,10 +3723,9 @@ fn test_epoch_verify_active_pox_contract() {
                 assert_eq!(amount_locked_pox_1, 0);
             }
         } else {
-            // The query fails after v1_unlock_height due to the contract call special case
-            // handler detecting that a call to `pox.clar` is occurring at a burn block height
-            // greater than or equal to the v1_unlock_height.
-            assert!(amount_locked_pox_1_res.is_err());
+            // After the v1_unlock_height, the total stacked amount does not change, since
+            // the third `stack-stx` operation does not alter this amount.
+            assert_eq!(amount_locked_pox_1, stacked_amt * 2);
         }
 
         // Query the pox-2.clar contract to ensure the total stacked amount is as expected
@@ -3718,7 +3744,7 @@ fn test_epoch_verify_active_pox_contract() {
                 // This assertion checks that the burn height is at or after the v1_unlock_height
                 assert!(burn_block_height >= pox_v1_unlock_ht as u64);
                 // This is a result of the third stack stx sent.
-                assert_eq!(amount_locked_pox_2, stacked_amt);
+                assert_eq!(amount_locked_pox_2, stacked_amt * 4);
             } else {
                 assert_eq!(amount_locked_pox_2, 0);
             }

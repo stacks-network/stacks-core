@@ -810,7 +810,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&burnchain, &canonical_block)
+            .store_new_burnchain_block(&burnchain, &canonical_block, StacksEpochId::Epoch21)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -976,7 +976,7 @@ mod tests {
         ));
 
         let processed_ops_0 = burnchain_db
-            .store_new_burnchain_block(&burnchain, &block_0)
+            .store_new_burnchain_block(&burnchain, &block_0, StacksEpochId::Epoch21)
             .unwrap();
 
         assert_eq!(
@@ -986,7 +986,7 @@ mod tests {
         );
 
         let processed_ops_1 = burnchain_db
-            .store_new_burnchain_block(&burnchain, &block_1)
+            .store_new_burnchain_block(&burnchain, &block_1, StacksEpochId::Epoch21)
             .unwrap();
 
         assert_eq!(
