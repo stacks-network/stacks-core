@@ -7,6 +7,7 @@ use curve25519_dalek::digest::Digest;
 use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
+use crate::address::AddressHashMode;
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::MessageSignature;
 use crate::util::uint::Uint256;
@@ -394,4 +395,18 @@ impl StacksMessageCodec for (ConsensusHash, BurnchainHeaderHash) {
         let burn_header_hash: BurnchainHeaderHash = read_next(fd)?;
         Ok((consensus_hash, burn_header_hash))
     }
+}
+
+
+
+/// A PoX address as seen by the .pox and .pox-2 contracts.
+/// Used by the sortition DB and chains coordinator to extract addresses from the PoX contract to
+/// build the reward set and to validate block-commits.
+/// Note that this comprises a larger set of possible addresses than StacksAddress
+#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
+pub enum PoxAddress {
+    /// represents { version: (buff u1), hashbytes: (buff 20) }.
+    /// The address hash mode is optional because if we decode a legacy bitcoin address, we won't
+    /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
+    Standard(StacksAddress, Option<AddressHashMode>),
 }

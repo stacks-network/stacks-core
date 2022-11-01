@@ -30,7 +30,6 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
@@ -39,6 +38,7 @@ use crate::core::POX_MAX_NUM_CYCLES;
 use crate::net::Error as net_error;
 use crate::types::chainstate::TrieHash;
 use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::PoxAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};

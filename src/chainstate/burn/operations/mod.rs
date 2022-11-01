@@ -38,10 +38,10 @@ use crate::types::chainstate::VRFSeed;
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
+use stacks_common::types::chainstate::PoxAddress;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;

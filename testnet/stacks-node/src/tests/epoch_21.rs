@@ -28,8 +28,6 @@ use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::operations::PreStxOp;
 use stacks::chainstate::burn::operations::TransferStxOp;
 
-use stacks::chainstate::stacks::address::PoxAddress;
-
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
@@ -39,7 +37,7 @@ use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxAddress};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 

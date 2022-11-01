@@ -34,7 +34,6 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     db::{
@@ -60,6 +59,7 @@ use clarity::vm::{
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
+    PoxAddress,
 };
 use clarity::vm::database::BurnStateDB;
 

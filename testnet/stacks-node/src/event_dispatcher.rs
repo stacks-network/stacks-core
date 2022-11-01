@@ -13,7 +13,6 @@ use serde_json::json;
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
@@ -37,6 +36,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::TransactionPayload;
+use stacks_common::types::chainstate::PoxAddress;
 
 #[derive(Debug, Clone)]
 struct EventObserver {

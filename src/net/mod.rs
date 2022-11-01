@@ -2089,7 +2089,6 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::StacksChainState;
     use crate::chainstate::stacks::db::*;
@@ -2130,7 +2129,7 @@ pub mod test {
     use crate::core::StacksEpochExtension;
     use crate::util_lib::boot::boot_code_test_addr;
     use stacks_common::codec::StacksMessageCodec;
-    use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::chainstate::{PoxAddress, TrieHash};
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {

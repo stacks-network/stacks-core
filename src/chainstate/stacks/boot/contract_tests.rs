@@ -4,7 +4,6 @@ use std::convert::TryInto;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     POX_2_TESTNET_CODE,
@@ -41,6 +40,7 @@ use clarity::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::PoxAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 

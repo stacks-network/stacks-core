@@ -159,7 +159,6 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
 use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
@@ -217,7 +216,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::{PoxAddress, StacksPrivateKey};
 use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;

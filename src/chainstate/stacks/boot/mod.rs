@@ -23,7 +23,6 @@ use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::Burnchain;
 use crate::burnchains::{Address, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
@@ -51,6 +50,7 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::PoxAddress;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;

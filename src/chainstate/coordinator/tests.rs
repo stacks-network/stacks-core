@@ -33,7 +33,6 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
@@ -65,7 +64,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxAddress, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
 
 lazy_static! {

@@ -19,7 +19,6 @@ use std::error;
 use std::fmt;
 use std::thread;
 
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
@@ -83,6 +82,7 @@ pub use clarity::vm::clarity::Error;
 use clarity::vm::clarity::TransactionConnection;
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::PoxAddress;
 use stacks_common::util::secp256k1::MessageSignature;
 
 ///
@@ -1246,8 +1246,6 @@ mod tests {
 
     use rusqlite::NO_PARAMS;
 
-    use crate::chainstate::stacks::address::PoxAddress;
-
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::types::{StandardPrincipalData, Value};
@@ -1258,7 +1256,7 @@ mod tests {
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
 
-    use stacks_common::types::chainstate::ConsensusHash;
+    use stacks_common::types::chainstate::{ConsensusHash, PoxAddress};
 
     use super::*;
     use stacks_common::consts::CHAIN_ID_TESTNET;

@@ -44,9 +44,9 @@ use stacks::core;
 
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::types::chainstate::VRFSeed;
 use stacks::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::PoxAddress;
 
 #[test]
 #[ignore]

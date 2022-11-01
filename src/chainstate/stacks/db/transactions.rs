@@ -1401,7 +1401,6 @@ pub mod test {
     use rand::Rng;
 
     use crate::burnchains::Address;
-    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
@@ -1414,7 +1413,7 @@ pub mod test {
     use clarity::vm::test_util::UnitTestBurnStateDB;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use clarity::vm::types::*;
-    use stacks_common::types::chainstate::SortitionId;
+    use stacks_common::types::chainstate::{PoxAddress, SortitionId};
     use stacks_common::util::hash::*;
 
     use super::*;

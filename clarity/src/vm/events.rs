@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::types::chainstate::PoxAddress;
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::analysis::ContractAnalysis;
@@ -181,6 +182,52 @@ pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
     pub locked_address: PrincipalData,
+    pub operation_data: STXLockOperation, 
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum STXLockOperation {
+    StackStx(StackSTXData),
+    DelegateStackStx(StackSTXData, PrincipalData),
+    StackExtend(StackExtendData),
+    DelegateStackExtend(StackExtendData, PrincipalData),
+    StackIncrease(StackIncreaseData),
+    DelegateStackIncrease(StackIncreaseData, PrincipalData),
+    AutoUnlock(AutoUnlockData),
+    StackAggregationCommit(StackAggregationCommitData),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackSTXData {
+    pub pox_addr: PoxAddress, 
+    pub start_burn_height: u64, 
+    pub lock_period: u8, 
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackExtendData {
+    pub pox_addr: PoxAddress, 
+    pub extend_count: u8, 
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackIncreaseData {
+    pub pox_addr: PoxAddress, 
+    pub increase_by: u128, 
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutoUnlockData {
+    pub pox_addr: PoxAddress,
+    pub first_unlocked_cycle: u128, 
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StackAggregationCommitData {
+    pub pox_addr: PoxAddress,
+    pub reward_cycle: u128,
+    // TODO: might need to be returned from functin  
+    pub amount_ustx: u128, 
 }
 
 impl STXLockEventData {
