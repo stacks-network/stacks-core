@@ -882,7 +882,7 @@ fn integration_test_get_info() {
                 use std::io::Read;
                 let mut f = fs::File::open(&tmppath).unwrap();
                 let mut buf = vec![];
-                f.read_to_end(&mut buf);
+                f.read_to_end(&mut buf).unwrap();
                 let old_tip = StacksBlockId::consensus_deserialize(&mut &buf[..]).unwrap();
 
                 let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip={}", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1", &old_tip);
