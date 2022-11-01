@@ -76,8 +76,7 @@ impl BitcoinCoreController {
         command
             .stdout(Stdio::piped())
             .arg("-regtest")
-            .arg("-nodebug")
-            .arg("-nodebuglogfile")
+            .arg("-debuglogfile=bitcoind_debug.log")
             .arg("-rest")
             .arg("-txindex=1")
             .arg("-server=1")

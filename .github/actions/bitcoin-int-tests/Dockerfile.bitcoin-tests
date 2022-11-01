@@ -6,6 +6,8 @@ ENV BITCOIND_TEST 1
 RUN cargo build && \
     cargo test -- --test-threads 1 --ignored "$test_name"
 
+RUN cat bitcoind_debug.log
+
 RUN grcov . --binary-path ../../target/debug/ -s ../.. -t lcov --branch --ignore-not-existing --ignore "/*" -o /lcov.info
 
 FROM scratch AS export-stage
