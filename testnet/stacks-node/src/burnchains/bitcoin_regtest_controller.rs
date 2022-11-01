@@ -652,7 +652,6 @@ impl BitcoinRegtestController {
         &self,
         epoch_id: StacksEpochId,
         public_key: &Secp256k1PublicKey,
-        address: BitcoinAddress,
         total_required: u64,
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
@@ -1288,7 +1287,6 @@ impl BitcoinRegtestController {
             let utxos = match self.get_utxos(
                 epoch_id,
                 &public_key,
-                addr.clone(),
                 total_required,
                 utxos_to_exclude,
                 block_height,
