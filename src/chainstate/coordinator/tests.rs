@@ -569,7 +569,7 @@ fn make_genesis_block_with_recipients(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_05_MARKER],
+        memo: vec![STACKS_EPOCH_2_1_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -791,7 +791,7 @@ fn make_stacks_block_with_input(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_05_MARKER],
+        memo: vec![STACKS_EPOCH_2_1_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
