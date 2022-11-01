@@ -54,8 +54,7 @@ enum BurnAssetErrorCodes {
     DOES_NOT_EXIST = 3,
 }
 enum BurnTokenErrorCodes {
-    NOT_ENOUGH_BALANCE = 1,
-    NON_POSITIVE_AMOUNT = 3,
+    NOT_ENOUGH_BALANCE_OR_NON_POSITIVE = 1,
 }
 
 enum StxErrorCodes {
@@ -840,7 +839,7 @@ pub fn special_burn_token(
 
     if let (Value::UInt(amount), Value::Principal(ref burner)) = (amount, from) {
         if amount == 0 {
-            return clarity_ecode!(MintTokenErrorCodes::NON_POSITIVE_AMOUNT);
+            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
         let burner_bal = env.global_context.database.get_ft_balance(
@@ -851,7 +850,7 @@ pub fn special_burn_token(
         )?;
 
         if amount > burner_bal {
-            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE);
+            return clarity_ecode!(BurnTokenErrorCodes::NOT_ENOUGH_BALANCE_OR_NON_POSITIVE);
         }
 
         env.global_context.database.checked_decrease_token_supply(

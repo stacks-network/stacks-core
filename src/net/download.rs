@@ -1223,7 +1223,7 @@ impl PeerNetwork {
                     start_sortition_height,
                     start_sortition_height + scan_batch_size,
                 )
-            })?;
+            })??;
 
         debug!(
             "{:?}: {} availability calculated over {} sortitions ({}-{})",

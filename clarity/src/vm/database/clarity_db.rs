@@ -18,6 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::CostOverflowingMath;
 use crate::vm::costs::ExecutionCost;
@@ -107,6 +108,7 @@ pub trait BurnStateDB {
     ) -> Option<BurnchainHeaderHash>;
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
+    fn get_ast_rules(&self, height: u32) -> ASTRules;
 }
 
 impl HeadersDB for &dyn HeadersDB {
@@ -152,6 +154,10 @@ impl BurnStateDB for &dyn BurnStateDB {
 
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         (*self).get_stacks_epoch_by_epoch_id(epoch_id)
+    }
+
+    fn get_ast_rules(&self, height: u32) -> ASTRules {
+        (*self).get_ast_rules(height)
     }
 }
 
@@ -235,6 +241,10 @@ impl BurnStateDB for NullBurnStateDB {
 
     fn get_stacks_epoch_by_epoch_id(&self, _epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
         self.get_stacks_epoch(0)
+    }
+
+    fn get_ast_rules(&self, _height: u32) -> ASTRules {
+        ASTRules::Typical
     }
 }
 
@@ -590,7 +600,9 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Get the last-known burnchain block height.
     /// Note that this is _not_ the burnchain height in which this block was mined!
-    /// This is the burnchain block height of its parent.
+    /// This is the burnchain block height of the parent of the Stacks block at the current Stacks
+    /// block height (i.e. that returned by `get_index_block_header_hash` for
+    /// `get_current_block_height`).
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
         let cur_stacks_height = self.store.get_current_block_height();
         let last_mined_bhh = if cur_stacks_height == 0 {

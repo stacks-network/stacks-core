@@ -79,7 +79,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 pub use crate::vm::functions::stx_transfer_consolidated;
 use std::convert::{TryFrom, TryInto};
 
-const MAX_CALL_STACK_DEPTH: usize = 64;
+pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
@@ -389,8 +389,18 @@ pub fn eval_all(
 /// that the result is the same before returning the result
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
-    let epoch_200_result = execute_in_epoch(program, StacksEpochId::Epoch20, use_mainnet);
-    let epoch_205_result = execute_in_epoch(program, StacksEpochId::Epoch2_05, use_mainnet);
+    let epoch_200_result = execute_in_epoch(
+        program,
+        StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
+        use_mainnet,
+    );
+    let epoch_205_result = execute_in_epoch(
+        program,
+        StacksEpochId::Epoch2_05,
+        ast::ASTRules::PrecheckSize,
+        use_mainnet,
+    );
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -409,6 +419,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 pub fn execute_in_epoch(
     program: &str,
     epoch: StacksEpochId,
+    ast_rules: ast::ASTRules,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
@@ -420,7 +431,8 @@ pub fn execute_in_epoch(
     let mut global_context =
         GlobalContext::new(use_mainnet, conn, LimitedCostTracker::new_free(), epoch);
     global_context.execute(|g| {
-        let parsed = ast::build_ast(&contract_id, program, &mut ())?.expressions;
+        let parsed =
+            ast::build_ast_with_rules(&contract_id, program, &mut (), ast_rules)?.expressions;
         eval_all(&parsed, &mut contract_context, g)
     })
 }

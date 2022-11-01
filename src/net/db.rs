@@ -587,6 +587,9 @@ impl PeerDB {
                 PeerDB::refresh_allows(&mut tx)?;
                 PeerDB::refresh_denies(&mut tx)?;
                 PeerDB::clear_initial_peers(&mut tx)?;
+                if let Some(privkey) = privkey_opt {
+                    PeerDB::set_local_private_key(&mut tx, &privkey, key_expires)?;
+                }
 
                 if let Some(neighbors) = initial_neighbors {
                     for neighbor in neighbors {
@@ -2324,5 +2327,69 @@ mod test {
 
         assert_eq!(n1.allowed, 0);
         assert_eq!(n2.allowed, 0);
+    }
+
+    #[test]
+    fn test_connect_new_key() {
+        let key1 = Secp256k1PrivateKey::new();
+        let key2 = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-connect-new-key.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key1.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key1);
+
+        assert!(fs::metadata(&path).is_ok());
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            None,
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key1);
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key2.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key2);
     }
 }

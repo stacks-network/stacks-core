@@ -20,6 +20,7 @@ use crate::core::{
 use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -281,8 +282,12 @@ fn recency_tests() {
     let delegator = StacksPrivateKey::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
-            .unwrap()
+        env.initialize_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_POX_TESTNET,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         // try to issue a far future stacking tx
@@ -350,8 +355,12 @@ fn delegation_tests() {
     const REWARD_CYCLE_LENGTH: u128 = 1050;
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_CONTRACT_TESTNET.clone(), &BOOT_CODE_POX_TESTNET)
-            .unwrap()
+        env.initialize_contract(
+            POX_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_POX_TESTNET,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
     sim.execute_next_block(|env| {
         assert_eq!(
@@ -899,8 +908,12 @@ fn test_vote_withdrawal() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1078,8 +1091,12 @@ fn test_vote_fail() {
 
     // Test voting in a proposal
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1279,8 +1296,12 @@ fn test_vote_confirm() {
     let mut sim = ClarityTestSim::new();
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         assert_eq!(
@@ -1392,8 +1413,12 @@ fn test_vote_too_many_confirms() {
 
     let MAX_CONFIRMATIONS_PER_BLOCK = 10;
     sim.execute_next_block(|env| {
-        env.initialize_contract(COST_VOTING_CONTRACT_TESTNET.clone(), &BOOT_CODE_COST_VOTING)
-            .unwrap();
+        env.initialize_contract(
+            COST_VOTING_CONTRACT_TESTNET.clone(),
+            &BOOT_CODE_COST_VOTING,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
 
         // Submit a proposal
         for i in 0..(MAX_CONFIRMATIONS_PER_BLOCK + 1) {

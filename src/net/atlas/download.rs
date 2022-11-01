@@ -33,6 +33,7 @@ use crate::net::NeighborKey;
 use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
 use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
 use crate::types::chainstate::StacksBlockId;
+use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings;
 use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -240,7 +241,7 @@ impl AttachmentsDownloader {
         new_attachments: &mut HashSet<AttachmentInstance>,
         atlasdb: &mut AtlasDB,
         initial_batch: bool,
-    ) -> Result<Vec<(AttachmentInstance, Attachment)>, net_error> {
+    ) -> Result<Vec<(AttachmentInstance, Attachment)>, DBError> {
         if new_attachments.is_empty() {
             return Ok(vec![]);
         }
@@ -251,9 +252,7 @@ impl AttachmentsDownloader {
             // Are we dealing with an empty hash - allowed for undoing onchain binding
             if attachment_instance.content_hash == Hash160::empty() {
                 // todo(ludo) insert or update ?
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!("Atlas: inserting and pairing new attachment instance with empty hash");
                 resolved_attachments.push((attachment_instance, Attachment::empty()));
                 continue;
@@ -261,9 +260,7 @@ impl AttachmentsDownloader {
 
             // Do we already have a matching validated attachment
             if let Ok(Some(entry)) = atlasdb.find_attachment(&attachment_instance.content_hash) {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!(
                     "Atlas: inserting and pairing new attachment instance to existing attachment"
                 );
@@ -275,12 +272,8 @@ impl AttachmentsDownloader {
             if let Ok(Some(attachment)) =
                 atlasdb.find_uninstantiated_attachment(&attachment_instance.content_hash)
             {
-                atlasdb
-                    .insert_instantiated_attachment(&attachment)
-                    .map_err(|e| net_error::DBError(e))?;
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, true)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_instantiated_attachment(&attachment)?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, true)?;
                 debug!("Atlas: inserting and pairing new attachment instance to inboxed attachment, now validated");
                 resolved_attachments.push((attachment_instance, attachment));
                 continue;
@@ -300,9 +293,7 @@ impl AttachmentsDownloader {
             };
 
             if !initial_batch {
-                atlasdb
-                    .insert_uninstantiated_attachment_instance(&attachment_instance, false)
-                    .map_err(|e| net_error::DBError(e))?;
+                atlasdb.insert_uninstantiated_attachment_instance(&attachment_instance, false)?;
             }
         }
 

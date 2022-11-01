@@ -375,7 +375,7 @@ impl HttpPeer {
         mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         poll_state: &mut NetworkPollState,
-    ) -> Result<Vec<usize>, net_error> {
+    ) -> Vec<usize> {
         let mut registered = vec![];
 
         for (hint_event_id, client_sock) in poll_state.new.drain() {
@@ -420,7 +420,7 @@ impl HttpPeer {
             registered.push(event_id);
         }
 
-        Ok(registered)
+        registered
     }
 
     /// Process network traffic on a HTTP conversation.
@@ -680,9 +680,9 @@ impl HttpPeer {
         mempool: &mut MemPoolDB,
         mut poll_state: NetworkPollState,
         handler_args: &RPCHandlerArgs,
-    ) -> Result<Vec<StacksMessageType>, net_error> {
+    ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
-        self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state)?;
+        self.process_new_sockets(network_state, mempool, chainstate, &mut poll_state);
 
         // set up connected sockets
         self.process_connecting_sockets(network_state, mempool, chainstate, &mut poll_state);
@@ -716,7 +716,7 @@ impl HttpPeer {
         // clear out slow or non-responsive peers
         self.disconnect_unresponsive(network_state);
 
-        Ok(stacks_msgs)
+        stacks_msgs
     }
 }
 
