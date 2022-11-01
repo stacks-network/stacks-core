@@ -58,8 +58,6 @@ use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::operations::BurnchainOpSigner;
 use crate::Keychain;
 
-use stacks_common::util::sleep_ms;
-
 const MINER_BURN_PUBLIC_KEY: &'static str =
     "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa";
 
@@ -1082,7 +1080,7 @@ fn transition_adds_get_pox_addr_recipients() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    for i in 0..7 {
+    for _i in 0..7 {
         let spender_sk = StacksPrivateKey::new();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
@@ -1104,7 +1102,7 @@ fn transition_adds_get_pox_addr_recipients() {
             .to_vec(),
     );
 
-    let (conf, btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), false);
 
     let mut sort_height = coord_channel.get_sortitions_processed();
@@ -1371,6 +1369,8 @@ fn transition_adds_mining_from_segwit() {
         4 * prepare_phase_len / 5,
         1,
         1,
+        u64::MAX,
+        u64::MAX,
         v1_unlock_height,
     );
 
@@ -1380,7 +1380,7 @@ fn transition_adds_mining_from_segwit() {
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    for i in 0..7 {
+    for _i in 0..7 {
         let spender_sk = StacksPrivateKey::new();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
@@ -1392,7 +1392,7 @@ fn transition_adds_mining_from_segwit() {
         });
     }
 
-    let (conf, btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, _coord_channel) =
         advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), true);
 
     let utxos = btc_regtest_controller
