@@ -298,33 +298,6 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-<<<<<<< HEAD
-        let (commit_outs, burn_fee, apparent_sender) = if burnchain
-            .is_in_prepare_phase(block_height)
-        {
-            // check if we're in a prepare phase
-            // should be only one burn output
-            let output_0 = outputs[0].clone().ok_or_else(|| {
-                warn!("Invalid commit tx: unrecognized output 0");
-                op_error::InvalidInput
-            })?;
-
-            if !output_0.address.is_burn() {
-                return Err(op_error::BlockCommitBadOutputs);
-            }
-            let BurnchainRecipient { address, amount } = output_0;
-            let apparent_sender = BurnchainSigner(
-                outputs
-                    .get(1)
-                    .map(|out| {
-                        out.as_ref()
-                            .map(|out| out.address.clone().to_b58())
-                            .unwrap_or("<undecodable-output>".to_string())
-                    })
-                    .unwrap_or("<no-change-output>".to_string()),
-            );
-            (vec![address], amount, apparent_sender)
-        
         // check if we've reached PoX disable
         let (commit_outs, sunset_burn, burn_fee, apparent_sender) = if burnchain.pox_constants.is_after_pox_sunset_end(block_height, epoch_id) || burnchain.is_in_prepare_phase(block_height) {
             // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
@@ -792,7 +765,7 @@ impl LeaderBlockCommitOp {
             // sunset has finished and we're not in epoch 2.1 or later, so apply sunset check
             self.check_after_pox_sunset().map_err(|e| {
                 warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
-                          "apparent_sender" => %apparent_sender_address);
+                          "apparent_sender" => %apparent_sender_repr);
                 e
             })?;
         } else {
@@ -800,7 +773,7 @@ impl LeaderBlockCommitOp {
             self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
                 .map_err(|e| {
                     warn!("Invalid block-commit: bad PoX: {:?}", &e;
-                          "apparent_sender" => %apparent_sender_address);
+                          "apparent_sender" => %apparent_sender_repr);
                     e
                 })?;
         }
