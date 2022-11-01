@@ -409,7 +409,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
-                format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
+                format!("internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain")
             },
             CheckErrors::UncheckedIntermediaryResponses => format!("intermediary responses in consecutive statements must be checked"),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),

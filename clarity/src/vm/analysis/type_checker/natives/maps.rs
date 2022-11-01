@@ -58,7 +58,7 @@ pub fn check_special_fetch_entry(
 
     let option_type = TypeSignature::new_option(value_type.clone())?;
 
-    if !expected_key_type.admits_type(&key_type) {
+    if !expected_key_type.admits_type(&key_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_key_type.clone(),
             key_type,
@@ -91,7 +91,7 @@ pub fn check_special_delete_entry(
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
-    if !expected_key_type.admits_type(&key_type) {
+    if !expected_key_type.admits_type(&key_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_key_type.clone(),
             key_type,
@@ -132,12 +132,12 @@ fn check_set_or_insert_entry(
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
     analysis_typecheck_cost(&mut checker.cost_track, expected_value_type, &value_type)?;
 
-    if !expected_key_type.admits_type(&key_type) {
+    if !expected_key_type.admits_type(&key_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_key_type.clone(),
             key_type,
         )));
-    } else if !expected_value_type.admits_type(&value_type) {
+    } else if !expected_value_type.admits_type(&value_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_value_type.clone(),
             value_type,

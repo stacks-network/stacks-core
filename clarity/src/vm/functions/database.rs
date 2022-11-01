@@ -196,7 +196,7 @@ pub fn special_contract_call(
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result);
-        if !returns_type_signature.admits_type(&actual_returns) {
+        if !returns_type_signature.admits_type(&actual_returns)? {
             return Err(
                 CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
             );
