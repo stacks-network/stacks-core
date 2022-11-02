@@ -658,6 +658,56 @@ impl LeaderBlockCommitOp {
         self.check_single_burn_output()
     }
 
+    /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
+    /// Valid in Stacks 2.05+
+    fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
+        if self.memo.len() < 1 {
+            debug!(
+                "Invalid block commit";
+                "reason" => "no epoch marker byte given",
+            );
+            return Err(op_error::BlockCommitBadEpoch);
+        }
+        if self.memo[0] < marker {
+            debug!(
+                "Invalid block commit";
+                "reason" => "invalid epoch marker byte",
+                "marker_byte" => self.memo[0],
+                "expected_marker_byte" => marker,
+            );
+            return Err(op_error::BlockCommitBadEpoch);
+        }
+
+        Ok(())
+    }
+
+    /// Check the epoch marker in the block commit, given the epoch we're in
+    fn check_epoch_commit(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
+        match epoch_id {
+            StacksEpochId::Epoch10 => {
+                panic!("FATAL: processed block-commit pre-Stacks 2.0");
+            }
+            StacksEpochId::Epoch20 => {
+                // no-op, but log for helping node operators watch for old nodes
+                if self.memo.len() < 1 {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
+                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                    );
+                }
+                Ok(())
+            }
+            StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
+            StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
+        }
+    }
+
     pub fn check(
         &self,
         burnchain: &Burnchain,
@@ -860,46 +910,7 @@ impl LeaderBlockCommitOp {
             self.block_height
         ));
 
-        match epoch.epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed block-commit pre-Stacks 2.0");
-            }
-            StacksEpochId::Epoch20 => {
-                // no-op, but log for helping node operators watch for old nodes
-                if self.memo.len() < 1 {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "no epoch marker byte given",
-                    );
-                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
-                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
-                    );
-                }
-            }
-            // Note: 2.05 and 2.1 share the same marker.
-            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => {
-                if self.memo.len() < 1 {
-                    debug!(
-                        "Invalid block commit";
-                        "reason" => "no epoch marker byte given",
-                    );
-                    return Err(op_error::BlockCommitBadEpoch);
-                }
-                if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
-                    debug!(
-                        "Invalid block commit";
-                        "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
-                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
-                    );
-                    return Err(op_error::BlockCommitBadEpoch);
-                }
-            }
-        }
+        self.check_epoch_commit(epoch.epoch_id)?;
 
         // good to go!
         Ok(())
@@ -924,7 +935,7 @@ mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-        PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+        PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
     };
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
@@ -2900,7 +2911,7 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_marker_2_05() {
+    fn test_epoch_marker() {
         let first_block_height = 121;
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000001",
@@ -2923,6 +2934,7 @@ mod tests {
         };
 
         let epoch_2_05_start = 125;
+        let epoch_2_1_start = 130;
 
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
@@ -2955,9 +2967,16 @@ mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: epoch_2_05_start,
-                    end_height: STACKS_EPOCH_MAX,
+                    end_height: epoch_2_1_start,
                     block_limit: ExecutionCost::max_value(),
                     network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: epoch_2_1_start,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_1,
                 },
             ],
             PoxConstants::test_default(),
@@ -3126,6 +3145,122 @@ mod tests {
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
         };
 
+        let block_commit_post_2_1_valid = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x03; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER + 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x13; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x04; 32]),
+            new_seed: VRFSeed([0x05; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER - 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02b20f7d690afa0464d7eb17bdd86820261fb1acfdf489b2442a205a693da231ac",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x04; 32]),
+            vtxindex: 445,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x05; 32]),
+            new_seed: VRFSeed([0x06; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner {
+                public_keys: vec![StacksPublicKey::from_hex(
+                    "02e371309f1c25abc5f00353d74632c6f5b95eb80e1e1edb9ba53e14b0d47bc0de",
+                )
+                .unwrap()],
+                num_sigs: 1,
+                hash_mode: AddressHashMode::SerializeP2PKH,
+            },
+
+            txid: Txid([0x05; 32]),
+            vtxindex: 446,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
         let all_leader_key_ops = vec![leader_key];
 
         let all_block_commit_ops = vec![
@@ -3134,10 +3269,14 @@ mod tests {
             (block_commit_post_2_05_valid_bigger_epoch, true),
             (block_commit_post_2_05_invalid_bad_memo, false),
             (block_commit_post_2_05_invalid_no_memo, false),
+            (block_commit_post_2_1_valid, true),
+            (block_commit_post_2_1_valid_bigger_epoch, true),
+            (block_commit_post_2_1_invalid_bad_memo, false),
+            (block_commit_post_2_1_invalid_no_memo, false),
         ];
 
         let mut sn = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
-        for i in sn.block_height..(epoch_2_05_start + 2) {
+        for i in sn.block_height..(epoch_2_1_start + 2) {
             eprintln!("Block {}", i);
             let mut byte_pattern = [0u8; 32];
             byte_pattern[24..32].copy_from_slice(&i.to_be_bytes());
