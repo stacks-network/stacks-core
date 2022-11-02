@@ -452,6 +452,7 @@ impl Globals {
 
     /// Get the status of the miner (blocked or ready)
     pub fn get_miner_status(&self) -> Arc<Mutex<MinerStatus>> {
+        info!("get_miner_status {:?}", &self.miner_status);
         self.miner_status.clone()
     }
 
@@ -1197,6 +1198,7 @@ impl BlockMinerThread {
 
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
+        info!("epoch_id {:?} block_reward_recipient {:?}", &epoch_id, &self.config.miner.block_reward_recipient);
         if epoch_id < StacksEpochId::Epoch21 && self.config.miner.block_reward_recipient.is_some() {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
             None
@@ -1223,6 +1225,7 @@ impl BlockMinerThread {
         };
 
         let recipient_opt = self.get_coinbase_recipient(epoch_id);
+        info!("recipient_opt {:?}", &recipient_opt);
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,
@@ -1727,10 +1730,12 @@ impl BlockMinerThread {
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
     pub fn run_tenure(&mut self) -> Option<MinerThreadResult> {
+        info!("run_tenure");
         fault_injection_long_tenure();
 
         let burn_db_path = self.config.get_burn_db_file_path();
         let stacks_chainstate_path = self.config.get_chainstate_path_str();
+        info!("run_tenure");
 
         let cost_estimator = self
             .config
@@ -1740,6 +1745,7 @@ impl BlockMinerThread {
             .config
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
+        info!("run_tenure");
 
         let mut bitcoin_controller = BitcoinRegtestController::new_ongoing_dummy(
             self.config.clone(),
@@ -1751,6 +1757,7 @@ impl BlockMinerThread {
         let mut burn_db =
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
+        info!("run_tenure");
 
         let (mut chain_state, _) = StacksChainState::open(
             self.config.is_mainnet(),
@@ -1759,6 +1766,7 @@ impl BlockMinerThread {
             Some(self.config.node.get_marf_opts()),
         )
         .expect("FATAL: could not open chainstate DB");
+        info!("run_tenure");
 
         let mut mem_pool = MemPoolDB::open(
             self.config.is_mainnet(),
@@ -1768,6 +1776,7 @@ impl BlockMinerThread {
             metric,
         )
         .expect("Database failure opening mempool");
+        info!("run_tenure");
 
         let tenure_begin = get_epoch_time_ms();
 
@@ -1779,6 +1788,7 @@ impl BlockMinerThread {
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
         let attempt = self.get_mine_attempt(&chain_state, &parent_block_info)?;
         let vrf_proof = self.make_vrf_proof()?;
+        info!("run_tenure");
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
@@ -1789,6 +1799,7 @@ impl BlockMinerThread {
         // create our coinbase
         let coinbase_tx =
             self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce, target_epoch_id);
+        info!("run_tenure");
 
         // find the longest microblock tail we can build off of.
         // target it to the microblock tail in parent_block_info
@@ -2793,7 +2804,7 @@ impl RelayerThread {
             .expect("FATAL: mutex poisoned")
             .is_blocked()
         {
-            debug!(
+            info!(
                 "Relayer: miner is blocked as of {}; cannot mine Stacks block at this time",
                 &last_burn_block.burn_header_hash
             );
@@ -2803,7 +2814,7 @@ impl RelayerThread {
         // start a new tenure
         if let Some(cur_sortition) = self.globals.get_last_sortition() {
             if last_burn_block.sortition_id != cur_sortition.sortition_id {
-                debug!(
+                info!(
                     "Relayer: Drop stale RunTenure for {}: current sortition is for {}",
                     &last_burn_block.burn_header_hash, &cur_sortition.burn_header_hash
                 );
@@ -2819,7 +2830,7 @@ impl RelayerThread {
         let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
 
         if burn_chain_tip != burn_header_hash {
-            debug!(
+            info!(
                 "Relayer: Drop stale RunTenure for {}: current sortition is for {}",
                 &burn_header_hash, &burn_chain_tip
             );
@@ -2838,7 +2849,7 @@ impl RelayerThread {
             )
             .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                debug!(
+                info!(
                     "Relayer: Drop RunTenure for {} because there are pending blocks",
                     &burn_header_hash
                 );
@@ -2849,7 +2860,7 @@ impl RelayerThread {
         if burn_chain_sn.block_height != self.last_network_block_height
             || !self.has_waited_for_latest_blocks()
         {
-            debug!("Relayer: network has not had a chance to process in-flight blocks ({} != {} || !({}))",
+            info!("Relayer: network has not had a chance to process in-flight blocks ({} != {} || !({}))",
                     burn_chain_sn.block_height, self.last_network_block_height, self.debug_waited_for_latest_blocks());
             return None;
         }
@@ -2863,18 +2874,18 @@ impl RelayerThread {
         // no burnchain change, so only re-run block tenure every so often in order
         // to give microblocks a chance to collect
         if issue_timestamp_ms < self.last_tenure_issue_time + tenure_cooldown {
-            debug!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
+            info!("Relayer: will NOT run tenure since issuance at {} is too fresh (wait until {} + {} = {})",
                     issue_timestamp_ms / 1000, self.last_tenure_issue_time / 1000, tenure_cooldown / 1000, (self.last_tenure_issue_time + tenure_cooldown) / 1000);
             return None;
         }
 
         // if we're still mining on this burn block, then do nothing
         if self.miner_thread.is_some() {
-            debug!("Relayer: will NOT run tenure since miner thread is already running for burn tip {}", &burn_chain_tip);
+            info!("Relayer: will NOT run tenure since miner thread is already running for burn tip {}", &burn_chain_tip);
             return None;
         }
 
-        debug!(
+        info!(
             "Relayer: Spawn tenure thread";
             "height" => last_burn_block.block_height,
             "burn_header_hash" => %burn_header_hash,
@@ -2893,26 +2904,39 @@ impl RelayerThread {
         last_burn_block: BlockSnapshot,
         issue_timestamp_ms: u128,
     ) -> bool {
+        info!("check");
         if !self.miner_thread_try_join() {
+            info!("check");
+
             return false;
         }
+        info!("check");
 
         if !self.config.node.mock_mining {
+            info!("check");
+
             // mock miner can't mine microblocks yet, so don't stop it from trying multiple
             // anchored blocks
             if self.mined_stacks_block && self.config.node.mine_microblocks {
+                info!("check");
+
                 debug!("Relayer: mined a Stacks block already; waiting for microblock miner");
                 return false;
             }
         }
+        info!("check");
 
         let mut miner_thread_state =
             match self.create_block_miner(registered_key, last_burn_block, issue_timestamp_ms) {
                 Some(state) => state,
                 None => {
+                    // we get here
+                    info!("check");
+
                     return false;
                 }
             };
+        info!("check");
 
         if let Ok(miner_handle) = thread::Builder::new()
             .name(format!("miner-block-{}", self.local_peer.data_url))
@@ -2925,6 +2949,7 @@ impl RelayerThread {
         {
             self.miner_thread = Some(miner_handle);
         }
+        info!("check");
 
         true
     }
@@ -3059,14 +3084,20 @@ impl RelayerThread {
         &mut self,
         thread_handle: JoinHandle<Option<MinerThreadResult>>,
     ) -> Option<JoinHandle<Option<MinerThreadResult>>> {
+        info!("check");
+
         // tenure run already in progress; try and join
         if !thread_handle.is_finished() {
             debug!("Relayer: RunTenure thread not finished / is in-progress");
             return Some(thread_handle);
         }
+        info!("check");
+
         let last_mined_block_opt = thread_handle
             .join()
             .expect("FATAL: failed to join miner thread");
+        info!("check");
+
         if let Some(miner_result) = last_mined_block_opt {
             match miner_result {
                 MinerThreadResult::Block(
@@ -3075,6 +3106,8 @@ impl RelayerThread {
                     microblock_privkey,
                     ongoing_commit_opt,
                 ) => {
+                    info!("check");
+
                     // finished mining a block
                     if BlockMinerThread::find_inflight_mined_blocks(
                         last_mined_block.my_block_height,
@@ -3121,6 +3154,8 @@ impl RelayerThread {
                     self.mined_stacks_block = true;
                 }
                 MinerThreadResult::Microblock(microblock_result, miner_tip) => {
+                    info!("check");
+
                     // finished mining a microblock
                     match microblock_result {
                         Ok(Some((next_microblock, new_cost))) => {
@@ -3219,16 +3254,22 @@ impl RelayerThread {
     /// * new unconfirmed state
     /// Returns true if joined; false if not.
     pub fn miner_thread_try_join(&mut self) -> bool {
+        info!("check");
+
         if let Some(thread_handle) = self.miner_thread.take() {
+            info!("check");
+
             let new_thread_handle = self.inner_miner_thread_try_join(thread_handle);
             self.miner_thread = new_thread_handle;
         }
+        info!("check");
+
         self.miner_thread.is_none()
     }
 
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
-        debug!("Relayer: received next directive");
+        info!("Relayer: received next directive");
         let continue_running = match directive {
             RelayerDirective::HandleNetResult(net_result) => {
                 self.process_network_result(net_result);
@@ -3243,6 +3284,7 @@ impl RelayerThread {
                 self.process_new_tenures(consensus_hash, burn_hash, block_header_hash)
             }
             RelayerDirective::RunTenure(registered_key, last_burn_block, issue_timestamp_ms) => {
+                info!("RunTenure");
                 self.block_miner_thread_try_start(
                     registered_key,
                     last_burn_block,
@@ -3898,15 +3940,22 @@ impl StacksNode {
     /// Runs in a separate thread.
     /// Continuously receives
     pub fn relayer_main(mut relayer_thread: RelayerThread, relay_recv: Receiver<RelayerDirective>) {
+        info!("check");
         while let Ok(directive) = relay_recv.recv() {
+            info!("check");
+
             if !relayer_thread.globals.keep_running() {
                 break;
             }
+            info!("check");
 
             if !relayer_thread.handle_directive(directive) {
+                info!("check");
+
                 break;
             }
         }
+        info!("check");
 
         // kill miner if it's running
         signal_mining_blocked(relayer_thread.globals.get_miner_status());

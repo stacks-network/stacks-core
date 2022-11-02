@@ -1511,6 +1511,7 @@ impl Burnchain {
 
                         let epoch_id = epochs[epoch_index].epoch_id;
 
+                        info!("epoch_id {:?}", &epoch_id);
                         let insert_start = get_epoch_time_ms();
                         last_processed = Burnchain::process_block(
                             &myself,

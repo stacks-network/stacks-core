@@ -415,6 +415,8 @@ impl Config {
         bitcoin_network: BitcoinNetworkType,
         pox_2_activation: Option<u32>,
     ) -> Result<Vec<StacksEpoch>, String> {
+        info!("bitcoin_network {:?}", bitcoin_network);
+
         let default_epochs = match bitcoin_network {
             BitcoinNetworkType::Mainnet => {
                 Err("Cannot configure epochs in mainnet mode".to_string())

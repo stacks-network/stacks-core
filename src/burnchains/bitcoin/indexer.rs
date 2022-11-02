@@ -96,6 +96,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
 fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+    info!("network_id {:?}", network_id);
     match network_id {
         BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
         BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
