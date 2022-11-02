@@ -346,7 +346,8 @@ impl BitcoinRegtestController {
                 }
             }
         };
-        self.config.update_pox_constants(&mut burnchain.pox_constants);
+        self.config
+            .update_pox_constants(&mut burnchain.pox_constants);
         burnchain
     }
 
