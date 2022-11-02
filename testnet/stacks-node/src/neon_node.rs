@@ -176,7 +176,7 @@ use stacks::chainstate::stacks::{
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_05_MARKER;
+use stacks::core::STACKS_EPOCH_2_1_MARKER;
 use stacks::cost_estimates::metrics::CostMetric;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
@@ -1285,7 +1285,7 @@ impl BlockMinerThread {
             apparent_sender: sender,
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_05_MARKER],
+            memo: vec![STACKS_EPOCH_2_1_MARKER],
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,

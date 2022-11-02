@@ -1074,6 +1074,9 @@ pub mod test {
             if epoch.epoch_id >= StacksEpochId::Epoch2_05 {
                 txop.memo = vec![STACKS_EPOCH_2_05_MARKER];
             }
+            if epoch.epoch_id >= StacksEpochId::Epoch21 {
+                txop.memo = vec![STACKS_EPOCH_2_1_MARKER];
+            }
 
             self.txs
                 .push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
