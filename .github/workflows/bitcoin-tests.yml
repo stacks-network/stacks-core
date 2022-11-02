@@ -105,7 +105,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
   atlas-test:
     if: ${{ true }}
     runs-on: ubuntu-latest
@@ -135,4 +135,4 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false

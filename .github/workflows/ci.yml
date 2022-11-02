@@ -34,7 +34,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: large_genesis
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   # Run unit tests with code coverage
   unit-tests:
@@ -52,7 +52,7 @@ jobs:
         with:
           files: ./coverage-output/lcov.info
           name: unit_tests
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   open-api-validation:
     runs-on: ubuntu-latest
