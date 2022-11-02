@@ -459,6 +459,10 @@ impl BurnStateDB for TestSimBurnStateDB {
             None
         }
     }
+
+    fn get_ast_rules(&self, _block_height: u32) -> ASTRules {
+        ASTRules::PrecheckSize
+    }
 }
 
 #[cfg(test)]
@@ -586,7 +590,7 @@ fn pox_2_contract_caller_units() {
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
-                                None)
+                                None, ASTRules::PrecheckSize,)
             .unwrap();
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
