@@ -23,8 +23,10 @@ use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::distribution::BurnSamplePoint;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::burn::operations::PreStxOp;
 use stacks::chainstate::burn::operations::TransferStxOp;
 
@@ -41,7 +43,9 @@ use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -1760,5 +1764,161 @@ fn transition_removes_pox_sunset() {
     }
 
     test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn transition_empty_blocks() {
+    // very simple test to verify that the miner will keep making valid (empty) blocks after the
+    // transition.  Really tests that the block-commits are well-formed before and after the epoch
+    // transition.
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
+
+    conf.burnchain.epochs = Some(epochs);
+
+    let keychain = Keychain::default(conf.node.seed.clone());
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    let key_block_ptr = tip_info.burn_block_height as u32;
+    let key_vtxindex = 1; // nothing else here but the coinbase
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
+
+    // these should all succeed across the epoch boundary
+    for _i in 0..15 {
+        // also, make *huge* block-commits with invalid marker bytes once we reach the new
+        // epoch, and verify that it fails.
+        let tip_info = get_chain_info(&conf);
+
+        // this block is the epoch transition?
+        let (chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
+        let res = StacksChainState::block_crosses_epoch_boundary(
+            &chainstate.db(),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+        )
+        .unwrap();
+        debug!(
+            "Epoch transition at {} ({}/{}) height {}: {}",
+            &StacksBlockHeader::make_index_block_hash(
+                &tip_info.stacks_tip_consensus_hash,
+                &tip_info.stacks_tip
+            ),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+            tip_info.burn_block_height,
+            res
+        );
+
+        if tip_info.burn_block_height == epoch_2_05 || tip_info.burn_block_height == epoch_2_1 {
+            assert!(res);
+        } else {
+            assert!(!res);
+        }
+
+        if tip_info.burn_block_height + 1 >= epoch_2_1 {
+            let burn_fee_cap = 100000000; // 1 BTC
+            let commit_outs = if !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1) {
+                vec![
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                ]
+            } else {
+                vec![PoxAddress::standard_burn_address(conf.is_mainnet())]
+            };
+
+            // let's commit
+            let burn_parent_modulus =
+                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                sunset_burn: 0,
+                block_header_hash: BlockHeaderHash([0xff; 32]),
+                burn_fee: burn_fee_cap,
+                input: (Txid([0; 32]), 0),
+                apparent_sender: keychain.get_burnchain_signer(),
+                key_block_ptr,
+                key_vtxindex,
+                memo: vec![0], // bad epoch marker
+                new_seed: VRFSeed([0x11; 32]),
+                parent_block_ptr: 0,
+                parent_vtxindex: 0,
+                // to be filled in
+                vtxindex: 0,
+                txid: Txid([0u8; 32]),
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::zero(),
+                burn_parent_modulus,
+                commit_outs,
+            });
+            let mut op_signer = keychain.generate_op_signer();
+            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
+            assert!(res, "Failed to submit block-commit");
+        }
+
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 16);
+
     channel.stop_chains_coordinator();
 }
