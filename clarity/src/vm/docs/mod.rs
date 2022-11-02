@@ -319,8 +319,8 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const principal_destruct_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "principal-destruct ${1:principal-address}",
-    signature: "(principal-destruct principal-address)",
+    snippet: "principal-destruct? ${1:principal-address}",
+    signature: "(principal-destruct? principal-address)",
     description:  "A principal value represents either a set of keys, or a smart contract.
 The former, called a _standard principal_,
 is encoded as a `(buff 1)` *version byte*, indicating the type of account
@@ -329,7 +329,7 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 The latter, a _contract principal_, is encoded as a standard principal concatenated with
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
-`principal-destruct` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
+`principal-destruct?` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
 for standard principals, or `{version-byte, hash-bytes, name}` for contract principals.
 
 This method returns a `Response` that wraps this data as a tuple.
@@ -346,17 +346,17 @@ field will only be `(some ..)` if the principal is a contract principal.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
-(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
-(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
-(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
+(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
+(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
+(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
+(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
 "#,
 };
 
 const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "principal-construct ${1:version} ${2:pub-key-hash}",
-    signature: "(principal-construct (buff 1) (buff 20) [(string-ascii 40)])",
+    snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
+    signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
     description: "A principal value represents either a set of keys, or a smart contract.
 The former, called a _standard principal_,
 is encoded as a `(buff 1)` *version byte*, indicating the type of account
@@ -365,12 +365,12 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 The latter, a _contract principal_, is encoded as a standard principal concatenated with
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
-The `principal-construct` function allows users to create either standard or contract principals,
+The `principal-construct?` function allows users to create either standard or contract principals,
 depending on which form is used.  To create a standard principal, 
-`principal-construct` would be called with two arguments: it
+`principal-construct?` would be called with two arguments: it
 takes as input a `(buff 1)` which encodes the principal address's
 `version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
-To create a contract principal, `principal-construct` would be called with
+To create a contract principal, `principal-construct?` would be called with
 three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
 that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
 On success, this function returns either a standard principal or contract principal, 
@@ -393,38 +393,38 @@ that are not allowed in contract names, then `error_code` will be `u2`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
-(principal-construct 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
+(principal-construct? 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
 "#,
 };
 
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "string-to-int ${1:string}",
-    signature: "(string-to-int (string-ascii|string-utf8))",
+    snippet: "string-to-int? ${1:string}",
+    signature: "(string-to-int? (string-ascii|string-utf8))",
     description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped signed integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
 an integer wrapped in `some`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(string-to-int "1") ;; Returns (some 1)
-(string-to-int u"-1") ;; Returns (some -1)
-(string-to-int "a") ;; Returns none
+(string-to-int? "1") ;; Returns (some 1)
+(string-to-int? u"-1") ;; Returns (some -1)
+(string-to-int? "a") ;; Returns none
 "#,
 };
 
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "string-to-uint ${1:string}",
-    signature: "(string-to-uint (string-ascii|string-utf8))",
+    snippet: "string-to-uint? ${1:string}",
+    signature: "(string-to-uint? (string-ascii|string-utf8))",
     description:
         "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped unsigned integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
@@ -432,9 +432,9 @@ an unsigned integer wrapped in `some`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(string-to-uint "1") ;; Returns (some u1)
-(string-to-uint u"1") ;; Returns (some u1)
-(string-to-uint "a") ;; Returns none
+(string-to-uint? "1") ;; Returns (some u1)
+(string-to-uint? u"1") ;; Returns (some u1)
+(string-to-uint? "a") ;; Returns none
 "#,
 };
 
@@ -954,19 +954,20 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
-    snippet: "element-at ${1:sequence} ${2:index}",
+    snippet: "element-at? ${1:sequence} ${2:index}",
     output_type: "(optional A)",
-    signature: "(element-at sequence index)",
-    description: "The `element-at` function returns the element at `index` in the provided sequence.
+    signature: "(element-at? sequence index)",
+    description: "The `element-at?` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+In Clarity1, `element-at` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
-(element-at "blockstack" u5) ;; Returns (some "s")
-(element-at (list 1 2 3 4 5) u5) ;; Returns none
-(element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
-(element-at "abcd" u1) ;; Returns (some "b")
-(element-at 0xfb01 u1) ;; Returns (some 0x01)
+(element-at? "blockstack" u5) ;; Returns (some "s")
+(element-at? (list 1 2 3 4 5) u5) ;; Returns none
+(element-at? (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
+(element-at? "abcd" u1) ;; Returns (some "b")
+(element-at? 0xfb01 u1) ;; Returns (some 0x01)
 "#,
 };
 
@@ -981,6 +982,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 If the target item is not found in the sequence (or if an empty string or buffer is
 supplied), this function returns `none`.
+In Clarity1, `index-of` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
 (index-of "blockstack" "b") ;; Returns (some u0)
@@ -993,21 +995,21 @@ supplied), this function returns `none`.
 
 const SLICE_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, uint",
-    snippet: "slice ${1:sequence} ${2:left-pos} ${3:right-pos}",
+    snippet: "slice? ${1:sequence} ${2:left-pos} ${3:right-pos}",
     output_type: "(optional sequence_A)",
-    signature: "(slice sequence left-position right-position)",
+    signature: "(slice? sequence left-position right-position)",
     description:
-        "The `slice` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
+        "The `slice?` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
 ends at `right-position` (non-inclusive).
 If `left_position`==`right_position`, the function returns an empty sequence.
 If either `left_position` or `right_position` are out of bounds OR if `right_position` is less than
 `left_position`, the function returns `none`.",
-    example: "(slice \"blockstack\" u5 u10) ;; Returns (some \"stack\")
-(slice (list 1 2 3 4 5) u5 u9) ;; Returns none
-(slice (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
-(slice \"abcd\" u1 u3) ;; Returns (some \"bc\")
-(slice \"abcd\" u2 u2) ;; Returns (some \"\")
-(slice \"abcd\" u3 u1) ;; Returns none
+    example: "(slice? \"blockstack\" u5 u10) ;; Returns (some \"stack\")
+(slice? (list 1 2 3 4 5) u5 u9) ;; Returns none
+(slice? (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
+(slice? \"abcd\" u1 u3) ;; Returns (some \"bc\")
+(slice? \"abcd\" u2 u2) ;; Returns (some \"\")
+(slice? \"abcd\" u3 u1) ;; Returns none
 ",
 };
 
@@ -2161,10 +2163,10 @@ one of the following error codes:
 
 const TO_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
     input_type: "any",
-    snippet: "to-consensus-buff ${1:value}",
+    snippet: "to-consensus-buff? ${1:value}",
     output_type: "(optional buff)",
-    signature: "(to-consensus-buff value)",
-    description: "`to-consensus-buff` is a special function that will serialize any
+    signature: "(to-consensus-buff? value)",
+    description: "`to-consensus-buff?` is a special function that will serialize any
 Clarity value into a buffer, using the SIP-005 serialization of the
 Clarity value. Not all values can be serialized: some value's
 consensus serialization is too large to fit in a Clarity buffer (this
@@ -2177,58 +2179,58 @@ analyzed type of the result of this method will be the maximum possible
 consensus buffer length based on the inferred type of the supplied value.
 ",
     example: r#"
-(to-consensus-buff 1) ;; Returns (some 0x0000000000000000000000000000000001)
-(to-consensus-buff u1) ;; Returns (some 0x0100000000000000000000000000000001)
-(to-consensus-buff true) ;; Returns (some 0x03)
-(to-consensus-buff false) ;; Returns (some 0x04)
-(to-consensus-buff none) ;; Returns (some 0x09)
-(to-consensus-buff 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
-(to-consensus-buff { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
+(to-consensus-buff? 1) ;; Returns (some 0x0000000000000000000000000000000001)
+(to-consensus-buff? u1) ;; Returns (some 0x0100000000000000000000000000000001)
+(to-consensus-buff? true) ;; Returns (some 0x03)
+(to-consensus-buff? false) ;; Returns (some 0x04)
+(to-consensus-buff? none) ;; Returns (some 0x09)
+(to-consensus-buff? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
+(to-consensus-buff? { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
 "#,
 };
 
 const FROM_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
     input_type: "type-signature(t), buff",
-    snippet: "from-consensus-buff ${1:type-signature} ${2:buffer}",
+    snippet: "from-consensus-buff? ${1:type-signature} ${2:buffer}",
     output_type: "(optional t)",
-    signature: "(from-consensus-buff type-signature buffer)",
-    description: "`from-consensus-buff` is a special function that will deserialize a
+    signature: "(from-consensus-buff? type-signature buffer)",
+    description: "`from-consensus-buff?` is a special function that will deserialize a
 buffer into a Clarity value, using the SIP-005 serialization of the
-Clarity value. The type that `from-consensus-buff` tries to deserialize
+Clarity value. The type that `from-consensus-buff?` tries to deserialize
 into is provided by the first parameter to the function. If it fails
 to deserialize the type, the method returns `none`.
 ",
     example: r#"
-(from-consensus-buff int 0x0000000000000000000000000000000001) ;; Returns (some 1)
-(from-consensus-buff uint 0x0000000000000000000000000000000001) ;; Returns none
-(from-consensus-buff uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
-(from-consensus-buff bool 0x0000000000000000000000000000000001) ;; Returns none
-(from-consensus-buff bool 0x03) ;; Returns (some true)
-(from-consensus-buff bool 0x04) ;; Returns (some false)
-(from-consensus-buff principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(from-consensus-buff { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
+(from-consensus-buff? int 0x0000000000000000000000000000000001) ;; Returns (some 1)
+(from-consensus-buff? uint 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff? uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
+(from-consensus-buff? bool 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff? bool 0x03) ;; Returns (some true)
+(from-consensus-buff? bool 0x04) ;; Returns (some false)
+(from-consensus-buff? principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(from-consensus-buff? { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
 "#,
 };
 
 const REPLACE_AT: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, A",
     output_type: "(optional sequence_A)",
-    snippet: "replace-at ${1:sequence} ${2:index} ${3:element}",
-    signature: "(replace-at sequence index element)",
-    description: "The `replace-at` function takes in a sequence, an index, and an element, 
+    snippet: "replace-at? ${1:sequence} ${2:index} ${3:element}",
+    signature: "(replace-at? sequence index element)",
+    description: "The `replace-at?` function takes in a sequence, an index, and an element,
 and returns a new sequence with the data at the index position replaced with the given element. 
 The given element's type must match the type of the sequence, and must correspond to a single 
-index of the input sequence. The return type on success is the same type as the input sequence. 
+index of the input sequence. The return type on success is the same type as the input sequence.
 
 If the provided index is out of bounds, this functions returns `none`.
 ",
     example: r#"
-(replace-at u"ab" u1 u"c") ;; Returns (some u"ac")
-(replace-at 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
-(replace-at "abcd" u3 "e") ;; Returns (some "abce")
-(replace-at (list 1) u0 10) ;; Returns (some (10))
-(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
-(replace-at (list 1 2) u3 4) ;; Returns none
+(replace-at? u"ab" u1 u"c") ;; Returns (some u"ac")
+(replace-at? 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
+(replace-at? "abcd" u3 "e") ;; Returns (some "abce")
+(replace-at? (list 1) u0 10) ;; Returns (some (10))
+(replace-at? (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
+(replace-at? (list 1 2) u3 4) ;; Returns none
 "#,
 };
 
@@ -2277,8 +2279,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Concat => make_for_special(&CONCAT_API, function),
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, function),
         Len => make_for_special(&LEN_API, function),
-        ElementAt => make_for_special(&ELEMENT_AT_API, function),
-        IndexOf => make_for_special(&INDEX_OF_API, function),
+        ElementAt | ElementAtAlias => make_for_special(&ELEMENT_AT_API, function),
+        IndexOf | IndexOfAlias => make_for_special(&INDEX_OF_API, function),
         Slice => make_for_special(&SLICE_API, function),
         ListCons => make_for_special(&LIST_API, function),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, function),
