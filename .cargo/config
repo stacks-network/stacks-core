@@ -1,3 +1,2 @@
 [alias]
 stacks-node = "run --package stacks-node --"
-puppet-chain = "run --package puppet-chain --"

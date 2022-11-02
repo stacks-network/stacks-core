@@ -254,8 +254,7 @@ pub fn check_stacking_state_invariants(
         .clone()
         .expect_u128();
     let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
-    let pox_addr =
-        PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr).unwrap();
+    let pox_addr = PoxAddress::try_from_pox_tuple(false, pox_addr).unwrap();
 
     let reward_indexes: Vec<u128> = stacking_state_entry
         .get_owned("reward-set-indexes")
@@ -321,9 +320,7 @@ pub fn check_stacking_state_invariants(
             );
 
             let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
-            let entry_pox_addr =
-                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), &entry_pox_addr)
-                    .unwrap();
+            let entry_pox_addr = PoxAddress::try_from_pox_tuple(false, &entry_pox_addr).unwrap();
 
             assert_eq!(
                 &entry_pox_addr, &pox_addr,
@@ -517,7 +514,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_simple_pox_lockup_transition_pox_2",
-        6002,
+        6104,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1240,7 +1237,7 @@ fn delegate_stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("pox_2_delegate_stack_increase"),
-        6002,
+        6004,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1558,7 +1555,7 @@ fn stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("test_simple_pox_2_increase"),
-        6002,
+        6006,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1794,8 +1791,8 @@ fn test_lock_period_invariant_extend_transition() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "test_pox_extend_transition_pox_2",
-        6002,
+        "test_lp_invariant_extend_trans",
+        6008,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1953,7 +1950,7 @@ fn test_pox_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_pox_extend_transition_pox_2",
-        6002,
+        6010,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2388,7 +2385,7 @@ fn test_delegate_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_delegate_extend_transition_pox_2",
-        6002,
+        6014,
         Some(epochs.clone()),
         Some(&observer),
     );
