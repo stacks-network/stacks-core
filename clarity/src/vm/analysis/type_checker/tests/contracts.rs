@@ -1749,7 +1749,7 @@ fn call_versioned(
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
-    type_check(&contract_id, &mut contract, db, false).map_err(|e| e.to_string())
+    type_check_version(&contract_id, &mut contract, db, false, version).map_err(|e| e.to_string())
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -1899,9 +1899,141 @@ fn clarity_trait_experiments_double_trait(
         }
         res => panic!("got {:?}", res),
     }
+}
 
-    // Since this test now fails, the others related to using this type of
-    // trait are no longer useful tests.
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_both(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-both", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-1", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("BadTraitImplementation(\"double-method\", \"foo\")"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-2", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-1", version, epoch)?;
+        load_versioned(db, "use-double-trait", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(BoolType, UIntType)"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_partial_double_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-1", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-1", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(BoolType, UIntType)"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_partial_double_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -1920,9 +2052,27 @@ fn clarity_trait_experiments_identical_double_trait(
         }
         res => panic!("got {:?}", res),
     }
+}
 
-    // Since this test now fails, the others related to using this type of
-    // trait are no longer useful tests.
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_identical_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "identical-double-trait", version, epoch)?;
+        load_versioned(db, "impl-identical-double-trait", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
 }
 
 #[apply(test_clarity_versions_contracts)]
@@ -2103,9 +2253,6 @@ fn clarity_trait_experiments_call_nested_trait_1(
         load_versioned(db, "empty-trait", version, epoch)?;
         load_versioned(db, "math-trait", version, epoch)?;
         load_versioned(db, "nested-trait-1", version, epoch)?;
-        load_versioned(db, "nested-trait-2", version, epoch)?;
-        load_versioned(db, "nested-trait-3", version, epoch)?;
-        load_versioned(db, "nested-trait-4", version, epoch)?;
         call_versioned(
             db,
             "nested-trait-1",
@@ -2113,10 +2260,107 @@ fn clarity_trait_experiments_call_nested_trait_1(
             "(list .empty .math-trait)",
             version,
             epoch,
-        )?;
-        call_versioned(db, "nested-trait-2", "foo", "(some .empty)", version, epoch)?;
-        call_versioned(db, "nested-trait-3", "foo", "(ok .empty)", version, epoch)?;
-        call_versioned(db, "nested-trait-3", "foo", "(err false)", version, epoch)?;
+        )
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-2", version, epoch)?;
+        call_versioned(db, "nested-trait-2", "foo", "(some .empty)", version, epoch)
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_3_ok(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-3", version, epoch)?;
+        call_versioned(db, "nested-trait-3", "foo", "(ok .empty)", version, epoch)
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_3_err(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-3", version, epoch)?;
+        call_versioned(db, "nested-trait-3", "foo", "(err false)", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_4(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-4", version, epoch)?;
         call_versioned(
             db,
             "nested-trait-4",
@@ -2127,8 +2371,11 @@ fn clarity_trait_experiments_call_nested_trait_1(
         )
     });
     match result {
-        Ok(_) => (),
-        res => panic!("expected success, got {:?}", res),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
     };
 }
 
@@ -2885,6 +3132,68 @@ fn clarity_trait_experiments_call_return_trait(
     match result {
         Ok(_) => (),
         res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_full_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)?;
+        call_versioned(
+            db,
+            "use-partial-double-trait-2",
+            "call-double",
+            ".impl-double-trait-2",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_partial_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)?;
+        call_versioned(
+            db,
+            "use-partial-double-trait-2",
+            "call-double",
+            ".partial-double-trait-2",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
     };
 }
 
