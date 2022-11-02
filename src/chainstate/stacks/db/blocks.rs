@@ -76,7 +76,8 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;

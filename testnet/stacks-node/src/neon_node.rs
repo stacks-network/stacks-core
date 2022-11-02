@@ -216,7 +216,9 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
-use stacks_common::types::chainstate::{PoxAddress, StacksPrivateKey};
+use stacks_common::types::chainstate::StacksPrivateKey;
+// use stacks_common::types::chainstate::PoxAddress;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks_common::util::vrf::VRFProof;
 
 use clarity::vm::ast::ASTRules;

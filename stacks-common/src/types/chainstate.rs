@@ -410,3 +410,16 @@ pub enum PoxAddress {
     /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
     Standard(StacksAddress, Option<AddressHashMode>),
 }
+
+impl std::fmt::Display for PoxAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_db_string())
+    }
+}
+
+impl PoxAddress {
+    /// Serialize this structure to a string that we can store in the sortition DB
+    pub fn to_db_string(&self) -> String {
+        serde_json::to_string(self).expect("FATAL: failed to serialize JSON value")
+    }
+}

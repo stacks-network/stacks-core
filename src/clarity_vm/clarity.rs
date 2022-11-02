@@ -82,7 +82,8 @@ pub use clarity::vm::clarity::Error;
 use clarity::vm::clarity::TransactionConnection;
 
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 use stacks_common::util::secp256k1::MessageSignature;
 
 ///
@@ -1256,7 +1257,9 @@ mod tests {
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
     use crate::clarity_vm::database::marf::MarfedKV;
 
-    use stacks_common::types::chainstate::{ConsensusHash, PoxAddress};
+    use stacks_common::types::chainstate::ConsensusHash;
+    // use stacks_common::types::chainstate::PoxAddress;
+    use crate::chainstate::stacks::address::PoxAddress;
 
     use super::*;
     use stacks_common::consts::CHAIN_ID_TESTNET;

@@ -28,6 +28,7 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::clarity_vm::special::generate_event_for_auto_unlock;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
@@ -50,7 +51,8 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -237,7 +239,7 @@ impl StacksChainState {
             //     (b) or, if they were the only entry in the list, then just deleting them from the list
             // 3. correct the `reward-cycle-total-stacked` entry for every reward cycle they were in
             // 4. delete the user's stacking-state entry.
-            clarity.with_clarity_db(|db| {
+            let principal_balance = clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
                 let mut balance = db.get_stx_balance_snapshot(&principal);
                 if balance.canonical_balance_repr().amount_locked() < *amount_locked {
@@ -245,11 +247,14 @@ impl StacksChainState {
                 }
 
                 balance.accelerate_unlock();
+
+                let out_balance = balance.canonical_balance_repr(); 
+
                 balance.save();
-                Ok(())
+                Ok(out_balance)
             }).expect("FATAL: failed to accelerate PoX unlock");
 
-            let (result, _, events, _) = clarity
+            let (result, _, mut events, _) = clarity
                 .with_abort_callback(
                     |vm_env| {
                         vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
@@ -270,6 +275,9 @@ impl StacksChainState {
                     |_, _| false,
                 )
                 .expect("FATAL: failed to handle PoX unlock");
+
+            let lock_event = generate_event_for_auto_unlock(principal.clone(), principal_balance, &result); 
+            events.push(lock_event); 
 
             result.expect_result_ok();
 

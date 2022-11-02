@@ -16,9 +16,11 @@
 
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{CostTracker, MemoryConsumer};
+use clarity::vm::database::STXBalance;
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
 
+// use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -36,9 +38,12 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 
-use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use clarity::vm::events::{StackExtendData, STXEventType, STXLockEventData, STXLockOperation, StacksTransactionEvent};
 
 use stacks_common::util::hash::Hash160;
+use stacks_common::types::chainstate::PoxAddress;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::address::AddressHashMode;
 
 use crate::vm::costs::runtime_cost;
 
@@ -78,13 +83,78 @@ fn parse_pox_stacking_result(
     }
 }
 
+// PTODO - PoxAddress type refactor; this is duplicate code 
+/// Try to convert a Clarity value representation of the PoX address into a PoxAddress.
+/// `value` must be `{ version: (buff 1), hashbytes: (buff 20) }`
+pub fn try_from_pox_tuple(mainnet: bool, value: &Value) -> Option<PoxAddress> {
+    let tuple_data = match value {
+        Value::Tuple(data) => data.clone(),
+        _ => {
+            return None;
+        }
+    };
+
+    let hashmode_value = tuple_data.get("version").ok()?.to_owned();
+
+    let hashmode_u8 = match hashmode_value {
+        Value::Sequence(SequenceData::Buffer(data)) => {
+            if data.data.len() == 1 {
+                data.data[0]
+            } else {
+                return None;
+            }
+        }
+        _ => {
+            return None;
+        }
+    };
+
+    let hashbytes_value = tuple_data.get("hashbytes").ok()?.to_owned();
+
+    let hashbytes_vec = match hashbytes_value {
+        Value::Sequence(SequenceData::Buffer(data)) => {
+            if data.data.len() == 20 {
+                data.data
+            } else {
+                return None;
+            }
+        }
+        _ => {
+            return None;
+        }
+    };
+
+    let hashmode: AddressHashMode = hashmode_u8.try_into().ok()?;
+
+    let mut hashbytes_20 = [0u8; 20];
+    hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
+    let bytes = Hash160(hashbytes_20);
+
+    let version = if mainnet {
+        hashmode.to_version_mainnet()
+    } else {
+        hashmode.to_version_testnet()
+    };
+
+    Some(PoxAddress::Standard(
+        StacksAddress { version, bytes },
+        Some(hashmode),
+    ))
+}
+
 /// Parse the returned value from PoX2 `stack-extend` and `delegate-stack-extend` functions
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
-fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
+fn parse_pox_extend_result(
+    function_name: &str, 
+    result: &Value, 
+    is_mainnet: bool
+) -> std::result::Result<(PrincipalData, u64, STXLockOperation), i128> {
     match result.clone().expect_result() {
         Ok(res) => {
-            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint })
+            // should have gotten back (ok { stacker: principal, unlock-burn-height: uint,
+            //          pox-addr: { version: (buff 1), hashbytes: (buff 20) }, extend-count: uint })
+            // for `delegate-stack-extend`, the field `delegator: principal` is also expected in the tuple.
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
@@ -99,8 +169,42 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
                 .expect_u128()
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
+            
+            let extend_count = tuple_data
+                .get("extend-count")
+                .expect(&format!("FATAL: no 'extend-count'"))
+                .to_owned()
+                .expect_u128()
+                .try_into()
+                .expect("FATAL: 'extend-count' overflow");
+            
+            let pox_addr_val = tuple_data
+                .get("pox-addr")
+                .expect(&format!("FATAL: no 'pox-addr'"))
+                .to_owned();
+            let pox_addr = try_from_pox_tuple(is_mainnet, &pox_addr_val)
+                .expect("FATAL: 'pox-addr' value had incorrect type"); 
+            
+            let stack_extend_data = StackExtendData {
+                extend_count, 
+                pox_addr,
+            };
 
-            Ok((stacker, unlock_burn_height))
+            let op_data = if function_name == "stack-extend" {
+                STXLockOperation::StackExtend(stack_extend_data)
+            } else if function_name == "delegate-stack-extend" {
+                let delegator = tuple_data
+                .get("delegator")
+                .expect(&format!("FATAL: no 'delegator'"))
+                .to_owned()
+                .expect_principal();
+
+                STXLockOperation::DelegateStackExtend(stack_extend_data, delegator)
+            } else {
+                panic!("FATAL: unexpected function type passed to `parse_pox_extend_result`"); 
+            }; 
+            
+            Ok((stacker, unlock_burn_height, op_data))
         }
         // in the error case, the function should have returned `int` error code
         Err(e) => Err(e.expect_i128()),
@@ -133,6 +237,29 @@ fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u12
         Err(e) => Err(e.expect_i128()),
     }
 }
+
+/// Parse the returned value from PoX2 `stack-aggregation-commit` function
+///  into a format more readily digestible in rust.
+/// Panics if the supplied value doesn't match the expected tuple structure
+fn parse_pox_aggregation(result: &Value) -> std::result::Result<PrincipalData, i128> {
+    match result.clone().expect_result() {
+        Ok(res) => {
+            // should have gotten back (ok { stacker: principal })
+            // stacker should be type principal
+            let tuple_data = res.expect_tuple();
+            let stacker = tuple_data
+                .get("stacker")
+                .expect(&format!("FATAL: no 'stacker'"))
+                .to_owned()
+                .expect_principal();
+
+            Ok(stacker)
+        }
+        // in the error case, the function should have returned `int` error code
+        Err(e) => Err(e.expect_i128()),
+    }
+}
+
 
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_v1_api_contract_call(
@@ -168,13 +295,15 @@ fn handle_pox_v1_api_contract_call(
                     locked_amount,
                     unlock_height as u64,
                 ) {
-                    Ok(_) => {
+                    Ok(total_balance) => {
                         if let Some(batch) = global_context.event_batches.last_mut() {
                             batch.events.push(StacksTransactionEvent::STXEvent(
                                 STXEventType::STXLockEvent(STXLockEventData {
                                     locked_amount,
                                     unlock_height,
                                     locked_address: stacker,
+                                    locked_addr_balance: total_balance,
+                                    operation_data: STXLockOperation::Dummy, 
                                 }),
                             ));
                         }
@@ -231,13 +360,15 @@ fn handle_pox_v2_api_contract_call(
                     locked_amount,
                     unlock_height as u64,
                 ) {
-                    Ok(_) => {
+                    Ok(total_balance) => {
                         if let Some(batch) = global_context.event_batches.last_mut() {
                             batch.events.push(StacksTransactionEvent::STXEvent(
                                 STXEventType::STXLockEvent(STXLockEventData {
                                     locked_amount,
                                     unlock_height,
                                     locked_address: stacker,
+                                    locked_addr_balance: total_balance, 
+                                    operation_data: STXLockOperation::Dummy, 
                                 }),
                             ));
                         }
@@ -278,19 +409,21 @@ fn handle_pox_v2_api_contract_call(
             1,
         )?;
 
-        if let Ok((stacker, unlock_height)) = parse_pox_extend_result(value) {
+        if let Ok((stacker, unlock_height, operation_data)) = parse_pox_extend_result(function_name, value, global_context.mainnet) {
             match StacksChainState::pox_lock_extend_v2(
                 &mut global_context.database,
                 &stacker,
                 unlock_height as u64,
             ) {
-                Ok(locked_amount) => {
+                Ok((locked_amount, total_balance)) => {
                     if let Some(batch) = global_context.event_batches.last_mut() {
                         batch.events.push(StacksTransactionEvent::STXEvent(
                             STXEventType::STXLockEvent(STXLockEventData {
                                 locked_amount,
                                 unlock_height,
                                 locked_address: stacker,
+                                locked_addr_balance: total_balance, 
+                                operation_data,
                             }),
                         ));
                     }
@@ -341,12 +474,17 @@ fn handle_pox_v2_api_contract_call(
                 total_locked,
             ) {
                 Ok(new_balance) => {
+                    let total_balance = new_balance.amount_locked()
+                        .checked_add(new_balance.amount_unlocked())
+                        .expect("STX overflow"); 
                     if let Some(batch) = global_context.event_batches.last_mut() {
                         batch.events.push(StacksTransactionEvent::STXEvent(
                             STXEventType::STXLockEvent(STXLockEventData {
                                 locked_amount: new_balance.amount_locked(),
                                 unlock_height: new_balance.unlock_height(),
                                 locked_address: stacker,
+                                locked_addr_balance: total_balance, 
+                                operation_data: STXLockOperation::Dummy, 
                             }),
                         ));
                     }
@@ -365,11 +503,58 @@ fn handle_pox_v2_api_contract_call(
                 }
             }
         }
-
+        // The stack-increase function returned an error: we do not need to alter a lock
+        //  in this case, and can just return and let the normal VM codepath surface the
+        //  error response type.
         return Ok(());
+    } else if function_name == "stack-aggregation-commit" {
+        // For `stack-aggregation-commit`, we don't need to alter any lock state, 
+        // but we do want to emit a STXLockEvent 
+        if let Ok(stacker) = parse_pox_aggregation(value) {
+            let stacker_balance = global_context.database.get_account_stx_balance(&stacker); 
+            let total_balance = stacker_balance.amount_locked()
+                        .checked_add(stacker_balance.amount_unlocked())
+                        .expect("STX overflow"); 
+            if let Some(batch) = global_context.event_batches.last_mut() {
+                batch.events.push(StacksTransactionEvent::STXEvent(
+                    STXEventType::STXLockEvent(STXLockEventData {
+                        locked_amount: stacker_balance.amount_locked(),
+                        unlock_height: stacker_balance.unlock_height(),
+                        locked_address: stacker,
+                        locked_addr_balance: total_balance, 
+                        operation_data: STXLockOperation::Dummy, 
+                    }),
+                ));
+            }
+        }  else {
+            return Ok(())
+        }
+        
     }
+
     // nothing to do
     Ok(())
+}
+
+
+// PTODO - parse the result 
+pub fn generate_event_for_auto_unlock(
+    stacker: PrincipalData, 
+    stacker_balance: STXBalance, 
+    _result: &Value, 
+) -> StacksTransactionEvent {
+    let total_balance = stacker_balance.amount_locked()
+                        .checked_add(stacker_balance.amount_unlocked())
+                        .expect("STX overflow"); 
+    StacksTransactionEvent::STXEvent(
+        STXEventType::STXLockEvent(STXLockEventData {
+            locked_amount: stacker_balance.amount_locked(),
+            unlock_height: stacker_balance.unlock_height(),
+            locked_address: stacker,
+            locked_addr_balance: total_balance, 
+            operation_data: STXLockOperation::Dummy, 
+        }),
+    )
 }
 
 /// Is a PoX-1 function read-only?

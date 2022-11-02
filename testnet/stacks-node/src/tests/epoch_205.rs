@@ -46,7 +46,8 @@ use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::types::chainstate::VRFSeed;
 use stacks::vm::costs::ExecutionCost;
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use stacks::chainstate::stacks::address::PoxAddress;
 
 #[test]
 #[ignore]

@@ -57,7 +57,8 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::vm::database::BurnStateDB;
 
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use stacks::chainstate::stacks::address::PoxAddress;
 
 #[derive(Debug, Clone)]
 pub struct ChainTip {

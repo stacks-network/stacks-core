@@ -35,7 +35,9 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
-use stacks_common::types::chainstate::{PoxAddress, StacksAddress};
+use stacks_common::types::chainstate::StacksAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 
 pub mod processing;
 pub mod sortdb;

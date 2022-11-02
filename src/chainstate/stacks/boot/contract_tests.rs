@@ -40,7 +40,8 @@ use clarity::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 

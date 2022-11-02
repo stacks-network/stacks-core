@@ -902,7 +902,10 @@
               lock-period: lock-period })
 
         ;; return lock-up information
-        (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
+        (ok { stacker: tx-sender, 
+              unlock-burn-height: new-unlock-ht,
+              pox-addr: pox-addr,
+              extend-count: extend-count, })))))
 
 ;; As a delegator, increase an active stacking lock, issuing a "partial commitment" for the
 ;;   increased cycles.
@@ -1073,7 +1076,10 @@
 
       ;; return the lock-up information, so the node can actually carry out the lock. 
       (ok { stacker: stacker,
-            unlock-burn-height: new-unlock-ht }))))
+            unlock-burn-height: new-unlock-ht,
+            pox-addr: pox-addr, 
+            extend-count: extend-count,
+            delegator: tx-sender }))))
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.

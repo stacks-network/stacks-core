@@ -36,7 +36,8 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::TransactionPayload;
-use stacks_common::types::chainstate::PoxAddress;
+// use stacks_common::types::chainstate::PoxAddress;
+use stacks::chainstate::stacks::address::PoxAddress;
 
 #[derive(Debug, Clone)]
 struct EventObserver {

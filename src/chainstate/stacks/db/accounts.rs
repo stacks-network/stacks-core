@@ -446,7 +446,7 @@ impl StacksChainState {
     }
 
     /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
-    /// Returns Ok(lock_amount) when successful
+    /// Returns Ok(lock_amount, total_balance) when successful
     ///
     /// # Errors
     /// - Returns Error::PoxExtendNotLocked if this function was called on an account
@@ -456,7 +456,7 @@ impl StacksChainState {
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
         unlock_burn_height: u64,
-    ) -> Result<u128, Error> {
+    ) -> Result<(u128, u128), Error> {
         assert!(unlock_burn_height > 0);
 
         let mut snapshot = db.get_stx_balance_snapshot(principal);
@@ -468,6 +468,9 @@ impl StacksChainState {
         snapshot.extend_lock_v2(unlock_burn_height);
 
         let amount_locked = snapshot.balance().amount_locked();
+        let total_balance = amount_locked
+            .checked_add(snapshot.balance().amount_unlocked())
+            .expect("STX overflow"); 
 
         debug!(
             "PoX v2 lock applied";
@@ -478,16 +481,27 @@ impl StacksChainState {
         );
 
         snapshot.save();
-        Ok(amount_locked)
+        Ok((amount_locked, total_balance))
+    }
+
+    pub fn get_principal_balance(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+    ) -> Result<STXBalance, Error> {
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+        let out_balance = snapshot.canonical_balance_repr();
+
+        Ok(out_balance)
     }
 
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns the accounts total balance.
     pub fn pox_lock_v2(
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
         lock_amount: u128,
         unlock_burn_height: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<u128, Error> {
         assert!(unlock_burn_height > 0);
         assert!(lock_amount > 0);
 
@@ -509,8 +523,11 @@ impl StacksChainState {
             "account" => %principal,
         );
 
+        let total_balance = snapshot.balance().amount_locked()
+            .checked_add(snapshot.balance().amount_unlocked())
+            .expect("STX overflow"); 
         snapshot.save();
-        Ok(())
+        Ok(total_balance)
     }
 
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
@@ -519,7 +536,7 @@ impl StacksChainState {
         principal: &PrincipalData,
         lock_amount: u128,
         unlock_burn_height: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<u128, Error> {
         assert!(unlock_burn_height > 0);
         assert!(lock_amount > 0);
 
@@ -545,9 +562,11 @@ impl StacksChainState {
             "unlock_burn_height" => unlock_burn_height,
             "account" => %principal,
         );
-
+        let total_balance = snapshot.balance().amount_locked()
+            .checked_add(snapshot.balance().amount_unlocked())
+            .expect("STX overflow"); 
         snapshot.save();
-        Ok(())
+        Ok(total_balance)
     }
 
     /// Schedule a miner payment in the future.

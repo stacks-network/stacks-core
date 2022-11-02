@@ -64,9 +64,10 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxAddress, PoxId, SortitionId, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
 };
-
+// use stacks_common::types::chainstate::PoxAddress;
+use crate::chainstate::stacks::address::PoxAddress;
 lazy_static! {
     static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
     static ref TXIDS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));

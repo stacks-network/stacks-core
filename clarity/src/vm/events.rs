@@ -177,11 +177,13 @@ impl STXMintEventData {
     }
 }
 
+// PTODO - doesn't contain stacker's total balance 
 #[derive(Debug, Clone, PartialEq)]
 pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
     pub locked_address: PrincipalData,
+    pub locked_addr_balance: u128, 
     pub operation_data: STXLockOperation, 
 }
 
@@ -195,6 +197,8 @@ pub enum STXLockOperation {
     DelegateStackIncrease(StackIncreaseData, PrincipalData),
     AutoUnlock(AutoUnlockData),
     StackAggregationCommit(StackAggregationCommitData),
+    // PTODO - remove
+    Dummy,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -236,6 +240,81 @@ impl STXLockEventData {
             "locked_amount": format!("{}",self.locked_amount),
             "unlock_height": format!("{}", self.unlock_height),
             "locked_address": format!("{}", self.locked_address),
+            "operation_data": self.operation_data.json_serialize(), 
+        })
+    }
+}
+
+// PTODO
+impl STXLockOperation {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        match self {
+            STXLockOperation::StackStx(_) => {
+                json!({
+                    "name": "stack_stx", 
+                    // "data": todo!(),
+                })
+            },
+            STXLockOperation::DelegateStackStx(_, _) => {
+                json!({
+                    "name": "delegate_stack_stx", 
+                    // "data": todo!(),
+                })
+            },
+            STXLockOperation::StackExtend(data) => {
+                json!({
+                    "name": "stack_extend", 
+                    "data": data.json_serialize(),
+                })
+            },
+            STXLockOperation::DelegateStackExtend(data, delegator) => {
+                json!({
+                    "name": "delegate_stack_extend", 
+                    "data": data.json_serialize_del(delegator),
+                })
+            }
+            STXLockOperation::StackIncrease(_) => {
+                json!({
+                    "name": "stack_increase", 
+                    // "data": todo!(),
+                })
+            },
+            STXLockOperation::DelegateStackIncrease(_, _) => {
+                json!({
+                    "name": "delegate_stack_increase", 
+                    // "data": todo!(),
+                })
+            },
+            STXLockOperation::AutoUnlock(_) => {
+                json!({
+                    "name": "auto_unlock", 
+                    // "data": todo!(),
+                })
+            },
+            STXLockOperation::StackAggregationCommit(_) => {
+                json!({
+                    "name": "stack_aggregation_commit", 
+                    // "data": todo!(),
+                })
+            },
+            &STXLockOperation::Dummy => json!({"name": "dummy_data"}), 
+        }
+    }
+}
+
+impl StackExtendData {
+    pub fn json_serialize(&self) -> serde_json::Value {
+        json!({
+            "extend_count": format!("{}", self.extend_count),  
+            "pox_addr": format!("{}", self.pox_addr),  
+        })
+    }
+
+    pub fn json_serialize_del(&self, delegator: &PrincipalData) -> serde_json::Value {
+        json!({
+            "extend_count": format!("{}", self.extend_count),  
+            "pox_addr": format!("{}", self.pox_addr),  
+            "delegator": format!("{}", delegator),  
         })
     }
 }

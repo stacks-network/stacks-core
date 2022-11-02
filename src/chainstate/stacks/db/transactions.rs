@@ -1413,7 +1413,9 @@ pub mod test {
     use clarity::vm::test_util::UnitTestBurnStateDB;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use clarity::vm::types::*;
-    use stacks_common::types::chainstate::{PoxAddress, SortitionId};
+    use stacks_common::types::chainstate::SortitionId;
+    // use stacks_common::types::chainstate::PoxAddress;
+    use crate::chainstate::stacks::address::PoxAddress;
     use stacks_common::util::hash::*;
 
     use super::*;

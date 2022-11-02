@@ -40,6 +40,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
+// use stacks_common::types::chainstate::PoxAddress; 
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::HASH160_ENCODED_SIZE;
 
@@ -58,13 +59,13 @@ pub trait StacksAddressExtensions {
 // /// Used by the sortition DB and chains coordinator to extract addresses from the PoX contract to
 // /// build the reward set and to validate block-commits.
 // /// Note that this comprises a larger set of possible addresses than StacksAddress
-// #[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
-// pub enum PoxAddress {
-//     /// represents { version: (buff u1), hashbytes: (buff 20) }.
-//     /// The address hash mode is optional because if we decode a legacy bitcoin address, we won't
-//     /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
-//     Standard(StacksAddress, Option<AddressHashMode>),
-// }
+#[derive(Debug, PartialEq, PartialOrd, Ord, Clone, Hash, Eq, Serialize, Deserialize)]
+pub enum PoxAddress {
+    /// represents { version: (buff u1), hashbytes: (buff 20) }.
+    /// The address hash mode is optional because if we decode a legacy bitcoin address, we won't
+    /// be able to determine the hash mode since we can't distinguish segwit-p2sh from p2sh
+    Standard(StacksAddress, Option<AddressHashMode>),
+}
 
 impl std::fmt::Display for PoxAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
