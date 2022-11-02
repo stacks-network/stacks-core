@@ -771,6 +771,7 @@ impl BitcoinRegtestController {
             BlockstackOperationType::LeaderBlockCommit(_)
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
+            | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_) => {
                 unimplemented!();
             }
