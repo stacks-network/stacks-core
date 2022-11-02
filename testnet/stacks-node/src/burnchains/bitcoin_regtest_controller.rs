@@ -354,7 +354,7 @@ impl BitcoinRegtestController {
     /// Get the default Burnchain instance from our config
     fn default_burnchain(&self) -> Burnchain {
         let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
-        match &self.burnchain_config {
+        let mut burnchain = match &self.burnchain_config {
             Some(burnchain) => burnchain.clone(),
             None => {
                 let working_dir = self.config.get_burn_db_path();
@@ -366,7 +366,10 @@ impl BitcoinRegtestController {
                     }
                 }
             }
-        }
+        };
+        self.config
+            .update_pox_constants(&mut burnchain.pox_constants);
+        burnchain
     }
 
     /// Get the PoX constants in use
