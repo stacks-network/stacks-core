@@ -345,7 +345,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into());
+                    return Err(CheckErrors::IncorrectArgumentCount(1, args.len()).into());
                 }
             }
             DefineFunctions::Map => {
