@@ -97,6 +97,7 @@ use clarity::vm::types::TraitIdentifier;
 use clarity::vm::ClarityVersion;
 use clarity::vm::{
     analysis::errors::CheckErrors,
+    ast::ASTRules,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
@@ -132,7 +133,7 @@ pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
 #[derive(Default)]
 pub struct RPCHandlerArgs<'a> {
-    pub exit_at_block_height: Option<&'a u64>,
+    pub exit_at_block_height: Option<u64>,
     pub genesis_chainstate_hash: Sha256Sum,
     pub event_observer: Option<&'a dyn MemPoolEventDispatcher>,
     pub cost_estimator: Option<&'a dyn CostEstimator>,
@@ -208,7 +209,7 @@ impl RPCPeerInfoData {
     pub fn from_network(
         network: &PeerNetwork,
         chainstate: &StacksChainState,
-        exit_at_block_height: &Option<&u64>,
+        exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
     ) -> RPCPeerInfoData {
         let server_version = version_string(
@@ -252,7 +253,7 @@ impl RPCPeerInfoData {
                 .clone(),
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
-            exit_at_block_height: exit_at_block_height.cloned(),
+            exit_at_block_height: exit_at_block_height,
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
@@ -269,18 +270,17 @@ impl RPCPoxInfoData {
     ) -> Result<RPCPoxInfoData, net_error> {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
-
-        let current_burn_height = chainstate
-            .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
-                clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    clarity_db.get_current_burnchain_block_height() as u64
-                })
-            })
-            .ok_or(net_error::NotFoundError)?;
+        let current_burn_height =
+            SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?.block_height;
 
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(current_burn_height);
+
+        debug!(
+            "Active PoX contract is '{}' (current_burn_height = {}, v1_unlock_height = {}",
+            &pox_contract_name, current_burn_height, burnchain.pox_constants.v1_unlock_height
+        );
 
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
@@ -306,7 +306,7 @@ impl RPCPoxInfoData {
                 clarity_tx.with_readonly_clarity_env(
                     mainnet,
                     chain_id,
-                    ClarityVersion::Clarity1,
+                    ClarityVersion::Clarity2,
                     sender,
                     None,
                     cost_track,
@@ -703,7 +703,7 @@ impl ConversationHttp {
         let pi = RPCPeerInfoData::from_network(
             network,
             chainstate,
-            &handler_args.exit_at_block_height,
+            handler_args.exit_at_block_height.clone(),
             &handler_args.genesis_chainstate_hash,
         );
         let response = HttpResponseType::PeerInfo(response_metadata, pi);
@@ -2006,6 +2006,7 @@ impl ConversationHttp {
         attachment: Option<Attachment>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         canonical_stacks_tip_height: u64,
+        ast_rules: ASTRules,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata =
@@ -2029,28 +2030,48 @@ impl ConversationHttp {
                     net_error::ChainstateError("Could not load Stacks epoch for canonical burn height".into())
                 })?;
 
-            match mempool.submit(
-                chainstate,
-                &consensus_hash,
-                &block_hash,
-                &tx,
-                event_observer,
-                &stacks_epoch.block_limit,
-                &stacks_epoch.epoch_id,
-            ) {
-                Ok(_) => {
-                    debug!("Mempool accepted POSTed transaction {}", &txid);
-                    (
-                        HttpResponseType::TransactionID(response_metadata, txid),
-                        true,
-                    )
-                }
-                Err(e) => {
-                    debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
-                    (
-                        HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
-                        false,
-                    )
+            if Relayer::do_static_problematic_checks()
+                && !Relayer::static_check_problematic_relayed_tx(
+                    chainstate.mainnet,
+                    stacks_epoch.epoch_id,
+                    &tx,
+                    ast_rules,
+                )
+                .is_ok()
+            {
+                debug!(
+                    "Transaction {} is problematic in rules {:?}; will not store or relay",
+                    &tx.txid(),
+                    ast_rules
+                );
+                (
+                    HttpResponseType::TransactionID(response_metadata, txid),
+                    false,
+                )
+            } else {
+                match mempool.submit(
+                    chainstate,
+                    &consensus_hash,
+                    &block_hash,
+                    &tx,
+                    event_observer,
+                    &stacks_epoch.block_limit,
+                    &stacks_epoch.epoch_id,
+                ) {
+                    Ok(_) => {
+                        debug!("Mempool accepted POSTed transaction {}", &txid);
+                        (
+                            HttpResponseType::TransactionID(response_metadata, txid),
+                            true,
+                        )
+                    }
+                    Err(e) => {
+                        debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                        (
+                            HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
+                            false,
+                        )
+                    }
                 }
             }
         };
@@ -2199,13 +2220,59 @@ impl ConversationHttp {
         req: &HttpRequestType,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
+        sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         microblock: &StacksMicroblock,
         canonical_stacks_tip_height: u64,
     ) -> Result<bool, net_error> {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
-        let (response, accepted) =
+
+        // make sure we can accept this
+        let ch_sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash) {
+            Ok(Some(sn)) => sn,
+            Ok(None) => {
+                let resp = HttpResponseType::NotFound(
+                    response_metadata,
+                    "No such consensus hash".to_string(),
+                );
+                return resp.send(http, fd).and_then(|_| Ok(false));
+            }
+            Err(e) => {
+                let resp = HttpResponseType::BadRequestJSON(
+                    response_metadata,
+                    chain_error::DBError(e).into_json(),
+                );
+                return resp.send(http, fd).and_then(|_| Ok(false));
+            }
+        };
+
+        let sort_handle = sortdb.index_handle(&ch_sn.sortition_id);
+        let parent_block_snapshot =
+            Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)?;
+        let ast_rules =
+            SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)?;
+        let epoch_id =
+            SortitionDB::get_stacks_epoch(&sort_handle, parent_block_snapshot.block_height)?
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
+
+        let (response, accepted) = if !Relayer::static_check_problematic_relayed_microblock(
+            chainstate.mainnet,
+            epoch_id,
+            microblock,
+            ast_rules,
+        ) {
+            info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &block_hash);
+            (
+                // NOTE: txid is ignored in chainstate error .into_json()
+                HttpResponseType::BadRequestJSON(
+                    response_metadata,
+                    chain_error::ProblematicTransaction(Txid([0u8; 32])).into_json(),
+                ),
+                false,
+            )
+        } else {
             match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, microblock)
             {
                 Ok(accepted) => {
@@ -2237,7 +2304,8 @@ impl ConversationHttp {
                     HttpResponseType::BadRequestJSON(response_metadata, e.into_json()),
                     false,
                 ),
-            };
+            }
+        };
 
         response.send(http, fd).and_then(|_| Ok(accepted))
     }
@@ -2644,6 +2712,7 @@ impl ConversationHttp {
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
                             network.burnchain_tip.canonical_stacks_tip_height,
+                            network.ast_rules,
                         )?;
                         if accepted {
                             // forward to peer network
@@ -2738,6 +2807,7 @@ impl ConversationHttp {
                             &req,
                             &consensus_hash,
                             &block_hash,
+                            sortdb,
                             chainstate,
                             mblock,
                             network.burnchain_tip.canonical_stacks_tip_height,
@@ -4129,7 +4199,7 @@ mod test {
                 let peer_info = RPCPeerInfoData::from_network(
                     &peer_server.network,
                     &peer_server.stacks_node.as_ref().unwrap().chainstate,
-                    &None,
+                    None,
                     &Sha256Sum::zero(),
                 );
 

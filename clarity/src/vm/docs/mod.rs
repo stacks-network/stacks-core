@@ -521,7 +521,13 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "pow ${1:expr-1} ${2:expr-2}",
     signature: "(pow i1 i2)",
-    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.",
+    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.
+Note: Corner cases are handled with the following rules:
+  * if both `i1` and `i2` are `0`, return `1`
+  * if `i1` is `1`, return `1`
+  * if `i1` is `0`, return `0`
+  * if `i2` is `1`, return `i1`
+  * if `i2` is negative or greater than `u32::MAX`, throw a runtime error",
     example: "(pow 2 3) ;; Returns 8
 (pow 2 2) ;; Returns 4
 (pow 7 1) ;; Returns 7
@@ -2204,6 +2210,28 @@ to deserialize the type, the method returns `none`.
 "#,
 };
 
+const REPLACE_AT: SpecialAPI = SpecialAPI {
+    input_type: "sequence_A, uint, A",
+    output_type: "(optional sequence_A)",
+    snippet: "replace-at ${1:sequence} ${2:index} ${3:element}",
+    signature: "(replace-at sequence index element)",
+    description: "The `replace-at` function takes in a sequence, an index, and an element, 
+and returns a new sequence with the data at the index position replaced with the given element. 
+The given element's type must match the type of the sequence, and must correspond to a single 
+index of the input sequence. The return type on success is the same type as the input sequence. 
+
+If the provided index is out of bounds, this functions returns `none`.
+",
+    example: r#"
+(replace-at u"ab" u1 u"c") ;; Returns (some u"ac")
+(replace-at 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
+(replace-at "abcd" u3 "e") ;; Returns (some "abce")
+(replace-at (list 1) u0 10) ;; Returns (some (10))
+(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
+(replace-at (list 1 2) u3 4) ;; Returns none
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2307,6 +2335,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         StxBurn => make_for_simple_native(&STX_BURN, &StxBurn, name),
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
+        ReplaceAt => make_for_special(&REPLACE_AT, function),
     }
 }
 
@@ -2439,6 +2468,7 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
+    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
     use stacks_common::consts::CHAIN_ID_TESTNET;
 
@@ -2561,6 +2591,9 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+        fn get_ast_rules(&self, height: u32) -> ASTRules {
+            ASTRules::PrecheckSize
         }
         fn get_pox_payout_addrs(
             &self,
@@ -2830,11 +2863,21 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content, None)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    &token_contract_content,
+                    None,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    None,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;
