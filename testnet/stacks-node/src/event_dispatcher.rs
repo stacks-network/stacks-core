@@ -700,7 +700,7 @@ impl EventDispatcher {
                     .iter()
                     .map(|reward| {
                         json!({
-                            "recipient": reward.address.to_string(),
+                            "recipient": reward.recipient.to_string(),
                             "coinbase_amount": reward.coinbase.to_string(),
                             "tx_fees_anchored": reward.tx_fees_anchored.to_string(),
                             "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),

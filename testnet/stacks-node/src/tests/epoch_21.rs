@@ -536,12 +536,13 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let alt_account_before = get_account(&http_origin, &target_principal_address);
 
+    info!("alt_account_before {:?}", &alt_account_before);
     for _i in 0..stacks_common::consts::MINER_REWARD_MATURITY + 1 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
 
     let alt_account_after = get_account(&http_origin, &target_principal_address);
-
+    info!("alt_account_after {:?}", &alt_account_after);
     assert!(alt_account_before.balance < alt_account_after.balance);
 
     test_observer::clear();

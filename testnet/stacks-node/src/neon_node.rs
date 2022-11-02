@@ -2797,19 +2797,19 @@ impl RelayerThread {
         last_burn_block: BlockSnapshot,
         issue_timestamp_ms: u128,
     ) -> Option<BlockMinerThread> {
-        if self
-            .globals
-            .get_miner_status()
-            .lock()
-            .expect("FATAL: mutex poisoned")
-            .is_blocked()
-        {
-            info!(
-                "Relayer: miner is blocked as of {}; cannot mine Stacks block at this time",
-                &last_burn_block.burn_header_hash
-            );
-            return None;
-        }
+        // if self
+        //     .globals
+        //     .get_miner_status()
+        //     .lock()
+        //     .expect("FATAL: mutex poisoned")
+        //     .is_blocked()
+        // {
+        //     info!(
+        //         "Relayer: miner is blocked as of {}; cannot mine Stacks block at this time",
+        //         &last_burn_block.burn_header_hash
+        //     );
+        //     return None;
+        // }
 
         // start a new tenure
         if let Some(cur_sortition) = self.globals.get_last_sortition() {

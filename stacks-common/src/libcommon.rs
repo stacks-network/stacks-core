@@ -67,5 +67,5 @@ pub mod consts {
     pub const MINER_REWARD_MATURITY: u64 = 2; // small for testing purposes
 
     #[cfg(not(any(test, feature = "testing")))]
-    pub const MINER_REWARD_MATURITY: u64 = 100;
+    pub const MINER_REWARD_MATURITY: u64 = 2;
 }
