@@ -276,13 +276,6 @@
 (define-read-only (get-reward-set-pox-address (reward-cycle uint) (index uint))
     (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: index }))
 
-(define-private (set-uint-at (in-list (list 12 uint)) (index uint) (value uint))
-    (unwrap-panic (as-max-len? 
-        (concat (append (default-to (list) (slice in-list u0 index))
-                    value)
-                (default-to (list) (slice in-list (+ u1 index) (len in-list))))
-        u12)))
-
 (define-private (fold-unlock-reward-cycle (set-index uint)
                                           (data-res (response { cycle: uint,
                                                       first-unlocked-cycle: uint,
@@ -311,7 +304,7 @@
                            (moved-cycle-index (- cycle (get first-reward-cycle moved-state)))
                            (moved-reward-list (get reward-set-indexes moved-state))
                            ;; reward-set-indexes[moved-cycle-index] = set-index via slice, append, concat.
-                           (update-list (set-uint-at moved-reward-list moved-cycle-index set-index)))
+                           (update-list (unwrap-panic (replace-at moved-reward-list moved-cycle-index set-index))))
                           (map-set stacking-state { stacker: moved-stacker }
                                    (merge moved-state { reward-set-indexes: update-list })))
                      ;; otherwise, we dont need to update stacking-state after move
@@ -606,6 +599,13 @@
 
       ;; delegate-stx no longer requires the delegator to not currently
       ;;  be stacking.
+
+      ;; pox-addr, if given, must be valid
+      (match pox-addr
+         address
+            (asserts! (check-pox-addr-version (get version address))
+                (err ERR_STACKING_INVALID_POX_ADDRESS))
+         true)
 
       ;; tx-sender must not be delegating
       (asserts! (is-none (get-check-delegation tx-sender))

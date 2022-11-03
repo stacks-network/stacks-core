@@ -25,6 +25,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use clarity::types::chainstate::SortitionId;
+use clarity::vm::ast::ASTRules;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
@@ -66,7 +67,6 @@ use crate::util_lib::db::{
 use crate::util_lib::strings::StacksString;
 pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
@@ -1507,7 +1507,7 @@ impl StacksChainState {
                 }
             }
 
-            test_debug!(
+            debug!(
                 "Loaded microblock {}/{}-{} (parent={}, expect_seq={})",
                 &parent_consensus_hash,
                 &parent_anchored_block_hash,
@@ -1539,6 +1539,16 @@ impl StacksChainState {
             }
         }
         ret.reverse();
+
+        if ret.len() > 0 {
+            // should start with 0
+            if ret[0].header.sequence != 0 {
+                warn!("Invalid microblock stream from {}/{} to {}: sequence does not start with 0, but with {}",
+                      parent_consensus_hash, parent_anchored_block_hash, tip_microblock_hash, ret[0].header.sequence);
+
+                return Ok(None);
+            }
+        }
         Ok(Some(ret))
     }
 
@@ -1623,10 +1633,11 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let mut ret = vec![];
+        let mut ret: Vec<StacksMicroblock> = vec![];
         let mut tip: Option<StacksMicroblock> = None;
         let mut fork_poison = None;
         let mut expected_sequence = start_seq;
+        let mut parents: HashMap<BlockHeaderHash, usize> = HashMap::new();
 
         // load associated staging microblock data, but best-effort.
         // Stop loading once we find a fork juncture.
@@ -1663,6 +1674,22 @@ impl StacksChainState {
                 break;
             }
 
+            if let Some(idx) = parents.get(&mblock.header.prev_block) {
+                let conflict = ret[*idx].clone();
+                warn!(
+                    "Microblock fork found: microblocks {} and {} share parent {}",
+                    mblock.block_hash(),
+                    conflict.block_hash(),
+                    &mblock.header.prev_block
+                );
+                fork_poison = Some(TransactionPayload::PoisonMicroblock(
+                    mblock.header,
+                    conflict.header,
+                ));
+                ret.pop(); // last microblock pushed (i.e. the tip) conflicts with mblock
+                break;
+            }
+
             // expect forks, so expected_sequence may not always increase
             expected_sequence =
                 cmp::min(mblock.header.sequence, expected_sequence).saturating_add(1);
@@ -1683,6 +1710,10 @@ impl StacksChainState {
             }
 
             tip = Some(mblock.clone());
+
+            let prev_block = mblock.header.prev_block.clone();
+            parents.insert(prev_block, ret.len());
+
             ret.push(mblock);
         }
         if fork_poison.is_none() && ret.len() == 0 {
@@ -2066,7 +2097,6 @@ impl StacksChainState {
     /// The query takes the consensus hash and block hash of a block that _produced_ this stream.
     /// Return Some(processed) if the microblock is queued up.
     /// Return None if the microblock is not queued up.
-    #[cfg(test)]
     pub fn get_microblock_status(
         &self,
         parent_consensus_hash: &ConsensusHash,
@@ -3460,6 +3490,20 @@ impl StacksChainState {
         Ok(count - to_write)
     }
 
+    /// Check whether or not there exists a Stacks block at or higher than a given height that is
+    /// unprocessed.  This is used by miners to determine whether or not the block-commit they're
+    /// about to send is about to be invalidated
+    pub fn has_higher_unprocessed_blocks(conn: &DBConn, height: u64) -> Result<bool, Error> {
+        let sql =
+            "SELECT 1 FROM staging_blocks WHERE orphaned = 0 AND processed = 0 AND height >= ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        let res = conn
+            .query_row(sql, args, |_r| Ok(()))
+            .optional()
+            .map(|x| x.is_some())?;
+        Ok(res)
+    }
+
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
         microblocks: &Vec<StacksMicroblock>,
@@ -3812,6 +3856,49 @@ impl StacksChainState {
         Ok(Some((block_commit.burn_fee, sortition_burns)))
     }
 
+    /// Do we already have an anchored block?
+    pub fn has_anchored_block(
+        conn: &DBConn,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+    ) -> Result<bool, Error> {
+        let index_block_hash =
+            StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
+        if StacksChainState::has_stored_block(
+            &conn,
+            blocks_path,
+            consensus_hash,
+            &block.block_hash(),
+        )? {
+            debug!(
+                "Block already stored and processed: {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        } else if StacksChainState::has_staging_block(conn, consensus_hash, &block.block_hash())? {
+            debug!(
+                "Block already stored (but not processed): {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
+            debug!(
+                "Block already stored to chunk store: {}/{} ({})",
+                consensus_hash,
+                &block.block_hash(),
+                &index_block_hash
+            );
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Pre-process and store an anchored block to staging, queuing it up for
     /// subsequent processing once all of its ancestors have been processed.
     ///
@@ -3854,43 +3941,21 @@ impl StacksChainState {
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
         let blocks_path = self.blocks_path.clone();
+
+        // optimistic check (before opening a tx): already in queue or already processed?
+        if StacksChainState::has_anchored_block(
+            self.db(),
+            &self.blocks_path,
+            consensus_hash,
+            block,
+        )? {
+            return Ok(false);
+        }
+
         let mut block_tx = self.db_tx_begin()?;
 
-        // already in queue or already processed?
-        let index_block_hash =
-            StacksBlockHeader::make_index_block_hash(consensus_hash, &block.block_hash());
-        if StacksChainState::has_stored_block(
-            &block_tx,
-            &blocks_path,
-            consensus_hash,
-            &block.block_hash(),
-        )? {
-            debug!(
-                "Block already stored and processed: {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_staging_block(
-            &block_tx,
-            consensus_hash,
-            &block.block_hash(),
-        )? {
-            debug!(
-                "Block already stored (but not processed): {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
-            return Ok(false);
-        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
-            debug!(
-                "Block already stored to chunk store: {}/{} ({})",
-                consensus_hash,
-                &block.block_hash(),
-                &index_block_hash
-            );
+        // already in queue or already processed (within the tx; things might have changed)
+        if StacksChainState::has_anchored_block(&block_tx, &blocks_path, consensus_hash, block)? {
             return Ok(false);
         }
 
@@ -4519,6 +4584,7 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &Vec<StacksMicroblock>,
+        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
@@ -4527,7 +4593,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4759,13 +4825,14 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
         mut tx_index: u32,
+        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
@@ -5147,6 +5214,12 @@ impl StacksChainState {
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
 
+        let parent_burn_height =
+            SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?
+                .expect("Failed to get snapshot for parent's sortition")
+                .block_height;
+        let microblock_ast_rules = SortitionDB::get_ast_rules(conn, parent_burn_height)?;
+
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
             let latest_miners = StacksChainState::get_scheduled_block_rewards(
@@ -5244,6 +5317,7 @@ impl StacksChainState {
             match StacksChainState::process_microblocks_transactions(
                 &mut clarity_tx,
                 &parent_microblocks,
+                microblock_ast_rules,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
                 Err((e, mblock_header_hash)) => {
@@ -5417,6 +5491,9 @@ impl StacksChainState {
             &block.block_hash().to_hex(),
             block.txs.len()
         );
+
+        let ast_rules =
+            SortitionDB::get_ast_rules(burn_dbconn.tx(), chain_tip_burn_header_height.into())?;
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
@@ -5611,6 +5688,7 @@ impl StacksChainState {
                     &mut clarity_tx,
                     &block,
                     microblock_txs_receipts.len() as u32,
+                    ast_rules,
                 ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
@@ -6758,6 +6836,7 @@ pub mod test {
 
     use super::*;
 
+    use clarity::vm::ast::ASTRules;
     use clarity::vm::types::StacksAddressExtensions;
 
     use serde_json;
@@ -10816,6 +10895,7 @@ pub mod test {
                             &microblock_privkey,
                             &anchored_block.0.block_hash(),
                             microblocks.last().map(|mblock| &mblock.header),
+                            ASTRules::PrecheckSize,
                         )
                         .unwrap();
                         microblocks.push(microblock);

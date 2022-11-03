@@ -32,10 +32,58 @@ This release will contain consensus-breaking changes.
   stacks-node uses for logging.
   Example: `STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node`
 
+## [2.05.0.5.0]
+
 ### Changed
-- Updates to the logging of transaction events (#3139).
+
+- The new minimum Rust version is 1.61
+- The act of walking the mempool will now cache address nonces in RAM and to a
+  temporary mempool table used for the purpose, instead of unconditionally
+querying them from the chainstate MARF.  This builds upon improvements to mempool
+goodput over 2.05.0.4.0 (#3337).
+- The node and miner implementation has been refactored to remove write-lock
+  contention that can arise when the node's chains-coordinator thread attempts to store and
+process newly-discovered (or newly-mined) blocks, and when the node's relayer
+thread attempts to mine a new block.  In addition, the miner logic has been
+moved to a separate thread in order to avoid starving the relayer thread (which
+must handle block and transaction propagation, as well as block-processing).
+The refactored miner thread will be preemptively terminated and restarted
+by the arrival of new Stacks blocks or burnchain blocks, which further
+prevents the miner from holding open write-locks in the underlying
+chainstate databases when there is new chain data to discover (which would
+invalidate the miner's work anyway).  (#3335).
 
 ### Fixed
+
+- Fixed `pow` documentation in Clarity (#3338).
+- Backported unit tests that were omitted in the 2.05.0.3.0 release (#3348).
+
+## [2.05.0.4.0]
+
+### Fixed
+
+- Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
+  query for choosing transactions in order by estimated fee rate.  This
+drastically speeds up mempool transaction iteration in the miner (#3314)
+
+
+## [2.05.0.3.0]
+
+### Added
+
+- Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+  stacks-node uses for logging. (#3219)
+  Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
+- Added mock-miner sample config (#3225)
+
+### Changed
+
+- Updates to the logging of transaction events (#3139).
+- Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
+
+### Fixed
+
 - Make it so that a new peer private key in the config file will propagate to
   the peer database (#3165).
 - Fixed default miner behavior regarding block assembly
@@ -49,6 +97,10 @@ This release will contain consensus-breaking changes.
   from sockets, but instead propagate them to the outer caller. This would lead
   to a node crash in nodes connected to event observers, which expect the P2P
   state machine to only report fatal errors (#3228)
+- Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
+- Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+- Ignore blocks that include problematic transactions
+
 
 ## [2.05.0.2.1]
 
