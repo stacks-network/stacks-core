@@ -226,8 +226,5 @@ fn rotate_vrf_keypair_fixed_value_test() {
     let mut keychain = Keychain::default(vec![0; 32]);
     let new_vrf_pubkey = keychain.rotate_vrf_keypair(201);
     // saved from bitcoind_integration_test
-    assert_eq!(
-        "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6",
-        new_vrf_pubkey.to_hex()
-    );
+    assert_eq!("63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6", new_vrf_pubkey.to_hex());
 }
