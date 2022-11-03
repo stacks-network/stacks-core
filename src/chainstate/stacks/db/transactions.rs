@@ -9243,7 +9243,7 @@ pub mod test {
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,,
+            &signed_runtime_checkerror_tx_clar1,
             false,
             ASTRules::PrecheckSize,
         )
@@ -9322,7 +9322,7 @@ pub mod test {
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
-            &signed_runtime_checkerror_tx_clar1,,
+            &signed_runtime_checkerror_tx_clar1,
             false,
             ASTRules::PrecheckSize,
         )
@@ -9392,6 +9392,7 @@ pub mod test {
             &mut conn,
             &signed_runtime_checkerror_trait_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9400,6 +9401,7 @@ pub mod test {
             &mut conn,
             &signed_runtime_checkerror_impl_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9408,6 +9410,7 @@ pub mod test {
             &mut conn,
             &signed_runtime_checkerror_tx_clar2,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9416,6 +9419,7 @@ pub mod test {
             &mut conn,
             &signed_test_trait_checkerror_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9435,6 +9439,7 @@ pub mod test {
             &mut conn,
             &signed_runtime_checkerror_cc_contract_tx_clar2,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
@@ -9623,17 +9628,31 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -9654,17 +9673,31 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -9674,8 +9707,13 @@ pub mod test {
             _ => panic!("expected the contract publish to fail"),
         }
 
-        let err = StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-            .unwrap_err();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             check_error,
         ))) = err
@@ -9695,17 +9733,31 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -9726,22 +9778,40 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
-                .unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar2,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -9975,29 +10045,49 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-            .unwrap_err();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             check_error,
         ))) = err
@@ -10018,29 +10108,49 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let err = StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-            .unwrap_err();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             check_error,
         ))) = err
@@ -10060,30 +10170,49 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -10108,30 +10237,49 @@ pub mod test {
             &BlockHeaderHash([4u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar1_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar2,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_test_call_foo_tx, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_test_call_foo_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -10156,25 +10304,40 @@ pub mod test {
             &BlockHeaderHash([5u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar2, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar2,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
@@ -10195,25 +10358,40 @@ pub mod test {
             &BlockHeaderHash([6u8; 32]),
         );
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_trait_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_trait_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
         let (fee, _) = StacksChainState::process_transaction(
             &mut conn,
             &signed_transitive_trait_clar2_tx,
             false,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_foo_impl_tx, false).unwrap();
+        let (fee, _) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_foo_impl_tx,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, tx_receipt) =
-            StacksChainState::process_transaction(&mut conn, &signed_call_foo_tx_clar1, false)
-                .unwrap();
+        let (fee, tx_receipt) = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_foo_tx_clar1,
+            false,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap();
         assert_eq!(fee, 1);
         match tx_receipt.result {
             Value::Response(ResponseData {
