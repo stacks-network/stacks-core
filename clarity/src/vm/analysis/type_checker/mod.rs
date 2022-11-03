@@ -311,6 +311,23 @@ impl FunctionType {
         depth: u8,
         clarity_version: ClarityVersion,
     ) -> TypeResult {
+        if clarity_version >= ClarityVersion::Clarity2 {
+            // In Clarity2, we recurse into complex data types
+            self.clarity2_principal_to_callable_type(value, depth)
+        } else {
+            // In Clarity1, we just need to convert the top-level principal
+            Ok(match value {
+                Value::Principal(PrincipalData::Contract(contract_identifier)) => {
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        contract_identifier.clone(),
+                    ))
+                }
+                _ => TypeSignature::type_of(value),
+            })
+        }
+    }
+
+    fn clarity2_principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
         if depth > MAX_TYPE_DEPTH {
             return Err(CheckErrors::TypeSignatureTooDeep.into());
         }
@@ -321,21 +338,19 @@ impl FunctionType {
             }
             Value::Optional(OptionalData {
                 data: Some(inner_value),
-            }) if clarity_version >= ClarityVersion::Clarity2 => TypeSignature::new_option(
-                self.principal_to_callable_type(inner_value, depth + 1, clarity_version)?,
+            }) => TypeSignature::new_option(
+                self.clarity2_principal_to_callable_type(inner_value, depth + 1)?,
             )?,
-            Value::Response(ResponseData { committed, data })
-                if clarity_version >= ClarityVersion::Clarity2 =>
-            {
+            Value::Response(ResponseData { committed, data }) => {
                 let (ok_type, err_type) = if *committed {
                     (
-                        self.principal_to_callable_type(data, depth + 1, clarity_version)?,
+                        self.clarity2_principal_to_callable_type(data, depth + 1)?,
                         TypeSignature::NoType,
                     )
                 } else {
                     (
                         TypeSignature::NoType,
-                        self.principal_to_callable_type(data, depth + 1, clarity_version)?,
+                        self.clarity2_principal_to_callable_type(data, depth + 1)?,
                     )
                 };
                 TypeSignature::new_response(ok_type, err_type)?
@@ -343,10 +358,10 @@ impl FunctionType {
             Value::Sequence(SequenceData::List(ListData {
                 data,
                 type_signature: _,
-            })) if clarity_version >= ClarityVersion::Clarity2 => {
+            })) => {
                 let inner_type = match data.first() {
                     Some(inner_val) => {
-                        self.principal_to_callable_type(inner_val, depth + 1, clarity_version)?
+                        self.clarity2_principal_to_callable_type(inner_val, depth + 1)?
                     }
                     None => TypeSignature::NoType,
                 };
@@ -358,12 +373,12 @@ impl FunctionType {
             Value::Tuple(TupleData {
                 type_signature: _,
                 data_map,
-            }) if clarity_version >= ClarityVersion::Clarity2 => {
+            }) => {
                 let mut type_map = BTreeMap::new();
                 for (name, field_value) in data_map {
                     type_map.insert(
                         name.clone(),
-                        self.principal_to_callable_type(field_value, depth + 1, clarity_version)?,
+                        self.clarity2_principal_to_callable_type(field_value, depth + 1)?,
                     );
                 }
                 TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
