@@ -33,7 +33,7 @@ use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
@@ -3621,4 +3621,175 @@ fn test_get_pox_addrs() {
     for (rw_addr, _) in all_reward_addrs.into_iter() {
         assert!(paid_out.contains(&rw_addr));
     }
+}
+
+/// Verify that delegate-stx validates the PoX addr, if given
+#[test]
+fn test_pox_2_delegate_stx_addr_validation() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+    let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
+
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test-pox-2-delegate-stx-addr",
+        6100,
+        Some(epochs.clone()),
+        None,
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let mut coinbase_nonce = 0;
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let charlie = keys.pop().unwrap();
+    let danielle = keys.pop().unwrap();
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
+
+    for _i in 0..20 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let cur_reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    // alice delegates to charlie in v2 to a valid address
+    let alice_delegation = make_pox_2_contract_call(
+        &alice,
+        0,
+        "delegate-stx",
+        vec![
+            Value::UInt(LOCKUP_AMT),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::some(make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                alice_address.bytes.clone(),
+            ))
+            .unwrap(),
+        ],
+    );
+
+    let bob_bad_pox_addr = Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                ClarityName::try_from("version".to_owned()).unwrap(),
+                Value::buff_from_byte(0xff),
+            ),
+            (
+                ClarityName::try_from("hashbytes".to_owned()).unwrap(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: bob_address.bytes.as_bytes().to_vec(),
+                })),
+            ),
+        ])
+        .unwrap(),
+    );
+
+    // bob delegates to charlie in v2 with an invalid address
+    let bob_delegation = make_pox_2_contract_call(
+        &bob,
+        0,
+        "delegate-stx",
+        vec![
+            Value::UInt(LOCKUP_AMT),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::some(bob_bad_pox_addr).unwrap(),
+        ],
+    );
+
+    peer.tenure_with_txs(&[alice_delegation, bob_delegation], &mut coinbase_nonce);
+
+    let result = eval_at_tip(
+        &mut peer,
+        "pox-2",
+        &format!(
+            "
+    {{
+        ;; should be (some $charlie_address)
+        get-delegation-info-alice: (get-delegation-info '{}),
+        ;; should be none
+        get-delegation-info-bob: (get-delegation-info '{}),
+    }}",
+            &alice_address, &bob_address,
+        ),
+    );
+
+    eprintln!("{}", &result);
+    let data = result.expect_tuple().data_map;
+
+    // bob had an invalid PoX address
+    let bob_delegation_info = data
+        .get("get-delegation-info-bob")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert!(bob_delegation_info.is_none());
+
+    // alice was valid
+    let alice_delegation_info = data
+        .get("get-delegation-info-alice")
+        .cloned()
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .expect_tuple()
+        .data_map;
+    let alice_delegation_addr = alice_delegation_info
+        .get("delegated-to")
+        .cloned()
+        .unwrap()
+        .expect_principal();
+    let alice_delegation_amt = alice_delegation_info
+        .get("amount-ustx")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    let alice_pox_addr_opt = alice_delegation_info
+        .get("pox-addr")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert_eq!(
+        alice_delegation_addr,
+        charlie_address.to_account_principal()
+    );
+    assert_eq!(alice_delegation_amt, LOCKUP_AMT as u128);
+    assert!(alice_pox_addr_opt.is_some());
+
+    let alice_pox_addr = alice_pox_addr_opt.unwrap();
+
+    assert_eq!(
+        alice_pox_addr,
+        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
+    );
 }
