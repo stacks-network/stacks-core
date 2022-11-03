@@ -943,6 +943,7 @@ fn test_index_of() {
         "(index-of \"abcd\" \"z\")",
         "(index-of u\"abcd\" u\"e\")",
         "(index-of 0xfedb 0x01)",
+        "(index-of (list (list 1) (list 2)) (list))",
     ];
 
     let expected = "(optional uint)";
@@ -960,6 +961,7 @@ fn test_index_of() {
         "(index-of 0xfedb \"a\")",
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
+        "(index-of (list (list 1) (list 2)) (list 33 44))",
     ];
 
     let bad_expected = [
@@ -976,6 +978,10 @@ fn test_index_of() {
         CheckErrors::TypeError(
             TypeSignature::min_string_ascii(),
             TypeSignature::min_string_utf8(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 2).unwrap(),
         ),
     ];
 
@@ -1465,6 +1471,7 @@ fn test_replace_at_list() {
         "(replace-at (list (list 1) (list 2)) u0 (list 33))",
         "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
         "(replace-at (list (list 1 2 3)) u0 (list 0))",
+        "(replace-at (list (list 1) (list 2)) u0 (list))",
     ];
     let expected = [
         "(optional (list 7 int))",
@@ -1474,6 +1481,7 @@ fn test_replace_at_list() {
         "(optional (list 2 (list 1 int)))",
         "(optional (list 2 (list 2 int)))",
         "(optional (list 1 (list 3 int)))",
+        "(optional (list 2 (list 1 int)))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -3442,5 +3450,88 @@ fn test_tuple_arg() {
     ];
     for bad_test in bad_contracts.iter() {
         mem_type_check(&bad_test).unwrap_err();
+    }
+}
+
+#[apply(test_clarity_versions_type_checker)]
+fn test_list_arg(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1 2 3)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list)))
+        ",
+    ];
+
+    for good_test in good.iter() {
+        assert!(mem_run_analysis(&good_test, version, epoch).is_ok());
+    }
+
+    let bad = [
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1 2 3 4)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list u1)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list (list))))
+        ",
+    ];
+    let bad_expected = [
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::UIntType, 1).unwrap(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(), 1)
+                .unwrap(),
+        ),
+    ];
+    let bad_expected2 = [
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
+        ),
+        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::TypeError(
+            TypeSignature::IntType,
+            TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(),
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(
+        if version == ClarityVersion::Clarity1 {
+            bad_expected
+        } else {
+            bad_expected2
+        }
+        .iter(),
+    ) {
+        assert_eq!(
+            expected,
+            &mem_run_analysis(&bad_test, version, epoch).unwrap_err().err
+        );
     }
 }

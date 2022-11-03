@@ -577,14 +577,20 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::SequenceType(SequenceSubtype::ListType(atom_list_type)),
             TypeSignature::SequenceType(SequenceSubtype::ListType(expected_list_type)),
         ) => {
-            clarity2_inner_type_check_type(
-                db,
-                contract_context,
-                atom_list_type.get_list_item_type(),
-                expected_list_type.get_list_item_type(),
-                depth + 1,
-                tracker,
-            )?;
+            if atom_list_type.get_max_len() <= expected_list_type.get_max_len() {
+                clarity2_inner_type_check_type(
+                    db,
+                    contract_context,
+                    atom_list_type.get_list_item_type(),
+                    expected_list_type.get_list_item_type(),
+                    depth + 1,
+                    tracker,
+                )?;
+            } else {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
         }
         (
             TypeSignature::TupleType(atom_tuple_type),
