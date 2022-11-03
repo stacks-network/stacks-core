@@ -1379,12 +1379,14 @@ fn test_pass_trait_to_subtrait(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1434,12 +1436,14 @@ fn test_embedded_trait(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1497,12 +1501,14 @@ fn test_pass_embedded_trait_to_subtrait_optional(owned_env: &mut OwnedEnvironmen
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1559,12 +1565,14 @@ fn test_pass_embedded_trait_to_subtrait_ok(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1621,12 +1629,14 @@ fn test_pass_embedded_trait_to_subtrait_err(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1683,12 +1693,14 @@ fn test_pass_embedded_trait_to_subtrait_list(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1748,12 +1760,14 @@ fn test_pass_embedded_trait_to_subtrait_list_option(owned_env: &mut OwnedEnviron
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1813,12 +1827,14 @@ fn test_pass_embedded_trait_to_subtrait_option_list(owned_env: &mut OwnedEnviron
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1867,12 +1883,14 @@ fn test_let_trait(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1925,12 +1943,14 @@ fn test_let3_trait(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1976,12 +1996,14 @@ fn test_pass_principal_literal_to_trait(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
