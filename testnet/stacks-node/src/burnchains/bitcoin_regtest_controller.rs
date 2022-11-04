@@ -31,7 +31,9 @@ use stacks::burnchains::Error as burnchain_error;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::PublicKey;
 use stacks::burnchains::{
-    bitcoin::address::{BitcoinAddress, BitcoinAddressType},
+    bitcoin::address::{
+        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+    },
     Txid,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
@@ -43,7 +45,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::codec::StacksMessageCodec;
-use stacks::core::StacksEpoch;
+use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::util::hash::{hex_bytes, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::sleep_ms;
@@ -53,7 +55,9 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize as btc_deserialize, RawEncoder,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
@@ -105,6 +109,23 @@ struct LeaderBlockCommitFees {
     spent_in_attempts: u64,
     is_rbf_enabled: bool,
     final_size: u64,
+}
+
+#[cfg(test)]
+pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
+    if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
+        // regtest segwit addresses use a different hrp
+        let s = segwit_addr.to_bech32_hrp("bcrt");
+        warn!("Re-encoding {} to {}", &segwit_addr, &s);
+        s
+    } else {
+        format!("{}", &btc_addr)
+    }
+}
+
+#[cfg(not(test))]
+pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
+    format!("{}", &btc_addr)
 }
 
 impl LeaderBlockCommitFees {
@@ -527,23 +548,32 @@ impl BitcoinRegtestController {
 
     #[cfg(test)]
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
-        // Configure UTXO filter
-        let pkh = Hash160::from_data(&public_key.to_bytes())
-            .to_bytes()
-            .to_vec();
-        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
-        let address =
-            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                .expect("Public key incorrect");
-        let filter_addresses = vec![address.to_b58()];
-        let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+        // Configure UTXO filter, disregard what epoch we're in
+        let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
+        let filter_addresses = vec![addr2str(&address)];
+
+        let pubk = if self.config.miner.segwit {
+            let mut p = public_key.clone();
+            p.set_compressed(true);
+            p
+        } else {
+            public_key.clone()
+        };
+
+        test_debug!("Import public key '{}'", &pubk.to_hex());
+        let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
 
         sleep_ms(1000);
 
-        let min_conf = 0;
-        let max_conf = 9999999;
+        let min_conf = 0i64;
+        let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
 
+        test_debug!(
+            "List unspent for '{}' ('{}')",
+            &addr2str(&address),
+            pubk.to_hex()
+        );
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
             params: vec![
@@ -623,6 +653,7 @@ impl BitcoinRegtestController {
 
     pub fn get_utxos(
         &self,
+        epoch_id: StacksEpochId,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
         utxos_to_exclude: Option<UTXOSet>,
@@ -633,15 +664,17 @@ impl BitcoinRegtestController {
             return None;
         }
 
+        let pubk = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
+            let mut p = public_key.clone();
+            p.set_compressed(true);
+            p
+        } else {
+            public_key.clone()
+        };
+
         // Configure UTXO filter
-        let pkh = Hash160::from_data(&public_key.to_bytes())
-            .to_bytes()
-            .to_vec();
-        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
-        let address =
-            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                .expect("Public key incorrect");
-        let filter_addresses = vec![address.to_b58()];
+        let address = self.get_miner_address(epoch_id, &pubk);
+        let filter_addresses = vec![addr2str(&address)];
 
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
@@ -674,7 +707,7 @@ impl BitcoinRegtestController {
                     // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
                     // reasonable to me.
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
-                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &public_key);
+                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
                     sleep_ms(1000);
                 }
 
@@ -696,6 +729,8 @@ impl BitcoinRegtestController {
                     }
                 };
 
+                test_debug!("Unspent for {:?}: {:?}", &filter_addresses, &utxos);
+
                 if utxos.is_empty() {
                     return None;
                 } else {
@@ -703,6 +738,11 @@ impl BitcoinRegtestController {
                 }
             }
         } else {
+            debug!(
+                "Got {} UTXOs for {:?}",
+                utxos.utxos.len(),
+                &filter_addresses
+            );
             utxos
         };
 
@@ -712,7 +752,7 @@ impl BitcoinRegtestController {
                 "Total unspent {} < {} for {:?}",
                 total_unspent,
                 total_required,
-                &public_key.to_hex()
+                &pubk.to_hex()
             );
             return None;
         }
@@ -722,6 +762,7 @@ impl BitcoinRegtestController {
 
     fn build_leader_key_register_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         payload: LeaderKeyRegisterOp,
         signer: &mut BurnchainOpSigner,
         _attempt: u64,
@@ -733,7 +774,8 @@ impl BitcoinRegtestController {
         let budget_for_outputs = DUST_UTXO_LIMIT;
         let total_required = btc_miner_fee + budget_for_outputs;
 
-        let (mut tx, mut utxos) = self.prepare_tx(&public_key, total_required, None, None, 0)?;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, total_required, None, None, 0)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -756,14 +798,10 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        let address_hash = Hash160::from_data(&public_key.to_bytes());
-        let identifier_output = BitcoinAddress::to_p2pkh_tx_out(&address_hash, DUST_UTXO_LIMIT);
-
-        tx.output.push(identifier_output);
-
         let fee_rate = self.config.burnchain.satoshis_per_byte;
 
         self.finalize_tx(
+            epoch_id,
             &mut tx,
             budget_for_outputs,
             0,
@@ -786,6 +824,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_transfer_stacks_tx(
         &mut self,
+        _epoch_id: StacksEpochId,
         _payload: TransferStxOp,
         _signer: &mut BurnchainOpSigner,
         _utxo: Option<UTXO>,
@@ -796,6 +835,7 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     pub fn submit_manual(
         &mut self,
+        epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         utxo: Option<UTXO>,
@@ -808,16 +848,16 @@ impl BitcoinRegtestController {
                 unimplemented!();
             }
             BlockstackOperationType::PreStx(payload) => {
-                self.build_pre_stacks_tx(payload, op_signer)
+                self.build_pre_stacks_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::TransferStx(payload) => {
-                self.build_transfer_stacks_tx(payload, op_signer, utxo)
+                self.build_transfer_stacks_tx(epoch_id, payload, op_signer, utxo)
             }
         }?;
 
         let ser_transaction = SerializedTx::new(transaction.clone());
 
-        if self.send_transaction(ser_transaction) {
+        if self.send_transaction(ser_transaction).is_some() {
             Some(transaction)
         } else {
             None
@@ -833,6 +873,7 @@ impl BitcoinRegtestController {
     ///     for a functionality that won't be implemented for production via this controller.
     fn build_transfer_stacks_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         payload: TransferStxOp,
         signer: &mut BurnchainOpSigner,
         utxo_to_use: Option<UTXO>,
@@ -855,6 +896,7 @@ impl BitcoinRegtestController {
             )
         } else {
             self.prepare_tx(
+                epoch_id,
                 &public_key,
                 DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
                 None,
@@ -885,6 +927,7 @@ impl BitcoinRegtestController {
         );
 
         self.finalize_tx(
+            epoch_id,
             &mut tx,
             DUST_UTXO_LIMIT,
             0,
@@ -907,6 +950,7 @@ impl BitcoinRegtestController {
     #[cfg(not(test))]
     fn build_pre_stacks_tx(
         &mut self,
+        _epoch_id: StacksEpochId,
         _payload: PreStxOp,
         _signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
@@ -916,6 +960,7 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     fn build_pre_stacks_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         payload: PreStxOp,
         signer: &mut BurnchainOpSigner,
     ) -> Option<Transaction> {
@@ -923,7 +968,8 @@ impl BitcoinRegtestController {
         let max_tx_size = 280;
 
         let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte;
-        let (mut tx, mut utxos) = self.prepare_tx(&public_key, output_amt, None, None, 0)?;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
         // Serialize the payload
         let op_bytes = {
@@ -945,6 +991,7 @@ impl BitcoinRegtestController {
             .push(PoxAddress::Standard(payload.output.clone(), None).to_bitcoin_tx_out(output_amt));
 
         self.finalize_tx(
+            epoch_id,
             &mut tx,
             output_amt,
             0,
@@ -966,6 +1013,7 @@ impl BitcoinRegtestController {
 
     fn send_block_commit_operation(
         &mut self,
+        epoch_id: StacksEpochId,
         payload: LeaderBlockCommitOp,
         signer: &mut BurnchainOpSigner,
         utxos_to_include: Option<UTXOSet>,
@@ -980,6 +1028,7 @@ impl BitcoinRegtestController {
 
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
+            epoch_id,
             &public_key,
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
@@ -1015,6 +1064,7 @@ impl BitcoinRegtestController {
 
         let fee_rate = estimated_fees.fee_rate;
         self.finalize_tx(
+            epoch_id,
             &mut tx,
             estimated_fees.total_spent_in_outputs(),
             estimated_fees.spent_in_attempts,
@@ -1060,6 +1110,7 @@ impl BitcoinRegtestController {
 
     fn build_leader_block_commit_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         payload: LeaderBlockCommitOp,
         signer: &mut BurnchainOpSigner,
         _attempt: u64,
@@ -1067,7 +1118,15 @@ impl BitcoinRegtestController {
         // Are we currently tracking an operation?
         if self.ongoing_block_commit.is_none() || !self.allow_rbf {
             // Good to go, let's build the transaction and send it.
-            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            let res = self.send_block_commit_operation(
+                epoch_id,
+                payload,
+                signer,
+                None,
+                None,
+                None,
+                &vec![],
+            );
             return res;
         }
 
@@ -1081,8 +1140,15 @@ impl BitcoinRegtestController {
             if mined_op.is_some() {
                 // Good to go, the transaction in progress was mined
                 debug!("Was able to retrieve ongoing TXID - {}", txid);
-                let res =
-                    self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+                let res = self.send_block_commit_operation(
+                    epoch_id,
+                    payload,
+                    signer,
+                    None,
+                    None,
+                    None,
+                    &vec![],
+                );
                 return res;
             } else {
                 debug!("Was unable to retrieve ongoing TXID - {}", txid);
@@ -1111,7 +1177,15 @@ impl BitcoinRegtestController {
                 "Possible presence of fork or stale UTXO cache, invalidating cached set of UTXOs.";
                 "cached_burn_block_hash" => %ongoing_op.utxos.bhh,
             );
-            let res = self.send_block_commit_operation(payload, signer, None, None, None, &vec![]);
+            let res = self.send_block_commit_operation(
+                epoch_id,
+                payload,
+                signer,
+                None,
+                None,
+                None,
+                &vec![],
+            );
             return res;
         }
 
@@ -1147,6 +1221,7 @@ impl BitcoinRegtestController {
             // Try to build and submit op, excluding UTXOs currently used
             info!("Attempt to submit another leader_block_commit, despite an ongoing (outdated) commit");
             self.send_block_commit_operation(
+                epoch_id,
                 payload,
                 signer,
                 None,
@@ -1158,6 +1233,7 @@ impl BitcoinRegtestController {
             // Case 2) ii): Attempt to RBF
             info!("Attempt to replace by fee an outdated leader block commit");
             self.send_block_commit_operation(
+                epoch_id,
                 payload,
                 signer,
                 Some(ongoing_op.utxos.clone()),
@@ -1174,8 +1250,31 @@ impl BitcoinRegtestController {
         res
     }
 
+    fn get_miner_address(
+        &self,
+        epoch_id: StacksEpochId,
+        public_key: &Secp256k1PublicKey,
+    ) -> BitcoinAddress {
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+
+        if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
+            let hash160 = Hash160::from_data(&public_key.to_bytes_compressed());
+            BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &hash160.0)
+                .expect("Public key incorrect")
+        } else {
+            let hash160 = Hash160::from_data(&public_key.to_bytes());
+            BitcoinAddress::from_bytes_legacy(
+                network_id,
+                LegacyBitcoinAddressType::PublicKeyHash,
+                &hash160.0,
+            )
+            .expect("Public key incorrect")
+        }
+    }
+
     fn prepare_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         public_key: &Secp256k1PublicKey,
         total_required: u64,
         utxos_to_include: Option<UTXOSet>,
@@ -1187,14 +1286,25 @@ impl BitcoinRegtestController {
             utxos
         } else {
             // Fetch some UTXOs
-            let utxos =
-                match self.get_utxos(&public_key, total_required, utxos_to_exclude, block_height) {
-                    Some(utxos) => utxos,
-                    None => {
-                        debug!("No UTXOs for {}", &public_key.to_hex());
-                        return None;
-                    }
-                };
+            let addr = self.get_miner_address(epoch_id, public_key);
+            let utxos = match self.get_utxos(
+                epoch_id,
+                &public_key,
+                total_required,
+                utxos_to_exclude,
+                block_height,
+            ) {
+                Some(utxos) => utxos,
+                None => {
+                    debug!(
+                        "No UTXOs for {} ({}) in epoch {}",
+                        &public_key.to_hex(),
+                        &addr2str(&addr),
+                        epoch_id
+                    );
+                    return None;
+                }
+            };
             utxos
         };
 
@@ -1211,6 +1321,7 @@ impl BitcoinRegtestController {
 
     fn finalize_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         tx: &mut Transaction,
         spent_in_outputs: u64,
         spent_in_rbf: u64,
@@ -1243,6 +1354,7 @@ impl BitcoinRegtestController {
             let mut tx_cloned = tx.clone();
             let mut utxos_cloned = utxos_set.clone();
             self.serialize_tx(
+                epoch_id,
                 &mut tx_cloned,
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
@@ -1258,6 +1370,7 @@ impl BitcoinRegtestController {
             spent_in_rbf + tx_size // we're spending 1 sat / byte in RBF
         };
         self.serialize_tx(
+            epoch_id,
             tx,
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
             utxos_set,
@@ -1267,14 +1380,19 @@ impl BitcoinRegtestController {
         Some(())
     }
 
+    /// Sign and serialize a tx, consuming the UTXOs in utxo_set and spending total_to_spend
+    /// satoshis.  Uses the key in signer.
+    /// If self.config.miner.segwit is true, the transaction's change address will be a p2wpkh
+    /// output. Otherwise, it will be a p2pkh output.
     fn serialize_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         tx: &mut Transaction,
         total_to_spend: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
     ) -> bool {
-        let public_key = signer.get_public_key();
+        let mut public_key = signer.get_public_key();
         let mut total_consumed = 0;
 
         // select UTXOs until we have enough to cover the cost
@@ -1298,14 +1416,22 @@ impl BitcoinRegtestController {
         }
 
         // Append the change output
-        let change_address_hash = Hash160::from_data(&public_key.to_bytes());
         let value = total_consumed - total_to_spend;
         debug!(
             "Payments value: {:?}, total_consumed: {:?}, total_spent: {:?}",
             value, total_consumed, total_to_spend
         );
         if value >= DUST_UTXO_LIMIT {
-            let change_output = BitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value);
+            let change_output = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
+                // p2wpkh
+                public_key.set_compressed(true);
+                let change_address_hash = Hash160::from_data(&public_key.to_bytes());
+                SegwitBitcoinAddress::to_p2wpkh_tx_out(&change_address_hash.0, value)
+            } else {
+                // p2pkh
+                let change_address_hash = Hash160::from_data(&public_key.to_bytes());
+                LegacyBitcoinAddress::to_p2pkh_tx_out(&change_address_hash, value)
+            };
             tx.output.push(change_output);
         } else {
             // Instead of leaving that change to the BTC miner, we could / should bump the sortition fee
@@ -1326,7 +1452,19 @@ impl BitcoinRegtestController {
 
             let script_pub_key = utxo.script_pub_key.clone();
             let sig_hash_all = 0x01;
-            let sig_hash = tx.signature_hash(i, &script_pub_key, sig_hash_all);
+
+            let (sig_hash, is_segwit) = if script_pub_key.as_bytes().len() == 22
+                && script_pub_key.as_bytes()[0..2] == [0x00, 0x14]
+            {
+                // p2wpkh
+                (
+                    tx.segwit_signature_hash(i, &script_pub_key, utxo.amount, sig_hash_all),
+                    true,
+                )
+            } else {
+                // p2pkh
+                (tx.signature_hash(i, &script_pub_key, sig_hash_all), false)
+            };
 
             let sig1_der = {
                 let message = signer
@@ -1339,16 +1477,29 @@ impl BitcoinRegtestController {
                     .serialize_der()
             };
 
-            tx.input[i].script_sig = Builder::new()
-                .push_slice(&[&*sig1_der, &[sig_hash_all as u8][..]].concat())
-                .push_slice(&public_key.to_bytes())
-                .into_script();
+            if is_segwit {
+                // segwit
+                public_key.set_compressed(true);
+                tx.input[i].script_sig = Script::from(vec![]);
+                tx.input[i].witness = vec![
+                    [&*sig1_der, &[sig_hash_all as u8][..]].concat().to_vec(),
+                    public_key.to_bytes(),
+                ];
+            } else {
+                // legacy scriptSig
+                tx.input[i].script_sig = Builder::new()
+                    .push_slice(&[&*sig1_der, &[sig_hash_all as u8][..]].concat())
+                    .push_slice(&public_key.to_bytes())
+                    .into_script();
+                tx.input[i].witness.clear();
+            }
         }
         true
     }
 
     fn build_user_burn_support_tx(
         &mut self,
+        _epoch_id: StacksEpochId,
         _payload: UserBurnSupportOp,
         _signer: &mut BurnchainOpSigner,
         _attempt: u64,
@@ -1356,18 +1507,22 @@ impl BitcoinRegtestController {
         unimplemented!()
     }
 
-    /// Send a serialized tx to the Bitcoin node.  Return true on successful send; false on
+    /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on successful send; None on
     /// failure.
-    pub fn send_transaction(&self, transaction: SerializedTx) -> bool {
+    pub fn send_transaction(&self, transaction: SerializedTx) -> Option<Txid> {
+        test_debug!("Send raw transaction: {}", transaction.to_hex());
         let result = BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex());
         match result {
-            Ok(_) => true,
+            Ok(_) => {
+                test_debug!("Sent transaction {}", &transaction.txid);
+                Some(transaction.txid())
+            }
             Err(e) => {
                 error!(
                     "Bitcoin RPC failure: transaction submission failed - {:?}",
                     e
                 );
-                false
+                None
             }
         }
     }
@@ -1421,21 +1576,20 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Instruct a regtest Bitcoin node to build the next block.
     pub fn build_next_block(&self, num_blocks: u64) {
         debug!("Generate {} block(s)", num_blocks);
-        let public_key = match &self.config.burnchain.local_mining_public_key {
+        let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
             Some(public_key) => hex_bytes(public_key).expect("Invalid byte sequence"),
             None => panic!("Unable to make new block, mining public key"),
         };
 
-        let pkh = Hash160::from_data(&public_key).to_bytes().to_vec();
-        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
-        let address =
-            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                .expect("Public key incorrect");
-
+        // NOTE: miner address is whatever the configured segwit setting is
+        let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
+            .expect("FATAL: invalid public key bytes");
+        let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
         let result =
-            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, address.to_b58());
+            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, addr2str(&address));
 
         match result {
             Ok(_) => {}
@@ -1493,6 +1647,11 @@ impl BitcoinRegtestController {
     }
 
     #[cfg(test)]
+    pub fn set_use_segwit(&mut self, segwit: bool) {
+        self.config.miner.segwit = segwit;
+    }
+
+    #[cfg(test)]
     pub fn set_allow_rbf(&mut self, val: bool) {
         self.allow_rbf = val;
     }
@@ -1502,30 +1661,38 @@ impl BitcoinRegtestController {
 
     pub fn make_operation_tx(
         &mut self,
+        epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
     ) -> Option<SerializedTx> {
         let transaction = match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
-                self.build_leader_block_commit_tx(payload, op_signer, attempt)
+                self.build_leader_block_commit_tx(epoch_id, payload, op_signer, attempt)
             }
             BlockstackOperationType::LeaderKeyRegister(payload) => {
-                self.build_leader_key_register_tx(payload, op_signer, attempt)
+                self.build_leader_key_register_tx(epoch_id, payload, op_signer, attempt)
             }
             BlockstackOperationType::UserBurnSupport(payload) => {
-                self.build_user_burn_support_tx(payload, op_signer, attempt)
+                self.build_user_burn_support_tx(epoch_id, payload, op_signer, attempt)
             }
             BlockstackOperationType::PreStx(payload) => {
-                self.build_pre_stacks_tx(payload, op_signer)
+                self.build_pre_stacks_tx(epoch_id, payload, op_signer)
             }
             BlockstackOperationType::TransferStx(payload) => {
-                self.build_transfer_stacks_tx(payload, op_signer, None)
+                self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
         };
 
         transaction.map(|tx| SerializedTx::new(tx))
+    }
+
+    #[cfg(test)]
+    pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
+        let txstr = BitcoinRPCRequest::get_raw_transaction(&self.config, txid).unwrap();
+        let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
+        tx
     }
 }
 
@@ -1631,37 +1798,40 @@ impl BurnchainController for BitcoinRegtestController {
     // returns true if the operation was submitted successfully, false otherwise
     fn submit_operation(
         &mut self,
+        epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
         attempt: u64,
-    ) -> bool {
-        let transaction = match self.make_operation_tx(operation, op_signer, attempt) {
-            Some(tx) => tx,
-            None => {
-                return false;
-            }
-        };
-
+    ) -> Option<Txid> {
+        let transaction = self.make_operation_tx(epoch_id, operation, op_signer, attempt)?;
         self.send_transaction(transaction)
     }
 
     #[cfg(test)]
     fn bootstrap_chain(&mut self, num_blocks: u64) {
-        if let Some(local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
-            let pk = hex_bytes(&local_mining_pubkey).expect("Invalid byte sequence");
-            let pkh = Hash160::from_data(&pk).to_bytes().to_vec();
-            let (_, network_id) = self.config.burnchain.get_bitcoin_network();
-            let address =
-                BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                    .expect("Public key incorrect");
+        if let Some(ref local_mining_pubkey) = &self.config.burnchain.local_mining_public_key {
+            // NOTE: miner address is whatever the miner's segwit setting says it is here
+            let mut local_mining_pubkey =
+                Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap();
+            let address = self.get_miner_address(StacksEpochId::Epoch21, &local_mining_pubkey);
 
-            let _result = BitcoinRPCRequest::import_public_key(
-                &self.config,
-                &Secp256k1PublicKey::from_hex(local_mining_pubkey).unwrap(),
+            if self.config.miner.segwit {
+                local_mining_pubkey.set_compressed(true);
+            }
+            test_debug!("Import public key '{}'", &local_mining_pubkey.to_hex());
+
+            let _result = BitcoinRPCRequest::import_public_key(&self.config, &local_mining_pubkey);
+
+            test_debug!(
+                "Generate to address '{}' for public key '{}'",
+                &addr2str(&address),
+                &local_mining_pubkey.to_hex()
             );
-
-            let result =
-                BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, address.to_b58());
+            let result = BitcoinRPCRequest::generate_to_address(
+                &self.config,
+                num_blocks,
+                addr2str(&address),
+            );
 
             match result {
                 Ok(_) => {}
@@ -1698,15 +1868,22 @@ impl UTXOSet {
 #[derive(Debug, Clone)]
 pub struct SerializedTx {
     pub bytes: Vec<u8>,
+    pub txid: Txid,
 }
 
 impl SerializedTx {
     pub fn new(tx: Transaction) -> SerializedTx {
+        let txid = Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap();
         let mut encoder = RawEncoder::new(Cursor::new(vec![]));
         tx.consensus_encode(&mut encoder)
             .expect("BUG: failed to serialize to a vec");
         let bytes: Vec<u8> = encoder.into_inner().into_inner();
-        SerializedTx { bytes }
+
+        SerializedTx { txid, bytes }
+    }
+
+    pub fn txid(&self) -> Txid {
+        self.txid.clone()
     }
 
     fn to_hex(&self) -> String {
@@ -1845,16 +2022,34 @@ impl BitcoinRPCRequest {
         req
     }
 
+    #[cfg(test)]
+    pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
+        debug!("Get raw transaction {}", txid);
+        let payload = BitcoinRPCRequest {
+            method: "getrawtransaction".to_string(),
+            params: vec![format!("{}", txid).into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+        let res = BitcoinRPCRequest::send(&config, payload)?;
+        debug!("Got raw transaction {}: {:?}", txid, &res);
+        Ok(res.get("result").unwrap().as_str().unwrap().to_string())
+    }
+
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
-        debug!("Generate {} blocks to {}", num_blocks, address);
+        debug!("Generate {} blocks to {}", num_blocks, &address);
         let payload = BitcoinRPCRequest {
             method: "generatetoaddress".to_string(),
-            params: vec![num_blocks.into(), address.into()],
+            params: vec![num_blocks.into(), address.clone().into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
 
-        BitcoinRPCRequest::send(&config, payload)?;
+        let res = BitcoinRPCRequest::send(&config, payload)?;
+        debug!(
+            "Generated {} blocks to {}: {:?}",
+            num_blocks, &address, &res
+        );
         Ok(())
     }
 
@@ -1888,8 +2083,8 @@ impl BitcoinRPCRequest {
             _ => return Err(RPCError::Parsing("Failed to get UTXOs".to_string())),
         }?;
 
-        let min_conf = 0;
-        let max_conf = 9999999;
+        let min_conf = 0i64;
+        let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
 
         let payload = BitcoinRPCRequest {
@@ -2003,18 +2198,37 @@ impl BitcoinRPCRequest {
             .to_bytes()
             .to_vec();
         let (_, network_id) = config.burnchain.get_bitcoin_network();
-        let address =
-            BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
-                .expect("Public key incorrect");
 
-        let payload = BitcoinRPCRequest {
-            method: "importaddress".to_string(),
-            params: vec![address.to_b58().into(), label.into(), rescan.into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
+        // import both the legacy and segwit variants of this public key
+        let mut addresses = vec![BitcoinAddress::from_bytes_legacy(
+            network_id,
+            LegacyBitcoinAddressType::PublicKeyHash,
+            &pkh,
+        )
+        .expect("Public key incorrect")];
 
-        BitcoinRPCRequest::send(&config, payload)?;
+        if config.miner.segwit {
+            addresses.push(
+                BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &pkh)
+                    .expect("Public key incorrect"),
+            );
+        }
+
+        for address in addresses.into_iter() {
+            debug!(
+                "Import address {} for public key {}",
+                addr2str(&address),
+                public_key.to_hex()
+            );
+            let payload = BitcoinRPCRequest {
+                method: "importaddress".to_string(),
+                params: vec![addr2str(&address).into(), label.into(), rescan.into()],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
+            };
+
+            BitcoinRPCRequest::send(&config, payload)?;
+        }
         Ok(())
     }
 
