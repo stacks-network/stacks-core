@@ -34,6 +34,7 @@ use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
 use clarity::types::chainstate::BlockHeaderHash;
 use clarity::util::hash::to_hex;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::{
@@ -294,6 +295,7 @@ impl StacksChainState {
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
+                ASTRules::PrecheckSize,
             )
             .map_err(Error::ClarityError)
     }

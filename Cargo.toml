@@ -12,6 +12,7 @@ keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized"
 readme = "README.md"
 resolver = "2"
 edition = "2021"
+rust-version = "1.61"
 
 [profile.release]
 debug = true
@@ -135,5 +136,4 @@ members = [
     ".",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node",
-    "testnet/puppet-chain"]
+    "testnet/stacks-node"]

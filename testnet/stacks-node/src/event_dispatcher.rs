@@ -36,6 +36,7 @@ use super::config::{EventKeyType, EventObserverConfig};
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
+use stacks::chainstate::stacks::TransactionPayload;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -203,7 +204,17 @@ impl EventObserver {
                 }
             }
             (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-            _ => unreachable!(), // Transaction results should always be a Value::Response type
+            _ => {
+                if let TransactionOrigin::Stacks(inner_tx) = &tx {
+                    if let TransactionPayload::PoisonMicroblock(..) = &inner_tx.payload {
+                        STATUS_RESP_TRUE
+                    } else {
+                        unreachable!() // Transaction results should otherwise always be a Value::Response type
+                    }
+                } else {
+                    unreachable!() // Transaction results should always be a Value::Response type
+                }
+            }
         };
 
         let (txid, raw_tx) = match tx {
@@ -689,7 +700,8 @@ impl EventDispatcher {
                     .iter()
                     .map(|reward| {
                         json!({
-                            "recipient": reward.address.to_string(),
+                            "recipient": reward.recipient.to_string(),
+                            "miner_address": reward.address.to_string(),
                             "coinbase_amount": reward.coinbase.to_string(),
                             "tx_fees_anchored": reward.tx_fees_anchored.to_string(),
                             "tx_fees_streamed_confirmed": reward.tx_fees_streamed_confirmed.to_string(),

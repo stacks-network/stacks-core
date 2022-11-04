@@ -534,12 +534,15 @@ fn make_genesis_block_with_recipients(
 
     let iconn = sort_db.index_conn();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
@@ -570,7 +573,7 @@ fn make_genesis_block_with_recipients(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_05_MARKER],
+        memo: vec![STACKS_EPOCH_2_1_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -749,12 +752,15 @@ fn make_stacks_block_with_input(
     )
     .unwrap();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn).unwrap();
+    let ast_rules = miner_epoch_info.ast_rules.clone();
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
-    builder.try_mine_tx(&mut epoch_tx, &coinbase_op).unwrap();
+    builder
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules)
+        .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
     builder.epoch_finish(epoch_tx);
@@ -789,7 +795,7 @@ fn make_stacks_block_with_input(
         },
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_05_MARKER],
+        memo: vec![STACKS_EPOCH_2_1_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
