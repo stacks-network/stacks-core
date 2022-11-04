@@ -641,6 +641,14 @@ impl BitcoinRegtestController {
         let address =
             BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &pkh)
                 .expect("Public key incorrect");
+
+        test_debug!(
+            "Get UTXOs for {} ({}) rbf={}",
+            public_key.to_hex(),
+            address.to_b58(),
+            self.allow_rbf
+        );
+
         let filter_addresses = vec![address.to_b58()];
 
         let mut utxos = loop {
@@ -1089,7 +1097,7 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Did a re-org occurred since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
         let mut traversal_depth = 0;
         let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
         let mut found_last_mined_at = false;
@@ -1359,6 +1367,7 @@ impl BitcoinRegtestController {
     /// Send a serialized tx to the Bitcoin node.  Return true on successful send; false on
     /// failure.
     pub fn send_transaction(&self, transaction: SerializedTx) -> bool {
+        test_debug!("Send tx {}", transaction.to_hex());
         let result = BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex());
         match result {
             Ok(_) => true,
@@ -1709,7 +1718,7 @@ impl SerializedTx {
         SerializedTx { bytes }
     }
 
-    fn to_hex(&self) -> String {
+    pub fn to_hex(&self) -> String {
         let formatted_bytes: Vec<String> =
             self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{}", formatted_bytes.join(""))
