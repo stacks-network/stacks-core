@@ -22,7 +22,6 @@ use crate::BurnchainController;
 use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::distribution::BurnSamplePoint;
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -128,6 +127,8 @@ fn advance_to_2_1(
     btc_regtest_controller.bootstrap_chain(1);
 
     let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+    debug!("Mining pubkey is {}", &mining_pubkey);
+
     btc_regtest_controller.set_mining_pubkey(
         "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa".to_string(),
     );
@@ -247,56 +248,6 @@ fn advance_to_2_1(
         blocks_processed,
         channel,
     );
-}
-
-#[test]
-#[ignore]
-fn transition_fixes_utxo_chaining() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    // very simple test to verify that the miner will keep making valid (empty) blocks after the
-    // transition.  Really tests that the block-commits are well-formed before and after the epoch
-    // transition.
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], None, None);
-
-    // post epoch 2.1 -- UTXO chaining should be fixed
-    for i in 0..10 {
-        let tip_info = get_chain_info(&conf);
-
-        if i % 2 == 1 {
-            std::env::set_var(
-                "STX_TEST_LATE_BLOCK_COMMIT",
-                format!("{}", tip_info.burn_block_height + 1),
-            );
-        }
-
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
-
-    let sortdb = btc_regtest_controller.sortdb_mut();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_sample: Vec<BurnSamplePoint> = sortdb
-        .conn()
-        .query_row(
-            "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
-            &[tip.sortition_id],
-            |row| {
-                let data_str: String = row.get_unwrap(0);
-                Ok(serde_json::from_str(&data_str).unwrap())
-            },
-        )
-        .unwrap();
-
-    // if UTXO linking is fixed, then our median burn will be int((20,000 + 1) / 2).
-    // Otherwise, it will be 1.
-    assert_eq!(burn_sample.len(), 1);
-    assert_eq!(burn_sample[0].burns, 10_000);
-
-    test_observer::clear();
-    coord_channel.stop_chains_coordinator();
 }
 
 #[test]
