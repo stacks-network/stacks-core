@@ -1818,6 +1818,13 @@ impl BurnchainController for BitcoinRegtestController {
             if self.config.miner.segwit {
                 local_mining_pubkey.set_compressed(true);
             }
+
+            info!("Creating wallet if it does not exist");
+            match self.create_wallet_if_dne() {
+                Err(e) => warn!("Error when creating wallet: {:?}", e),
+                _ => {}
+            }
+
             test_debug!("Import public key '{}'", &local_mining_pubkey.to_hex());
 
             let _result = BitcoinRPCRequest::import_public_key(&self.config, &local_mining_pubkey);
@@ -1839,11 +1846,6 @@ impl BurnchainController for BitcoinRegtestController {
                     error!("Bitcoin RPC failure: error generating block {:?}", e);
                     panic!();
                 }
-            }
-            info!("Creating wallet if it does not exist");
-            match self.create_wallet_if_dne() {
-                Err(e) => warn!("Error when creating wallet: {:?}", e),
-                _ => {}
             }
         }
     }
