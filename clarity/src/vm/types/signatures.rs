@@ -484,7 +484,7 @@ impl TypeSignature {
                     Ok(false)
                 }
             }
-            NoType => Err(CheckErrors::CheckerImplementationFailure),
+            NoType => Err(CheckErrors::CouldNotDetermineType),
             _ => Ok(other == self),
         }
     }

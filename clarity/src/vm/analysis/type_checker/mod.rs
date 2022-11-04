@@ -440,9 +440,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let actual_type = self.type_check(expr, context)?;
         analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
-        if expected_type == &TypeSignature::NoType {
-            Ok(actual_type)
-        } else if !expected_type.admits_type(&actual_type)? {
+        if !expected_type.admits_type(&actual_type)? {
             let mut err: CheckError =
                 CheckErrors::TypeError(expected_type.clone(), actual_type).into();
             err.set_expression(expr);

@@ -637,9 +637,6 @@ fn test_index_of() {
         "(index-of \"abcd\" \"z\")",
         "(index-of u\"abcd\" u\"e\")",
         "(index-of 0xfedb 0x01)",
-        "(index-of (list) none)",    // cannot determine type of list element
-        "(index-of (list) (ok u1))", // cannot determine complete type of list element
-        "(index-of (list) (err none))", // cannot determine complete type of list element
     ];
 
     let expected = "(optional uint)";
@@ -657,6 +654,9 @@ fn test_index_of() {
         "(index-of 0xfedb \"a\")",
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
+        "(index-of (list) none)",       // cannot determine type of list element
+        "(index-of (list) (ok u1))",    // cannot determine complete type of list element
+        "(index-of (list) (err none))", // cannot determine complete type of list element
     ];
 
     let bad_expected = [
@@ -674,6 +674,9 @@ fn test_index_of() {
             TypeSignature::min_string_ascii(),
             TypeSignature::min_string_utf8(),
         ),
+        CheckErrors::CouldNotDetermineType,
+        CheckErrors::CouldNotDetermineType,
+        CheckErrors::CouldNotDetermineType,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
