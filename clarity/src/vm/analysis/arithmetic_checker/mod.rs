@@ -205,7 +205,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
             | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => {
+            | Len | Begin | TupleMerge | BitwiseOR | BitwiseAND 
+            | BitwiseNOT | BitwiseLShift | BitwiseRShift => {
                 // Check all arguments.
                 self.check_all(args)
             }

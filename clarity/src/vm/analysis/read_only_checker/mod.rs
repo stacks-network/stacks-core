@@ -286,7 +286,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
             | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
-            | ElementAt | IndexOf | Slice | ReplaceAt => {
+            | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAND | BitwiseOR | BitwiseNOT
+            | BitwiseLShift | BitwiseRShift => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

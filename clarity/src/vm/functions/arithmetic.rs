@@ -224,6 +224,21 @@ macro_rules! make_arithmetic_ops {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
+            fn bitwise_and(x: $type, y: $type) -> InterpreterResult<Value> {
+                Self::make_value(x & y)
+            }
+            fn bitwise_or(x: $type, y: $type) -> InterpreterResult<Value> {
+                Self::make_value(x | y)
+            }
+            fn bitwise_not(x: $type) -> InterpreterResult<Value> {
+                Self::make_value(!x)
+            }
+            fn bitwise_left_shift(x: $type, y: $type) -> InterpreterResult<Value> {
+                Self::make_value(x << y)
+            }
+            fn bitwise_right_shift(x: $type, y: $type) -> InterpreterResult<Value> {
+                Self::make_value(x >> y)
+            }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
                     .iter()
@@ -341,6 +356,26 @@ make_comparison_ops!(BuffOps, Vec<u8>);
 
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
+}
+
+pub fn native_bitwise_and(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(bitwise_and, a, b)
+}
+
+pub fn native_bitwise_or(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(bitwise_or, a, b)
+}
+
+pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
+    type_force_unary_arithmetic!(bitwise_not, a)
+}
+
+pub fn native_bitwise_left_shift(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(bitwise_left_shift, a, b)
+}
+
+pub fn native_bitwise_right_shift(a: Value, b: Value) -> InterpreterResult<Value> {
+    type_force_binary_arithmetic!(bitwise_right_shift, a, b)
 }
 
 // This function is 'special', because it must access the context to determine

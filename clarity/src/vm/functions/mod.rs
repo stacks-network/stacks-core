@@ -173,6 +173,11 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2),
     ReplaceAt("replace-at", ClarityVersion::Clarity2),
+    BitwiseAND("&", ClarityVersion::Clarity2),
+    BitwiseOR("|", ClarityVersion::Clarity2),
+    BitwiseNOT("~", ClarityVersion::Clarity2),
+    BitwiseLShift("<<", ClarityVersion::Clarity2),
+    BitwiseRShift(">>", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -517,6 +522,31 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
             }
             ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
+            BitwiseAND => NativeFunction(
+                "native_bitwise_and",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_and),
+                ClarityCostFunction::BitwiseAND,
+            ),
+            BitwiseOR => NativeFunction(
+                "native_bitwise_or",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_or),
+                ClarityCostFunction::BitwiseOR,
+            ),
+            BitwiseNOT => NativeFunction(
+                "native_bitwise_or",
+                NativeHandle::SingleArg(&arithmetic::native_bitwise_not),
+                ClarityCostFunction::BitwiseNOT,
+            ),
+            BitwiseLShift => NativeFunction(
+                "native_bitwise_left_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_left_shift),
+                ClarityCostFunction::BitwiseLShift,
+            ),
+            BitwiseRShift => NativeFunction(
+                "native_bitwise_right_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
+                ClarityCostFunction::BitwiseRShift,
+            ),
         };
         Some(callable)
     } else {

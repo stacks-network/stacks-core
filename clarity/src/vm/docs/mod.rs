@@ -568,6 +568,49 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("& (bitwise and)"),
+    snippet: "& ${1:expr-1} ${2:expr-2}",
+    signature: "(& i1 i2)",
+    description: "Returns the result of bitwise and'ing `i1` with `i2`.",
+    example: "(& 24 16) ;; Returns 16
+"
+};
+
+const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("| (bitwise or)"),
+    snippet: "| ${1:expr-1} ${2:expr-2}",
+    signature: "(| i1 i2)",
+    description: "Returns the result of bitwise inclusive or'ing `i1` with `i2`.",
+    example: "(| 4 8) ;; Returns 12
+"
+};
+
+const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("~ (bitwise not)"),
+    snippet: "~ ${1:expr-1}",
+    signature: "(~ i1)",
+    description: "Returns the result of bitwise not, effectively reversing the bits of `i1`.",
+    example: "(~ 3) ;; Returns -4
+"
+};
+
+const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("<< (binary left shift)"),
+    snippet: "<< ${1:expr-1} ${2:expr-2}",
+    signature: "(<< i1 i2)",
+    description: "Moves all the bits in `i1` to the left by the number of places specified in `i2`. New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, shifting two positions is equivalent to multiplying by 4, and so on.",
+    example: "(<< 2 1) ;; Returns 4"
+};
+
+const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some(">> (binary right shift)"),
+    snippet: ">> ${1:expr-1} ${2:expr-2}",
+    signature: "(>> i1 i2)",
+    description: "Binary Right Shift Operator. The value of `i1` is moved right by the number of bits specified in `i2`.",
+    example: "(>> 2 1) ;; Returns 1"
+};
+
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "and ${1:expr-1} ${2:expr-2}",
@@ -2336,6 +2379,11 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
+        BitwiseAND => make_for_simple_native(&BITWISE_AND_API, &BitwiseAND, name),
+        BitwiseOR => make_for_simple_native(&BITWISE_OR_API, &BitwiseOR, name),
+        BitwiseNOT => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNOT, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name)
     }
 }
 
