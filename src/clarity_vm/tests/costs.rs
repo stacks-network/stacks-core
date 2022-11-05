@@ -161,6 +161,11 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff u1)",
         FromConsensusBuff => "(from-consensus-buff bool 0x03)",
         ReplaceAt => "(replace-at list-bar u0 5)",
+        BitwiseAND => "(& 2 3)",
+        BitwiseOR => "(| 2 3)",
+        BitwiseNOT => "(~ 3)",
+        BitwiseLShift => "(<< 2 1)",
+        BitwiseRShift => "(>> 2 1)"
     }
 }
 

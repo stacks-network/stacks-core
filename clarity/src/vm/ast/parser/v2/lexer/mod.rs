@@ -230,7 +230,11 @@ impl<'a> Lexer<'a> {
                 | '>'
                 | '='
                 | '/'
-                | '*' => ident.push(self.next),
+                | '*'
+                | '^'
+                | '&'
+                | '|'
+                | '~' => ident.push(self.next),
                 _ => {
                     if !is_separator(self.next) {
                         return Ok(Token::Placeholder(self.proceed_through_error(
@@ -723,6 +727,10 @@ impl<'a> Lexer<'a> {
             '+' => Token::Plus,
             '*' => Token::Multiply,
             '/' => Token::Divide,
+            '^' => Token::BitwiseXOR,
+            '&' => Token::BitwiseAND,
+            '|' => Token::BitwiseOR,
+            '~' => Token::BitwiseNOT,
             '-' => {
                 advance = false;
                 self.read_char()?;
@@ -736,6 +744,8 @@ impl<'a> Lexer<'a> {
                 self.read_char()?;
                 if self.next == '=' {
                     Token::LessEqual
+                } else if self.next == '<' {
+                    Token::BitwiseLShift
                 } else if self.next.is_ascii_alphabetic() {
                     self.read_trait_identifier()?
                 } else {
@@ -747,6 +757,8 @@ impl<'a> Lexer<'a> {
                 self.read_char()?;
                 if self.next == '=' {
                     Token::GreaterEqual
+                } else if self.next == '>' {
+                    Token::BitwiseRShift
                 } else {
                     advance = false;
                     Token::Greater
@@ -848,7 +860,13 @@ impl<'a> Lexer<'a> {
             | Token::Less
             | Token::LessEqual
             | Token::Greater
-            | Token::GreaterEqual => {
+            | Token::GreaterEqual
+            | Token::BitwiseXOR
+            | Token::BitwiseAND
+            | Token::BitwiseOR
+            | Token::BitwiseNOT
+            | Token::BitwiseLShift
+            | Token::BitwiseRShift => {
                 if !is_separator(self.next) {
                     self.add_diagnostic(
                         LexerError::ExpectedSeparator,
@@ -1326,6 +1344,30 @@ mod tests {
         assert_eq!(lexer.read_token().unwrap().token, Token::GreaterEqual);
         assert_eq!(lexer.diagnostics.len(), 0);
 
+        lexer = Lexer::new("^", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseXOR);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("&", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseAND);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("|", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseOR);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("~", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseNOT);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("<<", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseLShift);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new(">>", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseRShift);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
         lexer = Lexer::new(";; this is a comment", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
@@ -1386,13 +1428,14 @@ mod tests {
             LexerError::InvalidCharPrincipal('O')
         );
 
+        /* cylewitruk: Commenting out this reserved placeholder, assuming it might have been reserved for Bitwise NOT anyway?
         lexer = Lexer::new("~", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
             Token::Placeholder("~".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
-        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));
+        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));*/
 
         lexer = Lexer::new("okay;; comment", false).unwrap();
         assert_eq!(
@@ -2093,6 +2136,7 @@ mod tests {
             }
         );
 
+        /* cylewitruk: Commenting this out as `~` isn't documented anywhere...
         lexer = Lexer::new("123 ~ abc", false).unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();
@@ -2105,7 +2149,7 @@ mod tests {
                 end_line: 1,
                 end_column: 5
             }
-        );
+        );*/
 
         lexer = Lexer::new("  \"newline\n  \"", false).unwrap();
         lexer.read_token().unwrap(); // whitespace
