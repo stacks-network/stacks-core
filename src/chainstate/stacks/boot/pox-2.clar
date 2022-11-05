@@ -651,7 +651,9 @@
 ;; Returns (ok uint) on success, where the given uint is the reward address's index in the list of reward 
 ;; addresses allocated in this reward cycle.  This index can then be passed to `stack-aggregation-increase`
 ;; to later increment the STX this PoX address represents, in amounts less than the stacking minimum.
-(define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+;; 
+;; *New in Stacks 2.1.*
+(define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                                                 (reward-cycle uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
@@ -689,14 +691,15 @@
 ;; Wraps inner-stack-aggregation-commit.  See its docstring for details.
 ;; Returns (ok true) on success
 ;; Returns (err ...) on failure.
-(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                                          (reward-cycle uint))
     (match (inner-stack-aggregation-commit pox-addr reward-cycle)
         pox-addr-index (ok true)
         commit-err (err commit-err)))
 
 ;; Public interface to `inner-stack-aggregation-commit`.  See its documentation for details.
-(define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+;; *New in Stacks 2.1.*
+(define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                                                  (reward-cycle uint))
     (inner-stack-aggregation-commit pox-addr reward-cycle))
 
@@ -712,7 +715,7 @@
 ;;
 ;; *New in Stacks 2.1*
 ;;
-(define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+(define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 20) })
                                            (reward-cycle uint)
                                            (reward-cycle-index uint))
   (let ((partial-stacked
@@ -741,16 +744,10 @@
           ;; must be stackable
           (try! (minimal-can-stack-stx pox-addr total-ustx reward-cycle u1))
 
-          (print {
-            method: "stack-aggregation-increase",
-            pox-addr: pox-addr,
-            reward-cycle: reward-cycle,
-            reward-cycle-index: reward-cycle-index,
-            existing-entry: existing-entry,
-            partial-stacked: partial-stacked,
-            amount-ustx: amount-ustx,
-            total-ustx: total-ustx
-          })
+          ;; new total must exceed the stacking minimum
+          (asserts! (<= (get-stacking-minimum) total-ustx)
+                    (err ERR_STACKING_THRESHOLD_NOT_MET))
+
           ;; there must *not* be a stacker entry (since this is a delegator)
           (asserts! (is-none (get stacker existing-entry))
                     (err ERR_DELEGATION_WRONG_REWARD_SLOT))
