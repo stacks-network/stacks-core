@@ -23,6 +23,8 @@
 (define-constant ERR_NOT_CURRENT_STACKER 25)
 (define-constant ERR_STACK_EXTEND_NOT_LOCKED 26)
 (define-constant ERR_STACK_INCREASE_NOT_LOCKED 27)
+(define-constant ERR_DELEGATION_NO_REWARD_SLOT 28)
+(define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -338,7 +340,9 @@
 ;; Used by add-pox-addr-to-reward-cycles.
 ;; No checking is done.
 ;; The returned tuple is the same as inputted `params`, but the `i` field is incremented if
-;;  the pox-addr was added to the given cycle. 
+;;  the pox-addr was added to the given cycle.  Also, `reward-set-indexes` grows to include all
+;;  of the `reward-cycle-index` key parts of the `reward-cycle-pox-address-list` which get added by this function.
+;;  This way, the caller knows which items in a given reward cycle's PoX address list got updated.
 (define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
                                                             (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
                                                             (reward-set-indexes (list 12 uint))
@@ -396,6 +400,15 @@
     ;; It _should_ be equal to num-cycles.
     (asserts! (is-eq num-cycles (get i results)) (err ERR_STACKING_UNREACHABLE))
     (asserts! (is-eq num-cycles (len reward-set-indexes)) (err ERR_STACKING_UNREACHABLE))
+    (print {
+        method: "add-pox-addr-to-reward-cycles",
+        pox-addr: pox-addr,
+        first-reward-cycle: first-reward-cycle,
+        num-cycles: num-cycles,
+        amount-ustx: amount-ustx,
+        stacker: stacker,
+        reward-set-indexes: reward-set-indexes
+    })
     (ok reward-set-indexes)))
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
@@ -419,6 +432,13 @@
           (map-set partial-stacked-by-cycle
                    { sender: tx-sender, pox-addr: pox-addr, reward-cycle: reward-cycle }
                    { stacked-amount: (+ amount-ustx current-amount) }))
+      (print {
+        method: "add-partial-stacked-to-ith-cycle",
+        sender: tx-sender,
+        pox-addr: pox-addr,
+        reward-cycle: reward-cycle,
+        amount: (map-get? partial-stacked-by-cycle { sender: tx-sender, pox-addr: pox-addr, reward-cycle: reward-cycle })
+      })
       ;; produce the next params tuple
       { pox-addr: pox-addr,
         reward-cycle: (+ u1 reward-cycle),
@@ -621,14 +641,18 @@
 
       (ok true)))
 
-;; Commit partially stacked STX.
+;; Commit partially stacked STX and allocate a new PoX reward address slot.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,
 ;;   so long as: 1. The pox-addr is the same.
 ;;               2. This "commit" transaction is called _before_ the PoX anchor block.
 ;;   This ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
 ;;   but does not require it be all locked up within a single transaction
-(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 20) })
-                                         (reward-cycle uint))
+;;
+;; Returns (ok uint) on success, where the given uint is the reward address's index in the list of reward 
+;; addresses allocated in this reward cycle.  This index can then be passed to `stack-aggregation-increase`
+;; to later increment the STX this PoX address represents, in amounts less than the stacking minimum.
+(define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                (reward-cycle uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
@@ -638,23 +662,122 @@
               (err ERR_STACKING_PERMISSION_DENIED))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
-      ;; add the pox addr to the reward cycle
-      (add-pox-addr-to-ith-reward-cycle
-       u0
-       { pox-addr: pox-addr,
-         first-reward-cycle: reward-cycle,
-         num-cycles: u1,
-         reward-set-indexes: (list),
-         stacker: none,
-         amount-ustx: amount-ustx,
-         i: u0 })
-      ;; don't update the stacking-state map,
-      ;;  because it _already has_ this stacker's state
-      ;; don't lock the STX, because the STX is already locked
-      ;;
-      ;; clear the partial-stacked state
-      (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
-      (ok true))))
+      ;; Add the pox addr to the reward cycle, and extract the index of the PoX address
+      ;; so the delegator can later use it to call stack-aggregation-increase.
+      (let ((add-pox-addr-info
+                (add-pox-addr-to-ith-reward-cycle
+                   u0
+                   { pox-addr: pox-addr,
+                     first-reward-cycle: reward-cycle,
+                     num-cycles: u1,
+                     reward-set-indexes: (list),
+                     stacker: none,
+                     amount-ustx: amount-ustx,
+                     i: u0 }))
+           (pox-addr-index (unwrap-panic
+                (element-at (get reward-set-indexes add-pox-addr-info) u0))))
+
+        ;; don't update the stacking-state map,
+        ;;  because it _already has_ this stacker's state
+        ;; don't lock the STX, because the STX is already locked
+        ;;
+        ;; clear the partial-stacked state
+        (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+        (ok pox-addr-index)))))
+
+;; Legacy interface for stack-aggregation-commit.
+;; Wraps inner-stack-aggregation-commit.  See its docstring for details.
+;; Returns (ok true) on success
+;; Returns (err ...) on failure.
+(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                         (reward-cycle uint))
+    (match (inner-stack-aggregation-commit pox-addr reward-cycle)
+        pox-addr-index (ok true)
+        commit-err (err commit-err)))
+
+;; Public interface to `inner-stack-aggregation-commit`.  See its documentation for details.
+(define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                 (reward-cycle uint))
+    (inner-stack-aggregation-commit pox-addr reward-cycle))
+
+;; Commit partially stacked STX to a PoX address which has already received some STX (more than the Stacking min).
+;; This allows a delegator to lock up marginally more STX from new delegates, even if they collectively do not
+;; exceed the Stacking minimum, so long as the target PoX address already represents at least as many STX as the 
+;; Stacking minimum.
+;;
+;; The `reward-cycle-index` is emitted as a contract event from `stack-aggregation-commit` when the initial STX are
+;; locked up by this delegator.  It must be passed here to add more STX behind this PoX address.  If the delegator
+;; called `stack-aggregation-commit` multiple times for the same PoX address, then any such `reward-cycle-index` will
+;; work here.
+;;
+;; *New in Stacks 2.1*
+;;
+(define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                           (reward-cycle uint)
+                                           (reward-cycle-index uint))
+  (let ((partial-stacked
+         ;; fetch the partial commitments
+         (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+                  (err ERR_STACKING_NO_SUCH_PRINCIPAL))))
+
+    ;; must be called directly by the tx-sender or by an allowed contract-caller
+    (asserts! (check-caller-allowed)
+              (err ERR_STACKING_PERMISSION_DENIED))
+
+    ;; reward-cycle must be in the future
+    (asserts! (> reward-cycle (current-pox-reward-cycle))
+              (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+    (let ((amount-ustx (get stacked-amount partial-stacked))
+          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
+          ;; infallable; getting something from partial-stacked-by-cycle succeeded so this must succeed
+          (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+          ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
+          (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
+                          (err ERR_DELEGATION_NO_REWARD_SLOT)))
+          (increased-ustx (+ (get total-ustx existing-entry) amount-ustx))
+          (total-ustx (+ (get total-ustx existing-total) amount-ustx)))
+
+          ;; must be stackable
+          (try! (minimal-can-stack-stx pox-addr total-ustx reward-cycle u1))
+
+          (print {
+            method: "stack-aggregation-increase",
+            pox-addr: pox-addr,
+            reward-cycle: reward-cycle,
+            reward-cycle-index: reward-cycle-index,
+            existing-entry: existing-entry,
+            partial-stacked: partial-stacked,
+            amount-ustx: amount-ustx,
+            total-ustx: total-ustx
+          })
+          ;; there must *not* be a stacker entry (since this is a delegator)
+          (asserts! (is-none (get stacker existing-entry))
+                    (err ERR_DELEGATION_WRONG_REWARD_SLOT))
+
+          ;; the given PoX address must match the one on record
+          (asserts! (is-eq pox-addr (get pox-addr existing-entry))
+                    (err ERR_DELEGATION_WRONG_REWARD_SLOT))
+
+          ;; update the pox-address list -- bump the total-ustx
+          (map-set reward-cycle-pox-address-list
+                   { reward-cycle: reward-cycle, index: reward-cycle-index }
+                   { pox-addr: pox-addr,
+                     total-ustx: increased-ustx,
+                     stacker: none })
+
+          ;; update the total ustx in this cycle
+          (map-set reward-cycle-total-stacked 
+                   { reward-cycle: reward-cycle }
+                   { total-ustx: total-ustx })
+
+          ;; don't update the stacking-state map,
+          ;;  because it _already has_ this stacker's state
+          ;; don't lock the STX, because the STX is already locked
+          ;;
+          ;; clear the partial-stacked state
+          (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+          (ok true))))
 
 ;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
 ;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
@@ -771,6 +894,10 @@
     })
 )
 
+;; Update the number of stacked STX in a given reward cycle entry.
+;; `reward-cycle-index` is the index into the `reward-cycle-pox-address-list` map for a given reward cycle number.
+;; `updates`, if `(some ..)`, encodes which PoX reward cycle entry (if any) gets updated.  In particular, it must have
+;; `(some stacker)` as the listed stacker, and must be an upcoming reward cycle.
 (define-private (increase-reward-cycle-entry 
                   (reward-cycle-index uint)
                   (updates (optional { first-cycle: uint, reward-cycle: uint, stacker: principal, add-amount: uint })))
@@ -800,6 +927,10 @@
                     stacker: (get stacker data),
                     add-amount: (get add-amount data) })))))
 
+;; Increase the number of STX locked.
+;; *New in Stacks 2.1*
+;; This method locks up an additional amount of STX from `tx-sender`'s, indicated
+;; by `increase-by`.  The `tx-sender` must already be Stacking.
 (define-public (stack-increase (increase-by uint))
    (let ((stacker-info (stx-account tx-sender))
          (amount-stacked (get locked stacker-info))
@@ -833,7 +964,7 @@
       ;; NOTE: stacking-state map is unchanged: it no longer tracks amount-stacked in PoX-2
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
-;; Extend an active stacking lock.
+;; Extend an active Stacking lock.
 ;; *New in Stacks 2.1*
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards
@@ -911,7 +1042,7 @@
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
 
-;; As a delegator, increase an active stacking lock, issuing a "partial commitment" for the
+;; As a delegator, increase an active Stacking lock, issuing a "partial commitment" for the
 ;;   increased cycles.
 ;; *New in Stacks 2.1*
 ;; This method increases `stacker`'s current lockup and partially commits the additional
