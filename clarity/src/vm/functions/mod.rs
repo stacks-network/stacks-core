@@ -178,6 +178,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     BitwiseNOT("~", ClarityVersion::Clarity2),
     BitwiseLShift("<<", ClarityVersion::Clarity2),
     BitwiseRShift(">>", ClarityVersion::Clarity2),
+    BitwiseXOR2("^", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -547,6 +548,11 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
                 ClarityCostFunction::BitwiseRShift,
             ),
+            BitwiseXOR2 => NativeFunction(
+                "native_xor",
+                NativeHandle::DoubleArg(&arithmetic::native_xor),
+                ClarityCostFunction::Xor
+            )
         };
         Some(callable)
     } else {

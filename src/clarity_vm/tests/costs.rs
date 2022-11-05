@@ -165,7 +165,8 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         BitwiseOR => "(| 2 3)",
         BitwiseNOT => "(~ 3)",
         BitwiseLShift => "(<< 2 1)",
-        BitwiseRShift => "(>> 2 1)"
+        BitwiseRShift => "(>> 2 1)",
+        BitwiseXOR2 => "(xor 1 2)",
     }
 }
 

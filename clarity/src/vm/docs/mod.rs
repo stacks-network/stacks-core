@@ -568,6 +568,16 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    snippet: "^ ${1:expr-1} ${2:expr-2}",
+    signature: "(^ i1 i2)",
+    description: "Alias for the `xor` function.  Returns the result of bitwise exclusive or'ing `i1` with `i2`.",
+    example: "(^ 1 2) ;; Returns 3
+(^ 120 280) ;; Returns 352
+",
+};
+
 const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("& (bitwise and)"),
     snippet: "& ${1:expr-1} ${2:expr-2}",
@@ -2379,6 +2389,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
+        BitwiseXOR2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXOR2, name),
         BitwiseAND => make_for_simple_native(&BITWISE_AND_API, &BitwiseAND, name),
         BitwiseOR => make_for_simple_native(&BITWISE_OR_API, &BitwiseOR, name),
         BitwiseNOT => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNOT, name),
