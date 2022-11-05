@@ -3968,8 +3968,7 @@ fn stack_aggregation_increase() {
         &dan,
         dan_nonce,
         dan_stack_amount,
-        AddressHashMode::SerializeP2PKH,
-        dan_address.bytes.clone(),
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone()),
         12,
         tip.block_height,
     );
