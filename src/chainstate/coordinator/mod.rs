@@ -259,9 +259,14 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "registered_addrs" => registered_addrs.len());
         }
 
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
+            &format!("FATAL: no epoch for burn height {}", current_burn_height),
+        );
+
         Ok(StacksChainState::make_reward_set(
             threshold,
             registered_addrs,
+            cur_epoch.epoch_id,
         ))
     }
 }

@@ -29,7 +29,7 @@
 ///                           |   .----------.   |--------------------------------------.
 ///                           |   .StacksNode.   |                                      |
 ///                           |---.----------.---|                                      |
-///                    [1]        |     |    |     [1]                                  |
+///                    [1,12]     |     |    |     [1]                                  |
 ///              .----------------*     |    *---------------.                          |
 ///              |                  [3] |                    |                          |
 ///              V                      |                    V                          V
@@ -60,6 +60,7 @@
 /// [9]  Pushes retrieved blocks and microblocks
 /// [10] Broadcasts new blocks, microblocks, and transactions
 /// [11] Notifies about new transaction attachment events
+/// [12] Signals VRF key registration
 ///
 /// When the node is running, there are 4-5 active threads at once.  They are:
 ///
@@ -148,7 +149,6 @@ use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
 use std::{thread, thread::JoinHandle};
 
-use stacks::burnchains::BurnchainSigner;
 use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
@@ -233,6 +233,7 @@ pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 /// burnchain transaction should be sent; `false` if not.
 #[cfg(test)]
 fn fault_injection_delay_transactions(
+    epoch_id: StacksEpochId,
     bitcoin_controller: &mut BitcoinRegtestController,
     globals: &Globals,
     cur_burn_chain_height: u64,
@@ -257,7 +258,7 @@ fn fault_injection_delay_transactions(
         );
         bitcoin_controller.set_allow_rbf(false);
         let tx = bitcoin_controller
-            .make_operation_tx(op.clone(), op_signer, attempt)
+            .make_operation_tx(epoch_id, op.clone(), op_signer, attempt)
             .unwrap();
         globals.store_delayed_tx(tx, stacks_block_burn_height + 1);
 
@@ -270,7 +271,7 @@ fn fault_injection_delay_transactions(
     for tx in delayed_txs.into_iter() {
         test_debug!("Fault injection: submit delayed tx {}", &to_hex(&tx.bytes));
         let res = bitcoin_controller.send_transaction(tx.clone());
-        if !res {
+        if res.is_none() {
             test_debug!(
                 "Fault injection: failed to send delayed tx {}",
                 &to_hex(&tx.bytes)
@@ -283,6 +284,7 @@ fn fault_injection_delay_transactions(
 
 #[cfg(not(test))]
 fn fault_injection_delay_transactions(
+    _epoch_id: StacksEpochId,
     _bitcoin_controller: &mut BitcoinRegtestController,
     _globals: &Globals,
     _cur_burn_chain_height: u64,
@@ -365,6 +367,8 @@ pub struct Globals {
     sync_comms: PoxSyncWatchdogComms,
     /// Global flag to see if we should keep running
     pub should_keep_running: Arc<AtomicBool>,
+    /// Status of our VRF key registration state (shared between the main thread and the relayer)
+    leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
     /// testing: simulate delayed block-commits
     #[cfg(test)]
     delayed_txs: Arc<Mutex<HashMap<u64, Vec<SerializedTx>>>>,
@@ -421,6 +425,9 @@ impl Globals {
             counters,
             sync_comms,
             should_keep_running,
+            leader_key_registration_state: Arc::new(Mutex::new(
+                LeaderKeyRegistrationState::Inactive,
+            )),
             #[cfg(test)]
             delayed_txs: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -512,6 +519,92 @@ impl Globals {
         &self.coord_comms
     }
 
+    /// Get the current leader key registration state.
+    /// Called from the runloop thread and relayer thread.
+    fn get_leader_key_registration_state(&self) -> LeaderKeyRegistrationState {
+        match self.leader_key_registration_state.lock() {
+            Ok(state) => (*state).clone(),
+            Err(e) => {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: leader key registration mutex is poisoned: {:?}", &e);
+                panic!();
+            }
+        }
+    }
+
+    /// Set the initial leader key registration state.
+    /// Called from the runloop thread when booting up.
+    fn set_initial_leader_key_registration_state(&self, new_state: LeaderKeyRegistrationState) {
+        match self.leader_key_registration_state.lock() {
+            Ok(mut state) => {
+                *state = new_state;
+            }
+            Err(e) => {
+                // can only happen due to a thread panic in the relayer
+                error!("FATAL: leader key registration mutex is poisoned: {:?}", &e);
+                panic!();
+            }
+        }
+    }
+
+    /// Advance the leader key registration state to pending, given a txid we just sent.
+    /// Only the relayer thread calls this.
+    fn set_pending_leader_key_registration(&self, txid: Txid) {
+        match self.leader_key_registration_state.lock() {
+            Ok(ref mut leader_key_registration_state) => {
+                **leader_key_registration_state = LeaderKeyRegistrationState::Pending(txid);
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock leader key registration state mutex");
+                panic!();
+            }
+        }
+    }
+
+    /// Advance the leader key registration state to active, given the VRF key registration ops
+    /// we've discovered in a given snapshot.
+    /// The runloop thread calls this whenever it processes a sortition.
+    pub fn try_activate_leader_key_registration(
+        &self,
+        burn_block_height: u64,
+        key_registers: Vec<LeaderKeyRegisterOp>,
+    ) -> bool {
+        let mut activated = false;
+        match self.leader_key_registration_state.lock() {
+            Ok(ref mut leader_key_registration_state) => {
+                for op in key_registers.into_iter() {
+                    if let LeaderKeyRegistrationState::Pending(txid) =
+                        **leader_key_registration_state
+                    {
+                        info!(
+                            "Received burnchain block #{} including key_register_op - {}",
+                            burn_block_height, txid
+                        );
+                        if txid == op.txid {
+                            **leader_key_registration_state =
+                                LeaderKeyRegistrationState::Active(RegisteredKey {
+                                    vrf_public_key: op.public_key,
+                                    block_height: op.block_height as u64,
+                                    op_vtxindex: op.vtxindex as u32,
+                                });
+                            activated = true;
+                        } else {
+                            debug!(
+                                "key_register_op {} does not match our pending op {}",
+                                txid, &op.txid
+                            );
+                        }
+                    }
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock leader key registration state mutex");
+                panic!();
+            }
+        }
+        activated
+    }
+
     /// Store a delayed TX so it can be replayed later.
     /// Simulates late Bitcoin transactions
     #[cfg(test)]
@@ -546,19 +639,12 @@ impl Globals {
 /// This struct is used to set up the node proper and launch the p2p thread and relayer thread.
 /// It is further used by the main thread to communicate with these two threads.
 pub struct StacksNode {
-    /// Node configuration
-    config: Config,
     /// Atlas network configuration
     pub atlas_config: AtlasConfig,
     /// Global inter-thread communication handle
     pub globals: Globals,
-    /// Stringy representation of our keychain (the authoritative keychain is stored in the
-    /// subordinate RelayerThread instance)
-    burnchain_signer: BurnchainSigner,
     /// True if we're a miner
     is_miner: bool,
-    /// VRF public key registration state machine
-    leader_key_registration_state: LeaderKeyRegistrationState,
     /// handle to the p2p thread
     pub p2p_thread_handle: JoinHandle<()>,
     /// handle to the relayer thread
@@ -621,11 +707,13 @@ struct ParentStacksBlockInfo {
     coinbase_nonce: u64,
 }
 
+#[derive(Clone)]
 enum LeaderKeyRegistrationState {
     /// Not started yet
     Inactive,
     /// Waiting for burnchain confirmation
-    Pending,
+    /// `txid` is the burnchain transaction ID
+    Pending(Txid),
     /// Ready to go!
     Active(RegisteredKey),
 }
@@ -650,6 +738,8 @@ pub struct RelayerThread {
     keychain: Keychain,
     /// Burnchian configuration
     burnchain: Burnchain,
+    /// height of last VRF key registration request
+    last_vrf_key_burn_height: u64,
     /// Set of blocks that we have mined, but are still potentially-broadcastable
     last_mined_blocks: MinedBlocks,
     /// client to the burnchain (used only for sending block-commits)
@@ -1969,6 +2059,7 @@ impl BlockMinerThread {
         );
 
         let send_tx = fault_injection_delay_transactions(
+            target_epoch_id,
             &mut bitcoin_controller,
             &self.globals,
             cur_burn_chain_tip.block_height,
@@ -1978,8 +2069,9 @@ impl BlockMinerThread {
             attempt,
         );
         if send_tx {
-            let res = bitcoin_controller.submit_operation(op, &mut op_signer, attempt);
-            if !res {
+            let res =
+                bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
+            if res.is_none() {
                 if !self.config.node.mock_mining {
                     warn!("Relayer: Failed to submit Bitcoin transaction");
                     return None;
@@ -2054,6 +2146,7 @@ impl RelayerThread {
             globals,
             keychain,
             burnchain: runloop.get_burnchain(),
+            last_vrf_key_burn_height: 0,
             last_mined_blocks: MinedBlocks::new(),
             bitcoin_controller,
             event_dispatcher: runloop.get_event_dispatcher(),
@@ -2716,14 +2809,12 @@ impl RelayerThread {
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
     fn inner_generate_leader_key_register_op(
-        address: StacksAddress,
         vrf_public_key: VRFPublicKey,
         consensus_hash: &ConsensusHash,
     ) -> BlockstackOperationType {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            address,
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -2734,19 +2825,31 @@ impl RelayerThread {
 
     /// Create and broadcast a VRF public key registration transaction.
     /// Returns true if we succeed in doing so; false if not.
-    pub fn rotate_vrf_and_register(&mut self, burn_block: &BlockSnapshot) -> bool {
-        let is_mainnet = self.config.is_mainnet();
+    pub fn rotate_vrf_and_register(&mut self, burn_block: &BlockSnapshot) {
+        if burn_block.block_height == self.last_vrf_key_burn_height {
+            // already in-flight
+            return;
+        }
+
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block.block_height)
+                .expect("FATAL: failed to query sortition DB")
+                .expect("FATAL: no epoch defined")
+                .epoch_id;
+
         let vrf_pk = self.keychain.rotate_vrf_keypair(burn_block.block_height);
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
-        let op = Self::inner_generate_leader_key_register_op(
-            self.keychain.get_address(is_mainnet),
-            vrf_pk,
-            burnchain_tip_consensus_hash,
-        );
+        let op = Self::inner_generate_leader_key_register_op(vrf_pk, burnchain_tip_consensus_hash);
 
         let mut one_off_signer = self.keychain.generate_op_signer();
-        self.bitcoin_controller
-            .submit_operation(op, &mut one_off_signer, 1)
+        if let Some(txid) =
+            self.bitcoin_controller
+                .submit_operation(cur_epoch, op, &mut one_off_signer, 1)
+        {
+            // advance key registration state
+            self.last_vrf_key_burn_height = burn_block.block_height;
+            self.globals.set_pending_leader_key_registration(txid);
+        }
     }
 
     /// Remove any block state we've mined for the given burnchain height.
@@ -3922,6 +4025,7 @@ impl StacksNode {
     /// Continuously receives, until told otherwise.
     pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
+
         // spawn a daemon thread that runs the DNS resolver.
         // It will die when the rest of the system dies.
         {
@@ -4020,6 +4124,7 @@ impl StacksNode {
             _ => {}
         }
 
+        // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
             let vrf_public_key = keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
@@ -4031,6 +4136,7 @@ impl StacksNode {
         } else {
             LeaderKeyRegistrationState::Inactive
         };
+        globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
         let relayer_thread_handle = thread::Builder::new()
@@ -4058,12 +4164,9 @@ impl StacksNode {
         info!("Start P2P server on: {}", &config.node.p2p_bind);
 
         StacksNode {
-            config,
             atlas_config,
             globals,
-            burnchain_signer,
             is_miner,
-            leader_key_registration_state,
             p2p_thread_handle,
             relayer_thread_handle,
         }
@@ -4072,42 +4175,51 @@ impl StacksNode {
     /// Manage the VRF public key registration state machine.
     /// Tell the relayer thread to fire off a tenure and a block commit op,
     /// if it is time to do so.
+    /// `ibd` indicates whether or not we're in the initial block download.  Used to control when
+    /// to try and register VRF keys.
     /// Called from the main thread.
     /// Return true if we succeeded in carrying out the next task of the operation.
-    pub fn relayer_issue_tenure(&mut self) -> bool {
+    pub fn relayer_issue_tenure(&mut self, ibd: bool) -> bool {
         if !self.is_miner {
             // node is a follower, don't try to issue a tenure
             return true;
         }
 
         if let Some(burnchain_tip) = self.globals.get_last_sortition() {
-            match self.leader_key_registration_state {
-                LeaderKeyRegistrationState::Active(ref key) => {
-                    debug!(
-                        "Tenure: Using key {:?} off of {}",
-                        &key.vrf_public_key, &burnchain_tip.burn_header_hash
-                    );
+            if !ibd {
+                // try and register a VRF key before issuing a tenure
+                let leader_key_registration_state =
+                    self.globals.get_leader_key_registration_state();
+                match leader_key_registration_state {
+                    LeaderKeyRegistrationState::Active(ref key) => {
+                        debug!(
+                            "Tenure: Using key {:?} off of {}",
+                            &key.vrf_public_key, &burnchain_tip.burn_header_hash
+                        );
 
-                    self.globals
-                        .relay_send
-                        .send(RelayerDirective::RunTenure(
-                            key.clone(),
-                            burnchain_tip,
-                            get_epoch_time_ms(),
-                        ))
-                        .is_ok()
+                        self.globals
+                            .relay_send
+                            .send(RelayerDirective::RunTenure(
+                                key.clone(),
+                                burnchain_tip,
+                                get_epoch_time_ms(),
+                            ))
+                            .is_ok()
+                    }
+                    LeaderKeyRegistrationState::Inactive => {
+                        warn!(
+                            "Tenure: skipped tenure because no active VRF key. Trying to register one."
+                        );
+                        self.globals
+                            .relay_send
+                            .send(RelayerDirective::RegisterKey(burnchain_tip))
+                            .is_ok()
+                    }
+                    LeaderKeyRegistrationState::Pending(..) => true,
                 }
-                LeaderKeyRegistrationState::Inactive => {
-                    warn!(
-                        "Tenure: skipped tenure because no active VRF key. Trying to register one."
-                    );
-                    self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
-                    self.globals
-                        .relay_send
-                        .send(RelayerDirective::RegisterKey(burnchain_tip))
-                        .is_ok()
-                }
-                LeaderKeyRegistrationState::Pending => true,
+            } else {
+                // still sync'ing so just try again later
+                true
             }
         } else {
             warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
@@ -4176,24 +4288,18 @@ impl StacksNode {
 
         update_active_miners_count_gauge(block_commits.len() as i64);
 
-        let (_, network) = self.config.burnchain.get_bitcoin_network();
-
         for op in block_commits.into_iter() {
             if op.txid == block_snapshot.winning_block_txid {
                 info!(
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
-                    block_height,
-                    op.apparent_sender.to_bitcoin_address(network),
-                    &op.block_header_hash
+                    block_height, op.apparent_sender, &op.block_header_hash
                 );
                 last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
             } else {
                 if self.is_miner {
                     info!(
                         "Received burnchain block #{} including block_commit_op - {} ({})",
-                        block_height,
-                        op.apparent_sender.to_bitcoin_address(network),
-                        &op.block_header_hash
+                        block_height, op.apparent_sender, &op.block_header_hash
                     );
                 }
             }
@@ -4203,33 +4309,10 @@ impl StacksNode {
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
 
-        let node_address = Keychain::address_from_burnchain_signer(
-            &self.burnchain_signer,
-            self.config.is_mainnet(),
-        );
-
-        for op in key_registers.into_iter() {
-            if op.address == node_address {
-                if self.is_miner {
-                    info!(
-                        "Received burnchain block #{} including key_register_op - {}",
-                        block_height, op.address
-                    );
-                }
-                if !ibd {
-                    // not in initial block download, so we're not just replaying an old key.
-                    // Registered key has been mined
-                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state
-                    {
-                        self.leader_key_registration_state =
-                            LeaderKeyRegistrationState::Active(RegisteredKey {
-                                vrf_public_key: op.public_key,
-                                block_height: op.block_height as u64,
-                                op_vtxindex: op.vtxindex as u32,
-                            });
-                    }
-                }
-            }
+        if !ibd {
+            // only bother with this if we're sync'ed
+            self.globals
+                .try_activate_leader_key_registration(block_height, key_registers);
         }
 
         self.globals.set_last_sortition(block_snapshot);
