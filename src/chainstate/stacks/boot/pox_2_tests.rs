@@ -4032,12 +4032,13 @@ fn stack_aggregation_increase() {
     txs_to_submit.push(make_pox_2_contract_call(
         &bob,
         bob_nonce,
-        "stack-aggregation-commit",
+        "stack-aggregation-commit-indexed",
         vec![
             bob_pox_addr.clone(),
             Value::UInt((cur_reward_cycle + 1) as u128),
         ],
     ));
+    let bob_stack_aggregation_commit_indexed = bob_nonce;
     bob_nonce += 1;
 
     // bob tries to lock tokens in a reward cycle that's already committed (should fail with
@@ -4242,6 +4243,14 @@ fn stack_aggregation_increase() {
     assert_eq!(alice_txs.len(), 1);
     assert_eq!(bob_txs.len(), 9);
     assert_eq!(charlie_txs.len(), 2);
+
+    // bob's stack-aggregation-commit-indexed succeeded and returned the right index
+    assert_eq!(
+        &bob_txs[&bob_stack_aggregation_commit_indexed]
+            .result
+            .to_string(),
+        "(ok u1)"
+    );
 
     // check bob's errors
     assert_eq!(
