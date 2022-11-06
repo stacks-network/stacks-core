@@ -609,7 +609,9 @@ const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<< (binary left shift)"),
     snippet: "<< ${1:expr-1} ${2:expr-2}",
     signature: "(<< i1 i2)",
-    description: "Moves all the bits in `i1` to the left by the number of places specified in `i2`. New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, shifting two positions is equivalent to multiplying by 4, and so on.",
+    description: "Moves all the bits in `i1` to the left by the number of places specified in `i2`. 
+New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, 
+shifting two positions is equivalent to multiplying by 4, and so on.",
     example: "(<< 2 1) ;; Returns 4"
 };
 
