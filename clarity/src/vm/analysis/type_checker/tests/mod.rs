@@ -770,16 +770,21 @@ fn test_simple_arithmetic_checks() {
         "(is-eq (+ 1 2 3) 6 0)",
         "(and (or true false) false)",
         "(& 24 16)",
-        "(^ u24 u16)"
+        "(^ u24 u16)",
+        "(| 2 1)"
     ];
-    let expected = ["bool", "bool", "bool", "int", "uint"];
+    let expected = ["bool", "bool", "bool", "int", "uint", "int"];
     let bad = [
         "(+ 1 2 3 (>= 5 7))",
         "(-)",
         "(xor 1)",
         "(+ x y z)", // unbound variables.
         "(+ 1 2 3 (is-eq 1 2))",
-        "(and (or true false) (+ 1 2 3))"
+        "(and (or true false) (+ 1 2 3))",
+        "(^ 1 u2)",
+        "(| u2 1)",
+        "(~ \"hello\")",
+        "(~ 1 2)"
     ];
     let bad_expected = [
         CheckErrors::TypeError(IntType, BoolType),
@@ -787,7 +792,13 @@ fn test_simple_arithmetic_checks() {
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UndefinedVariable("x".to_string()),
         CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType)
+        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType], 
+            SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap())))),
+        CheckErrors::IncorrectArgumentCount(1, 2)
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
