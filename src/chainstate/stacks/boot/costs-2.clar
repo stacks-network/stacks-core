@@ -226,21 +226,6 @@
 (define-read-only (cost_xor (n uint))
     (runtime u170))
 
-(define-read-only (cost_bitwise_and (n uint))
-    (runtime u170))
-
-(define-read-only (cost_bitwise_or (n uint))
-    (runtime u170))
-
-(define-read-only (cost_bitwise_not (n uint))
-    (runtime u170))
-
-(define-read-only (cost_bitwise_left_shift (n uint))
-    (runtime u170))
-
-(define-read-only (cost_bitwise_right_shift (n uint))
-    (runtime u170))
-
 (define-read-only (cost_not (n uint))
     (runtime u170))
 
