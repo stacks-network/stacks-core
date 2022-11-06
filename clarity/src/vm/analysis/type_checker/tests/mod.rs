@@ -784,7 +784,10 @@ fn test_simple_arithmetic_checks() {
         "(^ 1 u2)",
         "(| u2 1)",
         "(~ \"hello\")",
-        "(~ 1 2)"
+        "(~ 1 2)",
+        "(& 1 u2)",
+        "(<< 1 u2)",
+        "(>> 1 u2)"
     ];
     let bad_expected = [
         CheckErrors::TypeError(IntType, BoolType),
@@ -798,7 +801,10 @@ fn test_simple_arithmetic_checks() {
         CheckErrors::UnionTypeError(
             vec![IntType, UIntType], 
             SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap())))),
-        CheckErrors::IncorrectArgumentCount(1, 2)
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(IntType, UIntType)
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
