@@ -1401,7 +1401,6 @@ pub mod test {
     use rand::Rng;
 
     use crate::burnchains::Address;
-    use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;

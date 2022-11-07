@@ -163,11 +163,19 @@ impl BurnchainParameters {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BurnchainSigner {
-    pub hash_mode: AddressHashMode,
-    pub num_sigs: usize,
-    pub public_keys: Vec<StacksPublicKey>,
+/// This is an opaque representation of the underlying burnchain-specific principal that signed
+/// this transaction.  It may not even map to an address, given that even in "simple" VMs like
+/// bitcoin script, the "signer" may be only a part of a complex script.
+///
+/// The purpose of this struct is to capture a loggable representation of a principal that signed
+/// this transaction.  It's not meant for use with consensus-critical code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BurnchainSigner(pub String);
+
+impl fmt::Display for BurnchainSigner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.0)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -213,40 +221,30 @@ impl BurnchainTransaction {
         }
     }
 
-    pub fn get_signers(&self) -> Vec<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .iter()
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i))
-                .collect(),
-        }
-    }
-
-    pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .get(input)
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
-        }
-    }
-
     pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
         match self {
             BurnchainTransaction::Bitcoin(ref btc) => {
-                btc.inputs.get(input).map(|txin| &txin.tx_ref)
+                btc.inputs.get(input).map(|txin| txin.tx_ref())
             }
         }
     }
 
-    pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
+    /// Get the BurnchainRecipients we are able to decode.
+    /// A `None` value at slot `i` means "there is a recipient at slot `i`, but we don't know how
+    /// to decode it`.
+    pub fn get_recipients(&self) -> Vec<Option<BurnchainRecipient>> {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc
                 .outputs
                 .iter()
-                .map(|ref o| BurnchainRecipient::from_bitcoin_output(o))
+                .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
                 .collect(),
+        }
+    }
+
+    pub fn num_recipients(&self) -> usize {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.outputs.len(),
         }
     }
 
@@ -957,7 +955,6 @@ pub mod test {
         pub fn add_leader_key_register(&mut self, miner: &mut TestMiner) -> LeaderKeyRegisterOp {
             let next_vrf_key = miner.next_VRF_key();
             let mut txop = LeaderKeyRegisterOp::new_from_secrets(
-                &miner.privks,
                 miner.num_sigs,
                 &miner.hash_mode,
                 &next_vrf_key,
@@ -997,11 +994,11 @@ pub mod test {
                 .iter()
                 .map(|ref pk| StacksPublicKey::from_private(pk))
                 .collect();
-            let apparent_sender = BurnchainSigner {
-                hash_mode: miner.hash_mode.clone(),
-                num_sigs: miner.num_sigs as usize,
-                public_keys: pubks,
-            };
+            let apparent_sender = BurnchainSigner::mock_parts(
+                miner.hash_mode.clone(),
+                miner.num_sigs as usize,
+                pubks,
+            );
 
             let last_snapshot = match fork_snapshot {
                 Some(sn) => sn.clone(),
@@ -1074,6 +1071,9 @@ pub mod test {
                 .expect(&format!("BUG: no epoch for height {}", &txop.block_height));
             if epoch.epoch_id >= StacksEpochId::Epoch2_05 {
                 txop.memo = vec![STACKS_EPOCH_2_05_MARKER];
+            }
+            if epoch.epoch_id >= StacksEpochId::Epoch21 {
+                txop.memo = vec![STACKS_EPOCH_2_1_MARKER];
             }
 
             self.txs
