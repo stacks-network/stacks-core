@@ -423,15 +423,6 @@
     ;; It _should_ be equal to num-cycles.
     (asserts! (is-eq num-cycles (get i results)) (err ERR_STACKING_UNREACHABLE))
     (asserts! (is-eq num-cycles (len reward-set-indexes)) (err ERR_STACKING_UNREACHABLE))
-    (print {
-        method: "add-pox-addr-to-reward-cycles",
-        pox-addr: pox-addr,
-        first-reward-cycle: first-reward-cycle,
-        num-cycles: num-cycles,
-        amount-ustx: amount-ustx,
-        stacker: stacker,
-        reward-set-indexes: reward-set-indexes
-    })
     (ok reward-set-indexes)))
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
@@ -455,13 +446,6 @@
           (map-set partial-stacked-by-cycle
                    { sender: tx-sender, pox-addr: pox-addr, reward-cycle: reward-cycle }
                    { stacked-amount: (+ amount-ustx current-amount) }))
-      (print {
-        method: "add-partial-stacked-to-ith-cycle",
-        sender: tx-sender,
-        pox-addr: pox-addr,
-        reward-cycle: reward-cycle,
-        amount: (map-get? partial-stacked-by-cycle { sender: tx-sender, pox-addr: pox-addr, reward-cycle: reward-cycle })
-      })
       ;; produce the next params tuple
       { pox-addr: pox-addr,
         reward-cycle: (+ u1 reward-cycle),
