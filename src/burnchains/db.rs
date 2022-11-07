@@ -1222,7 +1222,8 @@ impl BurnchainDB {
         Ok(Some((commit, commit_metadata)))
     }
 
-    // do NOT call directly; only call directly in tests
+    // do NOT call directly; only call directly in tests.
+    // This is only `pub` because the tests for it live in a different file.
     pub fn store_new_burnchain_block_ops_unchecked<B: BurnchainHeaderReader>(
         &mut self,
         burnchain: &Burnchain,

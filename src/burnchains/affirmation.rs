@@ -1067,7 +1067,7 @@ pub fn update_pox_affirmation_maps<B: BurnchainHeaderReader>(
         // anchor block not found for this upcoming reward cycle
         tx.clear_anchor_block(reward_cycle + 1)?;
 
-        // mark all prepare-phase commits that did NOT elect this next reward cycle's anchor
+        // mark all prepare-phase commits as NOT having descended from the next reward cycle's anchor
         // block as NOT having descended from any anchor block (since one was not chosen)
         for block_ops in prepare_ops.iter() {
             for tx_op in block_ops.iter() {
