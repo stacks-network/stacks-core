@@ -619,7 +619,8 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison))
             }
             Sqrti | Log2 | BitwiseNot => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
-            Modulo | Power | BitwiseXor | BitwiseAnd | BitwiseOr | BitwiseLShift | BitwiseRShift | BitwiseXor2 => {
+            BitwiseLShift | BitwiseRShift => Simple(SimpleNativeFunction(FunctionType::ArithmeticBinaryUIntAsSecondArg)),
+            Modulo | Power | BitwiseXor | BitwiseAnd | BitwiseOr | BitwiseXor2 => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
             And | Or => Simple(SimpleNativeFunction(FunctionType::Variadic(

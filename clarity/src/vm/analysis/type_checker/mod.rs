@@ -192,6 +192,29 @@ impl FunctionType {
                 }
                 Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
             }
+            FunctionType::ArithmeticBinaryUIntAsSecondArg => {
+                check_argument_count(2, args)?;
+                let (first, second) = (&args[0], &args[1]);
+                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
+                analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
+
+                let return_type = match first {
+                    TypeSignature::IntType => Ok(TypeSignature::IntType),
+                    TypeSignature::UIntType => Ok(TypeSignature::UIntType),
+                    _ => Err(CheckErrors::UnionTypeError(
+                        vec![TypeSignature::IntType, TypeSignature::UIntType],
+                        first.clone(),
+                    )),
+                }?;
+
+                match second {
+                    TypeSignature::UIntType => Ok(TypeSignature::UIntType),
+                    _ => Err(CheckErrors::TypeError(TypeSignature::UIntType, second.clone()))
+                }?;
+
+                Ok(return_type)
+
+            }
             FunctionType::ArithmeticVariadic
             | FunctionType::ArithmeticBinary
             | FunctionType::ArithmeticUnary => {

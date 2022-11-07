@@ -200,6 +200,7 @@ pub enum FunctionType {
     ArithmeticUnary,
     ArithmeticBinary,
     ArithmeticComparison,
+    ArithmeticBinaryUIntAsSecondArg,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

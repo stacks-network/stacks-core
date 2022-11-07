@@ -538,7 +538,9 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "sqrti ${1:expr-1}",
     signature: "(sqrti n)",
-    description: "Returns the largest integer that is less than or equal to the square root of `n`.  Fails on a negative numbers.",
+    description: "Returns the largest integer that is less than or equal to the square root of `n`.  
+Fails on a negative numbers.
+",
     example: "(sqrti u11) ;; Returns u3
 (sqrti 1000000) ;; Returns 1000
 (sqrti u1) ;; Returns u1
@@ -550,7 +552,9 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
-    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+down to the nearest integer. Fails on a negative numbers.
+",
     example: "(log2 u8) ;; Returns u3
 (log2 8) ;; Returns 3
 (log2 u1) ;; Returns u0
@@ -608,30 +612,41 @@ const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<< (binary left shift)"),
     snippet: "<< ${1:expr-1} ${2:expr-2}",
-    signature: "(<< i1 i2)",
-    description: "Moves all the bits in `i1` to the left by the number of places specified in `i2`. 
+    signature: "(<< i1 u2)",
+    description: "Moves all the bits in `i1` to the left by the number of places specified in `u2`. 
 New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, 
-shifting two positions is equivalent to multiplying by 4, and so on.
+shifting two positions is equivalent to multiplying by 4, and so on. 
+
+Observe that the second parameter (number of positions to shift) must be of type uint.
 ",
-    example: "(<< 2 1) ;; Returns 4"
+    example: "(<< 2 u1) ;; Returns 4
+(<< 16 u2) ;; Returns 64
+"
 };
 
 const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">> (binary right shift)"),
     snippet: ">> ${1:expr-1} ${2:expr-2}",
-    signature: "(>> i1 i2)",
-    description: "Moves all the bits in `i1` to the right by the number of places specified in `i2`.
+    signature: "(>> i1 u2)",
+    description: "Moves all the bits in `i1` to the right by the number of places specified in `u2`.
 New bits are filled with zeros.  Shifting a value right by one position is equivilent to dividing it by 2,
-shifting two positions is equivilent to dividing by 4, and so on.
+shifting two positions is equivilent to dividing by 4, and so on. 
+
+Observe that the second parameter (number of positions to shift) must be of type uint.
 ",
-    example: "(>> 2 1) ;; Returns 1"
+    example: "(>> 2 u1) ;; Returns 1
+(>> 128 u2) ;; Returns 32
+"
 };
 
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "and ${1:expr-1} ${2:expr-2}",
     signature: "(and b1 b2 ...)",
-    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function 
+short-circuits, and no subsequent arguments are evaluated.
+",
     example: "(and true false) ;; Returns false
 (and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
 (and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
@@ -642,7 +657,9 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "or ${1:expr-1} ${2:expr-2}",
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function 
+short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
@@ -742,7 +759,8 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticUnary => "int | uint".to_string(),
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
-        }
+        },
+        FunctionType::ArithmeticBinaryUIntAsSecondArg => "int, uint | uint, uint".to_string()
     }
 }
 
@@ -753,6 +771,7 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
         FunctionType::ArithmeticVariadic
         | FunctionType::ArithmeticUnary
+        | FunctionType::ArithmeticBinaryUIntAsSecondArg
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
     }
