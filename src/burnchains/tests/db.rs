@@ -14,14 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use std::cmp;
 use std::convert::TryInto;
-
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-
-use crate::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
-};
 
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::address::*;
@@ -29,24 +24,21 @@ use crate::burnchains::bitcoin::blocks::*;
 use crate::burnchains::bitcoin::*;
 use crate::burnchains::PoxConstants;
 use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
-use crate::chainstate::burn::operations::{
-    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
-};
+use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::*;
-use crate::chainstate::coordinator::tests::*;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::coordinator::tests::next_txid;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
+use crate::core::StacksEpochId;
+use crate::types::chainstate::StacksAddress;
 use crate::util_lib::db::Error as DBError;
+use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::util::hash::*;
 
 use super::*;
-
-fn make_tx(hex_str: &str) -> BtcTx {
-    let tx_bin = hex_bytes(hex_str).unwrap();
-    deserialize(&tx_bin.to_vec()).unwrap()
-}
 
 impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     fn read_burnchain_headers(
@@ -66,6 +58,11 @@ impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
     }
 }
 
+fn make_tx(hex_str: &str) -> BtcTx {
+    let tx_bin = hex_bytes(hex_str).unwrap();
+    deserialize(&tx_bin.to_vec()).unwrap()
+}
+
 #[test]
 fn test_store_and_fetch() {
     let first_bhh = BurnchainHeaderHash([0; 32]);
@@ -73,18 +70,16 @@ fn test_store_and_fetch() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::test_default();
-
-    burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
-    burnchain.first_block_timestamp = first_timestamp;
-
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    burnchain.pox_constants = PoxConstants::test_default();
+    burnchain.pox_constants.sunset_start = 999;
+    burnchain.pox_constants.sunset_end = 1000;
 
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&first_block_header.block_hash, &first_bhh);
     assert_eq!(&first_block_header.block_height, &first_height);
-    assert_eq!(first_block_header.timestamp, first_timestamp as u64);
+    assert_eq!(&first_block_header.timestamp, &first_timestamp);
     assert_eq!(
         &first_block_header.parent_block_hash,
         &BurnchainHeaderHash::sentinel()
@@ -101,7 +96,12 @@ fn test_store_and_fetch() {
         485,
     ));
     let ops = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &canonical_block)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &canonical_block,
+            StacksEpochId::Epoch21,
+        )
         .unwrap();
     assert_eq!(ops.len(), 0);
 
@@ -121,7 +121,9 @@ fn test_store_and_fetch() {
 
     for (ix, tx_fixture) in fixtures.iter().enumerate() {
         let tx = make_tx(&tx_fixture.txstr);
-        let burnchain_tx = parser.parse_tx(&tx, ix + 1).unwrap();
+        let burnchain_tx = parser
+            .parse_tx(&tx, ix + 1, StacksEpochId::Epoch2_05)
+            .unwrap();
         if let Some(res) = &tx_fixture.result {
             let mut res = res.clone();
             res.vtxindex = (ix + 1).try_into().unwrap();
@@ -139,7 +141,12 @@ fn test_store_and_fetch() {
     ));
 
     let ops = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &non_canonical_block)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &non_canonical_block,
+            StacksEpochId::Epoch21,
+        )
         .unwrap();
     assert_eq!(ops.len(), expected_ops.len());
     for op in ops.iter() {
@@ -155,7 +162,7 @@ fn test_store_and_fetch() {
     }
 
     let BurnchainBlockData { header, ops } =
-        BurnchainDB::get_burnchain_block(&burnchain_db.conn(), &non_canon_hash).unwrap();
+        BurnchainDB::get_burnchain_block(burnchain_db.conn(), &non_canon_hash).unwrap();
     assert_eq!(ops.len(), expected_ops.len());
     for op in ops.iter() {
         let expected_op = expected_ops
@@ -174,7 +181,7 @@ fn test_store_and_fetch() {
     assert_eq!(&looked_up_canon, &canonical_block.header());
 
     let BurnchainBlockData { header, ops } =
-        BurnchainDB::get_burnchain_block(&burnchain_db.conn(), &canon_hash).unwrap();
+        BurnchainDB::get_burnchain_block(burnchain_db.conn(), &canon_hash).unwrap();
     assert_eq!(ops.len(), 0);
     assert_eq!(&header, &looked_up_canon);
 }
@@ -186,25 +193,23 @@ fn test_classify_stack_stx() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::test_default();
-
-    burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
-    burnchain.first_block_timestamp = first_timestamp;
-
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
+
+    burnchain.pox_constants = PoxConstants::test_default();
+    burnchain.pox_constants.sunset_start = 999;
+    burnchain.pox_constants.sunset_end = 1000;
 
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&first_block_header.block_hash, &first_bhh);
     assert_eq!(&first_block_header.block_height, &first_height);
-    assert_eq!(first_block_header.timestamp, first_timestamp as u64);
+    assert_eq!(&first_block_header.timestamp, &first_timestamp);
     assert_eq!(
         &first_block_header.parent_block_hash,
         &BurnchainHeaderHash::sentinel()
     );
 
-    let canon_hash = BurnchainHeaderHash([1; 32]);
     let mut headers = vec![first_block_header.clone()];
+    let canon_hash = BurnchainHeaderHash([1; 32]);
 
     let canonical_block = BurnchainBlock::Bitcoin(BitcoinBlock::new(
         500,
@@ -214,7 +219,12 @@ fn test_classify_stack_stx() {
         485,
     ));
     let ops = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &canonical_block)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &canonical_block,
+            StacksEpochId::Epoch21,
+        )
         .unwrap();
     assert_eq!(ops.len(), 0);
 
@@ -231,19 +241,20 @@ fn test_classify_stack_stx() {
         opcode: Opcodes::PreStx as u8,
         data: vec![0; 80],
         data_amt: 0,
-        inputs: vec![BitcoinTxInput {
+        inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
-        }],
+        }
+        .into()],
         outputs: vec![BitcoinTxOutput {
             units: 10,
-            address: BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([1; 20]),
-            },
+            }),
         }],
     };
 
@@ -254,19 +265,20 @@ fn test_classify_stack_stx() {
         opcode: Opcodes::StackStx as u8,
         data: vec![1; 80],
         data_amt: 0,
-        inputs: vec![BitcoinTxInput {
+        inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
-        }],
+        }
+        .into()],
         outputs: vec![BitcoinTxOutput {
             units: 10,
-            address: BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([1; 20]),
-            },
+            }),
         }],
     };
 
@@ -277,19 +289,20 @@ fn test_classify_stack_stx() {
         opcode: Opcodes::StackStx as u8,
         data: vec![1; 80],
         data_amt: 0,
-        inputs: vec![BitcoinTxInput {
+        inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (pre_stack_stx_0_txid.clone(), 1),
-        }],
+        }
+        .into()],
         outputs: vec![BitcoinTxOutput {
             units: 10,
-            address: BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([2; 20]),
-            },
+            }),
         }],
     };
 
@@ -300,19 +313,20 @@ fn test_classify_stack_stx() {
         opcode: Opcodes::StackStx as u8,
         data: vec![1; 80],
         data_amt: 0,
-        inputs: vec![BitcoinTxInput {
+        inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
-        }],
+        }
+        .into()],
         outputs: vec![BitcoinTxOutput {
             units: 10,
-            address: BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([1; 20]),
-            },
+            }),
         }],
     };
 
@@ -323,19 +337,20 @@ fn test_classify_stack_stx() {
         opcode: Opcodes::StackStx as u8,
         data: vec![1; 80],
         data_amt: 0,
-        inputs: vec![BitcoinTxInput {
+        inputs: vec![BitcoinTxInputStructured {
             keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (pre_stack_stx_0_txid.clone(), 2),
-        }],
+        }
+        .into()],
         outputs: vec![BitcoinTxOutput {
             units: 10,
-            address: BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([1; 20]),
-            },
+            }),
         }],
     };
 
@@ -381,7 +396,7 @@ fn test_classify_stack_stx() {
     });
 
     let processed_ops_0 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_0)
+        .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
         .unwrap();
 
     assert_eq!(
@@ -391,7 +406,7 @@ fn test_classify_stack_stx() {
     );
 
     let processed_ops_1 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_1)
+        .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
         .unwrap();
 
     assert_eq!(
@@ -400,15 +415,16 @@ fn test_classify_stack_stx() {
         "Only one stack_stx op should have been accepted"
     );
 
-    let expected_pre_stack_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
-        addrtype: BitcoinAddressType::PublicKeyHash,
-        network_id: BitcoinNetworkType::Mainnet,
-        bytes: Hash160([1; 20]),
-    });
+    let expected_pre_stack_addr =
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+            addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+            network_id: BitcoinNetworkType::Mainnet,
+            bytes: Hash160([1; 20]),
+        });
 
     let expected_reward_addr = PoxAddress::Standard(
-        StacksAddress::from_bitcoin_address(&BitcoinAddress {
-            addrtype: BitcoinAddressType::PublicKeyHash,
+        StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+            addrtype: LegacyBitcoinAddressType::PublicKeyHash,
             network_id: BitcoinNetworkType::Mainnet,
             bytes: Hash160([2; 20]),
         }),
@@ -439,6 +455,7 @@ pub fn make_simple_block_commit(
 ) -> LeaderBlockCommitOp {
     let block_height = burn_header.block_height;
     let mut new_op = LeaderBlockCommitOp {
+        sunset_burn: 0,
         block_header_hash: block_hash,
         new_seed: VRFSeed([1u8; 32]),
         parent_block_ptr: 0,
@@ -454,14 +471,14 @@ pub fn make_simple_block_commit(
 
         burn_fee: 10000,
         input: (next_txid(), 0),
-        apparent_sender: BurnchainSigner {
-            public_keys: vec![StacksPublicKey::from_hex(
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
                 "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
             )
             .unwrap()],
-            num_sigs: 1,
-            hash_mode: AddressHashMode::SerializeP2PKH,
-        },
+        ),
 
         txid: next_txid(),
         vtxindex: 0,
@@ -489,7 +506,8 @@ fn test_get_commit_at() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
+    burnchain.pox_constants =
+        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -585,7 +603,8 @@ fn test_get_set_check_anchor_block() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
+    burnchain.pox_constants =
+        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;
@@ -669,7 +688,8 @@ fn test_update_block_descendancy() {
     let first_height = 1;
 
     let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = PoxConstants::new(5, 3, 2, 3, 0, u32::max_value());
+    burnchain.pox_constants =
+        PoxConstants::new(5, 3, 2, 3, 0, u64::MAX - 1, u64::MAX, u32::max_value());
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
     burnchain.first_block_timestamp = first_timestamp;

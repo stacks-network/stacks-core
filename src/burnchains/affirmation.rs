@@ -16,7 +16,7 @@
 
 /// ## The Problem
 ///
-/// There are currently two related design flaws in the way the Stacks blockchain deals with PoX anchor blocks:
+/// There were two related design flaws in the way the Stacks blockchain deals with PoX anchor blocks:
 ///
 /// * If it is ever the case in which a PoX anchor block is missing, and yet somehow manages to achieve 80% or more
 /// confirmations during the prepare phase, then the subsequent arrival of that anchor block will cause a _deep_ chain

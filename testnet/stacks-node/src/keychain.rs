@@ -159,56 +159,14 @@ impl Keychain {
         Some(proof)
     }
 
-    /// Given the keychain's secret keys, computes and returns the corresponding Stack address.
-    pub fn get_address(&self, is_mainnet: bool) -> StacksAddress {
-        let public_keys = self
-            .secret_keys
-            .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
-            .collect();
-        let version = if is_mainnet {
-            self.hash_mode.to_version_mainnet()
-        } else {
-            self.hash_mode.to_version_testnet()
-        };
-        StacksAddress::from_public_keys(
-            version,
-            &self.hash_mode,
-            self.threshold as usize,
-            &public_keys,
-        )
-        .unwrap()
-    }
-
-    pub fn address_from_burnchain_signer(
-        signer: &BurnchainSigner,
-        is_mainnet: bool,
-    ) -> StacksAddress {
-        let version = if is_mainnet {
-            signer.hash_mode.to_version_mainnet()
-        } else {
-            signer.hash_mode.to_version_testnet()
-        };
-        StacksAddress::from_public_keys(
-            version,
-            &signer.hash_mode,
-            signer.num_sigs,
-            &signer.public_keys,
-        )
-        .unwrap()
-    }
-
+    /// Get a stringy representation of this keychain
     pub fn get_burnchain_signer(&self) -> BurnchainSigner {
-        let public_keys = self
+        let public_keys: Vec<String> = self
             .secret_keys
             .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
+            .map(|ref pk| format!("{}", StacksPublicKey::from_private(pk).to_hex()))
             .collect();
-        BurnchainSigner {
-            hash_mode: self.hash_mode,
-            num_sigs: self.threshold as usize,
-            public_keys,
-        }
+        BurnchainSigner(format!("{:?}", &public_keys))
     }
 
     pub fn get_transaction_auth(&self) -> Option<TransactionAuth> {
@@ -241,4 +199,35 @@ impl Keychain {
     pub fn generate_op_signer(&self) -> BurnchainOpSigner {
         BurnchainOpSigner::new(self.secret_keys[0], false)
     }
+}
+
+#[test]
+fn rotate_vrf_keypair_test() {
+    let seed = vec![0; 32];
+    let mut keychain = Keychain::default(seed.clone());
+    let secret_state = keychain.hashed_secret_state;
+    let secret_key_count = keychain.vrf_secret_keys.len();
+    let block_height = 201;
+
+    let new_vrf_pubkey = keychain.rotate_vrf_keypair(block_height);
+
+    assert_eq!(keychain.vrf_secret_keys.len(), secret_key_count + 1);
+
+    let mut new_secret_state = secret_state.to_bytes().to_vec();
+    new_secret_state.extend_from_slice(&block_height.to_be_bytes());
+    let new_seed = Sha256Sum::from_data(&new_secret_state);
+    let computed_privkey = VRFPrivateKey::from_bytes(new_seed.as_bytes()).unwrap();
+    let computed_pubkey = VRFPublicKey::from_private(&computed_privkey);
+    assert_eq!(computed_pubkey, new_vrf_pubkey);
+}
+
+#[test]
+fn rotate_vrf_keypair_fixed_value_test() {
+    let mut keychain = Keychain::default(vec![0; 32]);
+    let new_vrf_pubkey = keychain.rotate_vrf_keypair(201);
+    // saved from bitcoind_integration_test
+    assert_eq!(
+        "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6",
+        new_vrf_pubkey.to_hex()
+    );
 }

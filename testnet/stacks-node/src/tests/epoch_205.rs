@@ -546,8 +546,7 @@ fn transition_empty_blocks() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
-    let mut bitcoin_controller =
-        BitcoinRegtestController::new_dummy(conf.clone(), burnchain.clone());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {
@@ -589,8 +588,16 @@ fn transition_empty_blocks() {
 
         if tip_info.burn_block_height + 1 >= epoch_2_05 {
             let burn_fee_cap = 100000000; // 1 BTC
+            let sunset_burn = burnchain.expected_sunset_burn(
+                tip_info.burn_block_height + 1,
+                burn_fee_cap,
+                StacksEpochId::Epoch2_05,
+            );
+            let rest_commit = burn_fee_cap - sunset_burn;
 
-            let commit_outs = if !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1) {
+            let commit_outs = if tip_info.burn_block_height + 1 < burnchain.pox_constants.sunset_end
+                && !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1)
+            {
                 vec![
                     PoxAddress::standard_burn_address(conf.is_mainnet()),
                     PoxAddress::standard_burn_address(conf.is_mainnet()),
@@ -603,8 +610,9 @@ fn transition_empty_blocks() {
             let burn_parent_modulus =
                 (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                sunset_burn,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
-                burn_fee: burn_fee_cap,
+                burn_fee: rest_commit,
                 input: (Txid([0; 32]), 0),
                 apparent_sender: keychain.get_burnchain_signer(),
                 key_block_ptr,
@@ -622,8 +630,13 @@ fn transition_empty_blocks() {
                 commit_outs,
             });
             let mut op_signer = keychain.generate_op_signer();
-            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
-            assert!(res, "Failed to submit block-commit");
+            let res = bitcoin_controller.submit_operation(
+                StacksEpochId::Epoch2_05,
+                op,
+                &mut op_signer,
+                1,
+            );
+            assert!(res.is_some(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

@@ -43,9 +43,12 @@ use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::chainstate::stacks::*;
+use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::net::test::*;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::types::*;
@@ -62,11 +65,16 @@ use clarity::vm::costs::LimitedCostTracker;
 
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
+use crate::core::mempool::MemPoolWalkSettings;
+use crate::core::tests::make_block;
 use crate::core::*;
 
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::test_util::TEST_BURN_STATE_DB;
 
 #[test]
 fn test_build_anchored_blocks_empty() {
@@ -4240,4 +4248,364 @@ fn test_is_tx_problematic() {
             &stacks_block.block_hash(),
         ));
     }
+}
+
+#[test]
+/// Test the situation in which the nonce order of transactions from a user. That is,
+/// nonce 1 has a higher fee than nonce 0.
+/// Want to see that both transactions can go into the same block, because the miner
+/// should make multiple passes.
+fn test_fee_order_mismatch_nonce_order() {
+    let privk = StacksPrivateKey::from_hex(
+        "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
+    )
+    .unwrap();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&privk)],
+    )
+    .unwrap();
+
+    let mut peer_config = TestPeerConfig::new(
+        "test_build_anchored_blocks_stx_transfers_single",
+        2002,
+        2003,
+    );
+    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+
+    let mut peer = TestPeer::new(peer_config);
+
+    let chainstate_path = peer.chainstate_path.clone();
+
+    let first_stacks_block_height = {
+        let sn = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        sn.block_height
+    };
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+    let sender_nonce = 0;
+
+    let mut last_block = None;
+    // send transactions to the mempool
+    let tip =
+        SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn()).unwrap();
+
+    let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+        |ref mut miner,
+         ref mut sortdb,
+         ref mut chainstate,
+         vrf_proof,
+         ref parent_opt,
+         ref parent_microblock_header_opt| {
+            let parent_tip = match parent_opt {
+                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                Some(block) => {
+                    let ic = sortdb.index_conn();
+                    let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                        &ic,
+                        &tip.sortition_id,
+                        &block.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap(); // succeeds because we don't fork
+                    StacksChainState::get_anchored_block_header_info(
+                        chainstate.db(),
+                        &snapshot.consensus_hash,
+                        &snapshot.winning_stacks_block_hash,
+                    )
+                    .unwrap()
+                    .unwrap()
+                }
+            };
+
+            let parent_header_hash = parent_tip.anchored_header.block_hash();
+            let parent_consensus_hash = parent_tip.consensus_hash.clone();
+
+            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+            let coinbase_tx = make_coinbase(miner, 0);
+
+            let stx_transfer0 =
+                make_user_stacks_transfer(&privk, 0, 200, &recipient.to_account_principal(), 1);
+            let stx_transfer1 =
+                make_user_stacks_transfer(&privk, 1, 400, &recipient.to_account_principal(), 1);
+
+            mempool
+                .submit(
+                    chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                    &stx_transfer0,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+
+            mempool
+                .submit(
+                    chainstate,
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                    &stx_transfer1,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+
+            let anchored_block = StacksBlockBuilder::build_anchored_block(
+                chainstate,
+                &sortdb.index_conn(),
+                &mut mempool,
+                &parent_tip,
+                tip.total_burn,
+                vrf_proof,
+                Hash160([0 as u8; 20]),
+                &coinbase_tx,
+                BlockBuilderSettings::max_value(),
+                None,
+            )
+            .unwrap();
+            (anchored_block.0, vec![])
+        },
+    );
+
+    last_block = Some(stacks_block.clone());
+
+    peer.next_burnchain_block(burn_ops.clone());
+    peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+    // Both user transactions and the coinbase should have been mined.
+    assert_eq!(stacks_block.txs.len(), 3);
+}
+
+#[test]
+fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_0() {
+    paramaterized_mempool_walk_test(1, 10, 2, 0, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_0() {
+    paramaterized_mempool_walk_test(10, 3, 2, 0, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_50() {
+    paramaterized_mempool_walk_test(1, 10, 2, 50, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_50() {
+    paramaterized_mempool_walk_test(10, 3, 2, 50, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_1_rounds_10_cache_size_2_null_prob_100() {
+    paramaterized_mempool_walk_test(1, 10, 2, 100, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2_null_prob_100() {
+    paramaterized_mempool_walk_test(10, 3, 2, 100, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_0() {
+    paramaterized_mempool_walk_test(10, 3, 2000, 0, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_50() {
+    paramaterized_mempool_walk_test(10, 3, 2000, 50, 30000)
+}
+
+#[test]
+fn mempool_walk_test_users_10_rounds_3_cache_size_2000_null_prob_100() {
+    paramaterized_mempool_walk_test(10, 3, 2000, 100, 30000)
+}
+
+/// With the parameters given, create `num_rounds` transactions per each user in `num_users`.
+/// `nonce_and_candidate_cache_size` is the cache size used for both of the nonce cache
+/// and the candidate cache.
+fn paramaterized_mempool_walk_test(
+    num_users: usize,
+    num_rounds: usize,
+    nonce_and_candidate_cache_size: u64,
+    consider_no_estimate_tx_prob: u8,
+    timeout_ms: u128,
+) {
+    let key_address_pairs: Vec<(Secp256k1PrivateKey, StacksAddress)> = (0..num_users)
+        .map(|_user_index| {
+            let privk = StacksPrivateKey::new();
+            let addr = StacksAddress::from_public_keys(
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![StacksPublicKey::from_private(&privk)],
+            )
+            .unwrap();
+            (privk, addr)
+        })
+        .collect();
+
+    let test_name = format!(
+        "mempool_walk_test_users_{}_rounds_{}_cache_size_{}_null_prob_{}",
+        num_users, num_rounds, nonce_and_candidate_cache_size, consider_no_estimate_tx_prob
+    );
+    let mut peer_config = TestPeerConfig::new(&test_name, 2002, 2003);
+
+    peer_config.initial_balances = vec![];
+    for (privk, addr) in &key_address_pairs {
+        peer_config
+            .initial_balances
+            .push((addr.to_account_principal(), 1000000000));
+    }
+
+    let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
+    let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
+
+    let mut chainstate =
+        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let chainstate_path = chainstate_path(&test_name);
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    let b_1 = make_block(
+        &mut chainstate,
+        ConsensusHash([0x1; 20]),
+        &(
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        ),
+        1,
+        1,
+    );
+    let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+
+    let mut mempool_settings = MemPoolWalkSettings::default();
+    mempool_settings.min_tx_fee = 10;
+    let mut tx_events = Vec::new();
+
+    let txs = codec_all_transactions(
+        &TransactionVersion::Testnet,
+        0x80000000,
+        &TransactionAnchorMode::Any,
+        &TransactionPostConditionMode::Allow,
+    );
+
+    let mut transaction_counter = 0;
+    for round_index in 0..num_rounds {
+        for user_index in 0..num_users {
+            transaction_counter += 1;
+            let mut tx = make_user_stacks_transfer(
+                &key_address_pairs[user_index].0,
+                round_index as u64,
+                200,
+                &recipient.to_account_principal(),
+                1,
+            );
+
+            let mut mempool_tx = mempool.tx_begin().unwrap();
+
+            let origin_address = tx.origin_address();
+            let origin_nonce = tx.get_origin_nonce();
+            let sponsor_address = tx.sponsor_address().unwrap_or(origin_address);
+            let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+
+            tx.set_tx_fee(100);
+            let txid = tx.txid();
+            let tx_bytes = tx.serialize_to_vec();
+            let tx_fee = tx.get_tx_fee();
+            let height = 100;
+
+            MemPoolDB::try_add_tx(
+                &mut mempool_tx,
+                &mut chainstate,
+                &b_1.0,
+                &b_1.1,
+                txid,
+                tx_bytes,
+                tx_fee,
+                height,
+                &origin_address,
+                round_index.try_into().unwrap(),
+                &sponsor_address,
+                round_index.try_into().unwrap(),
+                None,
+            )
+            .unwrap();
+
+            if transaction_counter & 1 == 0 {
+                mempool_tx
+                    .execute(
+                        "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                        rusqlite::params![Some(123.0), &txid],
+                    )
+                    .unwrap();
+            } else {
+                let none: Option<f64> = None;
+                mempool_tx
+                    .execute(
+                        "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
+                        rusqlite::params![none, &txid],
+                    )
+                    .unwrap();
+            }
+
+            mempool_tx.commit().unwrap();
+        }
+    }
+
+    mempool_settings.nonce_cache_size = nonce_and_candidate_cache_size;
+    mempool_settings.candidate_retry_cache_size = nonce_and_candidate_cache_size;
+    mempool_settings.consider_no_estimate_tx_prob = consider_no_estimate_tx_prob;
+    let deadline = get_epoch_time_ms() + timeout_ms;
+    chainstate.with_read_only_clarity_tx(
+        &TEST_BURN_STATE_DB,
+        &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+        |clarity_conn| {
+            let mut count_txs = 0;
+            // When the candidate cache fills, one pass cannot process all transactions
+            loop {
+                if mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        &mut tx_events,
+                        2,
+                        mempool_settings.clone(),
+                        |_, available_tx, _| {
+                            count_txs += 1;
+                            Ok(Some(
+                                // Generate any success result
+                                TransactionResult::success(
+                                    &available_tx.tx.tx,
+                                    available_tx.tx.metadata.tx_fee,
+                                    StacksTransactionReceipt::from_stx_transfer(
+                                        available_tx.tx.tx.clone(),
+                                        vec![],
+                                        Value::okay(Value::Bool(true)).unwrap(),
+                                        ExecutionCost::zero(),
+                                    ),
+                                )
+                                .convert_to_event(),
+                            ))
+                        },
+                    )
+                    .unwrap()
+                    == 0
+                {
+                    break;
+                }
+                assert!(get_epoch_time_ms() < deadline, "test timed out");
+            }
+            assert_eq!(
+                count_txs, transaction_counter,
+                "Mempool should find all {} transactions",
+                transaction_counter
+            );
+        },
+    );
 }

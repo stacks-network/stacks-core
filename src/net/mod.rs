@@ -58,6 +58,7 @@ use crate::core::mempool::*;
 use crate::core::POX_REWARD_CYCLE_LENGTH;
 use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::HttpReservedHeader;
+pub use crate::net::http::StacksBlockAcceptedData;
 use crate::util_lib::bloom::{BloomFilter, BloomNodeHasher};
 use crate::util_lib::boot::boot_code_tx_auth;
 use crate::util_lib::db::DBConn;
@@ -1915,6 +1916,7 @@ pub struct NetworkResult {
     pub num_state_machine_passes: u64,
     pub num_inv_sync_passes: u64,
     pub num_download_passes: u64,
+    pub burn_height: u64,
 }
 
 impl NetworkResult {
@@ -1922,6 +1924,7 @@ impl NetworkResult {
         num_state_machine_passes: u64,
         num_inv_sync_passes: u64,
         num_download_passes: u64,
+        burn_height: u64,
     ) -> NetworkResult {
         NetworkResult {
             unhandled_messages: HashMap::new(),
@@ -1939,6 +1942,7 @@ impl NetworkResult {
             num_state_machine_passes: num_state_machine_passes,
             num_inv_sync_passes: num_inv_sync_passes,
             num_download_passes: num_download_passes,
+            burn_height,
         }
     }
 
@@ -2067,6 +2071,9 @@ pub mod test {
     use std::thread;
     use std::{collections::HashMap, sync::Mutex};
 
+    use clarity::vm::ast::ASTRules;
+    use mio;
+    use rand;
     use rand::RngCore;
 
     use crate::address::*;
@@ -2434,7 +2441,16 @@ pub mod test {
                 &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
             );
 
-            burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u32::max_value());
+            burnchain.pox_constants = PoxConstants::new(
+                5,
+                3,
+                3,
+                25,
+                5,
+                u64::max_value(),
+                u64::max_value(),
+                u32::max_value(),
+            );
 
             let mut spending_account = TestMinerFactory::new().next_miner(
                 &burnchain,
@@ -2698,6 +2714,7 @@ pub mod test {
                             clarity,
                             &boot_code_smart_contract,
                             &boot_code_account,
+                            ASTRules::PrecheckSize,
                         )
                         .unwrap()
                     });

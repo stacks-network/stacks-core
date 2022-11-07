@@ -37,7 +37,7 @@ use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, Simpl
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
 /// Maximum size, in bytes, of a vector we are allowed to decode
-pub const MAX_VEC_SIZE: usize = 32 * 1024 * 1024;
+pub const MAX_VEC_SIZE: usize = 64 * 1024 * 1024;
 
 /// Data which can be encoded in a consensus-consistent way
 pub trait ConsensusEncodable<S: SimpleEncoder> {

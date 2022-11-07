@@ -299,10 +299,9 @@ impl ConsensusHashExtensions for ConsensusHash {
         r160.update(&result);
 
         let mut ch_bytes = [0u8; 20];
+        ch_bytes.copy_from_slice(r160.finalize().as_slice());
 
         test_debug!("Consensus hash {} from burn hash {}, ops-hash {}, total_burn {}, pox-id {}, priors: {:?}", &ConsensusHash(ch_bytes.clone()), burn_header_hash, opshash, total_burn, pox_id, prev_consensus_hashes);
-
-        ch_bytes.copy_from_slice(r160.finalize().as_slice());
         ConsensusHash(ch_bytes)
     }
 

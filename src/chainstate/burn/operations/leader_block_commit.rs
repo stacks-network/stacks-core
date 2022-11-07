@@ -20,6 +20,7 @@ use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::Address;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::PoxConstants;
 use crate::burnchains::Txid;
 use crate::burnchains::{BurnchainRecipient, BurnchainSigner};
 use crate::burnchains::{BurnchainTransaction, PublicKey};
@@ -74,6 +75,7 @@ impl LeaderBlockCommitOp {
         apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_height: block_height,
             burn_parent_modulus: if block_height > 0 {
                 ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
@@ -112,6 +114,7 @@ impl LeaderBlockCommitOp {
         apparent_sender: &BurnchainSigner,
     ) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            sunset_burn: 0,
             new_seed: new_seed.clone(),
             key_block_ptr: key_block_ptr,
             key_vtxindex: key_vtxindex,
@@ -146,7 +149,7 @@ impl LeaderBlockCommitOp {
 
     pub fn expected_chained_utxo(burn_only: bool) -> u32 {
         if burn_only {
-            2 // if we're in the prepare phase, then chained commits should spend the output after the burn commit
+            2 // if sunset has occurred, or we're in the prepare phase, then chained commits should spend the output after the burn commit
         } else {
             // otherwise, it's the output after the last PoX output
             (OUTPUTS_PER_COMMIT as u32) + 1
@@ -209,12 +212,14 @@ impl LeaderBlockCommitOp {
     pub fn from_tx(
         burnchain: &Burnchain,
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         LeaderBlockCommitOp::parse_from_tx(
             burnchain,
             block_header.block_height,
             &block_header.block_hash,
+            epoch_id,
             tx,
         )
     }
@@ -228,10 +233,11 @@ impl LeaderBlockCommitOp {
         burnchain: &Burnchain,
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
+        epoch_id: StacksEpochId,
         tx: &BurnchainTransaction,
     ) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
-        let mut outputs = tx.get_recipients();
+        let outputs = tx.get_recipients();
 
         if tx.num_signers() == 0 {
             warn!(
@@ -292,18 +298,51 @@ impl LeaderBlockCommitOp {
             return Err(op_error::ParseError);
         }
 
-        let (commit_outs, burn_fee) = if burnchain.is_in_prepare_phase(block_height) {
-            // check if we're in a prepare phase
-            // should be only one burn output
-            if !outputs[0].address.is_burn() {
+        // check if we've reached PoX disable
+        let (commit_outs, sunset_burn, burn_fee, apparent_sender) = if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(block_height, epoch_id)
+            || burnchain.is_in_prepare_phase(block_height)
+        {
+            // PoX is disabled by sunset (not possible in epoch 2.1 or later), OR,
+            // we're in the prepare phase.
+            // should be only one burn output.
+            let output_0 = outputs[0].clone().ok_or_else(|| {
+                warn!("Invalid commit tx: unrecognized output 0");
+                op_error::InvalidInput
+            })?;
+
+            if !output_0.address.is_burn() {
                 return Err(op_error::BlockCommitBadOutputs);
             }
-            let BurnchainRecipient { address, amount } = outputs.remove(0);
-            (vec![address], amount)
+            let BurnchainRecipient { address, amount } = output_0;
+            let apparent_sender = BurnchainSigner(
+                outputs
+                    .get(1)
+                    .map(|out| {
+                        out.as_ref()
+                            .map(|out| out.address.clone().to_b58())
+                            .unwrap_or("<undecodable-output>".to_string())
+                    })
+                    .unwrap_or("<no-change-output>".to_string()),
+            );
+
+            let sunset_burn = tx.get_burn_amount();
+            (vec![address], sunset_burn, amount, apparent_sender)
         } else {
+            // we're in a reward phase, which may or may not be PoX.
+            // check if this transaction provided a sunset burn (which is still allowed in epoch
+            // 2.1; it's just not doing anything for the miner).
+            let sunset_burn = tx.get_burn_amount();
+
             let mut commit_outs = vec![];
             let mut pox_fee = None;
-            for (ix, output) in outputs.into_iter().enumerate() {
+            for (ix, output_opt) in outputs.iter().enumerate() {
+                let output = output_opt.clone().ok_or_else(|| {
+                    warn!("Invalid commit tx: unrecognized output {}", ix);
+                    op_error::InvalidInput
+                })?;
+
                 // only look at the first OUTPUTS_PER_COMMIT outputs
                 if ix >= OUTPUTS_PER_COMMIT {
                     break;
@@ -311,7 +350,7 @@ impl LeaderBlockCommitOp {
                 // all pox outputs must have the same fee
                 if let Some(pox_fee) = pox_fee {
                     if output.amount != pox_fee {
-                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses");
+                        warn!("Invalid commit tx: different output amounts for different PoX reward addresses ({} != {})", pox_fee, output.amount);
                         return Err(op_error::ParseError);
                     }
                 } else {
@@ -337,17 +376,23 @@ impl LeaderBlockCommitOp {
                 return Err(op_error::ParseError);
             }
 
-            (commit_outs, burn_fee)
+            let apparent_sender = BurnchainSigner(
+                outputs
+                    .get(2)
+                    .map(|out| {
+                        out.as_ref()
+                            .map(|out| out.address.clone().to_b58())
+                            .unwrap_or("<undecodable-output>".to_string())
+                    })
+                    .unwrap_or("<no-change-output>".to_string()),
+            );
+            (commit_outs, sunset_burn, burn_fee, apparent_sender)
         };
 
         let input = tx
             .get_input_tx_ref(0)
             .expect("UNREACHABLE: checked that inputs > 0")
             .clone();
-
-        let apparent_sender = tx
-            .get_signer(0)
-            .expect("UNREACHABLE: checked that inputs > 0");
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: data.block_header_hash,
@@ -360,6 +405,7 @@ impl LeaderBlockCommitOp {
             burn_parent_modulus: data.burn_parent_modulus,
 
             commit_outs,
+            sunset_burn,
             burn_fee,
             input,
             apparent_sender,
@@ -472,11 +518,32 @@ impl RewardSetInfo {
 impl LeaderBlockCommitOp {
     fn check_pox(
         &self,
+        epoch_id: StacksEpochId,
         burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
         reward_set_info: Option<&RewardSetInfo>,
     ) -> Result<(), op_error> {
         let parent_block_height = self.parent_block_ptr as u64;
+
+        if PoxConstants::has_pox_sunset(epoch_id) {
+            // sunset only applies in epochs prior to 2.1.  After 2.1, miners can put whatever they
+            // want into the sunset burn but it won't be checked, nor will it count towards their
+            // sortition
+            let total_committed = self
+                .burn_fee
+                .checked_add(self.sunset_burn)
+                .expect("BUG: Overflow in total committed calculation");
+
+            let expected_sunset_burn =
+                burnchain.expected_sunset_burn(self.block_height, total_committed, epoch_id);
+            if self.sunset_burn < expected_sunset_burn {
+                warn!(
+                    "Invalid block commit: should have included sunset burn amount of {}, found {}",
+                    expected_sunset_burn, self.sunset_burn
+                );
+                return Err(op_error::BlockCommitBadOutputs);
+            }
+        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must have the expected commit or burn outputs:
@@ -534,9 +601,10 @@ impl LeaderBlockCommitOp {
 
                         if check_recipients.len() == 1 {
                             // If the number of recipients in the set was odd, we need to pad
-                            // with a burn address
-                            check_recipients
-                                .push(PoxAddress::standard_burn_address(burnchain.is_mainnet()))
+                            // with a burn address.
+                            // NOTE: this used the old burnchain.is_mainnet() code, which always
+                            // returns false
+                            check_recipients.push(PoxAddress::standard_burn_address(false))
                         }
 
                         if self.commit_outs.len() != check_recipients.len() {
@@ -594,18 +662,72 @@ impl LeaderBlockCommitOp {
 
     fn check_single_burn_output(&self) -> Result<(), op_error> {
         if self.commit_outs.len() != 1 {
-            warn!("Invalid block commit, should have 1 commit out");
+            warn!("Invalid post-sunset block commit, should have 1 commit out");
             return Err(op_error::BlockCommitBadOutputs);
         }
         if !self.commit_outs[0].is_burn() {
-            warn!("Invalid block commit, should have burn address output");
+            warn!("Invalid post-sunset block commit, should have burn address output");
             return Err(op_error::BlockCommitBadOutputs);
         }
         Ok(())
     }
 
+    fn check_after_pox_sunset(&self) -> Result<(), op_error> {
+        self.check_single_burn_output()
+    }
+
     fn check_prepare_commit_burn(&self) -> Result<(), op_error> {
         self.check_single_burn_output()
+    }
+
+    /// Check the epoch marker in a block-commit to make sure it matches the right epoch.
+    /// Valid in Stacks 2.05+
+    fn check_epoch_commit_marker(&self, marker: u8) -> Result<(), op_error> {
+        if self.memo.len() < 1 {
+            debug!(
+                "Invalid block commit";
+                "reason" => "no epoch marker byte given",
+            );
+            return Err(op_error::BlockCommitBadEpoch);
+        }
+        if self.memo[0] < marker {
+            debug!(
+                "Invalid block commit";
+                "reason" => "invalid epoch marker byte",
+                "marker_byte" => self.memo[0],
+                "expected_marker_byte" => marker,
+            );
+            return Err(op_error::BlockCommitBadEpoch);
+        }
+
+        Ok(())
+    }
+
+    /// Check the epoch marker in the block commit, given the epoch we're in
+    fn check_epoch_commit(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
+        match epoch_id {
+            StacksEpochId::Epoch10 => {
+                panic!("FATAL: processed block-commit pre-Stacks 2.0");
+            }
+            StacksEpochId::Epoch20 => {
+                // no-op, but log for helping node operators watch for old nodes
+                if self.memo.len() < 1 {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "no epoch marker byte given",
+                    );
+                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
+                    debug!(
+                        "Soon-to-be-invalid block commit";
+                        "reason" => "invalid epoch marker byte",
+                        "marker_byte" => self.memo[0],
+                    );
+                }
+                Ok(())
+            }
+            StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
+            StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
+        }
     }
 
     pub fn check(
@@ -623,16 +745,18 @@ impl LeaderBlockCommitOp {
         // There must be a burn
         /////////////////////////////////////////////////////////////////////////////////////
 
-        let apparent_sender_address = self
-            .apparent_sender
-            .to_bitcoin_address(BitcoinNetworkType::Mainnet);
+        let apparent_sender_repr = format!("{}", &self.apparent_sender);
 
         if self.burn_fee == 0 {
             warn!("Invalid block commit: no burn amount";
-                  "apparent_sender" => %apparent_sender_address
+                  "apparent_sender" => %apparent_sender_repr
             );
             return Err(op_error::BlockCommitBadInput);
         }
+        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
+            "FATAL: impossible block height: no epoch defined for {}",
+            self.block_height
+        ));
 
         let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
         let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
@@ -641,16 +765,12 @@ impl LeaderBlockCommitOp {
                   "intended_modulus" => intended_modulus,
                   "actual_modulus" => actual_modulus,
                   "block_height" => self.block_height,
-                  "apparent_sender" => %apparent_sender_address
+                  "apparent_sender" => %apparent_sender_repr
             );
             // This transaction "missed" its target burn block, the transaction
             //  is not valid, but we should allow this UTXO to "chain" to valid
             //  UTXOs to allow the miner windowing to work in the face of missed
             //  blocks.
-            let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-                "FATAL: impossible block height: no epoch defined for {}",
-                self.block_height
-            ));
             let miss_distance = if actual_modulus > intended_modulus {
                 actual_modulus - intended_modulus
             } else {
@@ -692,12 +812,25 @@ impl LeaderBlockCommitOp {
             return Err(op_error::MissedBlockCommit(missed_data));
         }
 
-        self.check_pox(burnchain, tx, reward_set_info)
-            .map_err(|e| {
-                warn!("Invalid block-commit: bad PoX: {:?}", &e;
-                      "apparent_sender" => %apparent_sender_address);
+        if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
+        {
+            // sunset has finished and we're not in epoch 2.1 or later, so apply sunset check
+            self.check_after_pox_sunset().map_err(|e| {
+                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_repr);
                 e
             })?;
+        } else {
+            // either in epoch 2.1, or the PoX sunset hasn't completed yet
+            self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
+                .map_err(|e| {
+                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_repr);
+                    e
+                })?;
+        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
@@ -710,7 +843,7 @@ impl LeaderBlockCommitOp {
                 "Invalid block commit from {}: predates genesis height {}",
                 self.block_height,
                 first_block_snapshot.block_height;
-                "apparent_sender" => %apparent_sender_address
+                "apparent_sender" => %apparent_sender_repr
             );
             return Err(op_error::BlockCommitPredatesGenesis);
         }
@@ -725,7 +858,7 @@ impl LeaderBlockCommitOp {
             warn!(
                 "Invalid block commit: already committed to {}",
                 self.block_header_hash;
-                "apparent_sender" => %apparent_sender_address
+                "apparent_sender" => %apparent_sender_repr
             );
             return Err(op_error::BlockCommitAlreadyExists);
         }
@@ -738,7 +871,7 @@ impl LeaderBlockCommitOp {
             warn!(
                 "Invalid block commit: references leader key in the same or later block ({} >= {})",
                 leader_key_block_height, self.block_height;
-                "apparent_sender" => %apparent_sender_address
+                "apparent_sender" => %apparent_sender_repr
             );
             return Err(op_error::BlockCommitNoLeaderKey);
         }
@@ -749,7 +882,7 @@ impl LeaderBlockCommitOp {
                 warn!(
                     "Invalid block commit: no corresponding leader key at {},{} in fork {}",
                     leader_key_block_height, self.key_vtxindex, &tx.context.chain_tip;
-                    "apparent_sender" => %apparent_sender_address
+                    "apparent_sender" => %apparent_sender_repr
                 );
                 op_error::BlockCommitNoLeaderKey
             })?;
@@ -764,7 +897,7 @@ impl LeaderBlockCommitOp {
         if parent_block_height == self.block_height {
             // tried to build off a block in the same epoch (not allowed)
             warn!("Invalid block commit: cannot build off of a commit in the same block";
-                  "apparent_sender" => %apparent_sender_address
+                  "apparent_sender" => %apparent_sender_repr
             );
             return Err(op_error::BlockCommitNoParent);
         } else if self.parent_block_ptr != 0 || self.parent_vtxindex != 0 {
@@ -774,7 +907,7 @@ impl LeaderBlockCommitOp {
                 .is_some();
             if !has_parent {
                 warn!("Invalid block commit: no parent block in this fork";
-                      "apparent_sender" => %apparent_sender_address
+                      "apparent_sender" => %apparent_sender_repr
                 );
                 return Err(op_error::BlockCommitNoParent);
             }
@@ -797,46 +930,7 @@ impl LeaderBlockCommitOp {
             self.block_height
         ));
 
-        match epoch.epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed block-commit pre-Stacks 2.0");
-            }
-            StacksEpochId::Epoch20 => {
-                // no-op, but log for helping node operators watch for old nodes
-                if self.memo.len() < 1 {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "no epoch marker byte given",
-                    );
-                } else if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
-                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
-                    );
-                }
-            }
-            // Note: 2.05 and 2.1 share the same marker.
-            StacksEpochId::Epoch2_05 | StacksEpochId::Epoch21 => {
-                if self.memo.len() < 1 {
-                    debug!(
-                        "Invalid block commit";
-                        "reason" => "no epoch marker byte given",
-                    );
-                    return Err(op_error::BlockCommitBadEpoch);
-                }
-                if self.memo[0] < STACKS_EPOCH_2_05_MARKER {
-                    debug!(
-                        "Invalid block commit";
-                        "reason" => "invalid epoch marker byte",
-                        "marker_byte" => self.memo[0],
-                        "expected_marker_byte" => STACKS_EPOCH_2_05_MARKER
-                    );
-                    return Err(op_error::BlockCommitBadEpoch);
-                }
-            }
-        }
+        self.check_epoch_commit(epoch.epoch_id)?;
 
         // good to go!
         Ok(())
@@ -861,7 +955,7 @@ mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
-        PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+        PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
     };
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
@@ -902,15 +996,164 @@ mod tests {
     fn stacks_address_to_bitcoin_tx_out(addr: &StacksAddress, value: u64) -> TxOut {
         let btc_version = to_b58_version_byte(addr.version)
             .expect("BUG: failed to decode Stacks version byte to Bitcoin version byte");
-        let btc_addr_type = version_byte_to_address_type(btc_version)
+        let btc_addr_type = legacy_version_byte_to_address_type(btc_version)
             .expect("BUG: failed to decode Bitcoin version byte")
             .0;
         match btc_addr_type {
-            BitcoinAddressType::PublicKeyHash => {
-                BitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
+            LegacyBitcoinAddressType::PublicKeyHash => {
+                LegacyBitcoinAddress::to_p2pkh_tx_out(&addr.bytes, value)
             }
-            BitcoinAddressType::ScriptHash => BitcoinAddress::to_p2sh_tx_out(&addr.bytes, value),
+            LegacyBitcoinAddressType::ScriptHash => {
+                LegacyBitcoinAddress::to_p2sh_tx_out(&addr.bytes, value)
+            }
         }
+    }
+
+    #[test]
+    fn test_parse_sunset_end() {
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([3; 20]),
+                    }),
+                },
+            ],
+        });
+
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843021;
+        burnchain.pox_constants.sunset_end = 16843022;
+
+        // should fail in epoch 2.05 -- not a burn output
+        let err = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &tx,
+        )
+        .unwrap_err();
+
+        assert!(if let op_error::BlockCommitBadOutputs = err {
+            true
+        } else {
+            false
+        });
+
+        // should succeed in epoch 2.1 -- can be PoX in 2.1
+        let _op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch21,
+            &tx,
+        )
+        .unwrap();
+
+        let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
+            data_amt: 0,
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::LeaderBlockCommit as u8,
+            data: vec![1; 80],
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        });
+
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843021;
+        burnchain.pox_constants.sunset_end = 16843022;
+
+        // succeeds in epoch 2.05 because of the burn output
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &tx,
+        )
+        .unwrap();
+
+        assert_eq!(op.commit_outs.len(), 1);
+        assert!(op.commit_outs[0].is_burn());
+        assert_eq!(op.burn_fee, 10);
+
+        // succeeds in epoch 2.1 because the sunset doesn't apply
+        let op = LeaderBlockCommitOp::parse_from_tx(
+            &burnchain,
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch21,
+            &tx,
+        )
+        .unwrap();
+
+        assert_eq!(op.commit_outs.len(), 2);
+        assert!(op.commit_outs[0].is_burn());
+        assert_eq!(op.burn_fee, 20);
     }
 
     #[test]
@@ -921,46 +1164,50 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap();
@@ -968,6 +1215,8 @@ mod tests {
         // should have 2 commit outputs, summing to 20 burned units
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 20);
+        // the third output, because it's a burn, should have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 30);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             data_amt: 0,
@@ -975,39 +1224,43 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 9,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         // burn amount should have been 10, not 9
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap_err()
@@ -1022,62 +1275,66 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
             ],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         let op = LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap();
@@ -1085,6 +1342,8 @@ mod tests {
         // should have 2 commit outputs
         assert_eq!(op.commit_outs.len(), 2);
         assert_eq!(op.burn_fee, 26);
+        // the third output, because it's not a burn, should not have counted as a sunset_burn
+        assert_eq!(op.sunset_burn, 0);
 
         let tx = BurnchainTransaction::Bitcoin(BitcoinTransaction {
             data_amt: 0,
@@ -1092,29 +1351,33 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 13,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
-                },
+                }),
             }],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         // not enough PoX outputs
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap_err()
@@ -1129,39 +1392,43 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 13,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
             ],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         // unequal PoX outputs
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap_err()
@@ -1176,63 +1443,67 @@ mod tests {
             vtxindex: 0,
             opcode: Opcodes::LeaderBlockCommit as u8,
             data: vec![1; 80],
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 0,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 0,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 0,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 0,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 0,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
             ],
         });
 
-        let burnchain = Burnchain::regtest("nope");
+        let mut burnchain = Burnchain::regtest("nope");
+        burnchain.pox_constants.sunset_start = 16843019;
+        burnchain.pox_constants.sunset_end = 16843020;
 
         // 0 total burn
         match LeaderBlockCommitOp::parse_from_tx(
             &burnchain,
             16843019,
             &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
             &tx,
         )
         .unwrap_err()
@@ -1257,6 +1528,7 @@ mod tests {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100eba8c0a57c1eb71cdfba0874de63cf37b3aace1e56dcbd61701548194a79af34022041dd191256f3f8a45562e5d60956bb871421ba69db605716250554b23b08277b012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000040000000000000000536a4c5069645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa39300000000000001976a914000000000000000000000000000000000000000088ac39300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".into(),
                 opstr: "69645b22222222222222222222222222222222222222222222222222222222222222223333333333333333333333333333333333333333333333333333333333333333404142435051606162637071fa".to_string(),
                 result: Some(LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
                     parent_block_ptr: 0x40414243,
@@ -1272,13 +1544,7 @@ mod tests {
 
                     burn_fee: 24690,
                     input: (Txid([0x11; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH
-                    },
+                    apparent_sender: BurnchainSigner("mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()),
 
                     txid: Txid::from_hex("502f3e5756de7e1bdba8c713cd2daab44adb5337d14ff668fdc57cc27d67f0d4").unwrap(),
                     vtxindex: vtxindex,
@@ -1339,12 +1605,22 @@ mod tests {
                     timestamp: get_epoch_time_secs(),
                 },
             };
-            let burnchain_tx =
-                BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            let burnchain_tx = BurnchainTransaction::Bitcoin(
+                parser
+                    .parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05)
+                    .unwrap(),
+            );
 
-            let burnchain = Burnchain::regtest("nope");
+            let mut burnchain = Burnchain::regtest("nope");
+            burnchain.pox_constants.sunset_start = block_height;
+            burnchain.pox_constants.sunset_end = block_height + 1;
 
-            let op = LeaderBlockCommitOp::from_tx(&burnchain, &header, &burnchain_tx);
+            let op = LeaderBlockCommitOp::from_tx(
+                &burnchain,
+                &header,
+                StacksEpochId::Epoch2_05,
+                &burnchain_tx,
+            );
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
@@ -1361,7 +1637,7 @@ mod tests {
                     assert_eq!(tx_fixture.opstr, opstr);
                     assert_eq!(parsed_tx, result);
                 }
-                (Err(_e), None) => {}
+                (Err(_e), None) => (),
                 (Ok(_parsed_tx), None) => {
                     eprintln!("Parsed a tx when we should not have");
                     assert!(false);
@@ -1370,7 +1646,7 @@ mod tests {
                     eprintln!("Did not parse a tx when we should have");
                     assert!(false);
                 }
-            };
+            }
         }
     }
 
@@ -1412,7 +1688,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1437,13 +1713,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1466,13 +1735,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -1486,6 +1748,7 @@ mod tests {
 
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -1505,14 +1768,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -1636,6 +1899,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1659,14 +1923,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1685,6 +1949,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1708,14 +1973,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1734,6 +1999,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1757,14 +2023,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1783,6 +2049,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1806,14 +2073,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1844,6 +2111,7 @@ mod tests {
             CheckFixture {
                 // reject -- bad burn parent modulus
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -1867,14 +2135,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -1963,7 +2231,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -1988,13 +2256,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -2017,13 +2278,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2037,6 +2291,7 @@ mod tests {
 
         // consumes leader_key_1
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
                     .unwrap(),
@@ -2056,14 +2311,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -2185,6 +2440,7 @@ mod tests {
             CheckFixture {
                 // reject -- predates start block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2208,14 +2464,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2234,6 +2490,7 @@ mod tests {
             CheckFixture {
                 // reject -- no such leader key
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2257,14 +2514,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2283,6 +2540,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2306,14 +2564,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2332,6 +2590,7 @@ mod tests {
             CheckFixture {
                 // reject -- previous block must exist in a different block
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2355,14 +2614,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2379,8 +2638,11 @@ mod tests {
                 res: Err(op_error::BlockCommitNoParent),
             },
             CheckFixture {
-                // reject -- tx input does not match any leader keys
+                // accept -- we can have a different burnchain signer (but whether or not it links
+                // to another block-commit's UTXO chain is a different story, and is not checked
+                // here)
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2404,14 +2666,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "03984286096373539ae529bd997c92792d4e5b5967be72979a42f587a625394116",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2430,6 +2692,7 @@ mod tests {
             CheckFixture {
                 // reject -- fee is 0
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2453,14 +2716,14 @@ mod tests {
 
                     burn_fee: 0,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2479,6 +2742,7 @@ mod tests {
             CheckFixture {
                 // accept -- consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2502,14 +2766,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2528,6 +2792,7 @@ mod tests {
             CheckFixture {
                 // accept -- builds directly off of genesis block and consumes leader_key_2
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2551,14 +2816,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2577,6 +2842,7 @@ mod tests {
             CheckFixture {
                 // accept -- also consumes leader_key_1
                 op: LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     block_header_hash: BlockHeaderHash::from_bytes(
                         &hex_bytes(
                             "2222222222222222222222222222222222222222222222222222222222222222",
@@ -2600,14 +2866,14 @@ mod tests {
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -2647,7 +2913,7 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_marker_2_05() {
+    fn test_epoch_marker() {
         let first_block_height = 121;
         let first_burn_hash = BurnchainHeaderHash::from_hex(
             "0000000000000000000000000000000000000000000000000000000000000001",
@@ -2655,7 +2921,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, u32::max_value()),
+            pox_constants: PoxConstants::new(6, 2, 2, 25, 5, 5000, 10000, u32::max_value()),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2670,6 +2936,7 @@ mod tests {
         };
 
         let epoch_2_05_start = 125;
+        let epoch_2_1_start = 130;
 
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
@@ -2702,9 +2969,16 @@ mod tests {
                 StacksEpoch {
                     epoch_id: StacksEpochId::Epoch2_05,
                     start_height: epoch_2_05_start,
-                    end_height: STACKS_EPOCH_MAX,
+                    end_height: epoch_2_1_start,
                     block_limit: ExecutionCost::max_value(),
                     network_epoch: PEER_VERSION_EPOCH_2_05,
+                },
+                StacksEpoch {
+                    epoch_id: StacksEpochId::Epoch21,
+                    start_height: epoch_2_1_start,
+                    end_height: STACKS_EPOCH_MAX,
+                    block_limit: ExecutionCost::max_value(),
+                    network_epoch: PEER_VERSION_EPOCH_2_1,
                 },
             ],
             PoxConstants::test_default(),
@@ -2720,8 +2994,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_string("ST23T8X3WGA59XM4RA7NE4ZAG332V10PSS135TTZR")
-                .unwrap(),
             txid: Txid([0x01; 32]),
             vtxindex: 456,
             block_height: first_block_height + 1,
@@ -2729,6 +3001,7 @@ mod tests {
         };
 
         let block_commit_pre_2_05 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x02; 32]),
             new_seed: VRFSeed([0x03; 32]),
             parent_block_ptr: 0,
@@ -2740,14 +3013,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid([0x02; 32]),
             vtxindex: 444,
@@ -2757,6 +3030,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
             parent_block_ptr: 0,
@@ -2768,14 +3042,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid([0x03; 32]),
             vtxindex: 444,
@@ -2785,6 +3059,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_valid_bigger_epoch = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x03; 32]),
             new_seed: VRFSeed([0x04; 32]),
             parent_block_ptr: 0,
@@ -2796,14 +3071,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid([0x13; 32]),
             vtxindex: 444,
@@ -2813,6 +3088,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_bad_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x04; 32]),
             new_seed: VRFSeed([0x05; 32]),
             parent_block_ptr: 0,
@@ -2824,14 +3100,14 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "02b20f7d690afa0464d7eb17bdd86820261fb1acfdf489b2442a205a693da231ac",
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid([0x04; 32]),
             vtxindex: 445,
@@ -2841,6 +3117,7 @@ mod tests {
         };
 
         let block_commit_post_2_05_invalid_no_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
             block_header_hash: BlockHeaderHash([0x05; 32]),
             new_seed: VRFSeed([0x06; 32]),
             parent_block_ptr: 0,
@@ -2852,19 +3129,135 @@ mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
-                    "02e371309f1c25abc5f00353d74632c6f5b95eb80e1e1edb9ba53e14b0d47bc0de",
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid([0x05; 32]),
             vtxindex: 446,
             block_height: epoch_2_05_start,
             burn_parent_modulus: ((epoch_2_05_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_valid = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+            ),
+
+            txid: Txid([0x03; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_valid_bigger_epoch = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x03; 32]),
+            new_seed: VRFSeed([0x04; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER + 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "024d8cdaef508d665dd9dd50ca7e9fbd9e7984ec8bfac8f02dea9f02a9232af1d7",
+                )
+                .unwrap()],
+            ),
+
+            txid: Txid([0x13; 32]),
+            vtxindex: 444,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_invalid_bad_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x04; 32]),
+            new_seed: VRFSeed([0x05; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![STACKS_EPOCH_2_1_MARKER - 1],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02b20f7d690afa0464d7eb17bdd86820261fb1acfdf489b2442a205a693da231ac",
+                )
+                .unwrap()],
+            ),
+
+            txid: Txid([0x04; 32]),
+            vtxindex: 445,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
+        };
+
+        let block_commit_post_2_1_invalid_no_memo = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([0x05; 32]),
+            new_seed: VRFSeed([0x06; 32]),
+            parent_block_ptr: 0,
+            parent_vtxindex: 0,
+            key_block_ptr: leader_key.block_height as u32,
+            key_vtxindex: leader_key.vtxindex as u16,
+            memo: vec![],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02e371309f1c25abc5f00353d74632c6f5b95eb80e1e1edb9ba53e14b0d47bc0de",
+                )
+                .unwrap()],
+            ),
+
+            txid: Txid([0x05; 32]),
+            vtxindex: 446,
+            block_height: epoch_2_1_start,
+            burn_parent_modulus: ((epoch_2_1_start - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]), // to be filled in
         };
 
@@ -2876,10 +3269,14 @@ mod tests {
             (block_commit_post_2_05_valid_bigger_epoch, true),
             (block_commit_post_2_05_invalid_bad_memo, false),
             (block_commit_post_2_05_invalid_no_memo, false),
+            (block_commit_post_2_1_valid, true),
+            (block_commit_post_2_1_valid_bigger_epoch, true),
+            (block_commit_post_2_1_invalid_bad_memo, false),
+            (block_commit_post_2_1_invalid_no_memo, false),
         ];
 
         let mut sn = SortitionDB::get_first_block_snapshot(db.conn()).unwrap();
-        for i in sn.block_height..(epoch_2_05_start + 2) {
+        for i in sn.block_height..(epoch_2_1_start + 2) {
             eprintln!("Block {}", i);
             let mut byte_pattern = [0u8; 32];
             byte_pattern[24..32].copy_from_slice(&i.to_be_bytes());

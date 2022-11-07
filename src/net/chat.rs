@@ -2403,7 +2403,6 @@ mod test {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
 
-    use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;

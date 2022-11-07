@@ -20,6 +20,8 @@ use std::convert::{TryFrom, TryInto};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::burnchains::{
@@ -49,6 +51,7 @@ use crate::chainstate::stacks::{
         StacksEpochReceipt, StacksHeaderInfo,
     },
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
+    miner::{signal_mining_blocked, signal_mining_ready, MinerStatus},
     Error as ChainstateError, StacksBlock, StacksBlockHeader, TransactionPayload,
 };
 use crate::core::StacksEpoch;
@@ -286,9 +289,14 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "registered_addrs" => registered_addrs.len());
         }
 
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
+            &format!("FATAL: no epoch for burn height {}", current_burn_height),
+        );
+
         Ok(StacksChainState::make_reward_set(
             threshold,
             registered_addrs,
+            cur_epoch.epoch_id,
         ))
     }
 }
@@ -306,6 +314,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
         atlas_config: AtlasConfig,
         cost_estimator: Option<&mut CE>,
         fee_estimator: Option<&mut FE>,
+        miner_status: Arc<Mutex<MinerStatus>>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -361,6 +370,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received new stacks block notice");
                     match inst.handle_new_stacks_block() {
                         Ok(missing_block_opt) => {
@@ -372,8 +382,10 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
                             warn!("Error processing new stacks block: {:?}", e);
                         }
                     }
+                    signal_mining_ready(miner_status.clone());
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received new burn block notice");
                     match inst.handle_new_burnchain_block() {
                         Ok(missing_block_opt) => {
@@ -385,8 +397,10 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
                             warn!("Error processing new burn block: {:?}", e);
                         }
                     }
+                    signal_mining_ready(miner_status.clone());
                 }
                 CoordinatorEvents::STOP => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received stop notice");
                     return;
                 }
@@ -532,7 +546,20 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
+    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
+        &format!("FATAL: no epoch defined for burn height {}", burn_height),
+    );
+
     if burnchain.is_reward_cycle_start(burn_height) {
+        if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(burn_height, epoch_at_height.epoch_id)
+        {
+            return Ok(Some(RewardCycleInfo {
+                anchor_status: PoxAnchorBlockStatus::NotSelected,
+            }));
+        }
+
         debug!("Beginning reward cycle";
               "burn_height" => burn_height,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
@@ -856,10 +883,11 @@ impl<
                                     let mut found = false;
                                     for (sn, sn_pox_id) in snapshots_and_pox_ids.into_iter() {
                                         test_debug!(
-                                            "Snapshot {} height {} has PoX ID {}",
+                                            "Snapshot {} height {} has PoX ID {} (is prefix of {}?)",
                                             &sn.sortition_id,
                                             sn.block_height,
-                                            &sn_pox_id
+                                            &sn_pox_id,
+                                            &affirmation_pox_id,
                                         );
                                         if affirmation_pox_id.has_prefix(&sn_pox_id) {
                                             // have already processed this sortitoin

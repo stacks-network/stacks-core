@@ -107,13 +107,6 @@ fn test_process_block_ops() {
         )
         .unwrap(),
         memo: vec![01, 02, 03, 04, 05],
-        address: StacksAddress::from_bitcoin_address(
-            &BitcoinAddress::from_scriptpubkey(
-                BitcoinNetworkType::Testnet,
-                &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-            )
-            .unwrap(),
-        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap(),
@@ -134,13 +127,6 @@ fn test_process_block_ops() {
         )
         .unwrap(),
         memo: vec![01, 02, 03, 04, 05],
-        address: StacksAddress::from_bitcoin_address(
-            &BitcoinAddress::from_scriptpubkey(
-                BitcoinNetworkType::Testnet,
-                &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-            )
-            .unwrap(),
-        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7").unwrap(),
@@ -161,13 +147,6 @@ fn test_process_block_ops() {
         )
         .unwrap(),
         memo: vec![01, 02, 03, 04, 05],
-        address: StacksAddress::from_bitcoin_address(
-            &BitcoinAddress::from_scriptpubkey(
-                BitcoinNetworkType::Testnet,
-                &hex_bytes("76a914f464a593895cd58c74a7352dd4a65c491d0c0bf688ac").unwrap(),
-            )
-            .unwrap(),
-        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c").unwrap(),
@@ -343,6 +322,7 @@ fn test_process_block_ops() {
     };
 
     let block_commit_1 = LeaderBlockCommitOp {
+        sunset_burn: 0,
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap(),
@@ -360,14 +340,14 @@ fn test_process_block_ops() {
 
         burn_fee: 12345,
         input: (Txid([0; 32]), 0),
-        apparent_sender: BurnchainSigner {
-            public_keys: vec![StacksPublicKey::from_hex(
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
                 "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
             )
             .unwrap()],
-            num_sigs: 1,
-            hash_mode: AddressHashMode::SerializeP2PKH,
-        },
+        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap(),
@@ -380,6 +360,7 @@ fn test_process_block_ops() {
     };
 
     let block_commit_2 = LeaderBlockCommitOp {
+        sunset_burn: 0,
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap(),
@@ -397,14 +378,14 @@ fn test_process_block_ops() {
 
         burn_fee: 12345,
         input: (Txid([0; 32]), 0),
-        apparent_sender: BurnchainSigner {
-            public_keys: vec![StacksPublicKey::from_hex(
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
                 "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
             )
             .unwrap()],
-            num_sigs: 1,
-            hash_mode: AddressHashMode::SerializeP2PKH,
-        },
+        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0").unwrap(),
@@ -417,6 +398,7 @@ fn test_process_block_ops() {
     };
 
     let block_commit_3 = LeaderBlockCommitOp {
+        sunset_burn: 0,
         commit_outs: vec![],
         block_header_hash: BlockHeaderHash::from_bytes(
             &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap(),
@@ -434,14 +416,14 @@ fn test_process_block_ops() {
 
         burn_fee: 23456,
         input: (Txid([0; 32]), 0),
-        apparent_sender: BurnchainSigner {
-            public_keys: vec![StacksPublicKey::from_hex(
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
                 "0283d603abdd2392646dbdd0dc80beb39c25bfab96a8a921ea5e7517ce533f8cd5",
             )
             .unwrap()],
-            num_sigs: 1,
-            hash_mode: AddressHashMode::SerializeP2PKH,
-        },
+        ),
 
         txid: Txid::from_bytes(
             &hex_bytes("301dc687a9f06a1ae87a013f27133e9cec0843c2983567be73e185827c7c13de").unwrap(),
@@ -496,13 +478,11 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
-        ..BlockSnapshot::initial(0, &first_burn_hash, 0)
     };
 
-    let block_ops_122: Vec<BlockstackOperationType> =
-        vec![BlockstackOperationType::LeaderKeyRegister(
-            leader_key_2.clone(),
-        )];
+    let block_ops_122 = vec![BlockstackOperationType::LeaderKeyRegister(
+        leader_key_2.clone(),
+    )];
     let block_opshash_122 = OpsHash::from_txids(&vec![leader_key_2.txid.clone()]);
     let block_prev_chs_122 = vec![
         block_121_snapshot.consensus_hash.clone(),
@@ -546,10 +526,9 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
-        ..BlockSnapshot::initial(0, &first_burn_hash, 0)
     };
 
-    let block_ops_123: Vec<BlockstackOperationType> = vec![
+    let block_ops_123 = vec![
         BlockstackOperationType::UserBurnSupport(user_burn_noblock.clone()),
         BlockstackOperationType::UserBurnSupport(user_burn_nokey.clone()),
         BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
@@ -601,7 +580,6 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
-        ..BlockSnapshot::initial(0, &first_burn_hash, 0)
     };
 
     // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
@@ -796,7 +774,6 @@ fn test_process_block_ops() {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
-            ..BlockSnapshot::initial(0, &first_burn_hash, 0)
         };
 
         if next_sortition {
@@ -838,6 +815,28 @@ fn test_process_block_ops() {
         };
 
         assert_eq!(sn124, block_124_snapshot);
+
+        // get all winning block commit hashes.
+        // There should only be two -- the winning block at height 124, and the genesis
+        // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
+        // commits.
+        let expected_winning_hashes = vec![
+            BlockHeaderHash([0u8; 32]),
+            block_124_winners[scenario_idx].block_header_hash.clone(),
+        ];
+
+        // TODO: pair up with stacks chain state?
+        /*
+        let winning_header_hashes = {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::get_stacks_block_header_inventory(&mut tx, 124).unwrap()
+                .iter()
+                .map(|ref hinv| hinv.0.clone())
+                .collect()
+        };
+
+        assert_eq!(expected_winning_hashes, winning_header_hashes);
+        */
     }
 }
 
@@ -884,21 +883,11 @@ fn test_burn_snapshot_sequence() {
 
         leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));
 
-        let btc_input = BitcoinTxInput {
-            in_type: BitcoinInputType::Standard,
-            keys: vec![bitcoin_publickey.clone()],
-            num_required: 1,
-            tx_ref: (Txid([0; 32]), 0),
-        };
-
-        leader_bitcoin_addresses.push(
-            BitcoinAddress::from_bytes(
-                BitcoinNetworkType::Testnet,
-                BitcoinAddressType::PublicKeyHash,
-                &btc_input.to_address_bits(),
-            )
-            .unwrap(),
-        );
+        leader_bitcoin_addresses.push(BitcoinAddress::from_bytes_legacy(
+            BitcoinNetworkType::Testnet,
+            LegacyBitcoinAddressType::PublicKeyHash,
+            &Hash160::from_data(&bitcoin_publickey.to_bytes()).0,
+        ));
     }
 
     let mut expected_burn_total: u64 = 0;
@@ -955,6 +944,7 @@ fn test_burn_snapshot_sequence() {
         // insert block commit paired to previous round's leader key, as well as a user burn
         if i > 0 {
             let next_block_commit = LeaderBlockCommitOp {
+                sunset_burn: 0,
                 commit_outs: vec![],
                 block_header_hash: BlockHeaderHash::from_bytes(&vec![
                     i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -978,14 +968,14 @@ fn test_burn_snapshot_sequence() {
 
                 burn_fee: i as u64,
                 input: (Txid([0; 32]), 0),
-                apparent_sender: BurnchainSigner {
-                    public_keys: vec![StacksPublicKey::from_hex(
+                apparent_sender: BurnchainSigner::mock_parts(
+                    AddressHashMode::SerializeP2PKH,
+                    1,
+                    vec![StacksPublicKey::from_hex(
                         &leader_bitcoin_public_keys[(i - 1) as usize].clone(),
                     )
                     .unwrap()],
-                    num_sigs: 1,
-                    hash_mode: AddressHashMode::SerializeP2PKH,
-                },
+                ),
 
                 txid: Txid::from_bytes(&vec![
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1019,9 +1009,6 @@ fn test_burn_snapshot_sequence() {
             )
             .unwrap(),
             memo: vec![0, 0, 0, 0, i],
-            address: StacksAddress::from_bitcoin_address(
-                &leader_bitcoin_addresses[i as usize].clone(),
-            ),
 
             txid: Txid::from_bytes(&vec![
                 i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

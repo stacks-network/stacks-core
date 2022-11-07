@@ -166,11 +166,19 @@ impl BurnchainParameters {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BurnchainSigner {
-    pub hash_mode: AddressHashMode,
-    pub num_sigs: usize,
-    pub public_keys: Vec<StacksPublicKey>,
+/// This is an opaque representation of the underlying burnchain-specific principal that signed
+/// this transaction.  It may not even map to an address, given that even in "simple" VMs like
+/// bitcoin script, the "signer" may be only a part of a complex script.
+///
+/// The purpose of this struct is to capture a loggable representation of a principal that signed
+/// this transaction.  It's not meant for use with consensus-critical code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BurnchainSigner(pub String);
+
+impl fmt::Display for BurnchainSigner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.0)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -216,40 +224,30 @@ impl BurnchainTransaction {
         }
     }
 
-    pub fn get_signers(&self) -> Vec<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .iter()
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i))
-                .collect(),
-        }
-    }
-
-    pub fn get_signer(&self, input: usize) -> Option<BurnchainSigner> {
-        match *self {
-            BurnchainTransaction::Bitcoin(ref btc) => btc
-                .inputs
-                .get(input)
-                .map(|ref i| BurnchainSigner::from_bitcoin_input(i)),
-        }
-    }
-
     pub fn get_input_tx_ref(&self, input: usize) -> Option<&(Txid, u32)> {
         match self {
             BurnchainTransaction::Bitcoin(ref btc) => {
-                btc.inputs.get(input).map(|txin| &txin.tx_ref)
+                btc.inputs.get(input).map(|txin| txin.tx_ref())
             }
         }
     }
 
-    pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
+    /// Get the BurnchainRecipients we are able to decode.
+    /// A `None` value at slot `i` means "there is a recipient at slot `i`, but we don't know how
+    /// to decode it`.
+    pub fn get_recipients(&self) -> Vec<Option<BurnchainRecipient>> {
         match *self {
             BurnchainTransaction::Bitcoin(ref btc) => btc
                 .outputs
                 .iter()
-                .map(|ref o| BurnchainRecipient::from_bitcoin_output(o))
+                .map(|ref o| BurnchainRecipient::try_from_bitcoin_output(o))
                 .collect(),
+        }
+    }
+
+    pub fn num_recipients(&self) -> usize {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.outputs.len(),
         }
     }
 
@@ -306,6 +304,10 @@ pub struct PoxConstants {
     /// percentage of liquid STX that must participate for PoX
     ///  to occur
     pub pox_participation_threshold_pct: u64,
+    /// last+1 block height of sunset phase
+    pub sunset_end: u64,
+    /// first block height of sunset phase
+    pub sunset_start: u64,
     /// The auto unlock height for PoX v1 lockups before transition to PoX v2. This
     /// also defines the burn height at which PoX reward sets are calculated using
     /// PoX v2 rather than v1
@@ -320,10 +322,13 @@ impl PoxConstants {
         anchor_threshold: u32,
         pox_rejection_fraction: u64,
         pox_participation_threshold_pct: u64,
+        sunset_start: u64,
+        sunset_end: u64,
         v1_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
+        assert!(sunset_start <= sunset_end);
 
         PoxConstants {
             reward_cycle_length,
@@ -331,6 +336,8 @@ impl PoxConstants {
             anchor_threshold,
             pox_rejection_fraction,
             pox_participation_threshold_pct,
+            sunset_start,
+            sunset_end,
             v1_unlock_height,
             _shadow: PhantomData,
         }
@@ -338,7 +345,7 @@ impl PoxConstants {
     #[cfg(test)]
     pub fn test_default() -> PoxConstants {
         // 20 reward slots; 10 prepare-phase slots
-        PoxConstants::new(10, 5, 3, 25, 5, u32::max_value())
+        PoxConstants::new(10, 5, 3, 25, 5, 5000, 10000, u32::max_value())
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
@@ -371,6 +378,8 @@ impl PoxConstants {
             80,
             25,
             5,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_MAINNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_MAINNET_EARLY_UNLOCK_HEIGHT,
         )
     }
@@ -382,12 +391,54 @@ impl PoxConstants {
             40,
             12,
             2,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
             POX_V1_TESTNET_EARLY_UNLOCK_HEIGHT,
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
     pub fn regtest_default() -> PoxConstants {
-        PoxConstants::new(5, 1, 1, 3333333333333333, 1, 1_000_000)
+        PoxConstants::new(
+            5,
+            1,
+            1,
+            3333333333333333,
+            1,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_START,
+            BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT + POX_SUNSET_END,
+            1_000_000,
+        )
+    }
+
+    /// Return true if PoX should sunset at all
+    /// return false if not.
+    pub fn has_pox_sunset(epoch_id: StacksEpochId) -> bool {
+        epoch_id < StacksEpochId::Epoch21
+    }
+
+    /// Returns true if PoX has been fully disabled by the PoX sunset.
+    /// Behavior is epoch-specific
+    pub fn is_after_pox_sunset_end(&self, burn_block_height: u64, epoch_id: StacksEpochId) -> bool {
+        if !Self::has_pox_sunset(epoch_id) {
+            false
+        } else {
+            burn_block_height >= self.sunset_end
+        }
+    }
+
+    /// Returns true if the burn height falls into the PoX sunset period.
+    /// Returns false if not, or if the sunset isn't active in this epoch
+    /// (Note that this is true if burn_block_height is beyond the sunset height)
+    pub fn is_after_pox_sunset_start(
+        &self,
+        burn_block_height: u64,
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        if !Self::has_pox_sunset(epoch_id) {
+            false
+        } else {
+            self.sunset_start <= burn_block_height
+        }
     }
 
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {

@@ -364,13 +364,9 @@ impl TestBurnchainBlock {
 
     pub fn add_leader_key_register(&mut self, miner: &mut TestMiner) -> LeaderKeyRegisterOp {
         let next_vrf_key = miner.next_VRF_key();
-        let mut txop = LeaderKeyRegisterOp::new_from_secrets(
-            &miner.privks,
-            miner.num_sigs,
-            &miner.hash_mode,
-            &next_vrf_key,
-        )
-        .unwrap();
+        let mut txop =
+            LeaderKeyRegisterOp::new_from_secrets(miner.num_sigs, &miner.hash_mode, &next_vrf_key)
+                .unwrap();
 
         txop.vtxindex = self.txs.len() as u32;
         txop.block_height = self.block_height;
@@ -405,11 +401,8 @@ impl TestBurnchainBlock {
             .iter()
             .map(|ref pk| StacksPublicKey::from_private(pk))
             .collect();
-        let apparent_sender = BurnchainSigner {
-            hash_mode: miner.hash_mode.clone(),
-            num_sigs: miner.num_sigs as usize,
-            public_keys: pubks,
-        };
+        let apparent_sender =
+            BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
 
         let last_snapshot = match fork_snapshot {
             Some(sn) => sn.clone(),

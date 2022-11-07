@@ -39,6 +39,8 @@ use crate::util_lib::db::{
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
+use crate::core::StacksEpochId;
+
 pub struct BurnchainDB {
     conn: Connection,
 }
@@ -1097,6 +1099,7 @@ impl BurnchainDB {
         burnchain: &Burnchain,
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {}",
@@ -1108,8 +1111,14 @@ impl BurnchainDB {
         let mut pre_stx_ops = HashMap::new();
 
         for tx in block.txs().iter() {
-            let result =
-                Burnchain::classify_transaction(burnchain, self, block_header, &tx, &pre_stx_ops);
+            let result = Burnchain::classify_transaction(
+                burnchain,
+                self,
+                block_header,
+                epoch_id,
+                &tx,
+                &pre_stx_ops,
+            );
             if let Some(classified_tx) = result {
                 if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
                     pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
@@ -1241,11 +1250,13 @@ impl BurnchainDB {
         burnchain: &Burnchain,
         indexer: &B,
         block: &BurnchainBlock,
+        epoch_id: StacksEpochId,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
               "burn_header_hash" => %header.block_hash.to_string());
-        let mut blockstack_ops = self.get_blockstack_transactions(burnchain, block, &header);
+        let mut blockstack_ops =
+            self.get_blockstack_transactions(burnchain, block, &header, epoch_id);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         self.store_new_burnchain_block_ops_unchecked(burnchain, indexer, &header, &blockstack_ops)?;
@@ -1377,7 +1388,6 @@ impl BurnchainDB {
             Some(metadata) => {
                 let commit = BurnchainDB::get_block_commit(conn, &metadata.txid)?
                     .expect("BUG: no block commit for existing metadata");
-
                 Ok(Some((commit, metadata)))
             }
             None => {
@@ -1507,14 +1517,14 @@ impl BurnchainDB {
             if let Some((commit, metadata)) = BurnchainDB::get_anchor_block_commit(conn, rc)? {
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
-                    test_debug!("Assume present anchor block at {}", rc);
+                    test_debug!("Assume present anchor block at reward cycle {}", rc);
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
-                    test_debug!("Assume absent anchor block at {}", rc);
+                    test_debug!("Assume absent anchor block at reward cycle {}", rc);
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
                 }
             } else {
-                test_debug!("Assume no anchor block at {}", rc);
+                test_debug!("Assume no anchor block at reward cycle {}", rc);
                 heaviest_am.push(AffirmationMapEntry::Nothing);
             }
         }
