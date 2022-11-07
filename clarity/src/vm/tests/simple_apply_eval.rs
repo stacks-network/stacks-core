@@ -1278,18 +1278,25 @@ fn test_stx_ops_errors() {
 
 #[test]
 fn test_bitwise() {
+    // NOTE: Type safety checks (e.g. that the 2nd argument to << and >> must be uint) are not included in this test.
+    // Tests for the type checker are included in analysis/type_checker/tests/mod.rs instead.
+
     let tests = [
-        "(& 24 16)",
-        "(& u24 u16)",
-        "(^ 24 4)",
-        "(^ u24 u4)",
-        "(| 128 16)",
-        "(| u128 u16)",
-        "(~ 128)",
-        "(~ u128)",
-        "(~ u340282366920938463463374607431768211327)",
-        "(>> u128 u2)",
-        "(<< u4 u2)"
+        "(& 24 16)",            // 16
+        "(& u24 u16)",          // u16
+        "(^ 24 4)",             // 28
+        "(^ u24 u4)",           // u28
+        "(| 128 16)",           // 144
+        "(| u128 u16)",         // u144
+        "(~ 128)",              // -129
+        "(~ u128)",             // u340282366920938463463374607431768211327
+        "(~ u340282366920938463463374607431768211327)", // u128
+        "(>> u128 u2)",         // u32
+        "(<< u4 u2)",           // u16
+        "(& -128 -64)",         // -128
+        "(| -64 -32)",          // -32
+        "(^ -128 64)",          // -64
+        "(~ -128)",             // 127
     ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -1303,7 +1310,11 @@ fn test_bitwise() {
         Ok(Value::UInt(340282366920938463463374607431768211327)),  // (~ u128)
         Ok(Value::UInt(128)),   // (~ u340282366920938463463374607431768211327)
         Ok(Value::UInt(32)),    // (>> u128 u2)
-        Ok(Value::UInt(16))     // (<< u4 u2)
+        Ok(Value::UInt(16)),    // (<< u4 u2)
+        Ok(Value::Int(-128)),   // (& -128 -64)
+        Ok(Value::Int(-32)),    // (| -64 -32)
+        Ok(Value::Int(-64)),    // (^ -128 64)
+        Ok(Value::Int(127)),    // (~ -128)
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
