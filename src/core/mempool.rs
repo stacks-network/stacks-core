@@ -905,7 +905,7 @@ pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
     let mut iter = stmt
-        .query(NO_PARAMS)
+        .query(&[])
         .map_err(|e| db_error::SqliteError(e))?;
     let mut ret = vec![];
     while let Ok(Some(row)) = iter.next() {
@@ -1332,7 +1332,7 @@ impl MemPoolDB {
     pub fn reset_nonce_cache(&mut self) -> Result<(), db_error> {
         debug!("reset nonce cache");
         let sql = "DELETE FROM nonces";
-        self.db.execute(sql, rusqlite::NO_PARAMS)?;
+        self.db.execute(sql, [])?;
         Ok(())
     }
 
@@ -1372,7 +1372,7 @@ impl MemPoolDB {
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            [max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {
@@ -1492,7 +1492,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut null_iterator = query_stmt_null
-            .query(NO_PARAMS)
+            .query([])
             .map_err(|err| Error::SqliteError(err))?;
 
         let sql = "
@@ -1506,7 +1506,7 @@ impl MemPoolDB {
             .prepare(&sql)
             .map_err(|err| Error::SqliteError(err))?;
         let mut fee_iterator = query_stmt_fee
-            .query(NO_PARAMS)
+            .query([])
             .map_err(|err| Error::SqliteError(err))?;
 
         loop {

@@ -2796,7 +2796,7 @@ impl SortitionDB {
         let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
             conn,
             "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
-            NO_PARAMS,
+            [],
         )?;
 
         assert!(ast_rule_sets.len() > 0);
