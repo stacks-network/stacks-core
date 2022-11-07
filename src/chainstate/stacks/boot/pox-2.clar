@@ -27,6 +27,27 @@
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
 
+;; Valid values for burnchain address versions.
+;; These first four correspond to address hash modes in Stacks 2.1,
+;; and are defined in pox-mainnet.clar and pox-testnet.clar (so they
+;; cannot be defined here again).
+;; (define-constant ADDRESS_VERSION_P2PKH 0x00)
+;; (define-constant ADDRESS_VERSION_P2SH 0x01)
+;; (define-constant ADDRESS_VERSION_P2WPKH 0x02)
+;; (define-constant ADDRESS_VERSION_P2WSH 0x03)
+(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
+(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
+(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+;; Keep these constants in lock-step with the address version buffs above
+;; Maximum value of an address version as a uint
+(define-constant MAX_ADDRESS_VERSION u6)
+;; Maximum value of an address version that has a 20-byte hashbytes
+;; (0x00, 0x01, 0x02, 0x03, and 0x04 have 20-byte hashbytes)
+(define-constant MAX_ADDRESS_VERSION_BUFF_20 u4)
+;; Maximum value of an address version that has a 32-byte hashbytes
+;; (0x05 and 0x06 have 32-byte hashbytes)
+(define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
+
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
@@ -77,8 +98,10 @@
         ;; receive PoX'ed tokens. Translating this into an address
         ;; depends on the burnchain being used.  When Bitcoin is
         ;; the burnchain, this gets translated into a p2pkh, p2sh,
-        ;; p2wpkh-p2sh, or p2wsh-p2sh UTXO, depending on the version.
-        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        ;; p2wpkh-p2sh, p2wsh-p2sh, p2wpkh, p2wsh, or p2tr UTXO,
+        ;; depending on the version.  The `hashbytes` field *must* be
+        ;; either 20 bytes or 32 bytes, depending on the output.
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         ;; how long the uSTX are locked, in reward cycles.
         lock-period: uint,
         ;; reward cycle when rewards begin
@@ -101,7 +124,7 @@
         until-burn-ht: (optional uint), ;; how long does the delegation last?
         ;; does the delegate _need_ to use a specific
         ;; pox recipient address?
-        pox-addr: (optional { version: (buff 1), hashbytes: (buff 20) })
+        pox-addr: (optional { version: (buff 1), hashbytes: (buff 32) })
     }
 )
 
@@ -123,7 +146,7 @@
 (define-map reward-cycle-pox-address-list
     { reward-cycle: uint, index: uint }
     {
-        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         total-ustx: uint,
         stacker: (optional principal)
     }
@@ -140,7 +163,7 @@
 ;;   by paying the cost of aggregation during the commit
 (define-map partial-stacked-by-cycle
     { 
-        pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         reward-cycle: uint,
         sender: principal
     }
@@ -251,7 +274,7 @@
 ;; Used to build up a set of per-reward-cycle PoX addresses.
 ;; No checking will be done -- don't call if this PoX address is already registered in this reward cycle!
 ;; Returns the index into the reward cycle that the PoX address is stored to
-(define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+(define-private (append-reward-cycle-pox-addr (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                               (reward-cycle uint)
                                               (amount-ustx uint)
                                               (stacker (optional principal)))
@@ -340,7 +363,7 @@
 ;; The returned tuple is the same as inputted `params`, but the `i` field is incremented if
 ;;  the pox-addr was added to the given cycle. 
 (define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
-                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                             (reward-set-indexes (list 12 uint))
                                                             (first-reward-cycle uint)
                                                             (num-cycles uint)
@@ -382,7 +405,7 @@
 ;; Add a PoX address to a given sequence of reward cycle lists.
 ;; A PoX address can be added to at most 12 consecutive cycles.
 ;; No checking is done.
-(define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+(define-private (add-pox-addr-to-reward-cycles (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                (first-reward-cycle uint)
                                                (num-cycles uint)
                                                (amount-ustx uint)
@@ -400,7 +423,7 @@
 
 (define-private (add-pox-partial-stacked-to-ith-cycle
                  (cycle-index uint)
-                 (params { pox-addr: { version: (buff 1), hashbytes: (buff 20) },
+                 (params { pox-addr: { version: (buff 1), hashbytes: (buff 32) },
                            reward-cycle: uint,
                            num-cycles: uint,
                            amount-ustx: uint }))
@@ -428,7 +451,7 @@
 ;; Add a PoX address to a given sequence of partial reward cycle lists.
 ;; A PoX address can be added to at most 12 consecutive cycles.
 ;; No checking is done.
-(define-private (add-pox-partial-stacked (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+(define-private (add-pox-partial-stacked (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                          (first-reward-cycle uint)
                                          (num-cycles uint)
                                          (amount-ustx uint))
@@ -442,12 +465,17 @@
 (define-read-only (get-stacking-minimum)
     (/ stx-liquid-supply STACKING_THRESHOLD_25))
 
-;; Is the address mode valid for a PoX burn address?
+;; Is the address mode valid for a PoX address?
 (define-read-only (check-pox-addr-version (version (buff 1)))
-    (or (is-eq version ADDRESS_VERSION_P2PKH)
-        (is-eq version ADDRESS_VERSION_P2SH)
-        (is-eq version ADDRESS_VERSION_P2WPKH)
-        (is-eq version ADDRESS_VERSION_P2WSH)))
+    (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION))
+
+;; Is this buffer the right length for the given PoX address?
+(define-read-only (check-pox-addr-hashbytes (version (buff 1)) (hashbytes (buff 32)))
+    (if (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION_BUFF_20)
+        (is-eq (len hashbytes) u20)
+        (if (<= (buff-to-uint-be version) MAX_ADDRESS_VERSION_BUFF_32)
+            (is-eq (len hashbytes) u32)
+            false)))
 
 ;; Is the given lock period valid?
 (define-read-only (check-pox-lock-period (lock-period uint)) 
@@ -458,7 +486,7 @@
 ;; This method is designed as a read-only method so that it can be used as 
 ;; a set of guard conditions and also as a read-only RPC call that can be
 ;; performed beforehand.
-(define-read-only (can-stack-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+(define-read-only (can-stack-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                   (amount-ustx uint)
                                   (first-reward-cycle uint)
                                   (num-cycles uint))
@@ -474,7 +502,7 @@
 ;; a set of guard conditions and also as a read-only RPC call that can be
 ;; performed beforehand.
 (define-read-only (minimal-can-stack-stx 
-                   (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                   (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                    (amount-ustx uint)
                    (first-reward-cycle uint)
                    (num-cycles uint))
@@ -494,6 +522,11 @@
     ;; address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))
               (err ERR_STACKING_INVALID_POX_ADDRESS))
+
+    ;; address hashbytes must be valid for the version
+    (asserts! (check-pox-addr-hashbytes (get version pox-addr) (get hashbytes pox-addr))
+              (err ERR_STACKING_INVALID_POX_ADDRESS))
+
     (ok true)))
 
 ;; Revoke contract-caller authorization to call stacking methods
@@ -530,7 +563,7 @@
 ;;
 ;; The tokens will unlock and be returned to the Stacker (tx-sender) automatically.
 (define-public (stack-stx (amount-ustx uint)
-                          (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                          (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                           (start-burn-ht uint)
                           (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
@@ -591,7 +624,7 @@
                              (delegate-to principal)
                              (until-burn-ht (optional uint))
                              (pox-addr (optional { version: (buff 1),
-                                                   hashbytes: (buff 20) })))
+                                                   hashbytes: (buff 32) })))
     (begin
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -627,7 +660,7 @@
 ;;               2. This "commit" transaction is called _before_ the PoX anchor block.
 ;;   This ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
 ;;   but does not require it be all locked up within a single transaction
-(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                          (reward-cycle uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
@@ -660,7 +693,7 @@
 ;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
 (define-public (delegate-stack-stx (stacker principal)
                                    (amount-ustx uint)
-                                   (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                                   (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                    (start-burn-ht uint)
                                    (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
@@ -838,7 +871,7 @@
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards
 (define-public (stack-extend (extend-count uint)
-                             (pox-addr { version: (buff 1), hashbytes: (buff 20) }))
+                             (pox-addr { version: (buff 1), hashbytes: (buff 32) }))
    (let ((stacker-info (stx-account tx-sender))
          (stacker-state (get-stacker-info tx-sender))
          (amount-ustx (get locked stacker-info))
@@ -918,7 +951,7 @@
 ;;   STX to `pox-addr`
 (define-public (delegate-stack-increase
                     (stacker principal)
-                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                     (increase-by uint))
     (let ((stacker-info (stx-account stacker))
           (existing-lock (get locked stacker-info))
@@ -996,7 +1029,7 @@
 ;;    and partially commits those new cycles to `pox-addr`
 (define-public (delegate-stack-extend
                     (stacker principal)
-                    (pox-addr { version: (buff 1), hashbytes: (buff 20) })
+                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                     (extend-count uint))
     (let ((stacker-info (stx-account stacker))
           (stacker-state (get-stacker-info stacker))
@@ -1110,7 +1143,7 @@
 
 ;; How many uSTX have been locked up for this address so far, before the delegator commits them?
 ;; *New in Stacks 2.1*
-(define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 20) }) (reward-cycle uint) (sender principal))
+(define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 32) }) (reward-cycle uint) (sender principal))
     (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
 )
 
