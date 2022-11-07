@@ -101,7 +101,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
@@ -131,7 +131,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           TEST_NAME: ${{ matrix.test-name }}
         run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@v3
         with:
           files: ./coverage-output/lcov.info
           name: ${{ matrix.test-name }}
