@@ -1277,6 +1277,41 @@ fn test_stx_ops_errors() {
 }
 
 #[test]
+fn test_bitwise() {
+    let tests = [
+        "(& 24 16)",
+        "(& u24 u16)",
+        "(^ 24 4)",
+        "(^ u24 u4)",
+        "(| 128 16)",
+        "(| u128 u16)",
+        "(~ 128)",
+        "(~ u128)",
+        "(~ u340282366920938463463374607431768211327)",
+        "(>> u128 u2)",
+        "(<< u4 u2)"
+    ];
+
+    let expectations: &[Result<Value, Error>] = &[
+        Ok(Value::Int(16)),     // (& 24 16)
+        Ok(Value::UInt(16)),    // (& u24 u16)
+        Ok(Value::Int(28)),     // (^ 24 4)y
+        Ok(Value::UInt(28)),    // (^ u24 u4)
+        Ok(Value::Int(144)),    // (| 128 16)
+        Ok(Value::UInt(144)),   // (| u128 u16)
+        Ok(Value::Int(-129)),   // (~ 128)
+        Ok(Value::UInt(340282366920938463463374607431768211327)),  // (~ u128)
+        Ok(Value::UInt(128)),   // (~ u340282366920938463463374607431768211327)
+        Ok(Value::UInt(32)),    // (>> u128 u2)
+        Ok(Value::UInt(16))     // (<< u4 u2)
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute_v2(program).map(|x| x.unwrap()));
+    }
+}
+
+#[test]
 fn test_some() {
     let tests = [
         "(is-eq (some 1) (some 1))",

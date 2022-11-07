@@ -764,7 +764,7 @@ fn test_unexpected_use_of_field_or_trait_reference() {
 }
 
 #[test]
-fn test_simple_arithmetic_checks() {
+fn test_bitwise_good_checks() {
     let good = [
         "(>= (+ 1 2 3) (- 1 2))",
         "(is-eq (+ 1 2 3) 6 0)",
@@ -776,13 +776,19 @@ fn test_simple_arithmetic_checks() {
         "(>> u1 u2)"
     ];
     let expected = ["bool", "bool", "bool", "int", "uint", "int", "int", "uint"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+}
+
+#[test]
+fn test_bitwise_bad_checks() {
     let bad = [
-        "(+ 1 2 3 (>= 5 7))",
-        "(-)",
         "(xor 1)",
-        "(+ x y z)", // unbound variables.
-        "(+ 1 2 3 (is-eq 1 2))",
-        "(and (or true false) (+ 1 2 3))",
         "(^ 1 u2)",
         "(| u2 1)",
         "(~ \"hello\")",
@@ -795,12 +801,7 @@ fn test_simple_arithmetic_checks() {
         "(<< 2 1)"
     ];
     let bad_expected = [
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::RequiresAtLeastArguments(1, 0),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UndefinedVariable("x".to_string()),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::TypeError(IntType, UIntType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::UnionTypeError(
@@ -815,6 +816,36 @@ fn test_simple_arithmetic_checks() {
             BoolType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::TypeError(UIntType, IntType),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_simple_arithmetic_checks() {
+    let good = [
+        "(>= (+ 1 2 3) (- 1 2))",
+        "(is-eq (+ 1 2 3) 6 0)",
+        "(and (or true false) false)",
+    ];
+    let expected = ["bool", "bool", "bool"];
+    let bad = [
+        "(+ 1 2 3 (>= 5 7))",
+        "(-)",
+        "(xor 1)",
+        "(+ x y z)", // unbound variables.
+        "(+ 1 2 3 (is-eq 1 2))",
+        "(and (or true false) (+ 1 2 3))",
+    ];
+    let bad_expected = [
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::RequiresAtLeastArguments(1, 0),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::UndefinedVariable("x".to_string()),
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(BoolType, IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
