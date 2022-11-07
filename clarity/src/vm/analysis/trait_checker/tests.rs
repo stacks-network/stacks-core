@@ -1201,9 +1201,8 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let impl_contract = "(impl-trait .defun.trait-1)
         (define-public (get-1 (x uint)) (ok u1))";
     let caller_contract = // Should error.
-        "(define-constant contract .implem)
-         (define-public (foo-bar)
-           (contract-call? .dispatch wrapped-get-1 contract))";
+        "(define-public (foo-bar (p principal))
+           (contract-call? .dispatch wrapped-get-1 p))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
@@ -1400,34 +1399,38 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db
-        .execute(|db| {
-            type_check(
-                &contract_defining_trait_id,
-                &mut contract_defining_trait,
-                db,
-                true,
-                &version,
-            )?;
-            type_check(
-                &target_contract_id,
-                &mut target_contract,
-                db,
-                true,
-                &version,
-            )?;
-            type_check(
-                &dispatching_contract_id,
-                &mut dispatching_contract,
-                db,
-                true,
-                &version,
-            )
-        })
-        .unwrap_err();
-    match err.err {
-        CheckErrors::TypeError(_, _) => {}
-        _ => panic!("{:?}", err),
+    let result = db.execute(|db| {
+        type_check(
+            &contract_defining_trait_id,
+            &mut contract_defining_trait,
+            db,
+            true,
+            &version,
+        )?;
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )?;
+        type_check(
+            &dispatching_contract_id,
+            &mut dispatching_contract,
+            db,
+            true,
+            &version,
+        )
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            match err.err {
+                CheckErrors::TypeError(_, _) => {}
+                _ => panic!("{:?}", err),
+            };
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        _ => panic!("got {:?}", result),
     }
 }
 
