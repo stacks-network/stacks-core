@@ -1428,14 +1428,13 @@ mod tests {
             LexerError::InvalidCharPrincipal('O')
         );
 
-        /* cylewitruk: Commenting out this reserved placeholder, assuming it might have been reserved for Bitwise NOT anyway?
-        lexer = Lexer::new("~", false).unwrap();
+        lexer = Lexer::new("@", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Placeholder("~".to_string())
+            Token::Placeholder("@".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
-        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));*/
+        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('@'));
 
         lexer = Lexer::new("okay;; comment", false).unwrap();
         assert_eq!(
@@ -2136,8 +2135,7 @@ mod tests {
             }
         );
 
-        /* cylewitruk: Commenting this out as `~` isn't documented anywhere...
-        lexer = Lexer::new("123 ~ abc", false).unwrap();
+        lexer = Lexer::new("123 @ abc", false).unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();
@@ -2149,7 +2147,7 @@ mod tests {
                 end_line: 1,
                 end_column: 5
             }
-        );*/
+        );
 
         lexer = Lexer::new("  \"newline\n  \"", false).unwrap();
         lexer.read_token().unwrap(); // whitespace
