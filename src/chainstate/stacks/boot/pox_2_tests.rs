@@ -3982,7 +3982,7 @@ fn stack_aggregation_increase() {
         &mut coinbase_nonce,
     );
 
-    // check that the partial stacking state contains entries for bob and charlie
+    // check that the partial stacking state contains entries for bob
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
         let partial_stacked = get_partial_stacked(
             &mut peer,
@@ -4008,7 +4008,7 @@ fn stack_aggregation_increase() {
     let dan_bal = get_stx_account_at(&mut peer, &latest_block, &dan_principal);
     assert_eq!(dan_bal.amount_locked(), dan_stack_amount);
 
-    // check that the partial stacking state contains entries for bob
+    // check that the partial stacking state still contains entries for bob
     for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
         let partial_stacked = get_partial_stacked(
             &mut peer,
