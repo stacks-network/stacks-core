@@ -727,10 +727,10 @@ impl<'a> Lexer<'a> {
             '+' => Token::Plus,
             '*' => Token::Multiply,
             '/' => Token::Divide,
-            '^' => Token::BitwiseXOR,
-            '&' => Token::BitwiseAND,
-            '|' => Token::BitwiseOR,
-            '~' => Token::BitwiseNOT,
+            '^' => Token::BitwiseXor,
+            '&' => Token::BitwiseAnd,
+            '|' => Token::BitwiseOr,
+            '~' => Token::BitwiseNot,
             '-' => {
                 advance = false;
                 self.read_char()?;
@@ -861,10 +861,10 @@ impl<'a> Lexer<'a> {
             | Token::LessEqual
             | Token::Greater
             | Token::GreaterEqual
-            | Token::BitwiseXOR
-            | Token::BitwiseAND
-            | Token::BitwiseOR
-            | Token::BitwiseNOT
+            | Token::BitwiseXor
+            | Token::BitwiseAnd
+            | Token::BitwiseOr
+            | Token::BitwiseNot
             | Token::BitwiseLShift
             | Token::BitwiseRShift => {
                 if !is_separator(self.next) {
@@ -1345,19 +1345,19 @@ mod tests {
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("^", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseXOR);
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseXor);
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("&", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseAND);
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseAnd);
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("|", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseOR);
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseOr);
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("~", false).unwrap();
-        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseNOT);
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseNot);
         assert_eq!(lexer.diagnostics.len(), 0);
 
         lexer = Lexer::new("<<", false).unwrap();

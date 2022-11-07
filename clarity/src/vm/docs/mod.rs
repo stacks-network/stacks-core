@@ -2323,7 +2323,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
         Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
-        BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, &BitwiseXor, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
         Not => make_for_simple_native(&NOT_API, &Not, name),
@@ -2398,10 +2398,10 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
-        BitwiseXOR2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXOR2, name),
-        BitwiseAND => make_for_simple_native(&BITWISE_AND_API, &BitwiseAND, name),
-        BitwiseOR => make_for_simple_native(&BITWISE_OR_API, &BitwiseOR, name),
-        BitwiseNOT => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNOT, name),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXor2, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &BitwiseAnd, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &BitwiseOr, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNot, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name)
     }

@@ -809,10 +809,10 @@ impl<'a> Parser<'a> {
             | Token::LessEqual
             | Token::Greater
             | Token::GreaterEqual
-            | Token::BitwiseXOR
-            | Token::BitwiseAND
-            | Token::BitwiseOR
-            | Token::BitwiseNOT
+            | Token::BitwiseXor
+            | Token::BitwiseAnd
+            | Token::BitwiseOr
+            | Token::BitwiseNot
             | Token::BitwiseLShift
             | Token::BitwiseRShift => {
                 let name = ClarityName::try_from(token.token.to_string()).unwrap();

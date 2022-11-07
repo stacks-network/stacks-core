@@ -34,10 +34,10 @@ pub enum Token {
     GreaterEqual,
     Comment(String),
     Placeholder(String), // used to continue parsing after errors
-    BitwiseXOR,
-    BitwiseAND,
-    BitwiseOR,
-    BitwiseNOT,
+    BitwiseXor,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseNot,
     BitwiseLShift,
     BitwiseRShift
 }
@@ -79,10 +79,10 @@ impl Display for Token {
             GreaterEqual => write!(f, ">="),
             Comment(_) => write!(f, "comment"),
             Placeholder(_) => write!(f, "placeholder"),
-            BitwiseXOR => write!(f, "^"),
-            BitwiseAND => write!(f, "&"),
-            BitwiseOR => write!(f, "|"),
-            BitwiseNOT => write!(f, "~"),
+            BitwiseXor => write!(f, "^"),
+            BitwiseAnd => write!(f, "&"),
+            BitwiseOr => write!(f, "|"),
+            BitwiseNot => write!(f, "~"),
             BitwiseLShift => write!(f, "<<"),
             BitwiseRShift => write!(f, ">>")
         }
@@ -120,10 +120,10 @@ impl Token {
             GreaterEqual => ">=".to_string(),
             Comment(c) => format!(";; {}", c),
             Placeholder(s) => s.to_string(),
-            BitwiseXOR => "^".to_string(),
-            BitwiseAND => "&".to_string(),
-            BitwiseOR => "|".to_string(),
-            BitwiseNOT => "~".to_string(),
+            BitwiseXor => "^".to_string(),
+            BitwiseAnd => "&".to_string(),
+            BitwiseOr => "|".to_string(),
+            BitwiseNot => "~".to_string(),
             BitwiseLShift => "<<".to_string(),
             BitwiseRShift => ">>".to_string()
         }

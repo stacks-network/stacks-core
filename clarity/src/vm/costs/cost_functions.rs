@@ -131,9 +131,9 @@ define_named_enum!(ClarityCostFunction {
     NftBurn("cost_nft_burn"),
     PoisonMicroblock("poison_microblock"),
     Unimplemented("cost_unimplemented"),
-    BitwiseAND("cost_bitwise_and"),
-    BitwiseOR("cost_bitwise_or"),
-    BitwiseNOT("cost_bitwise_not"),
+    BitwiseAnd("cost_bitwise_and"),
+    BitwiseOr("cost_bitwise_or"),
+    BitwiseNot("cost_bitwise_not"),
     BitwiseLShift("cost_bitwise_left_shift"),
     BitwiseRShift("cost_bitwise_right_shift"),
 });
