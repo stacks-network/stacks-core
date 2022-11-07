@@ -196,7 +196,7 @@ impl FunctionType {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
                 analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
-                analysis_typecheck_cost(accounting, &TypeSignature::IntType, second)?;
+                analysis_typecheck_cost(accounting, &TypeSignature::UIntType, second)?;
 
                 let return_type = match first {
                     TypeSignature::IntType => Ok(TypeSignature::IntType),
@@ -213,7 +213,6 @@ impl FunctionType {
                 }?;
 
                 Ok(return_type)
-
             }
             FunctionType::ArithmeticVariadic
             | FunctionType::ArithmeticBinary
