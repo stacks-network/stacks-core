@@ -84,6 +84,21 @@ macro_rules! type_force_binary_arithmetic {
     }};
 }
 
+macro_rules! type_force_binary_arithmetic_with_uint_as_2nd_arg {
+    ($function: ident, $x: expr, $y: expr) => {{
+        match ($x, $y) {
+            (Value::Int(_x), Value::Int(y)) => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(y)).into()),
+            (Value::UInt(_x), Value::Int(y)) => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(y)).into()),
+            (Value::Int(x), Value::UInt(y)) => I128Ops::$function(x, y),
+            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x,y),
+            (_, y) => Err(CheckErrors::UnionTypeValueError(
+                vec![TypeSignature::UIntType],
+                y
+            ).into())
+        }
+    }}
+}
+
 // The originally supported comparable types in Clarity1 were Int and UInt.
 macro_rules! type_force_binary_comparison_v1 {
     ($function: ident, $x: expr, $y: expr) => {{
@@ -214,6 +229,19 @@ macro_rules! make_comparison_ops {
     };
 }
 
+macro_rules! make_arithmetic_ops_with_uint_as_2nd_arg {
+    ($struct_name: ident, $type:ty, $type2:ty) => {
+        impl $struct_name {
+            fn bitwise_left_shift(x: $type, y: $type2) -> InterpreterResult<Value> {
+                Self::make_value(x << y)
+            }
+            fn bitwise_right_shift(x: $type, y: $type2) -> InterpreterResult<Value> {
+                Self::make_value(x >> y)
+            }
+        }
+    }
+}
+
 // This macro creates all of the operation functions for the two arithmetic types
 //  (uint128 and int128) -- this is really hard to do generically because there's no
 //  "Integer" trait in rust, so macros were the most straight-forward solution to do this
@@ -232,12 +260,6 @@ macro_rules! make_arithmetic_ops {
             }
             fn bitwise_not(x: $type) -> InterpreterResult<Value> {
                 Self::make_value(!x)
-            }
-            fn bitwise_left_shift(x: $type, y: $type) -> InterpreterResult<Value> {
-                Self::make_value(x << y)
-            }
-            fn bitwise_right_shift(x: $type, y: $type) -> InterpreterResult<Value> {
-                Self::make_value(x >> y)
             }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
@@ -354,6 +376,9 @@ make_comparison_ops!(ASCIIOps, Vec<u8>);
 make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
+make_arithmetic_ops_with_uint_as_2nd_arg!(I128Ops, i128, u128);
+make_arithmetic_ops_with_uint_as_2nd_arg!(U128Ops, u128, u128);
+
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
@@ -371,11 +396,11 @@ pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
 }
 
 pub fn native_bitwise_left_shift(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(bitwise_left_shift, a, b)
+    type_force_binary_arithmetic_with_uint_as_2nd_arg!(bitwise_left_shift, a, b)
 }
 
 pub fn native_bitwise_right_shift(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(bitwise_right_shift, a, b)
+    type_force_binary_arithmetic_with_uint_as_2nd_arg!(bitwise_right_shift, a, b)
 }
 
 // This function is 'special', because it must access the context to determine
