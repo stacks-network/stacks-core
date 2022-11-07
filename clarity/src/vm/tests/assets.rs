@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
-
+use crate::vm::ast::ASTRules;
+use crate::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use crate::vm::contracts::Contract;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
 
@@ -177,10 +178,20 @@ fn test_native_stx_ops(owned_env: &mut OwnedEnvironment) {
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "second".into());
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract, None)
+        .initialize_contract(
+            token_contract_id.clone(),
+            contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
     owned_env
-        .initialize_contract(second_contract_id.clone(), contract_second, None)
+        .initialize_contract(
+            second_contract_id.clone(),
+            contract_second,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     owned_env.stx_faucet(&(p1_principal), u128::MAX - 1500);
@@ -532,7 +543,12 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), tokens_contract, None)
+        .initialize_contract(
+            token_contract_id.clone(),
+            tokens_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
@@ -823,7 +839,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     let token_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "tokens".into());
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_0, None)
+        .initialize_contract(
+            token_contract_id.clone(),
+            bad_0,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -831,7 +852,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     let err = owned_env
-        .initialize_contract(token_contract_id.clone(), bad_1, None)
+        .initialize_contract(
+            token_contract_id.clone(),
+            bad_1,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap_err();
     assert!(match err {
         Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
@@ -839,7 +865,12 @@ fn test_total_supply(owned_env: &mut OwnedEnvironment) {
     });
 
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract, None)
+        .initialize_contract(
+            token_contract_id.clone(),
+            contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -906,13 +937,28 @@ fn test_overlapping_nfts(owned_env: &mut OwnedEnvironment) {
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names-2".into());
 
     owned_env
-        .initialize_contract(tokens_contract_id.clone(), tokens_contract, None)
+        .initialize_contract(
+            tokens_contract_id.clone(),
+            tokens_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
     owned_env
-        .initialize_contract(names_contract_id.clone(), names_contract, None)
+        .initialize_contract(
+            names_contract_id.clone(),
+            names_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
     owned_env
-        .initialize_contract(names_2_contract_id.clone(), names_contract, None)
+        .initialize_contract(
+            names_2_contract_id.clone(),
+            names_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 }
 
@@ -964,13 +1010,23 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     owned_env
-        .initialize_contract(tokens_contract_id.clone(), tokens_contract, None)
+        .initialize_contract(
+            tokens_contract_id.clone(),
+            tokens_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     let names_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data.clone(), "names".into());
     owned_env
-        .initialize_contract(names_contract_id.clone(), names_contract, None)
+        .initialize_contract(
+            names_contract_id.clone(),
+            names_contract,
+            None,
+            ASTRules::PrecheckSize,
+        )
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(

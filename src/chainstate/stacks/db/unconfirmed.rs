@@ -24,6 +24,7 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::*;
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::Error;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
@@ -84,6 +85,11 @@ pub struct UnconfirmedState {
     num_mblocks_added: u64,
     have_state: bool,
 
+    mainnet: bool,
+    chain_id: u32,
+    clarity_state_index_root: String,
+    marf_opts: Option<MARFOpenOpts>,
+
     // fault injection for testing
     pub disable_cost_check: bool,
     pub disable_bytes_check: bool,
@@ -120,8 +126,50 @@ impl UnconfirmedState {
             num_mblocks_added: 0,
             have_state: false,
 
+            mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
+            clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
+            marf_opts: chainstate.marf_opts.clone(),
+
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
+        })
+    }
+
+    /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
+    /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
+    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState, Error> {
+        let marf = MarfedKV::open_unconfirmed(
+            &self.clarity_state_index_root,
+            None,
+            self.marf_opts.clone(),
+        )?;
+
+        let clarity_instance = ClarityInstance::new(self.mainnet, self.chain_id, marf);
+
+        Ok(UnconfirmedState {
+            confirmed_chain_tip: self.confirmed_chain_tip.clone(),
+            unconfirmed_chain_tip: self.unconfirmed_chain_tip.clone(),
+            clarity_inst: clarity_instance,
+            mined_txs: self.mined_txs.clone(),
+            cost_so_far: self.cost_so_far.clone(),
+            bytes_so_far: self.bytes_so_far,
+
+            last_mblock: self.last_mblock.clone(),
+            last_mblock_seq: self.last_mblock_seq,
+
+            readonly: true,
+            dirty: false,
+            num_mblocks_added: self.num_mblocks_added,
+            have_state: self.have_state,
+
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            clarity_state_index_root: self.clarity_state_index_root.clone(),
+            marf_opts: self.marf_opts.clone(),
+
+            disable_cost_check: self.disable_cost_check,
+            disable_bytes_check: self.disable_bytes_check,
         })
     }
 
@@ -156,6 +204,11 @@ impl UnconfirmedState {
             dirty: false,
             num_mblocks_added: 0,
             have_state: false,
+
+            mainnet: chainstate.mainnet,
+            chain_id: chainstate.chain_id,
+            clarity_state_index_root: chainstate.clarity_state_index_root.clone(),
+            marf_opts: chainstate.marf_opts.clone(),
 
             disable_cost_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_COST_CHECK),
             disable_bytes_check: check_fault_injection(FAULT_DISABLE_MICROBLOCKS_BYTES_CHECK),
@@ -194,6 +247,8 @@ impl UnconfirmedState {
         let burn_block_timestamp = headers_db
             .get_burn_block_time_for_block(&self.confirmed_chain_tip)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
+
+        let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -253,6 +308,7 @@ impl UnconfirmedState {
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &vec![mblock.clone()],
+                        ast_rules,
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {

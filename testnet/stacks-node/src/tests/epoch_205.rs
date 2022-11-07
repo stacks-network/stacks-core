@@ -546,8 +546,7 @@ fn transition_empty_blocks() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
-    let mut bitcoin_controller =
-        BitcoinRegtestController::new_dummy(conf.clone(), burnchain.clone());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
 
     // these should all succeed across the epoch boundary
     for _i in 0..5 {
@@ -631,8 +630,13 @@ fn transition_empty_blocks() {
                 commit_outs,
             });
             let mut op_signer = keychain.generate_op_signer();
-            let res = bitcoin_controller.submit_operation(op, &mut op_signer, 1);
-            assert!(res, "Failed to submit block-commit");
+            let res = bitcoin_controller.submit_operation(
+                StacksEpochId::Epoch2_05,
+                op,
+                &mut op_signer,
+                1,
+            );
+            assert!(res.is_some(), "Failed to submit block-commit");
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

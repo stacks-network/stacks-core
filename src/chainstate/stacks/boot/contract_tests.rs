@@ -22,6 +22,8 @@ use crate::core::{
 };
 use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
+use clarity::vm::analysis::mem_type_check;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -455,6 +457,10 @@ impl BurnStateDB for TestSimBurnStateDB {
             None
         }
     }
+
+    fn get_ast_rules(&self, _block_height: u32) -> ASTRules {
+        ASTRules::PrecheckSize
+    }
 }
 
 #[cfg(test)]
@@ -563,8 +569,14 @@ fn pox_2_contract_caller_units() {
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(POX_2_CONTRACT_TESTNET.clone(), &POX_2_TESTNET_CODE, None)
-            .unwrap()
+        env.initialize_versioned_contract(
+            POX_2_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &POX_2_TESTNET_CODE,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
     });
 
     let cc = boot_code_id("stack-through", false);
@@ -572,11 +584,12 @@ fn pox_2_contract_caller_units() {
     sim.execute_next_block(|env| {
         env.initialize_contract(cc.clone(),
                                 "(define-public (cc-stack-stx (amount-ustx uint)
-                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
-                                None)
+                                None,
+                                ASTRules::PrecheckSize)
             .unwrap();
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -792,6 +805,7 @@ fn pox_2_lock_extend_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
@@ -1659,7 +1673,8 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(&contract_id, version, content)?;
+        let (ast, analysis) =
+            tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
         tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
@@ -1677,6 +1692,7 @@ fn recency_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -1754,6 +1770,7 @@ fn delegation_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -2331,6 +2348,7 @@ fn test_vote_withdrawal() {
             ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2524,6 +2542,7 @@ fn test_vote_fail() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2740,6 +2759,7 @@ fn test_vote_confirm() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2862,6 +2882,7 @@ fn test_vote_too_many_confirms() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
+            ASTRules::PrecheckSize,
         )
         .unwrap();
 

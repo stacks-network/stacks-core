@@ -41,6 +41,8 @@ use self::contract_interface_builder::build_contract_interface;
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
+use crate::vm::ast::build_ast_with_rules;
+use crate::vm::ast::ASTRules;
 
 // Legacy function
 // The analysis is not just checking type.

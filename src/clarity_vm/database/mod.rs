@@ -399,6 +399,9 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
         Some((addrs, payout))
     }
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.tx(), height.into()).expect("BUG: failed to get AST rules")
+    }
 }
 
 impl BurnStateDB for SortitionDBConn<'_> {
@@ -498,6 +501,10 @@ impl BurnStateDB for SortitionDBConn<'_> {
             .collect();
 
         Some((addrs, payout))
+    }
+    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
+        SortitionDB::get_ast_rules(self.conn(), height.into())
+            .expect("BUG: failed to get AST rules")
     }
 }
 

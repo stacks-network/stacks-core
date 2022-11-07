@@ -5,6 +5,7 @@ use crate::vm::types::{FunctionType, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::types::StacksEpochId;
+use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::QualifiedContractIdentifier;

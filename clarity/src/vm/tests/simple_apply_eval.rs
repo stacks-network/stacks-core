@@ -19,7 +19,10 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
+#[cfg(test)]
 use crate::vm::ast::parse;
+
+use crate::vm::ast::ASTRules;
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
@@ -527,6 +530,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -540,6 +544,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -553,6 +558,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -566,6 +572,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1259,6 +1266,7 @@ fn test_stx_ops_errors() {
                 program,
                 ClarityVersion::Clarity2,
                 StacksEpochId::Epoch20,
+                ASTRules::PrecheckSize,
                 false
             )
             .unwrap_err()
@@ -1609,6 +1617,7 @@ fn test_is_mainnet() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch20,
+                    ASTRules::PrecheckSize,
                     true
                 )
                 .unwrap()
@@ -1628,6 +1637,7 @@ fn test_is_mainnet() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch20,
+                    ASTRules::PrecheckSize,
                     false
                 )
                 .unwrap()
@@ -1652,6 +1662,7 @@ fn test_chain_id() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch21,
+                    ASTRules::PrecheckSize,
                     true
                 )
                 .unwrap()
@@ -1671,6 +1682,7 @@ fn test_chain_id() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch21,
+                    ASTRules::PrecheckSize,
                     false
                 )
                 .unwrap()

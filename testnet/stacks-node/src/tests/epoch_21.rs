@@ -23,14 +23,18 @@ use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::distribution::BurnSamplePoint;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::burn::operations::PreStxOp;
 use stacks::chainstate::burn::operations::TransferStxOp;
 
 use stacks::chainstate::stacks::address::PoxAddress;
 
-use stacks::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::PoxConstants;
 use stacks::burnchains::Txid;
@@ -39,8 +43,11 @@ use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
 
+use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -55,10 +62,14 @@ use crate::burnchains::bitcoin_regtest_controller::UTXO;
 use crate::operations::BurnchainOpSigner;
 use crate::Keychain;
 
+const MINER_BURN_PUBLIC_KEY: &'static str =
+    "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa";
+
 fn advance_to_2_1(
     mut initial_balances: Vec<InitialBalance>,
     block_reward_recipient: Option<PrincipalData>,
     pox_constants: Option<PoxConstants>,
+    segwit: bool,
 ) -> (
     Config,
     BitcoinCoreController,
@@ -89,6 +100,8 @@ fn advance_to_2_1(
     epochs[3].start_height = epoch_2_1;
 
     conf.burnchain.epochs = Some(epochs);
+
+    conf.miner.segwit = segwit;
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
@@ -121,19 +134,43 @@ fn advance_to_2_1(
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     // give one coinbase to the miner, and then burn the rest
-    btc_regtest_controller.bootstrap_chain(1);
+    // if segwit is supported, then give one coinbase to the segwit address as well as the legacy
+    // address. This is needed to allow the miner to boot up into 2.1 through epochs 2.0 and 2.05.
+    let mining_pubkey = if conf.miner.segwit {
+        btc_regtest_controller.set_use_segwit(false);
+        btc_regtest_controller.bootstrap_chain(1);
 
-    let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
-    btc_regtest_controller.set_mining_pubkey(
-        "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa".to_string(),
-    );
+        btc_regtest_controller.set_use_segwit(conf.miner.segwit);
+        btc_regtest_controller.bootstrap_chain(1);
+
+        let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        btc_regtest_controller.set_mining_pubkey(MINER_BURN_PUBLIC_KEY.to_string());
+
+        mining_pubkey
+    } else {
+        btc_regtest_controller.bootstrap_chain(1);
+
+        let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        btc_regtest_controller.set_mining_pubkey(MINER_BURN_PUBLIC_KEY.to_string());
+
+        btc_regtest_controller.bootstrap_chain(1);
+
+        mining_pubkey
+    };
 
     // bitcoin chain starts at epoch 2.05 boundary, minus 5 blocks to go
-    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 6);
+    btc_regtest_controller.bootstrap_chain(epoch_2_05 - 7);
 
-    // only one UTXO for our mining pubkey
+    // only one UTXO for our mining pubkey (which is uncompressed, btw)
+    // NOTE: if we're using segwit, then the mining pubkey will be compressed for the segwit UTXO
+    // generation (i.e. it'll be treated as different from the uncompressed public key).
     let utxos = btc_regtest_controller
         .get_all_utxos(&Secp256k1PublicKey::from_hex(&mining_pubkey).unwrap());
+
+    eprintln!(
+        "UTXOs for {} (segwit={}): {:?}",
+        &mining_pubkey, conf.miner.segwit, &utxos
+    );
     assert_eq!(utxos.len(), 1);
 
     eprintln!("Chain bootstrapped...");
@@ -256,7 +293,7 @@ fn transition_fixes_utxo_chaining() {
     // transition.  Really tests that the block-commits are well-formed before and after the epoch
     // transition.
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], None, None);
+        advance_to_2_1(vec![], None, None, false);
 
     // post epoch 2.1 -- UTXO chaining should be fixed
     for i in 0..10 {
@@ -317,6 +354,7 @@ fn transition_adds_burn_block_height() {
             }],
             None,
             None,
+            false,
         );
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
@@ -503,6 +541,7 @@ fn transition_adds_pay_to_alt_recipient_contract() {
             vec![],
             Some(PrincipalData::Contract(target_contract_address.clone())),
             None,
+            false,
         );
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
@@ -531,7 +570,7 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     let target_principal_address =
         PrincipalData::parse("ST34CV1214XJF9S8WPT09TJNYJTM8GM4W6N7ZGKDF").unwrap();
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], Some(target_principal_address.clone()), None);
+        advance_to_2_1(vec![], Some(target_principal_address.clone()), None, false);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let alt_account_before = get_account(&http_origin, &target_principal_address);
@@ -558,9 +597,9 @@ fn transition_fixes_bitcoin_rigidity() {
     let spender_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let spender_stx_addr: StacksAddress = to_addr(&spender_sk);
     let spender_addr: PrincipalData = spender_stx_addr.clone().into();
-    let _spender_btc_addr = BitcoinAddress::from_bytes(
+    let _spender_btc_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
-        BitcoinAddressType::PublicKeyHash,
+        LegacyBitcoinAddressType::PublicKeyHash,
         &spender_stx_addr.bytes.0,
     )
     .unwrap();
@@ -679,11 +718,14 @@ fn transition_fixes_bitcoin_rigidity() {
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::PreStx(pre_stx_op),
-            &mut miner_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch2_05,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -711,11 +753,14 @@ fn transition_fixes_bitcoin_rigidity() {
     let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::TransferStx(transfer_stx_op),
-            &mut spender_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch2_05,
+                BlockstackOperationType::TransferStx(transfer_stx_op),
+                &mut spender_signer,
+                1
+            )
+            .is_some(),
         "Transfer operation should submit successfully"
     );
 
@@ -811,11 +856,14 @@ fn transition_fixes_bitcoin_rigidity() {
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::PreStx(pre_stx_op),
-            &mut miner_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch21,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
         "Pre-stx operation should submit successfully"
     );
 
@@ -839,11 +887,14 @@ fn transition_fixes_bitcoin_rigidity() {
     let mut spender_signer = BurnchainOpSigner::new(spender_sk.clone(), false);
 
     assert!(
-        btc_regtest_controller.submit_operation(
-            BlockstackOperationType::TransferStx(transfer_stx_op),
-            &mut spender_signer,
-            1
-        ),
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch2_05,
+                BlockstackOperationType::TransferStx(transfer_stx_op),
+                &mut spender_signer,
+                1
+            )
+            .is_some(),
         "Transfer operation should submit successfully"
     );
 
@@ -879,6 +930,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let pre_stx_tx = btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch21,
             BlockstackOperationType::PreStx(pre_stx_op),
             &mut miner_signer,
             None,
@@ -910,6 +962,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch21,
             BlockstackOperationType::TransferStx(transfer_stx_op),
             &mut spender_signer,
             Some(transfer_stx_utxo),
@@ -944,6 +997,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let pre_stx_tx = btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch21,
             BlockstackOperationType::PreStx(pre_stx_op),
             &mut miner_signer,
             None,
@@ -974,6 +1028,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     btc_regtest_controller
         .submit_manual(
+            StacksEpochId::Epoch21,
             BlockstackOperationType::TransferStx(transfer_stx_op),
             &mut spender_signer,
             Some(transfer_stx_utxo),
@@ -1025,10 +1080,11 @@ fn transition_adds_get_pox_addr_recipients() {
     let mut spender_sks = vec![];
     let mut spender_addrs = vec![];
     let mut initial_balances = vec![];
+    let mut expected_pox_addrs = HashSet::new();
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
-    for _i in 0..4 {
+    for _i in 0..7 {
         let spender_sk = StacksPrivateKey::new();
         let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
@@ -1051,14 +1107,14 @@ fn transition_adds_get_pox_addr_recipients() {
     );
 
     let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()));
+        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), false);
 
     let mut sort_height = coord_channel.get_sortitions_processed();
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let stack_sort_height = sort_height;
 
-    // stack some STX to each PoX address variant
+    // stack some STX to each standard PoX address variant
     for (i, addr_variant) in [
         AddressHashMode::SerializeP2PKH,
         AddressHashMode::SerializeP2SH,
@@ -1069,6 +1125,16 @@ fn transition_adds_get_pox_addr_recipients() {
     .enumerate()
     {
         let spender_sk = spender_sks[i].clone();
+        let pox_addr_tuple = execute(
+            &format!(
+                "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
+                pox_pubkey_hash,
+                &(*addr_variant as u8)
+            ),
+            ClarityVersion::Clarity2,
+        )
+        .unwrap()
+        .unwrap();
         let tx = make_contract_call(
             &spender_sk,
             0,
@@ -1078,22 +1144,54 @@ fn transition_adds_get_pox_addr_recipients() {
             "stack-stx",
             &[
                 Value::UInt(stacked.into()),
-                execute(
-                    &format!(
-                        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-                        pox_pubkey_hash,
-                        &(*addr_variant as u8)
-                    ),
-                    ClarityVersion::Clarity2,
-                )
-                .unwrap()
-                .unwrap(),
+                pox_addr_tuple.clone(),
                 Value::UInt(sort_height as u128),
                 Value::UInt(2),
             ],
         );
 
         submit_tx(&http_origin, &tx);
+        expected_pox_addrs.insert(pox_addr_tuple);
+    }
+
+    // stack some STX to segwit addressses
+    for i in 4..7 {
+        let spender_sk = spender_sks[i].clone();
+        let pubk = Secp256k1PublicKey::from_private(&spender_sk);
+        let version = i as u8;
+        let bytes = match i {
+            4 => {
+                // p2wpkh
+                to_hex(&Hash160::from_node_public_key(&pubk).0)
+            }
+            _ => {
+                // p2wsh or p2tr
+                to_hex(&Sha256Sum::from_data(&pubk.to_bytes_compressed()).0)
+            }
+        };
+        let pox_addr_tuple = execute(
+            &format!("{{ hashbytes: 0x{}, version: 0x{:02x} }}", &bytes, &version),
+            ClarityVersion::Clarity2,
+        )
+        .unwrap()
+        .unwrap();
+        let tx = make_contract_call(
+            &spender_sk,
+            0,
+            300,
+            &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+            "pox-2",
+            "stack-stx",
+            &[
+                Value::UInt(stacked.into()),
+                pox_addr_tuple.clone(),
+                Value::UInt(sort_height as u128),
+                Value::UInt(2),
+            ],
+        );
+
+        submit_tx(&http_origin, &tx);
+        expected_pox_addrs.insert(pox_addr_tuple);
     }
 
     let contract = "
@@ -1248,7 +1346,118 @@ fn transition_adds_get_pox_addr_recipients() {
     }
 
     eprintln!("found pox addrs: {:?}", &found_pox_addrs);
-    assert_eq!(found_pox_addrs.len(), 4);
+    assert_eq!(found_pox_addrs.len(), 7);
+
+    for addr in found_pox_addrs
+        .into_iter()
+        .map(|addr| Value::Tuple(addr.as_clarity_tuple().unwrap()))
+    {
+        eprintln!("Contains: {:?}", &addr);
+        assert!(expected_pox_addrs.contains(&addr));
+    }
+}
+
+#[test]
+#[ignore]
+fn transition_adds_mining_from_segwit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 4;
+    let v1_unlock_height = 220;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        1,
+        1,
+        u64::MAX,
+        u64::MAX,
+        v1_unlock_height,
+    );
+
+    let mut spender_sks = vec![];
+    let mut spender_addrs = vec![];
+    let mut initial_balances = vec![];
+
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    for _i in 0..7 {
+        let spender_sk = StacksPrivateKey::new();
+        let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+
+        spender_sks.push(spender_sk);
+        spender_addrs.push(spender_addr.clone());
+        initial_balances.push(InitialBalance {
+            address: spender_addr.clone(),
+            amount: stacked + 100_000,
+        });
+    }
+
+    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, _coord_channel) =
+        advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), true);
+
+    let utxos = btc_regtest_controller
+        .get_all_utxos(&Secp256k1PublicKey::from_hex(MINER_BURN_PUBLIC_KEY).unwrap());
+
+    assert!(utxos.len() > 0);
+
+    // all UTXOs should be segwit
+    for utxo in utxos.iter() {
+        let utxo_addr = BitcoinAddress::from_scriptpubkey(
+            BitcoinNetworkType::Testnet,
+            &utxo.script_pub_key.clone().into_bytes(),
+        );
+        if let Some(BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(..))) = &utxo_addr {
+        } else {
+            panic!("UTXO address was {:?}", &utxo_addr);
+        }
+    }
+
+    eprintln!("Wake up miner");
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // mine a Stacks block
+    let tip_info_before = get_chain_info(&conf);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    let tip_info_after = get_chain_info(&conf);
+
+    // we were able to do so
+    assert_eq!(
+        tip_info_before.burn_block_height + 1,
+        tip_info_after.burn_block_height
+    );
+    assert_eq!(
+        tip_info_before.stacks_tip_height + 1,
+        tip_info_after.stacks_tip_height
+    );
+
+    // that block-commit we just sent consumed a segwit p2wpkh utxo and emitted a segwit p2wpkh
+    // utxo
+    let sortdb = btc_regtest_controller.sortdb_mut();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let commits =
+        SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id).unwrap();
+    assert_eq!(commits.len(), 1);
+
+    let txid = commits[0].txid.clone();
+    let tx = btc_regtest_controller.get_raw_transaction(&txid);
+
+    eprintln!("tx = {:?}", &tx);
+    assert_eq!(tx.input[0].witness.len(), 2);
+    let addr = BitcoinAddress::try_from_segwit(
+        false,
+        &tx.output
+            .last()
+            .as_ref()
+            .unwrap()
+            .script_pubkey
+            .clone()
+            .into_bytes(),
+    );
+    assert!(addr.is_some());
 }
 
 /// Verify that a sunset-in-progress will be halted by the epoch 2.1 transition
@@ -1286,6 +1495,14 @@ fn transition_removes_pox_sunset() {
         address: spender_addr.clone(),
         amount: first_bal,
     });
+
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_microblocks = 0;
+    conf.node.microblock_frequency = 1_000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
 
     // reward cycle length = 15, so 10 reward cycle slots + 5 prepare-phase burns
     let first_sortition_height = 201;
@@ -1355,13 +1572,14 @@ fn transition_removes_pox_sunset() {
 
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    stacks::util::sleep_ms(10_000);
 
     let sort_height = channel.get_sortitions_processed();
 
     // let's query the miner's account nonce:
     let account = get_account(&http_origin, &miner_account);
     assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 1);
+    assert!(account.nonce >= 1);
 
     // and our potential spenders:
     let account = get_account(&http_origin, &spender_addr);
@@ -1546,5 +1764,162 @@ fn transition_removes_pox_sunset() {
     }
 
     test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn transition_empty_blocks() {
+    // very simple test to verify that the miner will keep making valid (empty) blocks after the
+    // transition.  Really tests that the block-commits are well-formed before and after the epoch
+    // transition.
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let epoch_2_05 = 210;
+    let epoch_2_1 = 215;
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
+    epochs[1].end_height = epoch_2_05;
+    epochs[2].start_height = epoch_2_05;
+    epochs[2].end_height = epoch_2_1;
+    epochs[3].start_height = epoch_2_1;
+
+    conf.node.mine_microblocks = false;
+    conf.burnchain.max_rbf = 1000000;
+    conf.miner.first_attempt_time_ms = 5_000;
+    conf.miner.subsequent_attempt_time_ms = 10_000;
+    conf.node.wait_time_for_blocks = 0;
+
+    conf.burnchain.epochs = Some(epochs);
+
+    let keychain = Keychain::default(conf.node.seed.clone());
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let tip_info = get_chain_info(&conf);
+    let key_block_ptr = tip_info.burn_block_height as u32;
+    let key_vtxindex = 1; // nothing else here but the coinbase
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
+
+    // these should all succeed across the epoch boundary
+    for _i in 0..15 {
+        // also, make *huge* block-commits with invalid marker bytes once we reach the new
+        // epoch, and verify that it fails.
+        let tip_info = get_chain_info(&conf);
+
+        // this block is the epoch transition?
+        let (chainstate, _) = StacksChainState::open(
+            false,
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .unwrap();
+        let res = StacksChainState::block_crosses_epoch_boundary(
+            &chainstate.db(),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+        )
+        .unwrap();
+        debug!(
+            "Epoch transition at {} ({}/{}) height {}: {}",
+            &StacksBlockHeader::make_index_block_hash(
+                &tip_info.stacks_tip_consensus_hash,
+                &tip_info.stacks_tip
+            ),
+            &tip_info.stacks_tip_consensus_hash,
+            &tip_info.stacks_tip,
+            tip_info.burn_block_height,
+            res
+        );
+
+        if tip_info.burn_block_height == epoch_2_05 || tip_info.burn_block_height == epoch_2_1 {
+            assert!(res);
+        } else {
+            assert!(!res);
+        }
+
+        if tip_info.burn_block_height + 1 >= epoch_2_1 {
+            let burn_fee_cap = 100000000; // 1 BTC
+            let commit_outs = if !burnchain.is_in_prepare_phase(tip_info.burn_block_height + 1) {
+                vec![
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                    PoxAddress::standard_burn_address(conf.is_mainnet()),
+                ]
+            } else {
+                vec![PoxAddress::standard_burn_address(conf.is_mainnet())]
+            };
+
+            // let's commit
+            let burn_parent_modulus =
+                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+            let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
+                sunset_burn: 0,
+                block_header_hash: BlockHeaderHash([0xff; 32]),
+                burn_fee: burn_fee_cap,
+                input: (Txid([0; 32]), 0),
+                apparent_sender: keychain.get_burnchain_signer(),
+                key_block_ptr,
+                key_vtxindex,
+                memo: vec![0], // bad epoch marker
+                new_seed: VRFSeed([0x11; 32]),
+                parent_block_ptr: 0,
+                parent_vtxindex: 0,
+                // to be filled in
+                vtxindex: 0,
+                txid: Txid([0u8; 32]),
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash::zero(),
+                burn_parent_modulus,
+                commit_outs,
+            });
+            let mut op_signer = keychain.generate_op_signer();
+            let res =
+                bitcoin_controller.submit_operation(StacksEpochId::Epoch21, op, &mut op_signer, 1);
+            assert!(res.is_some(), "Failed to submit block-commit");
+        }
+
+        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    }
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.nonce, 16);
+
     channel.stop_chains_coordinator();
 }

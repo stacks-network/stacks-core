@@ -545,7 +545,6 @@ mod test {
         assert_eq!(snapshot_no_transactions.total_burn, 0);
 
         let key = LeaderKeyRegisterOp::new_from_secrets(
-            &vec![StacksPrivateKey::new()],
             1,
             &AddressHashMode::SerializeP2PKH,
             &VRFPrivateKey::new(),
@@ -554,6 +553,7 @@ mod test {
 
         let empty_burn_point = BurnSamplePoint {
             burns: 0,
+            median_burn: 0,
             range_start: Uint256::from_u64(0),
             range_end: Uint256([
                 0xFFFFFFFFFFFFFFFF,

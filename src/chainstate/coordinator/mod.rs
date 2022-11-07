@@ -19,6 +19,8 @@ use std::convert::{TryFrom, TryInto};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::burnchains::{
@@ -40,6 +42,7 @@ use crate::chainstate::stacks::{
         StacksHeaderInfo,
     },
     events::{StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin},
+    miner::{signal_mining_blocked, signal_mining_ready, MinerStatus},
     Error as ChainstateError, StacksBlock, TransactionPayload,
 };
 use crate::core::StacksEpoch;
@@ -256,9 +259,14 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                   "registered_addrs" => registered_addrs.len());
         }
 
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
+            &format!("FATAL: no epoch for burn height {}", current_burn_height),
+        );
+
         Ok(StacksChainState::make_reward_set(
             threshold,
             registered_addrs,
+            cur_epoch.epoch_id,
         ))
     }
 }
@@ -275,6 +283,7 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
         atlas_config: AtlasConfig,
         cost_estimator: Option<&mut CE>,
         fee_estimator: Option<&mut FE>,
+        miner_status: Arc<Mutex<MinerStatus>>,
     ) where
         T: BlockEventDispatcher,
     {
@@ -319,18 +328,23 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             // timeout so that we handle Ctrl-C a little gracefully
             match comms.wait_on() {
                 CoordinatorEvents::NEW_STACKS_BLOCK => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received new stacks block notice");
                     if let Err(e) = inst.handle_new_stacks_block() {
                         warn!("Error processing new stacks block: {:?}", e);
                     }
+                    signal_mining_ready(miner_status.clone());
                 }
                 CoordinatorEvents::NEW_BURN_BLOCK => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received new burn block notice");
                     if let Err(e) = inst.handle_new_burnchain_block() {
                         warn!("Error processing new burn block: {:?}", e);
                     }
+                    signal_mining_ready(miner_status.clone());
                 }
                 CoordinatorEvents::STOP => {
+                    signal_mining_blocked(miner_status.clone());
                     debug!("Received stop notice");
                     return;
                 }

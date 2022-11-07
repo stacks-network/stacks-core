@@ -61,6 +61,7 @@ use crate::chainstate::stacks::index::{Error as MARFError, MarfTrieId};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::chainstate::stacks::*;
 use crate::chainstate::ChainstateDB;
+use crate::core::AST_RULES_PRECHECK_SIZE;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
 use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
@@ -74,6 +75,7 @@ use crate::util_lib::db::{
     db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
     u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
+use clarity::vm::ast::ASTRules;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::Value;
 
@@ -90,7 +92,7 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId, VRFSeed,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -214,7 +216,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
         let memo_hex: String = row.get_unwrap("memo");
-        let address = StacksAddress::from_column(row, "address")?;
 
         let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
 
@@ -229,7 +230,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
             consensus_hash: consensus_hash,
             public_key: public_key,
             memo: memo,
-            address: address,
         };
 
         Ok(leader_key_row)
@@ -394,6 +394,22 @@ impl FromRow<TransferStxOp> for TransferStxOp {
     }
 }
 
+impl FromColumn<ASTRules> for ASTRules {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ASTRules, db_error> {
+        let x: u8 = row.get_unwrap(column_name);
+        let ast_rules = ASTRules::from_u8(x).ok_or(db_error::ParseError)?;
+        Ok(ast_rules)
+    }
+}
+
+impl FromRow<(ASTRules, u64)> for (ASTRules, u64) {
+    fn from_row<'a>(row: &'a Row) -> Result<(ASTRules, u64), db_error> {
+        let ast_rules = ASTRules::from_column(row, "ast_rule_id")?;
+        let height = u64::from_column(row, "block_height")?;
+        Ok((ast_rules, height))
+    }
+}
+
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
@@ -444,7 +460,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "3";
+pub const SORTITION_DB_VERSION: &'static str = "4";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -507,7 +523,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         consensus_hash TEXT NOT NULL,
         public_key TEXT NOT NULL,
         memo TEXT,
-        address TEXT NOT NULL,
 
         PRIMARY KEY(txid,sortition_id),
         FOREIGN KEY(sortition_id) REFERENCES snapshots(sortition_id)
@@ -623,6 +638,12 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
 
         PRIMARY KEY(block_commit_txid,block_commit_sortition_id),
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
+    );"#];
+
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
+    CREATE TABLE ast_rule_heights (
+        ast_rule_id INTEGER PRIMAR KEY NOT NULL,
+        block_height INTEGER NOT NULL
     );"#];
 
 // update this to add new indexes
@@ -1503,7 +1524,7 @@ impl<'a> SortitionHandleTx<'a> {
             )?;
         } else {
             // see if this block builds off of a Stacks block mined on this burnchain fork
-            let height_opt = match SortitionDB::get_accepted_stacks_block_pointer(
+            let parent_height_opt = match SortitionDB::get_accepted_stacks_block_pointer(
                 self,
                 &burn_tip.consensus_hash,
                 parent_stacks_block_hash,
@@ -1521,10 +1542,11 @@ impl<'a> SortitionHandleTx<'a> {
                     }
                 }
             };
-            match height_opt {
-                Some(height) => {
+            match parent_height_opt {
+                Some(parent_height) => {
                     if stacks_block_height > burn_tip.canonical_stacks_tip_height {
-                        assert!(stacks_block_height > height, "BUG: DB corruption -- block height {} <= {} means we accepted a block out-of-order", stacks_block_height, height);
+                        assert!(stacks_block_height > parent_height, "BUG: DB corruption -- block height {} <= {} means we accepted a block out-of-order", stacks_block_height, parent_height);
+
                         // This block builds off of a parent that is _concurrent_ with the memoized canonical stacks chain pointer.
                         // i.e. this block will reorg the Stacks chain on the canonical burnchain fork.
                         // Memoize this new stacks chain tip to the canonical burn chain snapshot.
@@ -1532,7 +1554,7 @@ impl<'a> SortitionHandleTx<'a> {
                         // are guaranteed by the Stacks chain state code that Stacks blocks in a given
                         // Stacks fork will be marked as accepted in sequential order (i.e. at height h, h+1,
                         // h+2, etc., without any gaps).
-                        debug!("Accepted Stacks block {}/{} builds on a previous canonical Stacks tip on this burnchain fork ({})", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash);
+                        debug!("Accepted Stacks block {}/{} ({}) builds on a previous canonical Stacks tip on this burnchain fork ({})", consensus_hash, stacks_block_hash, stacks_block_height, &burn_tip.burn_header_hash);
                         let args: &[&dyn ToSql] = &[
                             consensus_hash,
                             stacks_block_hash,
@@ -1546,10 +1568,7 @@ impl<'a> SortitionHandleTx<'a> {
                         // This block was mined on this fork, but it's acceptance doesn't overtake
                         // the current stacks chain tip.  Remember it so that we can process its children,
                         // which might do so later.
-                        //
-                        // TODO: flip a coin here to decide the tie (or use the burn block hash or
-                        // whatever)
-                        debug!("Accepted Stacks block {}/{} builds on a non-canonical Stacks tip in this burnchain fork ({})", consensus_hash, stacks_block_hash, &burn_tip.burn_header_hash);
+                        debug!("Accepted Stacks block {}/{} ({}) builds on a non-canonical Stacks tip in this burnchain fork ({} height {})", consensus_hash, stacks_block_hash, stacks_block_height, &burn_tip.burn_header_hash, burn_tip.canonical_stacks_tip_height);
                     }
                     SortitionDB::insert_accepted_stacks_block_pointer(
                         self,
@@ -2425,19 +2444,9 @@ impl SortitionDB {
         for row_text in SORTITION_DB_INITIAL_SCHEMA {
             db_tx.execute_batch(row_text)?;
         }
-        for row_text in SORTITION_DB_SCHEMA_2 {
-            db_tx.execute_batch(row_text)?;
-        }
-        for row_text in SORTITION_DB_SCHEMA_3 {
-            db_tx.execute_batch(row_text)?;
-        }
-
-        SortitionDB::validate_and_insert_epochs(&db_tx, epochs_ref)?;
-
-        db_tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &[&SORTITION_DB_VERSION],
-        )?;
+        SortitionDB::apply_schema_2(&db_tx, epochs_ref)?;
+        SortitionDB::apply_schema_3(&db_tx)?;
+        SortitionDB::apply_schema_4(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -2599,8 +2608,8 @@ impl SortitionDB {
         match epoch {
             StacksEpochId::Epoch10 => true,
             StacksEpochId::Epoch20 => version == "1" || version == "2" || version == "3",
-            StacksEpochId::Epoch2_05 => version == "2" || version == "3",
-            StacksEpochId::Epoch21 => version == "3",
+            StacksEpochId::Epoch2_05 => version == "2" || version == "3" || version == "4",
+            StacksEpochId::Epoch21 => version == "3" || version == "4",
         }
     }
 
@@ -2638,6 +2647,33 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_4(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_4 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        let typical_rules: &[&dyn ToSql] = &[&(ASTRules::Typical as u8), &0i64];
+
+        let precheck_size_rules: &[&dyn ToSql] = &[
+            &(ASTRules::PrecheckSize as u8),
+            &u64_to_sql(AST_RULES_PRECHECK_SIZE)?,
+        ];
+
+        tx.execute(
+            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
+            typical_rules,
+        )?;
+        tx.execute(
+            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
+            precheck_size_rules,
+        )?;
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["4"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -2671,6 +2707,10 @@ impl SortitionDB {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_3(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "3" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -2725,6 +2765,52 @@ impl SortitionDB {
             tx.commit()?;
         }
         Ok(())
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn override_ast_rule_height<'a>(
+        tx: &mut DBTx<'a>,
+        ast_rules: ASTRules,
+        height: u64,
+    ) -> Result<(), db_error> {
+        let rules: &[&dyn ToSql] = &[&u64_to_sql(height)?, &(ast_rules as u8)];
+
+        tx.execute(
+            "UPDATE ast_rule_heights SET block_height = ?1 WHERE ast_rule_id = ?2",
+            rules,
+        )?;
+        Ok(())
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn override_ast_rule_height<'a>(
+        _tx: &mut DBTx<'a>,
+        _ast_rules: ASTRules,
+        _height: u64,
+    ) -> Result<(), db_error> {
+        Ok(())
+    }
+
+    /// What's the default AST rules at the given block height?
+    pub fn get_ast_rules(conn: &DBConn, height: u64) -> Result<ASTRules, db_error> {
+        let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
+            conn,
+            "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
+            NO_PARAMS,
+        )?;
+
+        assert!(ast_rule_sets.len() > 0);
+        let mut last_height = ast_rule_sets[0].1;
+        let mut last_rules = ast_rule_sets[0].0;
+        for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
+            if last_height <= height && height < ast_rule_height {
+                return Ok(last_rules);
+            }
+            last_height = ast_rule_height;
+            last_rules = ast_rules;
+        }
+
+        return Ok(last_rules);
     }
 }
 
@@ -4066,7 +4152,7 @@ impl<'a> SortitionHandleTx<'a> {
                 info!(
                     "ACCEPTED({}) leader block commit {} at {},{}",
                     op.block_height, &op.txid, op.block_height, op.vtxindex;
-                    "apparent_sender" => %op.apparent_sender.to_bitcoin_address(BitcoinNetworkType::Mainnet)
+                    "apparent_sender" => %op.apparent_sender
                 );
                 self.insert_block_commit(op, sort_id)
             }
@@ -4121,11 +4207,10 @@ impl<'a> SortitionHandleTx<'a> {
             &leader_key.consensus_hash,
             &leader_key.public_key.to_hex(),
             &to_hex(&leader_key.memo),
-            &leader_key.address.to_string(),
             sort_id,
         ];
 
-        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+        self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
 
         Ok(())
     }
@@ -4970,13 +5055,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5056,13 +5134,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5095,14 +5166,14 @@ pub mod tests {
             commit_outs: vec![],
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -5282,13 +5353,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5378,13 +5442,6 @@ pub mod tests {
             .unwrap(),
             public_key: public_key.clone(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5878,13 +5935,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -5917,14 +5967,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -8006,13 +8056,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -8046,14 +8089,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("dec0489b200c05e3611c174a203da75bea86eb16d254afdec9d93a7d50623426")
@@ -8088,14 +8131,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("c25b21f8c8d55f52cf67e1e7604ca243438df7753a06bea085e10a9957ce0f8e")
@@ -8130,14 +8173,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("a55f4f6afff0ba597a22a5d90bea2cd61b078518dbdf67f77588e3c0effb5c0f")
@@ -8172,14 +8215,14 @@ pub mod tests {
 
             burn_fee: 1,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("53bfa82f97ef65f0239ded2b4ed93cab1f9d72f9454ac5eb4d7d0f79ad9e0127")
@@ -8450,5 +8493,54 @@ pub mod tests {
         )
         .unwrap();
         assert_eq!(ancestors, vec![BurnchainHeaderHash([0xfe; 32])]);
+    }
+
+    fn test_get_set_ast_rules() {
+        let block_height = 123;
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE - 1).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE).unwrap(),
+            ASTRules::PrecheckSize
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE + 1).unwrap(),
+            ASTRules::PrecheckSize
+        );
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1).unwrap();
+            tx.commit().unwrap();
+        }
+
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
+            ASTRules::Typical
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
+            ASTRules::PrecheckSize
+        );
+        assert_eq!(
+            SortitionDB::get_ast_rules(db.conn(), 2).unwrap(),
+            ASTRules::PrecheckSize
+        );
     }
 }

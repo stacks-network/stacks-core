@@ -521,7 +521,13 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "pow ${1:expr-1} ${2:expr-2}",
     signature: "(pow i1 i2)",
-    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.",
+    description: "Returns the result of raising `i1` to the power of `i2`. In the event of an _overflow_, throws a runtime error.
+Note: Corner cases are handled with the following rules:
+  * if both `i1` and `i2` are `0`, return `1`
+  * if `i1` is `1`, return `1`
+  * if `i1` is `0`, return `0`
+  * if `i2` is `1`, return `i1`
+  * if `i2` is negative or greater than `u32::MAX`, throw a runtime error",
     example: "(pow 2 3) ;; Returns 8
 (pow 2 2) ;; Returns 4
 (pow 7 1) ;; Returns 7
@@ -1614,8 +1620,8 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     input_type: "BurnBlockInfoPropertyName, uint",
+    output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 32)) (version (buff 1))))) (payout uint)))",
     snippet: "get-burn-block-info? ${1:prop} ${2:block-height}",
-    output_type: "(optional buff) | (optional (tuple (addrs (list 2 (tuple (hashbytes (buff 20)) (version (buff 1))))) (payout uint)))",
     signature: "(get-burn-block-info? prop-name block-height)",
     description: "The `get-burn-block-info?` function fetches data for a block of the given *burnchain* block height. The
 value and type returned are determined by the specified `BlockInfoPropertyName`.  Valid values for `block-height` only
@@ -1633,12 +1639,15 @@ The list will include burn addresses -- that is, the unspendable addresses that 
 there will be exactly one burn address reported. During the reward phase, up to two burn addresses may be reported in the event that some PoX reward slots are not claimed.
 
 The `addrs` list contains the same PoX address values passed into the PoX smart contract:
-   * They each have type signature `(tuple (hashbytes (buff 20)) (version (buff 1)))`
+   * They each have type signature `(tuple (hashbytes (buff 32)) (version (buff 1)))`
    * The `version` field can be any of the following:
-      * `0x00` means this is a p2pkh address, and `hashbytes` is the hash160 of a single public key
-      * `0x01` means this is a p2sh address, and `hashbytes` is the hash160 of a redeemScript script
-      * `0x02` means this is a p2wpkh-p2sh address, and `hashbytes` is the hash160 of a p2wpkh witness script
-      * `0x03` means this is a p2wsh-p2sh address, and `hashbytes` is the hash160 of a p2wsh witness script
+      * `0x00` means this is a p2pkh address, and `hashbytes` is the 20-byte hash160 of a single public key
+      * `0x01` means this is a p2sh address, and `hashbytes` is the 20-byte hash160 of a redeemScript script
+      * `0x02` means this is a p2wpkh-p2sh address, and `hashbytes` is the 20-byte hash160 of a p2wpkh witness script
+      * `0x03` means this is a p2wsh-p2sh address, and `hashbytes` is the 20-byte hash160 of a p2wsh witness script
+      * `0x04` means this is a p2wpkh address, and `hashbytes` is the 20-byte hash160 of the witness script
+      * `0x05` means this is a p2wsh address, and `hashbytes` is the 32-byte sha256 of the witness script
+      * `0x06` means this is a p2tr address, and `hashbytes` is the 32-byte sha256 of the witness script
 ",
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
@@ -2462,6 +2471,7 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
+    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
     use stacks_common::consts::CHAIN_ID_TESTNET;
 
@@ -2584,6 +2594,9 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
+        }
+        fn get_ast_rules(&self, height: u32) -> ASTRules {
+            ASTRules::PrecheckSize
         }
         fn get_pox_payout_addrs(
             &self,
@@ -2853,11 +2866,21 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(contract_id, &token_contract_content, None)
-                    .unwrap();
+                env.initialize_contract(
+                    contract_id,
+                    &token_contract_content,
+                    None,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
-                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
-                    .unwrap();
+                env.initialize_contract(
+                    trait_def_id,
+                    super::DEFINE_TRAIT_API.example,
+                    None,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             }
 
             let example = &func_api.example;

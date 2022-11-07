@@ -18,6 +18,7 @@ use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::List;
+use crate::vm::representations::PreSymbolicExpressionType::Tuple;
 
 use crate::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
 
@@ -48,5 +49,31 @@ pub struct StackDepthChecker;
 impl BuildASTPass for StackDepthChecker {
     fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
         check(&contract_ast.pre_expressions, 0)
+    }
+}
+
+fn check_vary(args: &[PreSymbolicExpression], depth: u64) -> ParseResult<()> {
+    if depth >= (AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64) {
+        return Err(ParseErrors::VaryExpressionStackDepthTooDeep.into());
+    }
+    for expression in args.iter() {
+        match expression.pre_expr {
+            List(ref exprs) => check_vary(exprs, depth + 1),
+            Tuple(ref exprs) => check_vary(exprs, depth + 1),
+            _ => {
+                // Other symbolic expressions don't have depth
+                //  impacts.
+                Ok(())
+            }
+        }?;
+    }
+    Ok(())
+}
+
+pub struct VaryStackDepthChecker;
+
+impl BuildASTPass for VaryStackDepthChecker {
+    fn run_pass(contract_ast: &mut ContractAST, _version: ClarityVersion) -> ParseResult<()> {
+        check_vary(&contract_ast.pre_expressions, 0)
     }
 }

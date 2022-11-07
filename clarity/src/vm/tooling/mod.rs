@@ -4,9 +4,11 @@ use super::{
     analysis::ContractAnalysis,
     contexts::GlobalContext,
     docs::contracts::{make_func_ref, ContractRef, ErrorCode, DOCS_GENERATION_EPOCH},
+    eval_all,
     types::TypeSignature,
-    ClarityVersion, ContractContext, Value,
+    ClarityVersion, ContractContext, Error as VmError, Value,
 };
+use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::{
     analysis::{run_analysis, CheckResult},
     costs::LimitedCostTracker,
@@ -21,9 +23,18 @@ pub fn mem_type_check(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
-    use crate::vm::ast::parse;
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = parse(&contract_identifier, snippet, version, epoch).unwrap();
+    let mut contract = build_ast_with_rules(
+        &contract_identifier,
+        snippet,
+        &mut (),
+        version,
+        epoch,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap()
+    .expressions;
+
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();
@@ -49,7 +60,12 @@ pub fn mem_type_check(
     }
 }
 
-fn doc_execute(program: &str) -> Result<Option<Value>, crate::vm::Error> {
+pub struct ContractSupportDocs {
+    pub descriptions: HashMap<&'static str, &'static str>,
+    pub skip_func_display: HashSet<&'static str>,
+}
+
+fn doc_execute(program: &str) -> Result<Option<Value>, VmError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
@@ -62,15 +78,16 @@ fn doc_execute(program: &str) -> Result<Option<Value>, crate::vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = crate::vm::ast::build_ast(
+        let parsed = build_ast_with_rules(
             &contract_id,
             program,
             &mut (),
             ClarityVersion::latest(),
             StacksEpochId::latest(),
+            ASTRules::PrecheckSize,
         )?
         .expressions;
-        crate::vm::eval_all(&parsed, &mut contract_context, g, None)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -169,9 +186,4 @@ pub fn produce_docs_refs<A: AsRef<str>, B: AsRef<str>>(
     }
 
     docs
-}
-
-pub struct ContractSupportDocs {
-    pub descriptions: HashMap<&'static str, &'static str>,
-    pub skip_func_display: HashSet<&'static str>,
 }

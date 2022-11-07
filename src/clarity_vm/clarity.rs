@@ -19,7 +19,6 @@ use std::error;
 use std::fmt;
 use std::thread;
 
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
@@ -61,7 +60,7 @@ use clarity::vm::analysis;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
 use clarity::vm::ast;
-use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ContractAST};
+use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ASTRules, ContractAST};
 use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -382,6 +381,7 @@ impl ClarityInstance {
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS,
+                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -402,6 +402,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
+                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -426,6 +427,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
+                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -534,6 +536,7 @@ impl ClarityInstance {
         burn_state_db: &dyn BurnStateDB,
         contract: &QualifiedContractIdentifier,
         program: &str,
+        ast_rules: ASTRules,
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
         let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
@@ -545,7 +548,7 @@ impl ClarityInstance {
         };
 
         let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
-        env.eval_read_only(contract, program)
+        env.eval_read_only_with_rules(contract, program, ast_rules)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
@@ -765,6 +768,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &costs_2_contract_tx,
                     &boot_code_account,
+                    ASTRules::PrecheckSize,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -884,6 +888,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &pox_2_contract_tx,
                     &boot_code_account,
+                    ASTRules::PrecheckSize,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -988,6 +993,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
     pub fn destruct(self) -> WritableMarfStore<'a> {
         self.datastore
+    }
+
+    #[cfg(test)]
+    pub fn set_epoch(&mut self, epoch_id: StacksEpochId) {
+        self.epoch = epoch_id;
     }
 }
 
@@ -1282,6 +1292,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                 })
                 .unwrap_err();
@@ -1294,6 +1305,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                 })
                 .unwrap_err();
@@ -1341,6 +1353,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1393,6 +1406,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -1420,6 +1434,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -1449,6 +1464,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 assert!(format!(
@@ -1502,6 +1518,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1561,6 +1578,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1649,6 +1667,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1776,6 +1795,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -1983,19 +2003,33 @@ mod tests {
             );
 
             conn.as_transaction(|clarity_tx| {
-                let receipt =
-                    StacksChainState::process_transaction_payload(clarity_tx, &tx1, &account)
-                        .unwrap();
+                let receipt = StacksChainState::process_transaction_payload(
+                    clarity_tx,
+                    &tx1,
+                    &account,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
                 assert_eq!(receipt.post_condition_aborted, true);
             });
             conn.as_transaction(|clarity_tx| {
-                StacksChainState::process_transaction_payload(clarity_tx, &tx2, &account).unwrap();
+                StacksChainState::process_transaction_payload(
+                    clarity_tx,
+                    &tx2,
+                    &account,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             });
 
             conn.as_transaction(|clarity_tx| {
-                let receipt =
-                    StacksChainState::process_transaction_payload(clarity_tx, &tx3, &account)
-                        .unwrap();
+                let receipt = StacksChainState::process_transaction_payload(
+                    clarity_tx,
+                    &tx3,
+                    &account,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
 
                 assert_eq!(receipt.post_condition_aborted, true);
             });
@@ -2081,6 +2115,9 @@ mod tests {
             ) -> Option<(Vec<TupleData>, u128)> {
                 return None;
             }
+            fn get_ast_rules(&self, height: u32) -> ASTRules {
+                ASTRules::Typical
+            }
         }
 
         let burn_state_db = BlockLimitBurnStateDB {};
@@ -2116,6 +2153,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         &contract,
+                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
