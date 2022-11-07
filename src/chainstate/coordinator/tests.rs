@@ -2429,12 +2429,14 @@ fn test_stx_transfer_btc_ops() {
 
 // This helper function retrieves the delegation info from the delegate address
 // from the pox-2 contract.
+// Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from the map
+// `delegation-state` in pox-2.
 fn get_delegation_info_pox_2(
     chainstate: &mut StacksChainState,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
     del_addr: &StacksAddress,
-) -> Option<u128> {
+) -> Option<(u128, Option<PoxAddress>)> {
     let result = chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(
@@ -2464,7 +2466,14 @@ fn get_delegation_info_pox_2(
         Some(tuple) => {
             let data = tuple.expect_tuple().data_map;
             let delegated_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
-            Some(delegated_amt)
+            let reward_addr_opt = if let Some(reward_addr) =
+                data.get("pox-addr").cloned().unwrap().expect_optional()
+            {
+                Some(PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap())
+            } else {
+                None
+            };
+            Some((delegated_amt, reward_addr_opt))
         }
     }
 }
@@ -2618,7 +2627,10 @@ fn test_delegate_stx_btc_ops() {
 
         let expected_winner = good_op.txid();
         let mut ops = vec![good_op];
-
+        let reward_addr = PoxAddress::Standard(
+            StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+            Some(AddressHashMode::SerializeP2PKH),
+        );
         if ix == 0 {
             // add a pre-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
@@ -2660,7 +2672,7 @@ fn test_delegate_stx_btc_ops() {
             ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
                 sender: first_del.clone(),
                 delegate_to: delegator_addr.clone(),
-                reward_addr: None,
+                reward_addr: Some((1, reward_addr.clone())),
                 delegated_ustx: delegated_amt,
                 until_burn_height: None,
                 txid: next_txid(),
@@ -2739,7 +2751,7 @@ fn test_delegate_stx_btc_ops() {
             if ix >= 11 {
                 assert_eq!(
                     first_delegation_info,
-                    Some(delegated_amt),
+                    Some((delegated_amt, Some(reward_addr.clone()))),
                     "The first delegation should be active"
                 );
             } else {
@@ -2758,7 +2770,7 @@ fn test_delegate_stx_btc_ops() {
             if ix >= 21 && ix <= 27 {
                 assert_eq!(
                     second_delegation_info,
-                    Some(delegated_amt * 2),
+                    Some((delegated_amt * 2, None)),
                     "The second delegation should be active"
                 );
             } else {

@@ -4843,7 +4843,7 @@ impl StacksChainState {
                 burn_header_hash,
                 ..
             } = delegate_stx_op;
-            let reward_addr_val = if let Some(addr) = &reward_addr {
+            let reward_addr_val = if let Some((_, addr)) = &reward_addr {
                 // this .expect() should be unreachable since we coerce the hash mode when
                 // we parse the DelegateStxOp from a burnchain transaction
                 let clar_addr = addr

@@ -676,7 +676,8 @@ const SORTITION_DB_SCHEMA_3: &'static [&'static str] = &[r#"
         FOREIGN KEY(block_commit_txid,block_commit_sortition_id) REFERENCES block_commits(txid,sortition_id)
     );"#];
 
-const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
+const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[
+    r#"
     CREATE TABLE delegate_stx (
         txid TEXT NOT NULL,
         vtxindex INTEGER NOT NULL,
@@ -695,7 +696,8 @@ const SORTITION_DB_SCHEMA_4: &'static [&'static str] = &[r#"
     CREATE TABLE ast_rule_heights (
         ast_rule_id INTEGER PRIMAR KEY NOT NULL,
         block_height INTEGER NOT NULL
-    );"#];
+    );"#,
+];
 
 // update this to add new indexes
 const LAST_SORTITION_DB_INDEX: &'static str = "index_parent_burn_header_hash";

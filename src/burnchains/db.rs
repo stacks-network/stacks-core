@@ -843,12 +843,19 @@ mod tests {
             }],
         };
 
+        // Set up the data field for the delegate stx transactions
+        let mut data = vec![1; 80];
+        // Make it so that reward_addr_index = Some(1)
+        for i in 17..20 {
+            data[i] = 0;
+        }
+
         // this one will not have a corresponding pre_stx tx.
         let delegate_stx_0 = BitcoinTransaction {
             txid: Txid([4; 32]),
             vtxindex: 1,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 80],
+            data: data.clone(),
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
@@ -871,7 +878,7 @@ mod tests {
             txid: Txid([4; 32]),
             vtxindex: 2,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 80],
+            data: data.clone(),
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
@@ -904,7 +911,7 @@ mod tests {
             txid: Txid([3; 32]),
             vtxindex: 3,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 80],
+            data: data.clone(),
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
@@ -928,7 +935,7 @@ mod tests {
             txid: Txid([8; 32]),
             vtxindex: 4,
             opcode: Opcodes::DelegateStx as u8,
-            data: vec![1; 80],
+            data: data.clone(),
             data_amt: 0,
             inputs: vec![BitcoinTxInput {
                 keys: vec![],
@@ -1010,13 +1017,16 @@ mod tests {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
-        let expected_reward_addr = Some(PoxAddress::Standard(
-            StacksAddress::from_bitcoin_address(&BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
-                network_id: BitcoinNetworkType::Mainnet,
-                bytes: Hash160([1; 20]),
-            }),
-            Some(AddressHashMode::SerializeP2PKH),
+        let expected_reward_addr = Some((
+            1,
+            PoxAddress::Standard(
+                StacksAddress::from_bitcoin_address(&BitcoinAddress {
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Mainnet,
+                    bytes: Hash160([1; 20]),
+                }),
+                Some(AddressHashMode::SerializeP2PKH),
+            ),
         ));
 
         if let BlockstackOperationType::PreStx(op) = &processed_ops_0[0] {

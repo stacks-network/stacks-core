@@ -286,10 +286,11 @@ pub struct UserBurnSupportOp {
 pub struct DelegateStxOp {
     pub sender: StacksAddress,
     pub delegate_to: StacksAddress,
-    /// the PoX reward address.
+    /// a tuple representing the output index of the reward address in the BTC transaction,
+    //  and the actual  PoX reward address.
     /// NOTE: the address in .pox-2 will be tagged as either p2pkh or p2sh; it's impossible to tell
     /// if it's a segwit-p2sh since that looks identical to a p2sh address.
-    pub reward_addr: Option<PoxAddress>,
+    pub reward_addr: Option<(u32, PoxAddress)>,
     pub delegated_ustx: u128,
     pub until_burn_height: Option<u64>,
 
