@@ -904,9 +904,7 @@ fn db_get_nonce(conn: &DBConn, address: &StacksAddress) -> Result<Option<u64>, d
 pub fn db_get_all_nonces(conn: &DBConn) -> Result<Vec<(StacksAddress, u64)>, db_error> {
     let sql = "SELECT * FROM nonces";
     let mut stmt = conn.prepare(&sql).map_err(|e| db_error::SqliteError(e))?;
-    let mut iter = stmt
-        .query(&[])
-        .map_err(|e| db_error::SqliteError(e))?;
+    let mut iter = stmt.query([]).map_err(|e| db_error::SqliteError(e))?;
     let mut ret = vec![];
     while let Ok(Some(row)) = iter.next() {
         let addr = StacksAddress::from_column(row, "address")?;
