@@ -423,7 +423,7 @@ fn test_define_fungible_token_arg_count() {
     execute(&test1).unwrap();
     execute(&test2).unwrap();
     assert_eq_err(
-        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrors::IncorrectArgumentCount(1, 3),
         execute(&test3).unwrap_err(),
     );
 }
