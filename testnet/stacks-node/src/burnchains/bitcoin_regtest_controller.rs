@@ -43,6 +43,8 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+#[cfg(test)]
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
 use stacks::util::hash::{hex_bytes, Hash160};
@@ -54,6 +56,10 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
+
+#[cfg(test)]
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
+
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
