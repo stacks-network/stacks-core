@@ -344,7 +344,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     }
 }
 
-/// Executes the Clarity2 function `slice`.
+/// Executes the Clarity2 function `slice?`.
 pub fn special_slice(
     args: &[SymbolicExpression],
     env: &mut Environment,
