@@ -770,9 +770,12 @@ fn test_bitwise_good_checks() {
         "(^ u24 u16)",
         "(| 2 1)",
         "(<< 1 u2)",
-        "(>> u1 u2)"
+        "(>> u1 u2)",
+        "(| 1 2 4)",
+        "(| -1 -2 4)",
+        "(| u1 u2 u4)"
     ];
-    let expected = ["int", "uint", "int", "int", "uint"];
+    let expected = ["int", "uint", "int", "int", "uint", "int", "int", "uint"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
@@ -795,7 +798,8 @@ fn test_bitwise_bad_checks() {
         "(<< 1)",
         "(<< true false)",
         "(>> 1 1)",
-        "(<< 2 1)"
+        "(<< 2 1)",
+        "(| 1 2 u4)"
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(2, 1),
@@ -813,6 +817,7 @@ fn test_bitwise_bad_checks() {
             BoolType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(IntType, UIntType),
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {

@@ -530,7 +530,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ),
             BitwiseOr => NativeFunction(
                 "native_bitwise_or",
-                NativeHandle::DoubleArg(&arithmetic::native_bitwise_or),
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_or),
                 ClarityCostFunction::BitwiseOr,
             ),
             BitwiseNot => NativeFunction(

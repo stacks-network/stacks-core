@@ -255,8 +255,11 @@ macro_rules! make_arithmetic_ops {
             fn bitwise_and(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x & y)
             }
-            fn bitwise_or(x: $type, y: $type) -> InterpreterResult<Value> {
-                Self::make_value(x | y)
+            fn bitwise_or(args: &[$type]) -> InterpreterResult<Value> {
+                let result = args
+                    .iter()
+                    .fold(0, |acc: $type, x: &$type| (acc | x));
+                Self::make_value(result)
             }
             fn bitwise_not(x: $type) -> InterpreterResult<Value> {
                 Self::make_value(!x)
@@ -387,8 +390,8 @@ pub fn native_bitwise_and(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(bitwise_and, a, b)
 }
 
-pub fn native_bitwise_or(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(bitwise_or, a, b)
+pub fn native_bitwise_or(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_or, args)
 }
 
 pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
