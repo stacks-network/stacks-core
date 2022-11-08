@@ -28,11 +28,12 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, BUFF_20};
 use crate::vm::types::{
-    parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
-    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature,
-    Value,
+    parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
+    ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    SequenceData, SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature,
+    TypeSignature, Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use std::collections::{BTreeMap, HashMap};
@@ -120,8 +121,12 @@ impl AnalysisPass for TypeChecker<'_, '_> {
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
-        let mut command =
-            TypeChecker::new(analysis_db, cost_track, &contract_analysis.clarity_version);
+        let mut command = TypeChecker::new(
+            analysis_db,
+            cost_track,
+            &contract_analysis.contract_identifier,
+            &contract_analysis.clarity_version,
+        );
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
         match command.run(contract_analysis) {
@@ -296,9 +301,100 @@ impl FunctionType {
         }
     }
 
+    /// Returns the type of `value`, after converting any contract principal
+    /// types to callable types. In an initial transaction, arguments are typed
+    /// as contract principals, but they must be principal literals, so they
+    /// may be used to call into a contract.
+    pub fn principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+        clarity_version: ClarityVersion,
+    ) -> TypeResult {
+        if clarity_version >= ClarityVersion::Clarity2 {
+            // In Clarity2, we recurse into complex data types
+            self.clarity2_principal_to_callable_type(value, depth)
+        } else {
+            // In Clarity1, we just need to convert the top-level principal
+            Ok(match value {
+                Value::Principal(PrincipalData::Contract(contract_identifier)) => {
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        contract_identifier.clone(),
+                    ))
+                }
+                _ => TypeSignature::type_of(value),
+            })
+        }
+    }
+
+    fn clarity2_principal_to_callable_type(&self, value: &Value, depth: u8) -> TypeResult {
+        if depth > MAX_TYPE_DEPTH {
+            return Err(CheckErrors::TypeSignatureTooDeep.into());
+        }
+
+        Ok(match value {
+            Value::Principal(PrincipalData::Contract(contract_identifier)) => {
+                TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier.clone()))
+            }
+            Value::Optional(OptionalData {
+                data: Some(inner_value),
+            }) => TypeSignature::new_option(
+                self.clarity2_principal_to_callable_type(inner_value, depth + 1)?,
+            )?,
+            Value::Response(ResponseData { committed, data }) => {
+                let (ok_type, err_type) = if *committed {
+                    (
+                        self.clarity2_principal_to_callable_type(data, depth + 1)?,
+                        TypeSignature::NoType,
+                    )
+                } else {
+                    (
+                        TypeSignature::NoType,
+                        self.clarity2_principal_to_callable_type(data, depth + 1)?,
+                    )
+                };
+                TypeSignature::new_response(ok_type, err_type)?
+            }
+            Value::Sequence(SequenceData::List(ListData {
+                data,
+                type_signature: _,
+            })) => {
+                let inner_type = match data.first() {
+                    Some(inner_val) => {
+                        self.clarity2_principal_to_callable_type(inner_val, depth + 1)?
+                    }
+                    None => TypeSignature::NoType,
+                };
+                TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData::new_list(
+                    inner_type,
+                    data.len() as u32,
+                )?))
+            }
+            Value::Tuple(TupleData {
+                type_signature: _,
+                data_map,
+            }) => {
+                let mut type_map = BTreeMap::new();
+                for (name, field_value) in data_map {
+                    type_map.insert(
+                        name.clone(),
+                        self.clarity2_principal_to_callable_type(field_value, depth + 1)?,
+                    );
+                }
+                TypeSignature::TupleType(TupleTypeSignature::try_from(type_map)?)
+            }
+            _ => TypeSignature::type_of(value),
+        })
+    }
+
+    /// This method is only used by StacksChainState::can_include_tx. The
+    /// cost of evaluating these type checks are not tracked.
+    /// WARNING: This is not consensus-critical code, and should never be
+    ///          called from consensus-critical code.
     pub fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
+        clarity_version: ClarityVersion,
         func_args: &[Value],
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
@@ -307,34 +403,356 @@ impl FunctionType {
         };
         check_argument_count(expected_args.len(), func_args)?;
 
-        for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
-            match (&expected_arg.signature, arg) {
-                (
-                    TypeSignature::TraitReferenceType(trait_id),
-                    Value::Principal(PrincipalData::Contract(contract)),
-                ) => {
-                    let contract_to_check = db
-                        .load_contract(contract)
-                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
-                    let trait_definition = db
-                        .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
-                        .unwrap()
-                        .ok_or(CheckErrors::NoSuchContract(
-                            trait_id.contract_identifier.to_string(),
-                        ))?;
-                    contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
+        if clarity_version < ClarityVersion::Clarity2 {
+            for (expected_arg, arg) in expected_args.iter().zip(func_args.iter()).into_iter() {
+                match (&expected_arg.signature, arg) {
+                    (
+                        TypeSignature::CallableType(CallableSubtype::Trait(trait_id)),
+                        Value::Principal(PrincipalData::Contract(contract)),
+                    ) => {
+                        let contract_to_check = db.load_contract(contract).ok_or_else(|| {
+                            CheckErrors::NoSuchContract(contract.name.to_string())
+                        })?;
+                        let trait_definition = db
+                            .get_defined_trait(&trait_id.contract_identifier, &trait_id.name)
+                            .unwrap()
+                            .ok_or(CheckErrors::NoSuchContract(
+                                trait_id.contract_identifier.to_string(),
+                            ))?;
+                        contract_to_check.check_trait_compliance(trait_id, &trait_definition)?;
+                    }
+                    (expected_type, value) => {
+                        if !expected_type.admits(&value) {
+                            let actual_type = TypeSignature::type_of(&value);
+                            return Err(
+                                CheckErrors::TypeError(expected_type.clone(), actual_type).into()
+                            );
+                        }
+                    }
                 }
-                (expected_type, value) => {
-                    if !expected_type.admits(&value) {
-                        let actual_type = TypeSignature::type_of(&value);
-                        return Err(
-                            CheckErrors::TypeError(expected_type.clone(), actual_type).into()
-                        );
+            }
+        } else {
+            let mut arg_types = Vec::new();
+            for arg in func_args {
+                arg_types.push(self.principal_to_callable_type(arg, 1, clarity_version)?);
+            }
+
+            for (expected_arg, arg_type) in expected_args.iter().zip(arg_types.iter()).into_iter() {
+                clarity2_inner_type_check_type(
+                    db,
+                    None,
+                    arg_type,
+                    &expected_arg.signature,
+                    1,
+                    &mut LimitedCostTracker::new_free(),
+                )?;
+            }
+        }
+        Ok(returns.clone())
+    }
+}
+
+/// Used to check if a function signature is compatible with the function
+/// signature required for a trait.
+fn clarity2_check_functions_compatible<T: CostTracker>(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    expected_sig: &FunctionSignature,
+    actual_sig: &FunctionSignature,
+    tracker: &mut T,
+) -> bool {
+    if expected_sig.args.len() != actual_sig.args.len() {
+        return false;
+    }
+    let args_iter = expected_sig.args.iter().zip(actual_sig.args.iter());
+    for (expected_type, actual_type) in args_iter {
+        if clarity2_inner_type_check_type(
+            db,
+            contract_context,
+            actual_type,
+            expected_type,
+            1,
+            tracker,
+        )
+        .is_err()
+        {
+            return false;
+        }
+    }
+    if clarity2_inner_type_check_type(
+        db,
+        contract_context,
+        &actual_sig.returns,
+        &expected_sig.returns,
+        1,
+        tracker,
+    )
+    .is_err()
+    {
+        return false;
+    }
+    true
+}
+
+/// Returns Ok if actual_trait is compliant with expected_trait.
+/// This means that actual_trait implements all functions from expected_trait
+/// with compatible functions, and may optionally include other functions not
+/// included in expected_trait.
+pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    actual_trait_identifier: &TraitIdentifier,
+    actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    expected_trait_identifier: &TraitIdentifier,
+    expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    tracker: &mut T,
+) -> CheckResult<()> {
+    // Shortcut for the simple case when the two traits are the same.
+    if actual_trait_identifier == expected_trait_identifier {
+        return Ok(());
+    }
+
+    for (func_name, expected_sig) in expected_trait.iter() {
+        if let Some(func) = actual_trait.get(func_name) {
+            if !clarity2_check_functions_compatible(
+                db,
+                contract_context,
+                expected_sig,
+                func,
+                tracker,
+            ) {
+                return Err(CheckErrors::IncompatibleTrait(
+                    expected_trait_identifier.clone(),
+                    actual_trait_identifier.clone(),
+                )
+                .into());
+            }
+        } else {
+            return Err(CheckErrors::IncompatibleTrait(
+                expected_trait_identifier.clone(),
+                actual_trait_identifier.clone(),
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Check if `expected_type` admits `actual_type`, handling traits and callable types
+/// through invoking trait compliance checks.
+fn clarity2_inner_type_check_type<T: CostTracker>(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    actual_type: &TypeSignature,
+    expected_type: &TypeSignature,
+    depth: u8,
+    tracker: &mut T,
+) -> TypeResult {
+    if depth > MAX_TYPE_DEPTH {
+        return Err(CheckErrors::TypeSignatureTooDeep.into());
+    }
+
+    // Recurse into values to check embedded traits properly
+    match (actual_type, expected_type) {
+        (
+            TypeSignature::OptionalType(atom_inner_type),
+            TypeSignature::OptionalType(expected_inner_type),
+        ) => {
+            clarity2_inner_type_check_type(
+                db,
+                contract_context,
+                atom_inner_type,
+                expected_inner_type,
+                depth + 1,
+                tracker,
+            )?;
+        }
+        (
+            TypeSignature::ResponseType(atom_inner_types),
+            TypeSignature::ResponseType(expected_inner_types),
+        ) => {
+            clarity2_inner_type_check_type(
+                db,
+                contract_context,
+                &atom_inner_types.0,
+                &expected_inner_types.0,
+                depth + 1,
+                tracker,
+            )?;
+            clarity2_inner_type_check_type(
+                db,
+                contract_context,
+                &atom_inner_types.1,
+                &expected_inner_types.1,
+                depth + 1,
+                tracker,
+            )?;
+        }
+        (
+            TypeSignature::SequenceType(SequenceSubtype::ListType(atom_list_type)),
+            TypeSignature::SequenceType(SequenceSubtype::ListType(expected_list_type)),
+        ) => {
+            if atom_list_type.get_max_len() <= expected_list_type.get_max_len() {
+                clarity2_inner_type_check_type(
+                    db,
+                    contract_context,
+                    atom_list_type.get_list_item_type(),
+                    expected_list_type.get_list_item_type(),
+                    depth + 1,
+                    tracker,
+                )?;
+            } else {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+        }
+        (
+            TypeSignature::TupleType(atom_tuple_type),
+            TypeSignature::TupleType(expected_tuple_type),
+        ) => {
+            if expected_tuple_type.get_type_map().len() != atom_tuple_type.get_type_map().len() {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+
+            for (name, expected_field_type) in expected_tuple_type.get_type_map() {
+                match atom_tuple_type.field_type(name) {
+                    Some(atom_field_type) => {
+                        clarity2_inner_type_check_type(
+                            db,
+                            contract_context,
+                            atom_field_type,
+                            expected_field_type,
+                            depth + 1,
+                            tracker,
+                        )?;
+                    }
+                    None => {
+                        return Err(CheckErrors::TypeError(
+                            expected_type.clone(),
+                            actual_type.clone(),
+                        )
+                        .into())
                     }
                 }
             }
         }
-        Ok(returns.clone())
+        (
+            TypeSignature::CallableType(CallableSubtype::Trait(atom_trait_id)),
+            TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+        ) => {
+            if atom_trait_id != expected_trait_id {
+                let atom_trait =
+                    clarity2_lookup_trait(db, contract_context, &atom_trait_id, tracker)?;
+                let expected_trait =
+                    clarity2_lookup_trait(db, contract_context, expected_trait_id, tracker)?;
+                clarity2_trait_check_trait_compliance(
+                    db,
+                    contract_context,
+                    &atom_trait_id,
+                    &atom_trait,
+                    expected_trait_id,
+                    &expected_trait,
+                    tracker,
+                )?;
+            }
+        }
+        (
+            TypeSignature::CallableType(CallableSubtype::Principal(contract_identifier)),
+            TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
+        ) => {
+            let contract_to_check = match db.load_contract(&contract_identifier) {
+                Some(contract) => {
+                    runtime_cost(
+                        ClarityCostFunction::AnalysisFetchContractEntry,
+                        tracker,
+                        contract_analysis_size(&contract)?,
+                    )?;
+                    contract
+                }
+                None => {
+                    runtime_cost(ClarityCostFunction::AnalysisFetchContractEntry, tracker, 1)?;
+                    return Err(CheckErrors::NoSuchContract(contract_identifier.to_string()).into());
+                }
+            };
+            let expected_trait =
+                clarity2_lookup_trait(db, contract_context, expected_trait_id, tracker)?;
+            contract_to_check.check_trait_compliance(expected_trait_id, &expected_trait)?;
+        }
+        (
+            TypeSignature::ListUnionType(types),
+            TypeSignature::CallableType(CallableSubtype::Trait(_)),
+        ) => {
+            // Verify that all types in the union implement this trait
+            for subtype in types {
+                clarity2_inner_type_check_type(
+                    db,
+                    contract_context,
+                    &TypeSignature::CallableType(subtype.clone()),
+                    expected_type,
+                    depth + 1,
+                    tracker,
+                )?;
+            }
+        }
+        (TypeSignature::NoType, _) => (),
+        (_, _) => {
+            if !expected_type.admits_type(&actual_type) {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+        }
+    }
+    Ok(expected_type.clone())
+}
+
+fn clarity2_lookup_trait<T: CostTracker>(
+    db: &mut AnalysisDatabase,
+    contract_context: Option<&ContractContext>,
+    trait_id: &TraitIdentifier,
+    tracker: &mut T,
+) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
+    if let Some(contract_context) = contract_context {
+        // If the trait is from this contract, then it must be in the context or it doesn't exist.
+        if contract_context.is_contract(&trait_id.contract_identifier) {
+            return Ok(contract_context
+                .get_trait(&trait_id)
+                .ok_or(CheckErrors::NoSuchTrait(
+                    trait_id.contract_identifier.to_string(),
+                    trait_id.name.to_string(),
+                ))?
+                .clone());
+        }
+        if let Some(trait_sig) = contract_context.get_trait(trait_id) {
+            return Ok(trait_sig.clone());
+        }
+    }
+
+    match db.get_defined_trait(&trait_id.contract_identifier, &trait_id.name) {
+        Ok(Some(trait_sig)) => {
+            let type_size = trait_type_size(&trait_sig)?;
+            runtime_cost(
+                ClarityCostFunction::AnalysisUseTraitEntry,
+                tracker,
+                type_size,
+            )?;
+            Ok(trait_sig)
+        }
+        Ok(None) => {
+            runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
+            Err(CheckErrors::NoSuchTrait(
+                trait_id.contract_identifier.to_string(),
+                trait_id.name.to_string(),
+            )
+            .into())
+        }
+        Err(e) => {
+            runtime_cost(ClarityCostFunction::AnalysisUseTraitEntry, tracker, 1)?;
+            Err(e)
+        }
     }
 }
 
@@ -343,6 +761,12 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()? as u64)?;
     }
+    Ok(total_size)
+}
+
+fn contract_analysis_size(contract: &ContractAnalysis) -> CheckResult<u64> {
+    let mut total_size = contract.public_function_types.len() as u64;
+    total_size = total_size.cost_overflow_add(contract.read_only_function_types.len() as u64)?;
     Ok(total_size)
 }
 
@@ -377,12 +801,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: LimitedCostTracker,
+        contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
     ) -> TypeChecker<'a, 'b> {
         Self {
             db,
             cost_track,
-            contract_context: ContractContext::new(),
+            contract_context: ContractContext::new(
+                contract_identifier.clone(),
+                clarity_version.clone(),
+            ),
             function_return_tracker: None,
             type_map: TypeMap::new(),
             clarity_version: clarity_version.clone(),
@@ -469,46 +897,18 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
         expected_type: &TypeSignature,
     ) -> TypeResult {
-        match (&expr.expr, expected_type) {
-            (
-                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
-                TypeSignature::TraitReferenceType(trait_identifier),
-            ) => {
-                let contract_to_check = self
-                    .db
-                    .load_contract(&contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-
-                let contract_defining_trait = self
-                    .db
-                    .load_contract(&trait_identifier.contract_identifier)
-                    .ok_or(CheckErrors::NoSuchContract(
-                        trait_identifier.contract_identifier.to_string(),
-                    ))?;
-
-                let trait_definition = contract_defining_trait
-                    .get_defined_trait(&trait_identifier.name)
-                    .ok_or(CheckErrors::NoSuchTrait(
-                        trait_identifier.contract_identifier.to_string(),
-                        trait_identifier.name.to_string(),
-                    ))?;
-
-                contract_to_check.check_trait_compliance(trait_identifier, trait_definition)?;
-                return Ok(expected_type.clone());
-            }
-            (_, _) => {}
-        }
-
-        let actual_type = self.type_check(expr, context)?;
-        analysis_typecheck_cost(self, expected_type, &actual_type)?;
-
-        if !expected_type.admits_type(&actual_type) {
-            let mut err: CheckError =
-                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
-            err.set_expression(expr);
-            Err(err)
+        // Clarity 2 allows traits embedded in compound types and allows
+        // implicit casts between compatible traits, while Clarity 1 does not.
+        if self.clarity_version >= ClarityVersion::Clarity2 {
+            self.clarity2_type_check_expects(expr, context, expected_type)
+                .map_err(|mut e| {
+                    if !e.has_expression() {
+                        e.set_expression(expr)
+                    }
+                    e
+                })
         } else {
-            Ok(actual_type)
+            self.clarity1_type_check_expects(expr, context, expected_type)
         }
     }
 
@@ -600,7 +1000,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             self.contract_context.check_name_used(arg_name)?;
 
             match arg_type {
-                TypeSignature::TraitReferenceType(trait_id) => {
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_id)) => {
                     function_context.add_trait_reference(&arg_name, &trait_id);
                 }
                 _ => {
@@ -631,6 +1031,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     } else {
                         return_type
                     }
+                    .concretize()?
                 };
 
                 self.function_return_tracker = None;
@@ -725,7 +1126,9 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
-            Ok(TypeSignature::TraitReferenceType(type_result.clone()))
+            Ok(TypeSignature::CallableType(CallableSubtype::Trait(
+                type_result.clone(),
+            )))
         } else {
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupVariableDepth,
@@ -741,13 +1144,102 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
+    fn clarity1_type_check_expects(
+        &mut self,
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+        expected_type: &TypeSignature,
+    ) -> TypeResult {
+        match (&expr.expr, expected_type) {
+            (
+                LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier)),
+            ) => {
+                let contract_to_check = self
+                    .db
+                    .load_contract(&contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+                let contract_defining_trait = self
+                    .db
+                    .load_contract(&trait_identifier.contract_identifier)
+                    .ok_or(CheckErrors::NoSuchContract(
+                        trait_identifier.contract_identifier.to_string(),
+                    ))?;
+
+                let trait_definition = contract_defining_trait
+                    .get_defined_trait(&trait_identifier.name)
+                    .ok_or(CheckErrors::NoSuchTrait(
+                        trait_identifier.contract_identifier.to_string(),
+                        trait_identifier.name.to_string(),
+                    ))?;
+
+                contract_to_check.check_trait_compliance(trait_identifier, &trait_definition)?;
+                return Ok(expected_type.clone());
+            }
+            (_, _) => {}
+        }
+
+        let actual_type = self.type_check(expr, context)?;
+        analysis_typecheck_cost(self, expected_type, &actual_type)?;
+
+        if !expected_type.admits_type(&actual_type) {
+            let mut err: CheckError =
+                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+            err.set_expression(expr);
+            Err(err)
+        } else {
+            Ok(actual_type)
+        }
+    }
+
+    fn clarity2_type_check_expects(
+        &mut self,
+        expr: &SymbolicExpression,
+        context: &TypingContext,
+        expected_type: &TypeSignature,
+    ) -> TypeResult {
+        let mut expr_type = match expr.expr {
+            AtomValue(ref value) => TypeSignature::type_of(value),
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value),
+            Atom(ref name) => self.lookup_variable(name, context)?,
+            List(ref expression) => self.type_check_function_application(expression, context)?,
+            TraitReference(_, _) | Field(_) => {
+                return Err(CheckErrors::UnexpectedTraitOrFieldReference.into());
+            }
+        };
+
+        analysis_typecheck_cost(self, expected_type, &expr_type)?;
+        clarity2_inner_type_check_type(
+            self.db,
+            Some(&self.contract_context),
+            &expr_type,
+            expected_type,
+            1,
+            &mut self.cost_track,
+        )?;
+
+        // If we reach here with no errors, then the expression can be
+        // treated as the expected type.
+        expr_type = expected_type.clone();
+
+        runtime_cost(
+            ClarityCostFunction::AnalysisTypeAnnotate,
+            self,
+            expr_type.type_size()?,
+        )?;
+        self.type_map.set_type(expr, expr_type.clone())?;
+        Ok(expr_type)
+    }
+
     fn inner_type_check(
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
     ) -> TypeResult {
-        let type_sig = match expr.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
+        let expr_type = match expr.expr {
+            AtomValue(ref value) => TypeSignature::type_of(value),
+            LiteralValue(ref value) => TypeSignature::literal_type_of(value),
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {
@@ -758,10 +1250,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeAnnotate,
             self,
-            type_sig.type_size()?,
+            expr_type.type_size()?,
         )?;
-        self.type_map.set_type(expr, type_sig.clone())?;
-        Ok(type_sig)
+        self.type_map.set_type(expr, expr_type.clone())?;
+        Ok(expr_type)
     }
 
     fn type_check_define_variable(
@@ -820,7 +1312,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
     ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
-        let trait_signature = TypeSignature::parse_trait_type_repr(&function_types, &mut ())?;
+        let trait_signature =
+            TypeSignature::parse_trait_type_repr(&function_types, &mut (), self.clarity_version)?;
 
         Ok((trait_name.clone(), trait_signature))
     }
@@ -948,7 +1441,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         trait_type_size(&trait_signature)?,
                     )?;
                     self.contract_context
-                        .add_trait(trait_name, trait_signature)?;
+                        .add_defined_trait(trait_name, trait_signature)?;
                 }
                 DefineFunctionsParsed::UseTrait {
                     name,
@@ -967,8 +1460,11 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                                 type_size,
                             )?;
                             runtime_cost(ClarityCostFunction::AnalysisBindName, self, type_size)?;
-                            self.contract_context
-                                .add_trait(trait_identifier.name.clone(), trait_sig)?
+                            self.contract_context.add_used_trait(
+                                name.clone(),
+                                trait_identifier.clone(),
+                                trait_sig,
+                            )?
                         }
                         None => {
                             // still had to do a db read, even if it didn't exist!

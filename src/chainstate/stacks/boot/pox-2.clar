@@ -328,8 +328,8 @@
                            ;; calculate the index into the reward-set-indexes that `cycle` is at
                            (moved-cycle-index (- cycle (get first-reward-cycle moved-state)))
                            (moved-reward-list (get reward-set-indexes moved-state))
-                           ;; reward-set-indexes[moved-cycle-index] = set-index via slice, append, concat.
-                           (update-list (unwrap-panic (replace-at moved-reward-list moved-cycle-index set-index))))
+                           ;; reward-set-indexes[moved-cycle-index] = set-index via slice?, append, concat.
+                           (update-list (unwrap-panic (replace-at? moved-reward-list moved-cycle-index set-index))))
                           (map-set stacking-state { stacker: moved-stacker }
                                    (merge moved-state { reward-set-indexes: update-list })))
                      ;; otherwise, we dont need to update stacking-state after move
@@ -1041,7 +1041,7 @@
                                                        (old-indexes (get reward-set-indexes old-state))
                                                        ;; build index list by taking the old-indexes starting from cur cycle
                                                        ;;  and adding the new indexes to it. this way, the index is valid starting from the current cycle
-                                                       (new-list (concat (default-to (list) (slice old-indexes cur-cycle-index (len old-indexes)))
+                                                       (new-list (concat (default-to (list) (slice? old-indexes cur-cycle-index (len old-indexes)))
                                                                                    extended-reward-set-indexes)))
                                             (unwrap-panic (as-max-len? new-list u12)))
                                        extended-reward-set-indexes)))

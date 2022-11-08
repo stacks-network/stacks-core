@@ -17,7 +17,7 @@
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{TupleTypeSignature, TypeSignature, Value};
+use crate::vm::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 use std::error;
 use std::fmt;
 
@@ -122,6 +122,7 @@ pub enum CheckErrors {
     PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
+    ExpectedCallableType(TypeSignature),
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
@@ -168,9 +169,11 @@ pub enum CheckErrors {
     TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
+    DefineTraitDuplicateMethod(String),
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
+    IncompatibleTrait(TraitIdentifier, TraitIdentifier),
 
     // strings
     InvalidCharactersDetected,
@@ -378,6 +381,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{}' in '{}' is not read-only", contract_identifier, function_name),
             CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
+            CheckErrors::ExpectedCallableType(found_type) => format!("expected a callable contract, found {}", found_type),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
@@ -418,8 +422,10 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedTraitIdentifier => format!("expecting expression of type trait identifier"),
             CheckErrors::UnexpectedTraitOrFieldReference => format!("unexpected use of trait reference or field"),
             CheckErrors::DefineTraitBadSignature => format!("invalid trait definition"),
+            CheckErrors::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{}' in trait definition", method_name),
             CheckErrors::TraitReferenceNotAllowed => format!("trait references can not be stored"),
             CheckErrors::ContractOfExpectsTrait => format!("trait reference expected"),
+            CheckErrors::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{}' is not a compatible with expected trait, '{}'", actual_trait, expected_trait),
             CheckErrors::InvalidCharactersDetected => format!("invalid characters detected"),
             CheckErrors::InvalidUTF8Encoding => format!("invalid UTF8 encoding"),
             CheckErrors::InvalidSecp65k1Signature => format!("invalid seckp256k1 signature"),
