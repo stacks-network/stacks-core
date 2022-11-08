@@ -998,6 +998,7 @@ fn test_index_of() {
         CheckErrors::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 2).unwrap(),
+        ),
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
