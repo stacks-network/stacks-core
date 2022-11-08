@@ -147,6 +147,7 @@ define_named_enum!(ClarityCostFunction {
     ToConsensusBuff("cost_to_consensus_buff"),
     FromConsensusBuff("cost_from_consensus_buff"),
     StxTransferMemo("cost_stx_transfer_memo"),
+    ReplaceAt("cost_replace_at"),
     Unimplemented("cost_unimplemented"),
 });
 
