@@ -746,6 +746,7 @@ impl Config {
                     PrincipalData::parse(&c)
                         .expect(&format!("FATAL: not a valid principal identifier: {}", c))
                 }),
+                segwit: miner.segwit.unwrap_or(miner_default_config.segwit),
                 wait_for_block_download: miner_default_config.wait_for_block_download,
                 nonce_cache_size: miner
                     .nonce_cache_size
@@ -1694,6 +1695,8 @@ pub struct MinerConfig {
     pub microblock_attempt_time_ms: u64,
     pub probability_pick_no_estimate_tx: u8,
     pub block_reward_recipient: Option<PrincipalData>,
+    /// If possible, mine with a p2wpkh address
+    pub segwit: bool,
     /// Wait for a downloader pass before mining.
     /// This can only be disabled in testing; it can't be changed in the config file.
     pub wait_for_block_download: bool,
@@ -1710,6 +1713,7 @@ impl MinerConfig {
             microblock_attempt_time_ms: 30_000,
             probability_pick_no_estimate_tx: 5,
             block_reward_recipient: None,
+            segwit: false,
             wait_for_block_download: true,
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
@@ -1820,6 +1824,7 @@ pub struct MinerConfigFile {
     pub microblock_attempt_time_ms: Option<u64>,
     pub probability_pick_no_estimate_tx: Option<u8>,
     pub block_reward_recipient: Option<String>,
+    pub segwit: Option<bool>,
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
 }
