@@ -23,7 +23,7 @@ use std::convert::TryFrom;
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
-use crate::vm::types::signatures::SequenceSubtype;
+use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -31,7 +31,7 @@ use crate::vm::types::{
     FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
     BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
-use crate::vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -248,9 +248,7 @@ fn check_special_let(
             checker,
             typed_result.type_size()?,
         )?;
-        out_context
-            .variable_types
-            .insert(var_name.clone(), typed_result);
+        out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
         Ok(())
     })?;
 
@@ -353,6 +351,7 @@ fn check_special_if(
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
     TypeSignature::least_supertype(expr1, expr2)
+        .and_then(|t| t.concretize())
         .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }
 
@@ -403,36 +402,111 @@ fn check_contract_call(
             func_signature
         }
         SymbolicExpressionType::Atom(trait_instance) => {
-            // Dynamic dispatch
-            let trait_id = match context.lookup_trait_reference_type(trait_instance) {
-                Some(trait_id) => trait_id,
-                _ => {
-                    return Err(
-                        CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                    )
+            if checker.clarity_version < ClarityVersion::Clarity2 {
+                // Dynamic dispatch
+                let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                    Some(trait_id) => trait_id,
+                    _ => {
+                        return Err(
+                            CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
+                        )
+                    }
+                };
+
+                runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
+
+                let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                    CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                )?;
+                let func_signature =
+                    trait_signature
+                        .get(func_name)
+                        .ok_or(CheckErrors::TraitMethodUnknown(
+                            trait_id.name.to_string(),
+                            func_name.to_string(),
+                        ))?;
+
+                runtime_cost(
+                    ClarityCostFunction::AnalysisLookupFunctionTypes,
+                    &mut checker.cost_track,
+                    func_signature.total_type_size()?,
+                )?;
+
+                func_signature.clone()
+            } else {
+                // Clarity2+
+                match checker.contract_context.get_variable_type(trait_instance) {
+                    // Constant principal literal, static dispatch
+                    Some(TypeSignature::CallableType(CallableSubtype::Principal(
+                        contract_identifier,
+                    ))) => {
+                        let contract_call_function = {
+                            if let Some(FunctionType::Fixed(function)) = checker
+                                .db
+                                .get_public_function_type(&contract_identifier, func_name)?
+                            {
+                                Ok(function)
+                            } else if let Some(FunctionType::Fixed(function)) = checker
+                                .db
+                                .get_read_only_function_type(&contract_identifier, func_name)?
+                            {
+                                Ok(function)
+                            } else {
+                                Err(CheckError::new(CheckErrors::NoSuchPublicFunction(
+                                    contract_identifier.to_string(),
+                                    func_name.to_string(),
+                                )))
+                            }
+                        }?;
+
+                        let func_signature = FunctionSignature::from(contract_call_function);
+
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisGetFunctionEntry,
+                            checker,
+                            func_signature.total_type_size()?,
+                        )?;
+
+                        func_signature
+                    }
+                    Some(var_type) => {
+                        // Any other typed constant is an error
+                        return Err(CheckErrors::ExpectedCallableType(var_type.clone()).into());
+                    }
+                    _ => {
+                        // Dynamic dispatch
+                        let trait_id = match context.lookup_trait_reference_type(trait_instance) {
+                            Some(trait_id) => trait_id,
+                            _ => {
+                                return Err(CheckErrors::TraitReferenceUnknown(
+                                    trait_instance.to_string(),
+                                )
+                                .into())
+                            }
+                        };
+
+                        runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
+
+                        let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                            CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                        )?;
+                        let func_signature = trait_signature.get(func_name).ok_or(
+                            CheckErrors::TraitMethodUnknown(
+                                trait_id.name.to_string(),
+                                func_name.to_string(),
+                            ),
+                        )?;
+
+                        runtime_cost(
+                            ClarityCostFunction::AnalysisLookupFunctionTypes,
+                            &mut checker.cost_track,
+                            func_signature.total_type_size()?,
+                        )?;
+
+                        func_signature.clone()
+                    }
                 }
-            };
-
-            runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
-
-            let trait_signature = checker.contract_context.get_trait(&trait_id.name).ok_or(
-                CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
-            )?;
-            let func_signature =
-                trait_signature
-                    .get(func_name)
-                    .ok_or(CheckErrors::TraitMethodUnknown(
-                        trait_id.name.to_string(),
-                        func_name.to_string(),
-                    ))?;
-
-            runtime_cost(
-                ClarityCostFunction::AnalysisLookupFunctionTypes,
-                &mut checker.cost_track,
-                func_signature.total_type_size()?,
-            )?;
-
-            func_signature.clone()
+            }
         }
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName)),
     };
@@ -466,7 +540,7 @@ fn check_contract_of(
 
     checker
         .contract_context
-        .get_trait(&trait_id.name)
+        .get_trait(&trait_id)
         .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)

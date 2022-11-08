@@ -94,10 +94,11 @@ pub fn special_contract_call(
         SymbolicExpressionType::Atom(contract_ref) => {
             // Dynamic dispatch
             match context.lookup_callable_contract(contract_ref) {
-                Some((ref contract_identifier, trait_identifier)) => {
+                Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
-                    if *contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrors::CircularReference(vec![contract_identifier
+                    if trait_data.contract_identifier == env.contract_context.contract_identifier {
+                        return Err(CheckErrors::CircularReference(vec![trait_data
+                            .contract_identifier
                             .name
                             .to_string()])
                         .into());
@@ -106,18 +107,25 @@ pub fn special_contract_call(
                     let contract_to_check = env
                         .global_context
                         .database
-                        .get_contract(contract_identifier)
+                        .get_contract(&trait_data.contract_identifier)
                         .map_err(|_e| {
-                            CheckErrors::NoSuchContract(contract_identifier.to_string())
+                            CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
                         })?;
                     let contract_context_to_check = contract_to_check.contract_context;
+
+                    // This error case indicates a bad implementation. Only traits should be
+                    // added to callable_contracts.
+                    let trait_identifier = trait_data
+                        .trait_identifier
+                        .as_ref()
+                        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
                     if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
                     {
-                        (contract_identifier, None)
+                        (&trait_data.contract_identifier, None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
 
@@ -150,7 +158,7 @@ pub fn special_contract_call(
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
                             return Err(CheckErrors::NoSuchPublicFunction(
-                                contract_identifier.to_string(),
+                                trait_data.contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
                             .into());
@@ -168,7 +176,10 @@ pub fn special_contract_call(
                         let expected_sig = constraining_trait.get(function_name).ok_or(
                             CheckErrors::TraitMethodUnknown(trait_name, function_name.to_string()),
                         )?;
-                        (contract_identifier, Some(expected_sig.returns.clone()))
+                        (
+                            &trait_data.contract_identifier,
+                            Some(expected_sig.returns.clone()),
+                        )
                     }
                 }
                 _ => return Err(CheckErrors::ContractCallExpectName.into()),
