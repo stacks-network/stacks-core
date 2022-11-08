@@ -27,12 +27,12 @@ use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::execute_v2;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
-    TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TraitIdentifier, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
+use crate::vm::{execute_v2, ClarityName};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::MemoryBackingStore;
@@ -943,6 +943,7 @@ fn test_index_of() {
         "(index-of \"abcd\" \"z\")",
         "(index-of u\"abcd\" u\"e\")",
         "(index-of 0xfedb 0x01)",
+        "(index-of (list (list 1) (list 2)) (list))",
         "(index-of? (list 1 2 3 4 5 4) 100)",
         "(index-of? (list 1 2 3 4 5 4) 4)",
         "(index-of? \"abcd\" \"a\")",
@@ -971,6 +972,7 @@ fn test_index_of() {
         "(index-of 0xfedb \"a\")",
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
+        "(index-of (list (list 1) (list 2)) (list 33 44))",
         "(index-of? 3 \"a\")",
         "(index-of? (list 1 2 3 4) u1)",
         "(index-of? 0xfedb \"a\")",
@@ -992,6 +994,10 @@ fn test_index_of() {
         CheckErrors::TypeError(
             TypeSignature::min_string_ascii(),
             TypeSignature::min_string_utf8(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 2).unwrap(),
         ),
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
@@ -1521,6 +1527,7 @@ fn test_replace_at_list() {
         "(optional (list 2 (list 1 int)))",
         "(optional (list 2 (list 2 int)))",
         "(optional (list 1 (list 3 int)))",
+        "(optional (list 2 (list 1 int)))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -2256,13 +2263,27 @@ fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
          (+ (foo (bar 1)) 1)
          ";
 
-    assert!(match mem_type_check(contract).unwrap_err().err {
-        CheckErrors::TypeError(t1, t2) => {
-            t1 == TypeSignature::from_string("(optional bool)", version, epoch)
-                && t2 == TypeSignature::from_string("(optional int)", version, epoch)
-        }
-        _ => false,
-    });
+    if version < ClarityVersion::Clarity2 {
+        assert!(
+            match mem_run_analysis(contract, version, epoch).unwrap_err().err {
+                CheckErrors::TypeError(t1, t2) => {
+                    t1 == TypeSignature::from_string("(optional bool)", version, epoch)
+                        && t2 == TypeSignature::from_string("(optional int)", version, epoch)
+                }
+                _ => false,
+            }
+        );
+    } else {
+        assert!(
+            match mem_run_analysis(contract, version, epoch).unwrap_err().err {
+                CheckErrors::TypeError(t1, t2) => {
+                    t1 == TypeSignature::from_string("bool", version, epoch)
+                        && t2 == TypeSignature::from_string("int", version, epoch)
+                }
+                _ => false,
+            }
+        );
+    }
 }
 
 #[test]
@@ -3307,5 +3328,256 @@ fn test_principal_construct() {
 
     for (bad_test, expected) in bad_pairs.iter() {
         assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_trait_args() {
+    let good = [
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-outer (f <trait-foo>))
+            (begin
+                (call-foo f)
+            )
+        )",
+        "(define-trait trait-foobar
+            (
+                (foo () (response uint uint))
+                (bar () (response uint uint))
+            )
+        )
+        (define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-foobar (f <trait-foobar>))
+            (begin
+                (call-foo f)
+            )
+        )",
+    ];
+
+    let bad = ["(define-trait trait-bar
+            (
+                (bar () (response uint uint))
+            )
+        )
+        (define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (call-foo-foobar (f <trait-bar>))
+            (begin
+                (call-foo f)
+            )
+        )"];
+
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    let bad_expected = [CheckErrors::IncompatibleTrait(
+        TraitIdentifier {
+            name: ClarityName::from("trait-foo"),
+            contract_identifier: contract_identifier.clone(),
+        },
+        TraitIdentifier {
+            name: ClarityName::from("trait-bar"),
+            contract_identifier: contract_identifier.clone(),
+        },
+    )];
+
+    for good_test in good.iter() {
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &mem_type_check(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_wrapped_trait() {
+    let good = [
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo-if (opt (optional <trait-foo>)))
+            (match opt
+                f (contract-call? f foo)
+                (ok u1)
+            )
+        )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (call-foo (f <trait-foo>))
+            (unwrap! (contract-call? f foo) u2)
+        )
+        (define-public (call-foo-list (l (list 5 <trait-foo>)))
+            (ok (map call-foo l))
+        )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (return-f (f <trait-foo>))
+            (if true (ok f) (err u1))
+        )
+        (define-public (call-foo (f <trait-foo>))
+            (match (return-f f)
+                f-prime (contract-call? f-prime foo)
+                e (err u1)
+            )
+        )",
+        "(define-trait trait-foo ((foo () (response uint uint))))
+        (define-private (return-f (f <trait-foo>))
+            (if true (err f) (ok u1))
+        )
+        (define-public (call-foo (f <trait-foo>))
+            (match (return-f f)
+                v (ok v)
+                f-prime (contract-call? f-prime foo)
+            )
+        )",
+    ];
+
+    for good_test in good.iter() {
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+}
+
+#[test]
+fn test_let_bind_trait() {
+    let good = ["(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo (f <trait-foo>))
+            (let ((g f))
+                (contract-call? g foo)
+            )
+        )"];
+
+    for good_test in good.iter() {
+        assert!(mem_type_check(&good_test).is_ok());
+    }
+}
+
+#[apply(test_clarity_versions_type_checker)]
+fn test_trait_same_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = ["(define-trait trait-foo ((foo () (response uint uint))))
+        (define-public (call-foo (f <trait-foo>))
+            (contract-call? f foo)
+        )
+        (define-public (trigger (f <trait-foo>)) (call-foo f))"];
+
+    for good_test in good.iter() {
+        assert!(mem_run_analysis(&good_test, version, epoch).is_ok());
+    }
+}
+
+#[test]
+fn test_tuple_arg() {
+    let contract = "(define-private (add (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (add {a: 3, b: u5}))
+        ";
+
+    mem_type_check(contract).unwrap();
+
+    let bad_contracts = [
+        "(define-private (bad1 (value {a: int, b: uint}))
+            (get a value))
+        (define-private (test-call)
+            (bad1 {a: u3, b: u5}))
+        ",
+        "(define-private (bad2 (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (bad2 {a: 3}))
+        ",
+        "(define-private (bad3 (value {a: int, b: uint}))
+            (get a value))
+         (define-private (test-call)
+            (bad3 {a: 3, b: u5, c: 4}))
+        ",
+    ];
+    for bad_test in bad_contracts.iter() {
+        mem_type_check(&bad_test).unwrap_err();
+    }
+}
+
+#[apply(test_clarity_versions_type_checker)]
+fn test_list_arg(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1 2 3)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list)))
+        ",
+    ];
+
+    for good_test in good.iter() {
+        assert!(mem_run_analysis(&good_test, version, epoch).is_ok());
+    }
+
+    let bad = [
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list 1 2 3 4)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list u1)))
+        ",
+        "(define-private (foo (l (list 3 int)))
+            (element-at l u0))
+         (define-private (test-call)
+            (foo (list (list))))
+        ",
+    ];
+    let bad_expected = [
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::UIntType, 1).unwrap(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(), 1)
+                .unwrap(),
+        ),
+    ];
+    let bad_expected2 = [
+        CheckErrors::TypeError(
+            TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
+        ),
+        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::TypeError(
+            TypeSignature::IntType,
+            TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(),
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(
+        if version == ClarityVersion::Clarity1 {
+            bad_expected
+        } else {
+            bad_expected2
+        }
+        .iter(),
+    ) {
+        assert_eq!(
+            expected,
+            &mem_run_analysis(&bad_test, version, epoch).unwrap_err().err
+        );
     }
 }

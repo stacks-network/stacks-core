@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
@@ -184,7 +185,9 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
-            TraitReferenceType(_) => ContractInterfaceAtomType::trait_reference,
+            CallableType(CallableSubtype::Principal(_)) => ContractInterfaceAtomType::principal,
+            CallableType(CallableSubtype::Trait(_)) => ContractInterfaceAtomType::trait_reference,
+            ListUnionType(_) => ContractInterfaceAtomType::principal,
             TupleType(sig) => ContractInterfaceAtomType::from_tuple_type(sig),
             SequenceType(StringType(ASCII(len))) => {
                 ContractInterfaceAtomType::string_ascii { length: len.into() }

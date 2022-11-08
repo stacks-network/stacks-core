@@ -28,10 +28,12 @@ use crate::vm::errors::{
     RuntimeErrorType,
 };
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
-    BufferLength, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-    SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype, StringUTF8Length,
-    TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE,
+    BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype,
+    StringUTF8Length, TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES,
+    MAX_VALUE_SIZE,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
@@ -171,6 +173,7 @@ impl From<&Value> for TypePrefix {
             Sequence(List(_)) => TypePrefix::List,
             Sequence(String(CharType::ASCII(_))) => TypePrefix::StringASCII,
             Sequence(String(CharType::UTF8(_))) => TypePrefix::StringUTF8,
+            &CallableContract(_) => TypePrefix::PrincipalContract,
         }
     }
 }
@@ -351,7 +354,8 @@ impl TypeSignature {
                     .and_then(|x| x.checked_add(str_length_encode))
                     .ok_or_else(|| CheckErrors::ValueTooLarge)?
             }
-            TypeSignature::PrincipalType => {
+            TypeSignature::PrincipalType
+            | TypeSignature::CallableType(CallableSubtype::Principal(_)) => {
                 // version byte + 20 byte hash160
                 let maximum_issuer_size = 21;
                 let contract_name_length_encode = 1;
@@ -406,7 +410,8 @@ impl TypeSignature {
                 };
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
-            TypeSignature::TraitReferenceType(_) => {
+            TypeSignature::CallableType(CallableSubtype::Trait(_))
+            | TypeSignature::ListUnionType(_) => {
                 return Err(CheckErrors::CouldNotDetermineSerializationType)
             }
         };
@@ -728,7 +733,11 @@ impl Value {
             Int(value) => w.write_all(&value.to_be_bytes())?,
             UInt(value) => w.write_all(&value.to_be_bytes())?,
             Principal(Standard(data)) => data.serialize_write(w)?,
-            Principal(Contract(contract_identifier)) => {
+            Principal(Contract(contract_identifier))
+            | CallableContract(CallableData {
+                contract_identifier,
+                trait_identifier: _,
+            }) => {
                 contract_identifier.issuer.serialize_write(w)?;
                 contract_identifier.name.serialize_write(w)?;
             }
