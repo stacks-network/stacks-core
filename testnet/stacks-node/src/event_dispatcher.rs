@@ -37,6 +37,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::TransactionPayload;
+use stacks_common::types::StacksEpochId;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -350,6 +351,8 @@ impl EventObserver {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        epoch_id: StacksEpochId,
+        epoch_transition: bool,
     ) {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -389,6 +392,8 @@ impl EventObserver {
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
             "anchored_cost": anchored_consumed,
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
+            "epoch_id": epoch_id,
+            "epoch_transition": epoch_transition,
         });
 
         // Send payload
@@ -468,6 +473,7 @@ impl BlockEventDispatcher for EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        epoch_id: StacksEpochId
     ) {
         self.process_chain_tip(
             block,
@@ -482,6 +488,7 @@ impl BlockEventDispatcher for EventDispatcher {
             parent_burn_block_timestamp,
             anchored_consumed,
             mblock_confirmed_consumed,
+            epoch_id,
         )
     }
 
@@ -672,6 +679,7 @@ impl EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        epoch_id: StacksEpochId,
     ) {
         let boot_receipts = if metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
@@ -738,6 +746,7 @@ impl EventDispatcher {
                     parent_burn_block_timestamp,
                     anchored_consumed,
                     mblock_confirmed_consumed,
+                    epoch_id,
                 );
             }
         }

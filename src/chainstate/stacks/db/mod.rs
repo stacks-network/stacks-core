@@ -185,6 +185,7 @@ pub struct StacksEpochReceipt {
     /// which is the Stacks epoch that this block's parent was elected
     /// in.
     pub evaluated_epoch: StacksEpochId,
+    pub epoch_transition: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

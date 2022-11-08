@@ -2131,6 +2131,7 @@ pub mod test {
     use crate::util_lib::boot::boot_code_test_addr;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::StacksEpochId;
 
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -2366,6 +2367,8 @@ pub mod test {
             parent_burn_block_timestamp: u64,
             _anchor_block_cost: &ExecutionCost,
             _confirmed_mblock_cost: &ExecutionCost,
+            epoch_id: StacksEpochId,
+            epoch_transition: bool,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),

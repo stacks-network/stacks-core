@@ -198,6 +198,8 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
+        _epoch_id: StacksEpochId,
+        _epoch_transition: bool,
     ) {
         assert!(
             false,
@@ -5889,6 +5891,7 @@ impl StacksChainState {
             parent_burn_block_height,
             parent_burn_block_timestamp,
             evaluated_epoch,
+            epoch_transition: applied_epoch_transition
         };
 
         Ok((epoch_receipt, clarity_commit))
@@ -6317,6 +6320,8 @@ impl StacksChainState {
                 epoch_receipt.parent_burn_block_timestamp,
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
+                epoch_receipt.evaluated_epoch,
+                epoch_receipt.epoch_transition,
             );
         }
 

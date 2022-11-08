@@ -62,6 +62,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId,
 };
 use clarity::vm::database::BurnStateDB;
+use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 
@@ -135,6 +136,8 @@ pub trait BlockEventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        epoch_id: StacksEpochId,
+        epoch_transition: bool,
     );
 
     /// called whenever a burn block is about to be

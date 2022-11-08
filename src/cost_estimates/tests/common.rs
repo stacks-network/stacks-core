@@ -47,5 +47,6 @@ pub fn make_block_receipt(tx_receipts: Vec<StacksTransactionReceipt>) -> StacksE
         parent_burn_block_height: 1,
         parent_burn_block_timestamp: 1,
         evaluated_epoch: StacksEpochId::Epoch20,
+        epoch_transition: false,
     }
 }
