@@ -155,9 +155,14 @@ impl DelegateStxOp {
             op_error::ParseError
         })?;
 
-        let delegate_to = outputs[0]
-            .address
+        let delegate_to = outputs
+            .get(0)
+            .ok_or(op_error::InvalidInput)?
+            .as_ref()
+            .ok_or(op_error::InvalidInput)?
             .clone()
+            .address
+            .coerce_hash_mode()
             .try_into_stacks_address()
             .ok_or_else(|| {
                 warn!("Invalid tx: output 1 must be representable as a StacksAddress");
@@ -173,8 +178,10 @@ impl DelegateStxOp {
                     outputs
                         .get(index as usize)
                         .expect("Index should be in bounds.")
-                        .address
+                        .as_ref()
+                        .ok_or(op_error::InvalidInput)?
                         .clone()
+                        .address
                         .coerce_hash_mode(),
                 ))
             } else {
@@ -253,7 +260,10 @@ impl StacksMessageCodec for DelegateStxOp {
 }
 
 mod tests {
-    use crate::burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use crate::burnchains::bitcoin::address::{
+        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+    };
+    use crate::burnchains::bitcoin::BitcoinTxInputStructured;
     use crate::burnchains::bitcoin::{
         BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
     };
@@ -285,36 +295,40 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data,
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }
+                    .into(),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([3; 20]),
-                    },
+                    }
+                    .into(),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([4; 20]),
-                    },
+                    }
+                    .into(),
                 },
             ],
         };
@@ -337,7 +351,9 @@ mod tests {
             &Some((
                 1,
                 PoxAddress::Standard(
-                    StacksAddress::from_bitcoin_address(&tx.outputs[1].address),
+                    StacksAddress::from_legacy_bitcoin_address(
+                        &tx.outputs[1].address.clone().expect_legacy()
+                    ),
                     Some(AddressHashMode::SerializeP2PKH)
                 )
             ))
@@ -359,28 +375,31 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data,
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }
+                    .into(),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([4; 20]),
-                    },
+                    }
+                    .into(),
                 },
             ],
         };
@@ -414,19 +433,21 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data: vec![1; 20],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([2; 20]),
-                },
+                }
+                .into(),
             }],
         };
 
@@ -454,19 +475,21 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data: vec![1; 17],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([2; 20]),
-                },
+                }
+                .into(),
             }],
         };
 
@@ -498,19 +521,21 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([2; 20]),
-                },
+                }
+                .into(),
             }],
         };
 
@@ -543,12 +568,13 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![],
         };
 
@@ -586,36 +612,40 @@ mod tests {
             opcode: Opcodes::DelegateStx as u8,
             data,
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }
+                    .into(),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([3; 20]),
-                    },
+                    }
+                    .into(),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([4; 20]),
-                    },
+                    }
+                    .into(),
                 },
             ],
         };
@@ -638,7 +668,9 @@ mod tests {
             &Some((
                 2,
                 PoxAddress::Standard(
-                    StacksAddress::from_bitcoin_address(&tx.outputs[2].address),
+                    StacksAddress::from_legacy_bitcoin_address(
+                        &tx.outputs[2].address.clone().expect_legacy()
+                    ),
                     Some(AddressHashMode::SerializeP2PKH)
                 )
             ))
