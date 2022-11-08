@@ -628,6 +628,7 @@ Observe that the second parameter (number of positions to shift) must be of type
     example: "(<< 2 u1) ;; Returns 4
 (<< 16 u2) ;; Returns 64
 (<< -64 u1) ;; Returns -128
+(<< u4 u2) ;; Returns u16
 "
 };
 
@@ -647,6 +648,7 @@ Observe that the second parameter (number of positions to shift) must be of type
     example: "(>> 2 u1) ;; Returns 1
 (>> 128 u2) ;; Returns 32
 (>> -64 u1) ;; Returns -32
+(>> u128 u2) ;; Returns u32
 "
 };
 
