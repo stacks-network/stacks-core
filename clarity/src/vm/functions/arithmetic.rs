@@ -252,8 +252,19 @@ macro_rules! make_arithmetic_ops {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
-            fn bitwise_and(x: $type, y: $type) -> InterpreterResult<Value> {
-                Self::make_value(x & y)
+            fn bitwise_xor2(args: &[$type]) -> InterpreterResult<Value> {
+                let result = args
+                    .iter()
+                    .fold(0, |acc: $type, x: &$type| (acc ^ x));
+                Self::make_value(result)
+            }
+            fn bitwise_and(args: &[$type]) -> InterpreterResult<Value> {
+                let first: $type = args[0];
+                let result = args
+                    .iter()
+                    .skip(1)
+                    .fold(first, |acc: $type, x: &$type| (acc & x));
+                Self::make_value(result)
             }
             fn bitwise_or(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
@@ -382,12 +393,18 @@ make_comparison_ops!(BuffOps, Vec<u8>);
 make_arithmetic_ops_with_uint_as_2nd_arg!(I128Ops, i128, u128);
 make_arithmetic_ops_with_uint_as_2nd_arg!(U128Ops, u128, u128);
 
+// Used for the `xor` function.
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
 
-pub fn native_bitwise_and(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic!(bitwise_and, a, b)
+// Used for the `^` xor function.
+pub fn native_bitwise_xor(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_xor2, args)
+}
+
+pub fn native_bitwise_and(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_and, args)
 }
 
 pub fn native_bitwise_or(mut args: Vec<Value>) -> InterpreterResult<Value> {

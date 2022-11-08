@@ -612,7 +612,7 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
         match function {
-            Add | Subtract | Divide | Multiply | BitwiseOr => {
+            Add | Subtract | Divide | Multiply | BitwiseOr | BitwiseAnd | BitwiseXor2 => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic))
             }
             CmpGeq | CmpLeq | CmpLess | CmpGreater => {
@@ -620,7 +620,7 @@ impl TypedNativeFunction {
             }
             Sqrti | Log2 | BitwiseNot => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
             BitwiseLShift | BitwiseRShift => Simple(SimpleNativeFunction(FunctionType::ArithmeticBinaryUIntAsSecondArg)),
-            Modulo | Power | BitwiseXor | BitwiseAnd | BitwiseXor2 => {
+            Modulo | Power | BitwiseXor => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
             And | Or => Simple(SimpleNativeFunction(FunctionType::Variadic(

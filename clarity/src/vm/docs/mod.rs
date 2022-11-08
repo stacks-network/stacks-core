@@ -575,19 +575,26 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "^ ${1:expr-1} ${2:expr-2}",
-    signature: "(^ i1 i2)",
-    description: "Alias for the `xor` function.  Returns the result of bitwise exclusive or'ing `i1` with `i2`.",
+    signature: "(^ i1 i2...)",
+    description: "Alias for the `xor` function.  Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
     example: "(^ 1 2) ;; Returns 3
 (^ 120 280) ;; Returns 352
+(^ -128 64) ;; Returns -64
+(^ u24 u4) ;; Returns u28
+(^ 1 2 4 -1) ;; Returns -8
 ",
 };
 
 const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("& (bitwise and)"),
     snippet: "& ${1:expr-1} ${2:expr-2}",
-    signature: "(& i1 i2)",
-    description: "Returns the result of bitwise and'ing `i1` with `i2`.",
+    signature: "(& i1 i2...)",
+    description: "Returns the result of bitwise and'ing a variable number of integer inputs.",
     example: "(& 24 16) ;; Returns 16
+(& 28 24 -1) ;; Returns 24
+(& u24 u16) ;; Returns u16
+(& -128 -64) ;; Returns -128
+(& 28 24 -1) ;; Returns 24
 "
 };
 

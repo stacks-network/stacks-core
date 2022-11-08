@@ -525,7 +525,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
             BitwiseAnd => NativeFunction(
                 "native_bitwise_and",
-                NativeHandle::DoubleArg(&arithmetic::native_bitwise_and),
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
                 ClarityCostFunction::BitwiseAnd,
             ),
             BitwiseOr => NativeFunction(
@@ -549,8 +549,8 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 ClarityCostFunction::BitwiseRShift,
             ),
             BitwiseXor2 => NativeFunction(
-                "native_xor",
-                NativeHandle::DoubleArg(&arithmetic::native_xor),
+                "native_bitwise_xor",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor
             )
         };

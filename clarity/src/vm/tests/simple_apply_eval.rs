@@ -1304,6 +1304,8 @@ fn test_bitwise() {
         "(| 1 2 4)",            // 7
         "(| 64 -32 -16)",       // -16
         "(| u2 u4 u32)",        // u38
+        "(& 28 24 -1)",         // 24
+        "(^ 1 2 4 -1)",         // -8
     ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -1329,6 +1331,8 @@ fn test_bitwise() {
         Ok(Value::Int(7)),      // (| 1 2 4)
         Ok(Value::Int(-16)),    // (| 64 -32 -16)
         Ok(Value::UInt(38)),    // (| u2 u4 u32)
+        Ok(Value::Int(24)),     // (& 28 24 -1)
+        Ok(Value::Int(-8)),     // (^ 1 2 4 -1)
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
