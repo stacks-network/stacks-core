@@ -240,8 +240,8 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
-                        txid,
-                        vtxindex,
+                        txid: payload.txid,
+                        vtxindex: payload.vtxindex,
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload

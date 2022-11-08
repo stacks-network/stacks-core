@@ -206,7 +206,6 @@ use stacks::vm::costs::ExecutionCost;
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
-use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
 use crate::operations::BurnchainOpSigner;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
