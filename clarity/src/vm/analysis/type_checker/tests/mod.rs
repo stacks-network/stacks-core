@@ -654,8 +654,8 @@ fn test_index_of() {
         "(index-of 0xfedb \"a\")",
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
-        "(index-of (list) none)",       // cannot determine type of list element
-        "(index-of (list) (ok u1))",    // cannot determine complete type of list element
+        "(index-of (list) none)",    // cannot determine type of list element
+        "(index-of (list) (ok u1))", // cannot determine complete type of list element
         "(index-of (list) (err none))", // cannot determine complete type of list element
     ];
 
