@@ -94,32 +94,32 @@ fn ascii_type(size: u32) -> TypeSignature {
 #[test]
 fn test_from_consensus_buff() {
     let good = [
-        ("(from-consensus-buff int 0x00)", "(optional int)"),
+        ("(from-consensus-buff? int 0x00)", "(optional int)"),
         (
-            "(from-consensus-buff { a: uint, b: principal } 0x00)",
+            "(from-consensus-buff? { a: uint, b: principal } 0x00)",
             "(optional (tuple (a uint) (b principal)))",
         ),
     ];
 
     let bad = [
         (
-            "(from-consensus-buff)",
+            "(from-consensus-buff?)",
             CheckErrors::IncorrectArgumentCount(2, 0),
         ),
         (
-            "(from-consensus-buff 0x00 0x00 0x00)",
+            "(from-consensus-buff? 0x00 0x00 0x00)",
             CheckErrors::IncorrectArgumentCount(2, 3),
         ),
         (
-            "(from-consensus-buff 0x00 0x00)",
+            "(from-consensus-buff? 0x00 0x00)",
             CheckErrors::InvalidTypeDescription,
         ),
         (
-            "(from-consensus-buff int u6)",
+            "(from-consensus-buff? int u6)",
             CheckErrors::TypeError(TypeSignature::max_buffer(), TypeSignature::UIntType),
         ),
         (
-            "(from-consensus-buff (buff 1048576) 0x00)",
+            "(from-consensus-buff? (buff 1048576) 0x00)",
             CheckErrors::ValueTooLarge,
         ),
     ];
@@ -143,46 +143,46 @@ fn test_from_consensus_buff() {
 fn test_to_consensus_buff() {
     let good = [
         (
-            "(to-consensus-buff (if true (some u1) (some u2)))",
+            "(to-consensus-buff? (if true (some u1) (some u2)))",
             "(optional (buff 18))",
         ),
         (
-            "(to-consensus-buff (if true (ok u1) (ok u2)))",
+            "(to-consensus-buff? (if true (ok u1) (ok u2)))",
             "(optional (buff 18))",
         ),
         (
-            "(to-consensus-buff (if true (ok 1) (err u2)))",
+            "(to-consensus-buff? (if true (ok 1) (err u2)))",
             "(optional (buff 18))",
         ),
         (
-            "(to-consensus-buff (if true (ok 1) (err true)))",
+            "(to-consensus-buff? (if true (ok 1) (err true)))",
             "(optional (buff 18))",
         ),
         (
-            "(to-consensus-buff (if true (ok false) (err true)))",
+            "(to-consensus-buff? (if true (ok false) (err true)))",
             "(optional (buff 2))",
         ),
         (
-            "(to-consensus-buff (if true (err u1) (err u2)))",
+            "(to-consensus-buff? (if true (err u1) (err u2)))",
             "(optional (buff 18))",
         ),
-        ("(to-consensus-buff none)", "(optional (buff 1))"),
-        ("(to-consensus-buff 0x00)", "(optional (buff 6))"),
-        ("(to-consensus-buff \"a\")", "(optional (buff 6))"),
-        ("(to-consensus-buff u\"ab\")", "(optional (buff 13))"),
-        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", "(optional (buff 151))"),
-        ("(to-consensus-buff 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)", "(optional (buff 151))"),
-        ("(to-consensus-buff true)", "(optional (buff 1))"),
-        ("(to-consensus-buff -1)", "(optional (buff 17))"),
-        ("(to-consensus-buff u1)", "(optional (buff 17))"),
-        ("(to-consensus-buff (list 1 2 3 4))", "(optional (buff 73))"),
+        ("(to-consensus-buff? none)", "(optional (buff 1))"),
+        ("(to-consensus-buff? 0x00)", "(optional (buff 6))"),
+        ("(to-consensus-buff? \"a\")", "(optional (buff 6))"),
+        ("(to-consensus-buff? u\"ab\")", "(optional (buff 13))"),
+        ("(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)", "(optional (buff 151))"),
+        ("(to-consensus-buff? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.abcdeabcdeabcdeabcdeabcdeabcdeabcdeabcde)", "(optional (buff 151))"),
+        ("(to-consensus-buff? true)", "(optional (buff 1))"),
+        ("(to-consensus-buff? -1)", "(optional (buff 17))"),
+        ("(to-consensus-buff? u1)", "(optional (buff 17))"),
+        ("(to-consensus-buff? (list 1 2 3 4))", "(optional (buff 73))"),
         (
-            "(to-consensus-buff { apple: u1, orange: 2, blue: true })",
+            "(to-consensus-buff? { apple: u1, orange: 2, blue: true })",
             "(optional (buff 58))",
         ),
         (
             "(define-private (my-func (x (buff 1048566)))
-           (to-consensus-buff x))
+           (to-consensus-buff? x))
           (my-func 0x001122334455)
          ",
             "(optional (buff 1048571))",
@@ -191,26 +191,26 @@ fn test_to_consensus_buff() {
 
     let bad = [
         (
-            "(to-consensus-buff)",
+            "(to-consensus-buff?)",
             CheckErrors::IncorrectArgumentCount(1, 0),
         ),
         (
-            "(to-consensus-buff 0x00 0x00)",
+            "(to-consensus-buff? 0x00 0x00)",
             CheckErrors::IncorrectArgumentCount(1, 2),
         ),
         (
             "(define-private (my-func (x (buff 1048576)))
-           (to-consensus-buff x))",
+           (to-consensus-buff? x))",
             CheckErrors::ValueTooLarge,
         ),
         (
             "(define-private (my-func (x (buff 1048570)))
-           (to-consensus-buff x))",
+           (to-consensus-buff? x))",
             CheckErrors::ValueTooLarge,
         ),
         (
             "(define-private (my-func (x (buff 1048567)))
-           (to-consensus-buff x))",
+           (to-consensus-buff? x))",
             CheckErrors::ValueTooLarge,
         ),
     ];
@@ -944,6 +944,17 @@ fn test_index_of() {
         "(index-of u\"abcd\" u\"e\")",
         "(index-of 0xfedb 0x01)",
         "(index-of (list (list 1) (list 2)) (list))",
+        "(index-of? (list 1 2 3 4 5 4) 100)",
+        "(index-of? (list 1 2 3 4 5 4) 4)",
+        "(index-of? \"abcd\" \"a\")",
+        "(index-of? u\"abcd\" u\"a\")",
+        "(index-of? 0xfedb 0xdb)",
+        "(index-of? \"abcd\" \"\")",
+        "(index-of? u\"abcd\" u\"\")",
+        "(index-of? 0xfedb 0x)",
+        "(index-of? \"abcd\" \"z\")",
+        "(index-of? u\"abcd\" u\"e\")",
+        "(index-of? 0xfedb 0x01)",
     ];
 
     let expected = "(optional uint)";
@@ -962,6 +973,11 @@ fn test_index_of() {
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
         "(index-of (list (list 1) (list 2)) (list 33 44))",
+        "(index-of? 3 \"a\")",
+        "(index-of? (list 1 2 3 4) u1)",
+        "(index-of? 0xfedb \"a\")",
+        "(index-of? u\"a\" \"a\")",
+        "(index-of? \"a\" u\"a\")",
     ];
 
     let bad_expected = [
@@ -982,6 +998,19 @@ fn test_index_of() {
         CheckErrors::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 2).unwrap(),
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::TypeError(
+            TypeSignature::min_buffer(),
+            TypeSignature::min_string_ascii(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii(),
+        ),
+        CheckErrors::TypeError(
+            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8(),
         ),
     ];
 
@@ -998,6 +1027,11 @@ fn test_element_at() {
         "(element-at \"abcd\" u100)",
         "(element-at 0xfedb u100)",
         "(element-at u\"abcd\" u100)",
+        "(element-at? (list 1 2 3 4 5) u100)",
+        "(element-at? (list 1 2 3 4 5) (+ u1 u2))",
+        "(element-at? \"abcd\" u100)",
+        "(element-at? 0xfedb u100)",
+        "(element-at? u\"abcd\" u100)",
     ];
 
     let expected = [
@@ -1006,11 +1040,23 @@ fn test_element_at() {
         "(optional (string-ascii 1))",
         "(optional (buff 1))",
         "(optional (string-utf8 1))",
+        "(optional int)",
+        "(optional int)",
+        "(optional (string-ascii 1))",
+        "(optional (buff 1))",
+        "(optional (string-utf8 1))",
     ];
 
-    let bad = ["(element-at (list 1 2 3 4 5) 100)", "(element-at 3 u100)"];
+    let bad = [
+        "(element-at (list 1 2 3 4 5) 100)",
+        "(element-at 3 u100)",
+        "(element-at? (list 1 2 3 4 5) 100)",
+        "(element-at? 3 u100)",
+    ];
 
     let bad_expected = [
+        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
     ];
@@ -1328,11 +1374,11 @@ fn test_native_append() {
 #[test]
 fn test_slice_list() {
     let good = [
-        "(slice (list 2 3 4 5 6 7 8) u0 u3)",
-        "(slice (list u0 u1 u2 u3 u4) u3 u2)",
-        "(slice (list 2 3 4 5 6 7 8) u0 u0)",
-        "(slice (list 2 3 4 5 6 7 8) u10 u3)",
-        "(slice (list) u0 u3)",
+        "(slice? (list 2 3 4 5 6 7 8) u0 u3)",
+        "(slice? (list u0 u1 u2 u3 u4) u3 u2)",
+        "(slice? (list 2 3 4 5 6 7 8) u0 u0)",
+        "(slice? (list 2 3 4 5 6 7 8) u10 u3)",
+        "(slice? (list) u0 u3)",
     ];
     let expected = [
         "(optional (list 7 int))",
@@ -1350,9 +1396,9 @@ fn test_slice_list() {
     }
 
     let bad = [
-        "(slice (list 2 3) 3 u4)",
-        "(slice (list 2 3) u3 4)",
-        "(slice (list u0) u1)",
+        "(slice? (list 2 3) 3 u4)",
+        "(slice? (list 2 3) u3 4)",
+        "(slice? (list u0) u1)",
     ];
 
     let bad_expected = [
@@ -1368,8 +1414,8 @@ fn test_slice_list() {
 #[test]
 fn test_slice_buff() {
     let good = [
-        "(slice 0x000102030405 u0 u3)",
-        "(slice 0x000102030405 u3 u2)",
+        "(slice? 0x000102030405 u0 u3)",
+        "(slice? 0x000102030405 u3 u2)",
     ];
     let expected = ["(optional (buff 6))", "(optional (buff 6))"];
 
@@ -1381,9 +1427,9 @@ fn test_slice_buff() {
     }
 
     let bad = [
-        "(slice 0x000102030405 3 u4)",
-        "(slice 0x000102030405 u3 4)",
-        "(slice 0x000102030405 u1)",
+        "(slice? 0x000102030405 3 u4)",
+        "(slice? 0x000102030405 u3 4)",
+        "(slice? 0x000102030405 u1)",
     ];
 
     let bad_expected = [
@@ -1399,8 +1445,8 @@ fn test_slice_buff() {
 #[test]
 fn test_slice_ascii() {
     let good = [
-        "(slice \"blockstack\" u4 u5)",
-        "(slice \"blockstack\" u0 u5)",
+        "(slice? \"blockstack\" u4 u5)",
+        "(slice? \"blockstack\" u0 u5)",
     ];
     let expected = [
         "(optional (string-ascii 10))",
@@ -1415,9 +1461,9 @@ fn test_slice_ascii() {
     }
 
     let bad = [
-        "(slice \"blockstack\" 3 u4)",
-        "(slice \"blockstack\" u3 4)",
-        "(slice \"blockstack\" u1)",
+        "(slice? \"blockstack\" 3 u4)",
+        "(slice? \"blockstack\" u3 4)",
+        "(slice? \"blockstack\" u1)",
     ];
 
     let bad_expected = [
@@ -1433,8 +1479,8 @@ fn test_slice_ascii() {
 #[test]
 fn test_slice_utf8() {
     let good = [
-        "(slice u\"blockstack\" u4 u5)",
-        "(slice u\"blockstack\" u4 u5)",
+        "(slice? u\"blockstack\" u4 u5)",
+        "(slice? u\"blockstack\" u4 u5)",
     ];
     let expected = ["(optional (string-utf8 10))", "(optional (string-utf8 10))"];
 
@@ -1446,9 +1492,9 @@ fn test_slice_utf8() {
     }
 
     let bad = [
-        "(slice u\"blockstack\" 3 u4)",
-        "(slice u\"blockstack\" u3 4)",
-        "(slice u\"blockstack\" u1)",
+        "(slice? u\"blockstack\" 3 u4)",
+        "(slice? u\"blockstack\" u3 4)",
+        "(slice? u\"blockstack\" u1)",
     ];
 
     let bad_expected = [
@@ -1464,14 +1510,13 @@ fn test_slice_utf8() {
 #[test]
 fn test_replace_at_list() {
     let good = [
-        "(replace-at (list 2 3 4 5 6 7 8) u0 10)",
-        "(replace-at (list u0 u1 u2 u3 u4) u3 u10)",
-        "(replace-at (list true) u0 false)",
-        "(replace-at (list 2 3 4 5 6 7 8) u6 10)",
-        "(replace-at (list (list 1) (list 2)) u0 (list 33))",
-        "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
-        "(replace-at (list (list 1 2 3)) u0 (list 0))",
-        "(replace-at (list (list 1) (list 2)) u0 (list))",
+        "(replace-at? (list 2 3 4 5 6 7 8) u0 10)",
+        "(replace-at? (list u0 u1 u2 u3 u4) u3 u10)",
+        "(replace-at? (list true) u0 false)",
+        "(replace-at? (list 2 3 4 5 6 7 8) u6 10)",
+        "(replace-at? (list (list 1) (list 2)) u0 (list 33))",
+        "(replace-at? (list (list 1 2) (list 3 4)) u0 (list 0))",
+        "(replace-at? (list (list 1 2 3)) u0 (list 0))",
     ];
     let expected = [
         "(optional (list 7 int))",
@@ -1492,12 +1537,12 @@ fn test_replace_at_list() {
     }
 
     let bad = [
-        "(replace-at (list 2 3) u0 (list 4))",
-        "(replace-at (list 2 3) u0 true)",
-        "(replace-at (list 2 3) 0 4)",
-        "(replace-at (list 2 3) u0 4 5)",
-        "(replace-at (list u0) u0)",
-        "(replace-at (list (list 1) (list 2)) u0 (list 33 44))",
+        "(replace-at? (list 2 3) u0 (list 4))",
+        "(replace-at? (list 2 3) u0 true)",
+        "(replace-at? (list 2 3) 0 4)",
+        "(replace-at? (list 2 3) u0 4 5)",
+        "(replace-at? (list u0) u0)",
+        "(replace-at? (list (list 1) (list 2)) u0 (list 33 44))",
     ];
 
     let bad_expected = [
@@ -1522,10 +1567,10 @@ fn test_replace_at_list() {
 #[test]
 fn test_replace_at_buff() {
     let good = [
-        "(replace-at 0x00112233 u0 0x44)",
-        "(replace-at 0x00112233 u3 0x66)",
-        "(replace-at 0x00 u0 0x22)",
-        "(replace-at 0x001122334455 u2 0x66)",
+        "(replace-at? 0x00112233 u0 0x44)",
+        "(replace-at? 0x00112233 u3 0x66)",
+        "(replace-at? 0x00 u0 0x22)",
+        "(replace-at? 0x001122334455 u2 0x66)",
     ];
     let expected = [
         "(optional (buff 4))",
@@ -1542,12 +1587,12 @@ fn test_replace_at_buff() {
     }
 
     let bad = [
-        "(replace-at 0x0011 u0 (list 0))",
-        "(replace-at 0x0011 u0 \"a\")",
-        "(replace-at 0x0011 0 0x22)",
-        "(replace-at 0x0011 u0 0x44 0x55)",
-        "(replace-at 0x11 u0)",
-        "(replace-at 0x001122334455 u2 0x6677)",
+        "(replace-at? 0x0011 u0 (list 0))",
+        "(replace-at? 0x0011 u0 \"a\")",
+        "(replace-at? 0x0011 0 0x22)",
+        "(replace-at? 0x0011 u0 0x44 0x55)",
+        "(replace-at? 0x11 u0)",
+        "(replace-at? 0x001122334455 u2 0x6677)",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
@@ -1577,10 +1622,10 @@ fn test_replace_at_buff() {
 #[test]
 fn test_replace_at_ascii() {
     let good = [
-        "(replace-at \"abcd\" u0 \"f\")",
-        "(replace-at \"abcd\" u3 \"f\")",
-        "(replace-at \"a\" u0 \"f\")",
-        "(replace-at \"abcdefg\" u2 \"h\")",
+        "(replace-at? \"abcd\" u0 \"f\")",
+        "(replace-at? \"abcd\" u3 \"f\")",
+        "(replace-at? \"a\" u0 \"f\")",
+        "(replace-at? \"abcdefg\" u2 \"h\")",
     ];
     let expected = [
         "(optional (string-ascii 4))",
@@ -1598,12 +1643,12 @@ fn test_replace_at_ascii() {
     }
 
     let bad = [
-        "(replace-at \"abcd\" u0 (list 0))",
-        "(replace-at \"abcd\" u0 0x00)",
-        "(replace-at \"abcd\" 0 \"e\")",
-        "(replace-at \"abcd\" u0 \"a\" \"d\")",
-        "(replace-at \"abcd\" u0)",
-        "(replace-at \"abcdefg\" u2 \"hi\")",
+        "(replace-at? \"abcd\" u0 (list 0))",
+        "(replace-at? \"abcd\" u0 0x00)",
+        "(replace-at? \"abcd\" 0 \"e\")",
+        "(replace-at? \"abcd\" u0 \"a\" \"d\")",
+        "(replace-at? \"abcd\" u0)",
+        "(replace-at? \"abcdefg\" u2 \"hi\")",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
@@ -1633,10 +1678,10 @@ fn test_replace_at_ascii() {
 #[test]
 fn test_replace_at_utf8() {
     let good = [
-        "(replace-at u\"abcd\" u0 u\"f\")",
-        "(replace-at u\"abcd\" u3 u\"f\")",
-        "(replace-at u\"a\" u0 u\"f\")",
-        "(replace-at u\"abcdefg\" u2 u\"h\")",
+        "(replace-at? u\"abcd\" u0 u\"f\")",
+        "(replace-at? u\"abcd\" u3 u\"f\")",
+        "(replace-at? u\"a\" u0 u\"f\")",
+        "(replace-at? u\"abcdefg\" u2 u\"h\")",
     ];
     let expected = [
         "(optional (string-utf8 4))",
@@ -1653,12 +1698,12 @@ fn test_replace_at_utf8() {
     }
 
     let bad = [
-        "(replace-at u\"abcd\" u0 (list 0))",
-        "(replace-at u\"abcd\" u0 0x00)",
-        "(replace-at u\"abcd\" 0 u\"a\")",
-        "(replace-at u\"abcd\" u0 u\"a\" u\"d\")",
-        "(replace-at u\"abcd\" u0)",
-        "(replace-at u\"abcdefg\" u2 u\"hi\")",
+        "(replace-at? u\"abcd\" u0 (list 0))",
+        "(replace-at? u\"abcd\" u0 0x00)",
+        "(replace-at? u\"abcd\" 0 u\"a\")",
+        "(replace-at? u\"abcd\" u0 u\"a\" u\"d\")",
+        "(replace-at? u\"abcd\" u0)",
+        "(replace-at? u\"abcdefg\" u2 u\"hi\")",
     ];
 
     let buff_len = BufferLength::try_from(1u32).unwrap();
@@ -1958,10 +2003,10 @@ fn test_string_to_ints() {
         r#"(int-to-ascii u1)"#,
         r#"(int-to-utf8 1)"#,
         r#"(int-to-utf8 u1)"#,
-        r#"(string-to-int "1")"#,
-        r#"(string-to-int u"1")"#,
-        r#"(string-to-uint "1")"#,
-        r#"(string-to-uint u"1")"#,
+        r#"(string-to-int? "1")"#,
+        r#"(string-to-int? u"1")"#,
+        r#"(string-to-uint? "1")"#,
+        r#"(string-to-uint? u"1")"#,
     ];
 
     let expected = [
@@ -1984,14 +2029,14 @@ fn test_string_to_ints() {
         r#"(int-to-utf8)"#,
         r#"(int-to-utf8 0x000102030405060708090a0b0c0d0e0f00)"#,
         r#"(int-to-utf8 "a")"#,
-        r#"(string-to-int 0x0001 0x0001)"#,
-        r#"(string-to-int)"#,
-        r#"(string-to-int 0x000102030405060708090a0b0c0d0e0f00)"#,
-        r#"(string-to-int 1)"#,
-        r#"(string-to-uint 0x0001 0x0001)"#,
-        r#"(string-to-uint)"#,
-        r#"(string-to-uint 0x000102030405060708090a0b0c0d0e0f00)"#,
-        r#"(string-to-uint 1)"#,
+        r#"(string-to-int? 0x0001 0x0001)"#,
+        r#"(string-to-int?)"#,
+        r#"(string-to-int? 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-int? 1)"#,
+        r#"(string-to-uint? 0x0001 0x0001)"#,
+        r#"(string-to-uint?)"#,
+        r#"(string-to-uint? 0x000102030405060708090a0b0c0d0e0f00)"#,
+        r#"(string-to-uint? 1)"#,
     ];
 
     let bad_expected = [
@@ -3168,8 +3213,8 @@ fn test_comparison_types() {
 fn test_principal_destruct() {
     let good = [
         // Standard good examples.
-        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
-        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo)"#,
+        r#"(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo)"#,
     ];
     let expected = [
         "(response (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))) (tuple (hash-bytes (buff 20)) (name (optional (string-ascii 40))) (version (buff 1))))",
@@ -3178,11 +3223,11 @@ fn test_principal_destruct() {
 
     let bad = [
         // Too many arguments.
-        r#"(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
+        r#"(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)"#,
         // Too few arguments.
-        r#"(principal-destruct)"#,
+        r#"(principal-destruct?)"#,
         // Wrong type of arguments.
-        r#"(principal-destruct 0x22)"#,
+        r#"(principal-destruct? 0x22)"#,
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(1, 2),
@@ -3210,19 +3255,19 @@ fn test_principal_construct() {
     let good_pairs = [
         // Standard good example of a standard principal
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             expected_type,
         ),
         // Standard good example of a contract principal.
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo")"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo")"#,
             expected_type,
         ),
         // Note: This following buffer is too short. It type-checks but triggers a runtime error.
-        (r#"(principal-construct 0x22 0x00)"#, expected_type),
+        (r#"(principal-construct? 0x22 0x00)"#, expected_type),
         // Note: This following name is too short. It type-checks but triggers a runtime error.
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "")"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "")"#,
             expected_type,
         ),
     ];
@@ -3237,32 +3282,32 @@ fn test_principal_construct() {
     let bad_pairs = [
         // Too few arguments, just has the `(buff 1)`.
         (
-            r#"(principal-construct 0x22)"#,
+            r#"(principal-construct? 0x22)"#,
             CheckErrors::RequiresAtLeastArguments(2, 1),
         ),
         // Too few arguments, just hs the `(buff 20)`.
         (
-            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             CheckErrors::RequiresAtLeastArguments(2, 1),
         ),
         // The first buffer is too long, should be `(buff 1)`.
         (
-            r#"(principal-construct 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             CheckErrors::TypeError(BUFF_1.clone(), BUFF_20.clone()),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
             CheckErrors::TypeError(BUFF_20.clone(), BUFF_21.clone()),
         ),
         // `int` argument instead of `(buff 1)` for version.
         (
-            r#"(principal-construct 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
+            r#"(principal-construct? 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
             CheckErrors::TypeError(BUFF_1.clone(), IntType),
         ),
         // `name` argument is too long
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
                 TypeSignature::contract_name_string_ascii_type(),
                 TypeSignature::bound_string_ascii_type(41),
@@ -3270,12 +3315,12 @@ fn test_principal_construct() {
         ),
         // bad argument type for `name`
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
             CheckErrors::TypeError(TypeSignature::contract_name_string_ascii_type(), UIntType),
         ),
         // too many arguments
         (
-            r#"(principal-construct 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
+            r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
             CheckErrors::RequiresAtMostArguments(3, 4),
         ),
     ];

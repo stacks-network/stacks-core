@@ -921,8 +921,12 @@ impl TypedNativeFunction {
             Concat => Special(SpecialNativeFunction(&sequences::check_special_concat)),
             AsMaxLen => Special(SpecialNativeFunction(&sequences::check_special_as_max_len)),
             Len => Special(SpecialNativeFunction(&sequences::check_special_len)),
-            ElementAt => Special(SpecialNativeFunction(&sequences::check_special_element_at)),
-            IndexOf => Special(SpecialNativeFunction(&sequences::check_special_index_of)),
+            ElementAt | ElementAtAlias => {
+                Special(SpecialNativeFunction(&sequences::check_special_element_at))
+            }
+            IndexOf | IndexOfAlias => {
+                Special(SpecialNativeFunction(&sequences::check_special_index_of))
+            }
             Slice => Special(SpecialNativeFunction(&sequences::check_special_slice)),
             ReplaceAt => Special(SpecialNativeFunction(&sequences::check_special_replace_at)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
