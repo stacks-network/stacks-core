@@ -594,9 +594,12 @@ const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("| (bitwise or)"),
     snippet: "| ${1:expr-1} ${2:expr-2}",
-    signature: "(| i1 i2)",
-    description: "Returns the result of bitwise inclusive or'ing `i1` with `i2`.",
+    signature: "(| i1 i2...)",
+    description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
     example: "(| 4 8) ;; Returns 12
+(| 1 2 4) ;; Returns 7
+(| 64 -32 -16) ;; Returns -16
+(| u2 u4 u32) ;; Returns u38
 "
 };
 
@@ -606,6 +609,9 @@ const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(~ i1)",
     description: "Returns the result of bitwise not, effectively reversing the bits of `i1`.",
     example: "(~ 3) ;; Returns -4
+(~ u128) ;; Returns u340282366920938463463374607431768211327
+(~ 128) ;; Returns -129
+(~ -128) ;; Returns 127
 "
 };
 
@@ -621,6 +627,7 @@ Observe that the second parameter (number of positions to shift) must be of type
 ",
     example: "(<< 2 u1) ;; Returns 4
 (<< 16 u2) ;; Returns 64
+(<< -64 u1) ;; Returns -128
 "
 };
 
@@ -630,12 +637,16 @@ const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(>> i1 u2)",
     description: "Moves all the bits in `i1` to the right by the number of places specified in `u2`.
 New bits are filled with zeros.  Shifting a value right by one position is equivilent to dividing it by 2,
-shifting two positions is equivilent to dividing by 4, and so on. 
+shifting two positions is equivilent to dividing by 4, and so on.
+
+Note: Performing a right-shift on a signed integer is an arithmetic operation which will preserve the sign, 
+whereas performing a right-shift on an unsigned integer is a logical operation, moving the sign bit.
 
 Observe that the second parameter (number of positions to shift) must be of type uint.
 ",
     example: "(>> 2 u1) ;; Returns 1
 (>> 128 u2) ;; Returns 32
+(>> -64 u1) ;; Returns -32
 "
 };
 
