@@ -30,7 +30,7 @@ use stacks::net::{
     Error as NetError, PeerAddress,
 };
 use stacks::types::chainstate::TrieHash;
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed};
+use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::Sha256Sum;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
@@ -57,6 +57,7 @@ use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::vm::database::BurnStateDB;
 
+use rand::RngCore;
 use stacks::chainstate::stacks::address::PoxAddress;
 
 #[derive(Debug, Clone)]
@@ -98,6 +99,8 @@ pub struct Node {
     event_dispatcher: EventDispatcher,
     nonce: u64,
     attachments_tx: SyncSender<HashSet<AttachmentInstance>>,
+    leader_key_registers: HashSet<Txid>,
+    block_commits: HashSet<Txid>,
 }
 
 pub fn get_account_lockups(
@@ -376,6 +379,8 @@ impl Node {
             nonce: 0,
             event_dispatcher,
             attachments_tx,
+            leader_key_registers: HashSet::new(),
+            block_commits: HashSet::new(),
         }
     }
 
@@ -419,6 +424,8 @@ impl Node {
             nonce: 0,
             event_dispatcher,
             attachments_tx,
+            leader_key_registers: HashSet::new(),
+            block_commits: HashSet::new(),
         };
 
         node.spawn_peer_server(attachments_rx);
@@ -583,9 +590,27 @@ impl Node {
             .keychain
             .rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
+
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let sortdb = SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            burnchain.pox_constants.clone(),
+        )
+        .expect("Error while opening sortition db");
+
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(sortdb.conn(), burnchain_tip.block_snapshot.block_height)
+                .expect("FATAL: failed to read sortition DB")
+                .expect("FATAL: no epoch defined");
+
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
-        burnchain_controller.submit_operation(key_reg_op, &mut op_signer, 1);
+        let key_txid = burnchain_controller
+            .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer, 1)
+            .expect("FATAL: failed to submit leader key register operation");
+
+        self.leader_key_registers.insert(key_txid);
     }
 
     /// Process an state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -598,12 +623,11 @@ impl Node {
         let mut last_sortitioned_block = None;
         let mut won_sortition = false;
         let ops = &burnchain_tip.state_transition.accepted_ops;
-        let is_mainnet = self.config.is_mainnet();
 
         for op in ops.iter() {
             match op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    if op.address == self.keychain.get_address(is_mainnet) {
+                    if self.leader_key_registers.contains(&op.txid) {
                         // Registered key has been mined
                         new_key = Some(RegisteredKey {
                             vrf_public_key: op.public_key.clone(),
@@ -615,16 +639,12 @@ impl Node {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
                     if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
                         last_sortitioned_block = Some(burnchain_tip.clone());
-                        if op.apparent_sender == self.keychain.get_burnchain_signer() {
+                        if self.block_commits.contains(&op.txid) {
                             won_sortition = true;
                         }
                     }
                 }
-                BlockstackOperationType::PreStx(_)
-                | BlockstackOperationType::StackStx(_)
-                | BlockstackOperationType::DelegateStx(_)
-                | BlockstackOperationType::TransferStx(_)
-                | BlockstackOperationType::UserBurnSupport(_) => {
+                _ => {
                     // no-op, ops are not supported / produced at this point.
                 }
             }
@@ -768,8 +788,29 @@ impl Node {
                 VRFSeed::from_proof(&vrf_proof),
             );
 
+            let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+            let sortdb = SortitionDB::open(
+                &self.config.get_burn_db_file_path(),
+                true,
+                burnchain.pox_constants.clone(),
+            )
+            .expect("Error while opening sortition db");
+
+            let cur_epoch = SortitionDB::get_stacks_epoch(
+                sortdb.conn(),
+                burnchain_tip.block_snapshot.block_height,
+            )
+            .expect("FATAL: failed to read sortition DB")
+            .expect("FATAL: no epoch defined");
+
             let mut op_signer = self.keychain.generate_op_signer();
-            burnchain_controller.submit_operation(op, &mut op_signer, 1);
+            let txid = burnchain_controller
+                .submit_operation(cur_epoch.epoch_id, op, &mut op_signer, 1)
+                .expect("FATAL: failed to submit block-commit");
+
+            self.block_commits.insert(txid);
+        } else {
+            warn!("No leader key active!");
         }
     }
 
@@ -965,24 +1006,23 @@ impl Node {
         attachments_instances
     }
 
-    /// Returns the Stacks address of the node
-    pub fn get_address(&self) -> StacksAddress {
-        self.keychain.get_address(self.config.is_mainnet())
-    }
-
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
     fn generate_leader_key_register_op(
         &mut self,
         vrf_public_key: VRFPublicKey,
         consensus_hash: &ConsensusHash,
     ) -> BlockstackOperationType {
+        let mut txid_bytes = [0u8; 32];
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut txid_bytes);
+        let txid = Txid(txid_bytes);
+
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            address: self.keychain.get_address(self.config.is_mainnet()),
             consensus_hash: consensus_hash.clone(),
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
+            vtxindex: 1,
+            txid,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),
         })
@@ -1023,6 +1063,11 @@ impl Node {
         let burn_parent_modulus =
             (burnchain_tip.block_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
 
+        let mut txid_bytes = [0u8; 32];
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(&mut txid_bytes);
+        let txid = Txid(txid_bytes);
+
         BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
             sunset_burn: 0,
             block_header_hash,
@@ -1035,8 +1080,8 @@ impl Node {
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
-            vtxindex: 0,
-            txid: Txid([0u8; 32]),
+            vtxindex: 2,
+            txid,
             commit_outs,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash::zero(),

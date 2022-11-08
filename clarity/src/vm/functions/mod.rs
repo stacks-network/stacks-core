@@ -101,16 +101,18 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     AsMaxLen("as-max-len?", ClarityVersion::Clarity1),
     Len("len", ClarityVersion::Clarity1),
     ElementAt("element-at", ClarityVersion::Clarity1),
+    ElementAtAlias("element-at?", ClarityVersion::Clarity2),
     IndexOf("index-of", ClarityVersion::Clarity1),
+    IndexOfAlias("index-of?", ClarityVersion::Clarity2),
     BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
-    PrincipalDestruct("principal-destruct", ClarityVersion::Clarity2),
-    PrincipalConstruct("principal-construct", ClarityVersion::Clarity2),
-    StringToInt("string-to-int", ClarityVersion::Clarity2),
-    StringToUInt("string-to-uint", ClarityVersion::Clarity2),
+    PrincipalDestruct("principal-destruct?", ClarityVersion::Clarity2),
+    PrincipalConstruct("principal-construct?", ClarityVersion::Clarity2),
+    StringToInt("string-to-int?", ClarityVersion::Clarity2),
+    StringToUInt("string-to-uint?", ClarityVersion::Clarity2),
     IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
     IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
@@ -169,10 +171,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
-    Slice("slice", ClarityVersion::Clarity2),
-    ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2),
-    FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2),
-    ReplaceAt("replace-at", ClarityVersion::Clarity2),
+    Slice("slice?", ClarityVersion::Clarity2),
+    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
+    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
+    ReplaceAt("replace-at?", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -335,12 +337,12 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&sequences::native_len),
                 ClarityCostFunction::Len,
             ),
-            ElementAt => NativeFunction(
+            ElementAt | ElementAtAlias => NativeFunction(
                 "native_element_at",
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            IndexOf => NativeFunction205(
+            IndexOf | IndexOfAlias => NativeFunction205(
                 "native_index_of",
                 NativeHandle::DoubleArg(&sequences::native_index_of),
                 ClarityCostFunction::IndexOf,
