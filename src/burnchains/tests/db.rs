@@ -31,6 +31,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::*;
 use crate::core::StacksEpochId;
+use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use crate::types::chainstate::StacksAddress;
 use crate::util_lib::db::Error as DBError;
 use stacks_common::address::AddressHashMode;
@@ -65,9 +66,8 @@ fn make_tx(hex_str: &str) -> BtcTx {
 
 #[test]
 fn test_store_and_fetch() {
-    let first_bhh = BurnchainHeaderHash([0; 32]);
-    let first_timestamp = 321;
-    let first_height = 1;
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let first_height = 0;
 
     let mut burnchain = Burnchain::regtest(":memory:");
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -79,7 +79,7 @@ fn test_store_and_fetch() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&first_block_header.block_hash, &first_bhh);
     assert_eq!(&first_block_header.block_height, &first_height);
-    assert_eq!(&first_block_header.timestamp, &first_timestamp);
+    assert_eq!(&first_block_header.timestamp, &0);
     assert_eq!(
         &first_block_header.parent_block_hash,
         &BurnchainHeaderHash::sentinel()
@@ -188,9 +188,8 @@ fn test_store_and_fetch() {
 
 #[test]
 fn test_classify_stack_stx() {
-    let first_bhh = BurnchainHeaderHash([0; 32]);
-    let first_timestamp = 321;
-    let first_height = 1;
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+    let first_height = 0;
 
     let mut burnchain = Burnchain::regtest(":memory:");
     let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
@@ -202,7 +201,7 @@ fn test_classify_stack_stx() {
     let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
     assert_eq!(&first_block_header.block_hash, &first_bhh);
     assert_eq!(&first_block_header.block_height, &first_height);
-    assert_eq!(&first_block_header.timestamp, &first_timestamp);
+    assert_eq!(&first_block_header.timestamp, &0);
     assert_eq!(
         &first_block_header.parent_block_hash,
         &BurnchainHeaderHash::sentinel()
@@ -501,7 +500,7 @@ pub fn make_simple_block_commit(
 
 #[test]
 fn test_get_commit_at() {
-    let first_bhh = BurnchainHeaderHash([0; 32]);
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
     let first_timestamp = 0;
     let first_height = 1;
 
@@ -598,7 +597,7 @@ fn test_get_commit_at() {
 
 #[test]
 fn test_get_set_check_anchor_block() {
-    let first_bhh = BurnchainHeaderHash([0; 32]);
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
     let first_timestamp = 0;
     let first_height = 1;
 
@@ -683,7 +682,7 @@ fn test_get_set_check_anchor_block() {
 
 #[test]
 fn test_update_block_descendancy() {
-    let first_bhh = BurnchainHeaderHash([0; 32]);
+    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
     let first_timestamp = 0;
     let first_height = 1;
 

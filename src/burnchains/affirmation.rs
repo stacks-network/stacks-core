@@ -320,6 +320,18 @@ impl fmt::Debug for AffirmationMap {
     }
 }
 
+/// The pointer to the PoX anchor block in the burnchain
+pub struct PoxAnchorPtr {
+    /// height of the block
+    pub block_height: u64,
+    /// index in the block
+    pub vtxindex: u32,
+    /// how any tokens burnt to create it
+    pub burnt: u64,
+    /// number of confirmations it received
+    pub confs: u64,
+}
+
 impl AffirmationMap {
     pub fn new(entries: Vec<AffirmationMapEntry>) -> AffirmationMap {
         AffirmationMap {
@@ -700,20 +712,17 @@ pub fn filter_missed_block_commits(
         .collect()
 }
 
-/// Given a list of block-commits in the prepare-phase, find the block-commit outside the
+/// Given a list of block-commits in the prepare-phase, find the block-commit pointer outside the
 /// prepare-phase which must be the anchor block, if it exists at all.  This is always
 /// the block-commit that has the most cumulative BTC committed behind it (and the highest
-/// such in the event of a tie), as well as at least `anchor_threshold` confirmations.  If the anchor block
-/// commit is found, return the descendancy matrix for it as well.
-/// Returns Some(the winning block commit, descendancy matrix, total confirmations, total burnt) if
-/// there's an anchor block commit.
+/// such in the event of a tie), as well as at least `anchor_threshold` confirmations.
+/// Returns the pointer into the burnchain where the anchor block-commit can be found, if it
+/// exists at all.
 /// Returns None otherwise
-pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
-    burnchain_tx: &BurnchainDBTransaction,
-    indexer: &B,
+fn inner_find_heaviest_block_commit_ptr(
     prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
     anchor_threshold: u32,
-) -> Result<Option<(LeaderBlockCommitOp, Vec<Vec<bool>>, u64, u64)>, DBError> {
+) -> Option<(PoxAnchorPtr, BTreeMap<(u64, u32), (u64, u32)>)> {
     // sanity check -- must be in order by block height and vtxindex
     for prepare_block_ops in prepare_phase_ops.iter() {
         let mut expected_block_height = None;
@@ -810,7 +819,7 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     if ancestor_confirmations.len() == 0 {
         // empty prepare phase
         test_debug!("Prepare-phase has no block-commits");
-        return Ok(None);
+        return None;
     }
 
     // find the ancestors with at least $anchor_threshold confirmations, and pick the one that has the
@@ -839,8 +848,46 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     if most_burnt == 0 {
         // no anchor block possible -- no block-commit has enough confirmations
         test_debug!("No block-commit has enough support to be an anchor block");
-        return Ok(None);
+        return None;
     }
+
+    Some((
+        PoxAnchorPtr {
+            block_height: ancestor_block,
+            vtxindex: ancestor_vtxindex,
+            burnt: most_burnt,
+            confs: most_confs,
+        },
+        ancestors,
+    ))
+}
+
+/// Given a list of block-commits in the prepare-phase, find the block-commit outside the
+/// prepare-phase which must be the anchor block, if it exists at all.  This is always
+/// the block-commit that has the most cumulative BTC committed behind it (and the highest
+/// such in the event of a tie), as well as at least `anchor_threshold` confirmations.  If the anchor block
+/// commit is found, return the descendancy matrix for it as well.
+/// Returns Some(the winning block commit, descendancy matrix, total confirmations, total burnt) if
+/// there's an anchor block commit.
+/// Returns None otherwise
+pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
+    burnchain_tx: &BurnchainDBTransaction,
+    indexer: &B,
+    prepare_phase_ops: &Vec<Vec<LeaderBlockCommitOp>>,
+    anchor_threshold: u32,
+) -> Result<Option<(LeaderBlockCommitOp, Vec<Vec<bool>>, u64, u64)>, DBError> {
+    let (pox_anchor_ptr, ancestors) =
+        match inner_find_heaviest_block_commit_ptr(prepare_phase_ops, anchor_threshold) {
+            Some(ptr) => ptr,
+            None => {
+                return Ok(None);
+            }
+        };
+
+    let ancestor_block = pox_anchor_ptr.block_height;
+    let ancestor_vtxindex = pox_anchor_ptr.vtxindex;
+    let most_burnt = pox_anchor_ptr.burnt;
+    let most_confs = pox_anchor_ptr.confs;
 
     // find the ancestor that this tip confirms
     let heaviest_ancestor_header = indexer
@@ -921,29 +968,13 @@ pub fn find_heaviest_block_commit<B: BurnchainHeaderReader>(
     Ok(None)
 }
 
-/// Find the PoX anchor block selected in a reward cycle, if it exists.  This is the heaviest F*w-confirmed
-/// block-commit before the prepare-phase of this reward cycle, provided that it is not already an
-/// anchor block for some other reward cycle.  Note that the anchor block found will be the anchor
-/// block for the *next* reward cycle.
-/// Returns:
-///     (a) the list of block-commits, grouped by block and ordered by vtxindex, in this prepare phase
-///     (b) the PoX anchor block-commit, if it exists, and
-///     (c) the descendancy data for the prepare phase.  Descendency[i][j] is true if the jth
-///     block-commit in the ith block in the prepare phase descends from the anchor block, or False
-///     if not.
-/// Returns only database-related errors.
-pub fn find_pox_anchor_block<B: BurnchainHeaderReader>(
+/// Find the valid prepare-phase ops for a given reward cycle
+fn inner_find_valid_prepare_phase_commits<B: BurnchainHeaderReader>(
     burnchain_tx: &BurnchainDBTransaction,
     reward_cycle: u64,
     indexer: &B,
     burnchain: &Burnchain,
-) -> Result<
-    (
-        Vec<Vec<LeaderBlockCommitOp>>,
-        Option<(LeaderBlockCommitOp, Vec<Vec<bool>>)>,
-    ),
-    Error,
-> {
+) -> Result<Vec<Vec<LeaderBlockCommitOp>>, Error> {
     let pox_consts = &burnchain.pox_constants;
     let first_block_height = burnchain.first_block_height;
 
@@ -971,6 +1002,59 @@ pub fn find_pox_anchor_block<B: BurnchainHeaderReader>(
         prepare_ops_valid.len()
     );
 
+    Ok(prepare_ops_valid)
+}
+
+/// Find the pointer to the PoX anchor block selected in a reward cycle, if it exists.  This is the heaviest F*w-confirmed
+/// block-commit before the prepare-phase of this reward cycle, provided that it is not already an
+/// anchor block for some other reward cycle.  Note that the anchor block found will be the anchor
+/// block for the *next* reward cycle.
+/// Returns a pointer to the block-commit transaction in the burnchain, if the prepare phase
+/// selected an anchor block.
+/// Returns None if not.
+pub fn find_pox_anchor_block_ptr<B: BurnchainHeaderReader>(
+    burnchain_tx: &BurnchainDBTransaction,
+    reward_cycle: u64,
+    indexer: &B,
+    burnchain: &Burnchain,
+) -> Result<Option<PoxAnchorPtr>, Error> {
+    let prepare_ops_valid =
+        inner_find_valid_prepare_phase_commits(burnchain_tx, reward_cycle, indexer, burnchain)?;
+    Ok(inner_find_heaviest_block_commit_ptr(
+        &prepare_ops_valid,
+        burnchain.pox_constants.anchor_threshold,
+    )
+    .map(|(ptr, _)| ptr))
+}
+
+/// Find the PoX anchor block selected in a reward cycle, if it exists.  This is the heaviest F*w-confirmed
+/// block-commit before the prepare-phase of this reward cycle, provided that it is not already an
+/// anchor block for some other reward cycle.  Note that the anchor block found will be the anchor
+/// block for the *next* reward cycle.
+/// Returns:
+///     (a) the list of block-commits, grouped by block and ordered by vtxindex, in this prepare phase
+///     (b) the PoX anchor block-commit, if it exists, and
+///     (c) the descendancy data for the prepare phase.  Descendency[i][j] is true if the jth
+///     block-commit in the ith block in the prepare phase descends from the anchor block, or False
+///     if not.
+/// Returns only database-related errors.
+pub fn find_pox_anchor_block<B: BurnchainHeaderReader>(
+    burnchain_tx: &BurnchainDBTransaction,
+    reward_cycle: u64,
+    indexer: &B,
+    burnchain: &Burnchain,
+) -> Result<
+    (
+        // (a) prepare-phase block-commits
+        Vec<Vec<LeaderBlockCommitOp>>,
+        // (b) PoX anchor block commit (if found)
+        // (c) descendancy matrix
+        Option<(LeaderBlockCommitOp, Vec<Vec<bool>>)>,
+    ),
+    Error,
+> {
+    let prepare_ops_valid =
+        inner_find_valid_prepare_phase_commits(burnchain_tx, reward_cycle, indexer, burnchain)?;
     let anchor_block_and_descendancy_opt = find_heaviest_block_commit(
         &burnchain_tx,
         indexer,
