@@ -21,7 +21,10 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
+#[cfg(test)]
 use crate::vm::ast::parse;
+
+use crate::vm::ast::ASTRules;
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
@@ -273,14 +276,14 @@ fn test_to_consensus_buff_too_big() {
 
     // this program prints the length of the
     // constructed 1048570 buffer and then executes
-    // to-consensus-buff on it. if the buffer wasn't the
+    // to-consensus-buff? on it. if the buffer wasn't the
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048570 = format!(
         "{}
      (let ((a (make-buff-1048570)))
         (if (is-eq (len a) u1048570)
-            (to-consensus-buff a)
+            (to-consensus-buff? a)
             (some 0x00)))
     ",
         buff_setup
@@ -294,14 +297,14 @@ fn test_to_consensus_buff_too_big() {
 
     // this program prints the length of the
     // constructed 1048567 buffer and then executes
-    // to-consensus-buff on it. if the buffer wasn't the
+    // to-consensus-buff? on it. if the buffer wasn't the
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048567 = format!(
         "{}
      (let ((a (make-buff-1048567)))
         (if (is-eq (len a) u1048567)
-            (to-consensus-buff a)
+            (to-consensus-buff? a)
             (some 0x00)))
     ",
         buff_setup
@@ -318,15 +321,15 @@ fn test_to_consensus_buff_too_big() {
 fn test_from_consensus_buff_type_checks() {
     let vectors = [
         (
-            "(from-consensus-buff uint 0x10 0x00)",
+            "(from-consensus-buff? uint 0x10 0x00)",
             "Unchecked(IncorrectArgumentCount(2, 3))",
         ),
         (
-            "(from-consensus-buff uint 1)",
+            "(from-consensus-buff? uint 1)",
             "Unchecked(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
         ),
         (
-            "(from-consensus-buff 2 0x10)",
+            "(from-consensus-buff? 2 0x10)",
             "Unchecked(InvalidTypeDescription)",
         ),
     ];
@@ -361,15 +364,15 @@ fn test_from_consensus_buff_missed_expectations() {
     ];
 
     for (buff_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
         eprintln!("{}", program);
         let result_val = vm_execute_v2(&program)
-            .expect("from-consensus-buff should succeed")
-            .expect("from-consensus-buff should return")
+            .expect("from-consensus-buff? should succeed")
+            .expect("from-consensus-buff? should return")
             .expect_optional();
         assert!(
             result_val.is_none(),
-            "from-consensus-buff should return none"
+            "from-consensus-buff? should return none"
         );
     }
 }
@@ -394,27 +397,27 @@ fn test_to_from_consensus_buff_vectors() {
         ("0x0c000000020362617a0906666f6f62617203", "{ baz: none, foobar: true }", "{ baz: (optional int), foobar: bool }"),
     ];
 
-    // do `from-consensus-buff` tests
+    // do `from-consensus-buff?` tests
     for (buff_repr, value_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
         eprintln!("{}", program);
         let result_val = vm_execute_v2(&program)
-            .expect("from-consensus-buff should succeed")
-            .expect("from-consensus-buff should return")
+            .expect("from-consensus-buff? should succeed")
+            .expect("from-consensus-buff? should return")
             .expect_optional()
-            .expect("from-consensus-buff should return (some value)");
+            .expect("from-consensus-buff? should return (some value)");
         let expected_val = execute(&value_repr);
         assert_eq!(result_val, expected_val);
     }
 
-    // do `to-consensus-buff` tests
+    // do `to-consensus-buff?` tests
     for (buff_repr, value_repr, _) in vectors.iter() {
-        let program = format!("(to-consensus-buff {})", value_repr);
+        let program = format!("(to-consensus-buff? {})", value_repr);
         let result_buffer = vm_execute_v2(&program)
-            .expect("to-consensus-buff should succeed")
-            .expect("to-consensus-buff should return")
+            .expect("to-consensus-buff? should succeed")
+            .expect("to-consensus-buff? should return")
             .expect_optional()
-            .expect("to-consensus-buff should return (some buff)");
+            .expect("to-consensus-buff? should return (some buff)");
         let expected_buff = execute(&buff_repr);
         assert_eq!(result_buffer, expected_buff);
     }
@@ -529,6 +532,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -542,6 +546,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -555,6 +560,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -568,6 +574,7 @@ fn test_principal_of_fix() {
             principal_of_program,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch20,
+            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1261,6 +1268,7 @@ fn test_stx_ops_errors() {
                 program,
                 ClarityVersion::Clarity2,
                 StacksEpochId::Epoch20,
+                ASTRules::PrecheckSize,
                 false
             )
             .unwrap_err()
@@ -1611,6 +1619,7 @@ fn test_is_mainnet() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch20,
+                    ASTRules::PrecheckSize,
                     true
                 )
                 .unwrap()
@@ -1630,6 +1639,7 @@ fn test_is_mainnet() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch20,
+                    ASTRules::PrecheckSize,
                     false
                 )
                 .unwrap()
@@ -1654,6 +1664,7 @@ fn test_chain_id() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch21,
+                    ASTRules::PrecheckSize,
                     true
                 )
                 .unwrap()
@@ -1673,6 +1684,7 @@ fn test_chain_id() {
                     program,
                     ClarityVersion::Clarity2,
                     StacksEpochId::Epoch21,
+                    ASTRules::PrecheckSize,
                     false
                 )
                 .unwrap()

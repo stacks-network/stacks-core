@@ -22,6 +22,7 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
+use clarity::vm::ast::ASTRules;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -30,7 +31,7 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
@@ -70,7 +71,6 @@ use crate::util_lib::db::{
 };
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::analysis::run_analysis;
-use clarity::vm::ast::build_ast;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -202,7 +202,7 @@ impl DBConfig {
                 self.version == "1" || self.version == "2" || self.version == "3"
             }
             StacksEpochId::Epoch2_05 => self.version == "2" || self.version == "3",
-            StacksEpochId::Epoch21 => self.version == "3",
+            StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
         }
     }
 }
@@ -1099,8 +1099,8 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
-            Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
+        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+            Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
@@ -1190,6 +1190,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        ASTRules::PrecheckSize,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1786,26 +1787,9 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
+            ASTRules::PrecheckSize,
         );
         result.unwrap()
-    }
-
-    pub fn clarity_eval_read_only_checked(
-        &mut self,
-        burn_dbconn: &dyn BurnStateDB,
-        parent_id_bhh: &StacksBlockId,
-        contract: &QualifiedContractIdentifier,
-        code: &str,
-    ) -> Result<Value, Error> {
-        self.clarity_state
-            .eval_read_only(
-                parent_id_bhh,
-                &HeadersDBConn(self.state_index.sqlite_conn()),
-                burn_dbconn,
-                contract,
-                code,
-            )
-            .map_err(Error::ClarityError)
     }
 
     pub fn db(&self) -> &DBConn {

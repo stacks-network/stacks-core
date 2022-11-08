@@ -23,6 +23,7 @@ use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::StacksEpochId;
 use crate::util_lib::boot::boot_code_id;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::Environment;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
@@ -90,10 +91,10 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         BuffToIntBe => "(buff-to-int-be 0x00000000000000000000000000000001)",
         BuffToUIntBe => "(buff-to-uint-be 0x00000000000000000000000000000001)",
         IsStandard => "(is-standard 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
-        PrincipalDestruct => "(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
-        PrincipalConstruct => "(principal-construct 0x1a 0x164247d6f2b425ac5771423ae6c80c754f7172b0)",
-        StringToInt => r#"(string-to-int "-1")"#,
-        StringToUInt => r#"(string-to-uint "1")"#,
+        PrincipalDestruct => "(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6)",
+        PrincipalConstruct => "(principal-construct? 0x1a 0x164247d6f2b425ac5771423ae6c80c754f7172b0)",
+        StringToInt => r#"(string-to-int? "-1")"#,
+        StringToUInt => r#"(string-to-uint? "1")"#,
         IntToAscii => r#"(int-to-ascii 1)"#,
         IntToUtf8 => r#"(int-to-utf8 1)"#,
         Fold => "(fold + list-bar 0)",
@@ -102,7 +103,9 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         AsMaxLen => "(as-max-len? list-bar u3)",
         Len => "(len list-bar)",
         ElementAt => "(element-at list-bar u2)",
+        ElementAtAlias => "(element-at? list-bar u2)",
         IndexOf => "(index-of list-bar 1)",
+        IndexOfAlias => "(index-of? list-bar 1)",
         ListCons => "(list 1 2 3 4)",
         FetchEntry => "(map-get? map-foo {a: 1})",
         SetEntry => "(map-set map-foo {a: 1} {b: 2})",
@@ -156,10 +159,10 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         StxTransferMemo => r#"(stx-transfer-memo? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x89995432)"#,
         StxBurn => "(stx-burn? u1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
         StxGetAccount => "(stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
-        Slice => "(slice str-foo u1 u1)",
-        ToConsensusBuff => "(to-consensus-buff u1)",
-        FromConsensusBuff => "(from-consensus-buff bool 0x03)",
-        ReplaceAt => "(replace-at list-bar u0 5)",
+        Slice => "(slice? str-foo u1 u1)",
+        ToConsensusBuff => "(to-consensus-buff? u1)",
+        FromConsensusBuff => "(from-consensus-buff? bool 0x03)",
+        ReplaceAt => "(replace-at? list-bar u0 5)",
     }
 }
 
@@ -232,7 +235,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(contract_id.clone(), contract, None)
+            .initialize_contract(contract_id.clone(), contract, None, ASTRules::PrecheckSize)
             .unwrap();
 
         let cost_before = owned_env.get_cost_total();
@@ -864,13 +867,31 @@ fn test_tracked_costs(
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_versioned_contract(trait_contract_id.clone(), version, contract_trait, None)
+            .initialize_versioned_contract(
+                trait_contract_id.clone(),
+                version,
+                contract_trait,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_versioned_contract(other_contract_id.clone(), version, contract_other, None)
+            .initialize_versioned_contract(
+                other_contract_id.clone(),
+                version,
+                contract_other,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
         owned_env
-            .initialize_versioned_contract(self_contract_id.clone(), version, &contract_self, None)
+            .initialize_versioned_contract(
+                self_contract_id.clone(),
+                version,
+                &contract_self,
+                None,
+                ASTRules::PrecheckSize,
+            )
             .unwrap();
 
         let target_contract = Value::from(PrincipalData::Contract(other_contract_id.clone()));
@@ -1069,7 +1090,12 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
@@ -1347,7 +1373,12 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        ASTRules::PrecheckSize,
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,

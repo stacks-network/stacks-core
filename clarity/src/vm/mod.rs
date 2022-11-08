@@ -85,11 +85,12 @@ use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use self::analysis::ContractAnalysis;
+use self::ast::ASTRules;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 
-const MAX_CALL_STACK_DEPTH: usize = 64;
+pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
@@ -189,11 +190,12 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             {
                 runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size())?;
                 Ok(value.clone())
-            } else if let Some(value) = context.lookup_callable_contract(name) {
-                let contract_identifier = &value.0;
-                Ok(Value::Principal(PrincipalData::Contract(
-                    contract_identifier.clone(),
-                )))
+            } else if let Some(callable_data) = context.lookup_callable_contract(name) {
+                if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
+                    Ok(callable_data.contract_identifier.clone().into())
+                } else {
+                    Ok(Value::CallableContract(callable_data.clone()))
+                }
             } else {
                 Err(CheckErrors::UndefinedVariable(name.to_string()).into())
             }
@@ -487,14 +489,17 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
         use_mainnet,
     );
     let epoch_205_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch2_05,
+        ast::ASTRules::PrecheckSize,
         use_mainnet,
     );
+
     assert_eq!(
         epoch_200_result, epoch_205_result,
         "Epoch 2.0 and 2.05 should have same execution result, but did not for program `{}`",
@@ -509,6 +514,7 @@ pub fn execute_with_parameters(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
+    ast_rules: ast::ASTRules,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     use crate::vm::database::MemoryBackingStore;
@@ -527,8 +533,15 @@ pub fn execute_with_parameters(
         epoch,
     );
     global_context.execute(|g| {
-        let parsed =
-            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
+        let parsed = ast::build_ast_with_rules(
+            &contract_id,
+            program,
+            &mut (),
+            clarity_version,
+            epoch,
+            ast_rules,
+        )?
+        .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
@@ -536,7 +549,13 @@ pub fn execute_with_parameters(
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
+    execute_with_parameters(
+        program,
+        version,
+        StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
+        false,
+    )
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
@@ -546,6 +565,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         program,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
+        ast::ASTRules::PrecheckSize,
         false,
     )
 }
@@ -557,6 +577,7 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch21,
+        ASTRules::PrecheckSize,
         false,
     )
 }

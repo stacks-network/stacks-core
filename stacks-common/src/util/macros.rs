@@ -273,7 +273,7 @@ macro_rules! guarded_string {
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
-        #[derive(Debug, Clone, PartialEq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[repr(u8)]
         pub enum $Name {
             $($Variant = $Val),*,
@@ -624,7 +624,7 @@ macro_rules! impl_byte_array_serde {
 #[macro_export]
 macro_rules! test_debug {
     ($($arg:tt)*) => (
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
@@ -652,7 +652,7 @@ pub fn is_trace() -> bool {
 #[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => (
-        #[cfg(test)]
+        #[cfg(any(test, feature = "testing"))]
         {
             if crate::util::macros::is_trace() {
                 debug!($($arg)*);

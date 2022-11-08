@@ -34,6 +34,8 @@ use crate::util_lib::db::{
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
+use crate::core::StacksEpochId;
+
 pub struct BurnchainDB {
     conn: Connection,
 }
@@ -320,6 +322,7 @@ impl BurnchainDB {
         burnchain: &Burnchain,
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {}",
@@ -331,8 +334,14 @@ impl BurnchainDB {
         let mut pre_stx_ops = HashMap::new();
 
         for tx in block.txs().iter() {
-            let result =
-                Burnchain::classify_transaction(burnchain, self, block_header, &tx, &pre_stx_ops);
+            let result = Burnchain::classify_transaction(
+                burnchain,
+                self,
+                block_header,
+                epoch_id,
+                &tx,
+                &pre_stx_ops,
+            );
             if let Some(classified_tx) = result {
                 if let BlockstackOperationType::PreStx(pre_stx_op) = classified_tx {
                     pre_stx_ops.insert(pre_stx_op.txid.clone(), pre_stx_op);
@@ -357,11 +366,13 @@ impl BurnchainDB {
         &mut self,
         burnchain: &Burnchain,
         block: &BurnchainBlock,
+        epoch_id: StacksEpochId,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
               "burn_header_hash" => %header.block_hash.to_string());
-        let mut blockstack_ops = self.get_blockstack_transactions(burnchain, block, &header);
+        let mut blockstack_ops =
+            self.get_blockstack_transactions(burnchain, block, &header, epoch_id);
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
         let db_tx = self.tx_begin()?;
@@ -406,6 +417,7 @@ mod tests {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochId;
     use stacks_common::address::AddressHashMode;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -432,6 +444,8 @@ mod tests {
 
         let mut burnchain = Burnchain::regtest(":memory:");
         burnchain.pox_constants = PoxConstants::test_default();
+        burnchain.pox_constants.sunset_start = 999;
+        burnchain.pox_constants.sunset_end = 1000;
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
@@ -452,7 +466,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&burnchain, &canonical_block)
+            .store_new_burnchain_block(&burnchain, &canonical_block, StacksEpochId::Epoch21)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -472,7 +486,9 @@ mod tests {
 
         for (ix, tx_fixture) in fixtures.iter().enumerate() {
             let tx = make_tx(&tx_fixture.txstr);
-            let burnchain_tx = parser.parse_tx(&tx, ix + 1).unwrap();
+            let burnchain_tx = parser
+                .parse_tx(&tx, ix + 1, StacksEpochId::Epoch2_05)
+                .unwrap();
             if let Some(res) = &tx_fixture.result {
                 let mut res = res.clone();
                 res.vtxindex = (ix + 1).try_into().unwrap();
@@ -490,7 +506,7 @@ mod tests {
         ));
 
         let ops = burnchain_db
-            .store_new_burnchain_block(&burnchain, &non_canonical_block)
+            .store_new_burnchain_block(&burnchain, &non_canonical_block, StacksEpochId::Epoch21)
             .unwrap();
         assert_eq!(ops.len(), expected_ops.len());
         for op in ops.iter() {
@@ -542,6 +558,8 @@ mod tests {
 
         let mut burnchain = Burnchain::regtest(":memory:");
         burnchain.pox_constants = PoxConstants::test_default();
+        burnchain.pox_constants.sunset_start = 999;
+        burnchain.pox_constants.sunset_end = 1000;
 
         let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
         assert_eq!(&first_block_header.block_hash, &first_bhh);
@@ -562,7 +580,7 @@ mod tests {
             485,
         ));
         let ops = burnchain_db
-            .store_new_burnchain_block(&burnchain, &canonical_block)
+            .store_new_burnchain_block(&burnchain, &canonical_block, StacksEpochId::Epoch21)
             .unwrap();
         assert_eq!(ops.len(), 0);
 
@@ -579,19 +597,20 @@ mod tests {
             opcode: Opcodes::PreStx as u8,
             data: vec![0; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 1),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
-                },
+                }),
             }],
         };
 
@@ -602,19 +621,20 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 1),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
-                },
+                }),
             }],
         };
 
@@ -625,19 +645,20 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (pre_stack_stx_0_txid.clone(), 1),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([2; 20]),
-                },
+                }),
             }],
         };
 
@@ -648,19 +669,20 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 1),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
-                },
+                }),
             }],
         };
 
@@ -671,19 +693,20 @@ mod tests {
             opcode: Opcodes::StackStx as u8,
             data: vec![1; 80],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (pre_stack_stx_0_txid.clone(), 2),
-            }],
+            }
+            .into()],
             outputs: vec![BitcoinTxOutput {
                 units: 10,
-                address: BitcoinAddress {
-                    addrtype: BitcoinAddressType::PublicKeyHash,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                     network_id: BitcoinNetworkType::Mainnet,
                     bytes: Hash160([1; 20]),
-                },
+                }),
             }],
         };
 
@@ -713,7 +736,7 @@ mod tests {
         ));
 
         let processed_ops_0 = burnchain_db
-            .store_new_burnchain_block(&burnchain, &block_0)
+            .store_new_burnchain_block(&burnchain, &block_0, StacksEpochId::Epoch21)
             .unwrap();
 
         assert_eq!(
@@ -723,7 +746,7 @@ mod tests {
         );
 
         let processed_ops_1 = burnchain_db
-            .store_new_burnchain_block(&burnchain, &block_1)
+            .store_new_burnchain_block(&burnchain, &block_1, StacksEpochId::Epoch21)
             .unwrap();
 
         assert_eq!(
@@ -732,15 +755,16 @@ mod tests {
             "Only one stack_stx op should have been accepted"
         );
 
-        let expected_pre_stack_addr = StacksAddress::from_bitcoin_address(&BitcoinAddress {
-            addrtype: BitcoinAddressType::PublicKeyHash,
-            network_id: BitcoinNetworkType::Mainnet,
-            bytes: Hash160([1; 20]),
-        });
+        let expected_pre_stack_addr =
+            StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                network_id: BitcoinNetworkType::Mainnet,
+                bytes: Hash160([1; 20]),
+            });
 
         let expected_reward_addr = PoxAddress::Standard(
-            StacksAddress::from_bitcoin_address(&BitcoinAddress {
-                addrtype: BitcoinAddressType::PublicKeyHash,
+            StacksAddress::from_legacy_bitcoin_address(&LegacyBitcoinAddress {
+                addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                 network_id: BitcoinNetworkType::Mainnet,
                 bytes: Hash160([2; 20]),
             }),

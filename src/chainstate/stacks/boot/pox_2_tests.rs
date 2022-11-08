@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use crate::address::AddressHashMode;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
 };
@@ -31,7 +31,7 @@ use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
@@ -180,8 +180,7 @@ pub fn check_stacking_state_invariants(
         .clone()
         .expect_u128();
     let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
-    let pox_addr =
-        PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), pox_addr).unwrap();
+    let pox_addr = PoxAddress::try_from_pox_tuple(false, pox_addr).unwrap();
 
     let reward_indexes: Vec<u128> = stacking_state_entry
         .get_owned("reward-set-indexes")
@@ -247,9 +246,7 @@ pub fn check_stacking_state_invariants(
             );
 
             let entry_pox_addr = entry_value.get_owned("pox-addr").unwrap();
-            let entry_pox_addr =
-                PoxAddress::try_from_pox_tuple(peer.config.burnchain.is_mainnet(), &entry_pox_addr)
-                    .unwrap();
+            let entry_pox_addr = PoxAddress::try_from_pox_tuple(false, &entry_pox_addr).unwrap();
 
             assert_eq!(
                 &entry_pox_addr, &pox_addr,
@@ -443,7 +440,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_simple_pox_lockup_transition_pox_2",
-        6002,
+        6104,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -641,8 +638,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         &bob,
         0,
         512 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -694,8 +693,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
         &alice,
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         12,
         tip.block_height,
     );
@@ -929,8 +930,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &alice,
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -939,8 +942,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &bob,
         0,
         1 * POX_THRESHOLD_STEPS_USTX,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -1133,7 +1138,7 @@ fn delegate_stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("pox_2_delegate_stack_increase"),
-        6002,
+        6004,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1422,7 +1427,7 @@ fn stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("test_simple_pox_2_increase"),
-        6002,
+        6006,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1460,8 +1465,10 @@ fn stack_increase() {
         &alice,
         alice_nonce,
         first_lockup_amt,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
         tip.block_height,
     );
@@ -1636,8 +1643,8 @@ fn test_lock_period_invariant_extend_transition() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        "test_pox_extend_transition_pox_2",
-        6002,
+        "test_lp_invariant_extend_trans",
+        6008,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1741,8 +1748,10 @@ fn test_lock_period_invariant_extend_transition() {
     let alice_lockup = make_pox_2_extend(
         &alice,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
     );
 
@@ -1795,7 +1804,7 @@ fn test_pox_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_pox_extend_transition_pox_2",
-        6002,
+        6010,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1991,8 +2000,10 @@ fn test_pox_extend_transition_pox_2() {
         &bob,
         0,
         BOB_LOCKUP,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         3,
         tip.block_height,
     );
@@ -2001,8 +2012,10 @@ fn test_pox_extend_transition_pox_2() {
     let alice_lockup = make_pox_2_extend(
         &alice,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         6,
     );
 
@@ -2017,8 +2030,10 @@ fn test_pox_extend_transition_pox_2() {
     let bob_extend = make_pox_2_extend(
         &bob,
         1,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&bob).bytes,
+        ),
         1,
     );
 
@@ -2187,7 +2202,7 @@ fn test_delegate_extend_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         "test_delegate_extend_transition_pox_2",
-        6002,
+        6014,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2853,8 +2868,10 @@ fn test_pox_2_getters() {
         &alice,
         0,
         LOCKUP_AMT,
-        AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).bytes,
+        PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            key_to_stacks_addr(&alice).bytes,
+        ),
         4,
         tip.block_height,
     );
@@ -3144,8 +3161,7 @@ fn test_get_pox_addrs() {
                             key,
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
-                            *hash_mode,
-                            key_to_stacks_addr(key).bytes,
+                            PoxAddress::from_legacy(*hash_mode, key_to_stacks_addr(key).bytes),
                             2,
                             tip.block_height,
                         );
@@ -3344,4 +3360,481 @@ fn test_get_pox_addrs() {
     for (rw_addr, _) in all_reward_addrs.into_iter() {
         assert!(paid_out.contains(&rw_addr));
     }
+}
+
+#[test]
+fn test_stack_with_segwit() {
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = 4;
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 4);
+
+    let epochs = StacksEpoch::all(1, 2, 3);
+
+    let (mut peer, all_keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test-stack-with-segwit",
+        6104,
+        Some(epochs.clone()),
+        None,
+    );
+    let num_blocks = 20;
+
+    let segwit_keys: Vec<_> = all_keys.into_iter().take(4).collect();
+
+    let mut lockup_reward_cycle = 0;
+    let mut prepared = false;
+    let mut rewarded = false;
+    let mut paid_out = HashSet::new();
+    let mut all_reward_addrs = vec![];
+
+    for tenure_id in 0..num_blocks {
+        let microblock_privkey = StacksPrivateKey::new();
+        let microblock_pubkeyhash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u128;
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+
+                let mut block_txs = vec![coinbase_tx];
+
+                if tenure_id == 1 {
+                    let segwit_p2wpkh_lockup = make_pox_2_lockup(
+                        &segwit_keys[0],
+                        0,
+                        1024 * POX_THRESHOLD_STEPS_USTX,
+                        PoxAddress::Addr20(false, PoxAddressType20::P2WPKH, [0x01; 20]),
+                        2,
+                        tip.block_height,
+                    );
+                    block_txs.push(segwit_p2wpkh_lockup);
+
+                    let segwit_p2wsh_lockup = make_pox_2_lockup(
+                        &segwit_keys[1],
+                        0,
+                        1024 * POX_THRESHOLD_STEPS_USTX,
+                        PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [0x02; 32]),
+                        2,
+                        tip.block_height,
+                    );
+                    block_txs.push(segwit_p2wsh_lockup);
+
+                    let segwit_p2tr_lockup = make_pox_2_lockup(
+                        &segwit_keys[2],
+                        0,
+                        1024 * POX_THRESHOLD_STEPS_USTX,
+                        PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x03; 32]),
+                        2,
+                        tip.block_height,
+                    );
+                    block_txs.push(segwit_p2tr_lockup);
+
+                    let lockup = make_pox_2_lockup(
+                        &segwit_keys[3],
+                        0,
+                        1024 * POX_THRESHOLD_STEPS_USTX,
+                        PoxAddress::from_legacy(
+                            AddressHashMode::SerializeP2PKH,
+                            Hash160([0x04; 20]),
+                        ),
+                        2,
+                        tip.block_height,
+                    );
+                    block_txs.push(lockup);
+                }
+
+                let block_builder = StacksBlockBuilder::make_block_builder(
+                    false,
+                    &parent_tip,
+                    vrf_proof,
+                    tip.total_burn,
+                    microblock_pubkeyhash,
+                )
+                .unwrap();
+                let (anchored_block, _size, _cost) =
+                    StacksBlockBuilder::make_anchored_block_from_txs(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_conn(),
+                        block_txs,
+                    )
+                    .unwrap();
+                (anchored_block, vec![])
+            },
+        );
+
+        let (burn_height, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        if burnchain.is_in_prepare_phase(burn_height)
+            || burn_height >= burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2)
+        {
+            // make sure we burn!
+            for op in burn_ops.iter() {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
+                    eprintln!("prepare phase || no PoX {}: {:?}", burn_height, opdata);
+                    assert!(opdata.all_outputs_burn());
+                    assert!(opdata.burn_fee > 0);
+
+                    if tenure_id > 1 && cur_reward_cycle > lockup_reward_cycle.into() {
+                        prepared = true;
+                    }
+                }
+            }
+        } else {
+            // no burns -- 100% commitment
+            for op in burn_ops.iter() {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = &op {
+                    eprintln!("reward phase {}: {:?}", burn_height, opdata);
+                    if tenure_id > 1 && cur_reward_cycle == (lockup_reward_cycle + 1).into() {
+                        assert!(!opdata.all_outputs_burn());
+                        rewarded = true;
+                    } else {
+                        // lockup hasn't happened yet
+                        assert!(opdata.all_outputs_burn());
+                    }
+
+                    assert!(opdata.burn_fee > 0);
+                }
+            }
+        }
+
+        let total_liquid_ustx = get_liquid_ustx(&mut peer);
+        let tip_index_block = StacksBlockId::new(&consensus_hash, &stacks_block.block_hash());
+
+        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+        let cur_reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip_burn_block_height)
+            .unwrap() as u128;
+
+        if tenure_id <= 1 {
+            // record the first reward cycle when tokens get stacked
+            lockup_reward_cycle = 1
+                + (burnchain
+                    .block_height_to_reward_cycle(tip_burn_block_height)
+                    .unwrap()) as u64;
+            eprintln!(
+                "\nlockup reward cycle: {}\ncur reward cycle: {}\n",
+                lockup_reward_cycle, cur_reward_cycle
+            );
+        }
+        if tenure_id > 1 {
+            let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                chainstate.get_stacking_minimum(sortdb, &tip_index_block)
+            })
+            .unwrap();
+            let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
+            })
+            .unwrap();
+            let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+                chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+            })
+            .unwrap();
+
+            // all keys locked up STX no matter what if we're in the lock period
+            if burn_height < burnchain.reward_cycle_to_block_height(lockup_reward_cycle + 2) {
+                for key in segwit_keys.iter() {
+                    let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
+                    assert_eq!(balance, 0);
+                }
+            } else {
+                for key in segwit_keys.iter() {
+                    let balance = get_balance(&mut peer, &key_to_stacks_addr(key).into());
+                    assert!(balance > 0);
+                }
+                assert_eq!(reward_addrs.len(), 0);
+            }
+
+            eprintln!("\ntenure: {}\nreward cycle: {}\nlockup_reward_cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, lockup_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
+
+            if cur_reward_cycle == lockup_reward_cycle.into() {
+                assert_eq!(reward_addrs.len(), 4);
+                all_reward_addrs = reward_addrs;
+            }
+
+            // let's see who got paid
+            let addrs_and_payout = with_sortdb(&mut peer, |ref mut chainstate, ref mut sortdb| {
+                let addrs = chainstate
+                    .maybe_read_only_clarity_tx(
+                        &sortdb.index_conn(),
+                        &tip_index_block,
+                        |clarity_tx| {
+                            clarity_tx
+                                .with_readonly_clarity_env(
+                                    false,
+                                    0x80000000,
+                                    ClarityVersion::Clarity2,
+                                    PrincipalData::Standard(StandardPrincipalData::transient()),
+                                    None,
+                                    LimitedCostTracker::new_free(),
+                                    |env| {
+                                        env.eval_read_only(
+                                            &boot_code_id("pox-2", false),
+                                            &format!(
+                                                "(get-burn-block-info? pox-addrs u{})",
+                                                &(burn_height - 1)
+                                            ),
+                                        )
+                                    },
+                                )
+                                .unwrap()
+                        },
+                    )
+                    .unwrap();
+                addrs
+            })
+            .unwrap()
+            .expect_optional()
+            .expect("FATAL: expected list")
+            .expect_tuple();
+
+            eprintln!(
+                "At block height {}: {:?}",
+                burn_height - 1,
+                &addrs_and_payout
+            );
+
+            let addrs = addrs_and_payout
+                .get("addrs")
+                .unwrap()
+                .to_owned()
+                .expect_list();
+
+            let payout = addrs_and_payout
+                .get("payout")
+                .unwrap()
+                .to_owned()
+                .expect_u128();
+
+            // there's always some burnchain tokens spent.
+            assert!(payout > 0);
+
+            if burnchain.is_in_prepare_phase(burn_height - 1) {
+                assert_eq!(payout, 1000);
+                assert_eq!(addrs.len(), 1);
+                let pox_addr = PoxAddress::try_from_pox_tuple(false, &addrs[0]).unwrap();
+                assert!(pox_addr.is_burn());
+            } else {
+                assert_eq!(payout, 500);
+                assert_eq!(addrs.len(), 2);
+                for addr in addrs.into_iter() {
+                    let pox_addr = PoxAddress::try_from_pox_tuple(false, &addr).unwrap();
+                    if !pox_addr.is_burn() {
+                        paid_out.insert(pox_addr);
+                    }
+                }
+            }
+        }
+    }
+    assert!(prepared);
+    assert!(rewarded);
+
+    assert_eq!(paid_out.len(), 4);
+    let mut expected_addrs = vec![
+        PoxAddress::Addr20(false, PoxAddressType20::P2WPKH, [0x01; 20]),
+        PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [0x02; 32]),
+        PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x03; 32]),
+        PoxAddress::Standard(
+            StacksAddress {
+                version: 26,
+                bytes: Hash160([0x04; 20]),
+            },
+            Some(AddressHashMode::SerializeP2PKH),
+        ),
+    ];
+
+    for (rw_addr, _) in all_reward_addrs.into_iter() {
+        assert!(paid_out.contains(&rw_addr));
+        assert!(expected_addrs.contains(&rw_addr));
+        expected_addrs.retain(|addr| *addr != rw_addr);
+    }
+    assert_eq!(expected_addrs.len(), 0);
+}
+
+/// Verify that delegate-stx validates the PoX addr, if given
+#[test]
+fn test_pox_2_delegate_stx_addr_validation() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+    let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
+
+    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        "test-pox-2-delegate-stx-addr",
+        6100,
+        Some(epochs.clone()),
+        None,
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let mut coinbase_nonce = 0;
+    let alice = keys.pop().unwrap();
+    let bob = keys.pop().unwrap();
+    let charlie = keys.pop().unwrap();
+    let danielle = keys.pop().unwrap();
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let bob_address = key_to_stacks_addr(&bob);
+    let charlie_address = key_to_stacks_addr(&charlie);
+
+    for _i in 0..20 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let cur_reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    // alice delegates to charlie in v2 to a valid address
+    let alice_delegation = make_pox_2_contract_call(
+        &alice,
+        0,
+        "delegate-stx",
+        vec![
+            Value::UInt(LOCKUP_AMT),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::some(make_pox_addr(
+                AddressHashMode::SerializeP2PKH,
+                alice_address.bytes.clone(),
+            ))
+            .unwrap(),
+        ],
+    );
+
+    let bob_bad_pox_addr = Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                ClarityName::try_from("version".to_owned()).unwrap(),
+                Value::buff_from_byte(0xff),
+            ),
+            (
+                ClarityName::try_from("hashbytes".to_owned()).unwrap(),
+                Value::Sequence(SequenceData::Buffer(BuffData {
+                    data: bob_address.bytes.as_bytes().to_vec(),
+                })),
+            ),
+        ])
+        .unwrap(),
+    );
+
+    // bob delegates to charlie in v2 with an invalid address
+    let bob_delegation = make_pox_2_contract_call(
+        &bob,
+        0,
+        "delegate-stx",
+        vec![
+            Value::UInt(LOCKUP_AMT),
+            PrincipalData::from(charlie_address.clone()).into(),
+            Value::none(),
+            Value::some(bob_bad_pox_addr).unwrap(),
+        ],
+    );
+
+    peer.tenure_with_txs(&[alice_delegation, bob_delegation], &mut coinbase_nonce);
+
+    let result = eval_at_tip(
+        &mut peer,
+        "pox-2",
+        &format!(
+            "
+    {{
+        ;; should be (some $charlie_address)
+        get-delegation-info-alice: (get-delegation-info '{}),
+        ;; should be none
+        get-delegation-info-bob: (get-delegation-info '{}),
+    }}",
+            &alice_address, &bob_address,
+        ),
+    );
+
+    eprintln!("{}", &result);
+    let data = result.expect_tuple().data_map;
+
+    // bob had an invalid PoX address
+    let bob_delegation_info = data
+        .get("get-delegation-info-bob")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert!(bob_delegation_info.is_none());
+
+    // alice was valid
+    let alice_delegation_info = data
+        .get("get-delegation-info-alice")
+        .cloned()
+        .unwrap()
+        .expect_optional()
+        .unwrap()
+        .expect_tuple()
+        .data_map;
+    let alice_delegation_addr = alice_delegation_info
+        .get("delegated-to")
+        .cloned()
+        .unwrap()
+        .expect_principal();
+    let alice_delegation_amt = alice_delegation_info
+        .get("amount-ustx")
+        .cloned()
+        .unwrap()
+        .expect_u128();
+    let alice_pox_addr_opt = alice_delegation_info
+        .get("pox-addr")
+        .cloned()
+        .unwrap()
+        .expect_optional();
+    assert_eq!(
+        alice_delegation_addr,
+        charlie_address.to_account_principal()
+    );
+    assert_eq!(alice_delegation_amt, LOCKUP_AMT as u128);
+    assert!(alice_pox_addr_opt.is_some());
+
+    let alice_pox_addr = alice_pox_addr_opt.unwrap();
+
+    assert_eq!(
+        alice_pox_addr,
+        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
+    );
 }

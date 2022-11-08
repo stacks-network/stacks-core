@@ -84,8 +84,8 @@ pub use stacks_common::address::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-pub const STACKS_BLOCK_VERSION: u8 = 0;
-pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
+pub const STACKS_BLOCK_VERSION: u8 = 2;
+pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
@@ -128,6 +128,8 @@ pub enum Error {
     PoxInvalidIncrease,
     DefunctPoxContract,
     ProblematicTransaction(Txid),
+    MinerAborted,
+    ChannelClosed(String),
 }
 
 impl From<marf_error> for Error {
@@ -211,6 +213,8 @@ impl fmt::Display for Error {
             ),
             Error::PoxIncreaseOnV1 => write!(f, "PoX increase only allowed for pox-2 locks"),
             Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
+            Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
+            Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
         }
     }
 }
@@ -249,6 +253,8 @@ impl error::Error for Error {
             Error::ProblematicTransaction(ref _txid) => None,
             Error::PoxIncreaseOnV1 => None,
             Error::PoxInvalidIncrease => None,
+            Error::MinerAborted => None,
+            Error::ChannelClosed(ref _s) => None,
         }
     }
 }
@@ -287,6 +293,8 @@ impl Error {
             Error::ProblematicTransaction(ref _txid) => "ProblematicTransaction",
             Error::PoxIncreaseOnV1 => "PoxIncreaseOnV1",
             Error::PoxInvalidIncrease => "PoxInvalidIncrease",
+            Error::MinerAborted => "MinerAborted",
+            Error::ChannelClosed(ref _s) => "ChannelClosed",
         }
     }
 

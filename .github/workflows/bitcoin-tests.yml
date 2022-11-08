@@ -40,6 +40,7 @@ jobs:
         test-name:
           - tests::neon_integrations::miner_submit_twice
           - tests::neon_integrations::microblock_integration_test
+          - tests::neon_integrations::microblock_fork_poison_integration_test
           - tests::neon_integrations::size_check_integration_test
           - tests::neon_integrations::cost_voting_integration
           - tests::integrations::integration_test_get_info
@@ -59,7 +60,6 @@ jobs:
           - tests::neon_integrations::antientropy_integration_test
           - tests::neon_integrations::filter_low_fee_tx_integration_test
           - tests::neon_integrations::filter_long_runtime_tx_integration_test
-          - tests::neon_integrations::mining_transactions_is_fair
           - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
           - tests::neon_integrations::block_large_tx_integration_test
           - tests::neon_integrations::microblock_limit_hit_integration_test
@@ -68,6 +68,13 @@ jobs:
           - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::test_flash_block_skip_tenure
+          - tests::neon_integrations::test_chainwork_first_intervals
+          - tests::neon_integrations::test_chainwork_partial_interval
+          - tests::neon_integrations::test_problematic_txs_are_not_stored
+          - tests::neon_integrations::test_problematic_blocks_are_not_mined
+          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
+          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::transition_empty_blocks
           - tests::epoch_205::test_cost_limit_switch_version205
@@ -78,6 +85,9 @@ jobs:
           - tests::epoch_21::transition_fixes_bitcoin_rigidity
           - tests::epoch_21::transition_adds_pay_to_contract
           - tests::epoch_21::transition_adds_get_pox_addr_recipients
+          - tests::epoch_21::transition_adds_mining_from_segwit
+          - tests::epoch_21::transition_removes_pox_sunset
+          - tests::epoch_21::transition_empty_blocks
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image

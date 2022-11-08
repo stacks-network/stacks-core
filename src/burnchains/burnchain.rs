@@ -27,12 +27,11 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::burnchains::bitcoin::address::address_type_to_version_byte;
 use crate::burnchains::bitcoin::address::to_c32_version_byte;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::address::BitcoinAddressType;
+use crate::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxInput, BitcoinTxOutput};
+use crate::burnchains::bitcoin::{BitcoinInputType, BitcoinTxOutput};
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer,
@@ -57,12 +56,12 @@ use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::StacksEpoch;
 use crate::core::MINING_COMMITMENT_WINDOW;
 use crate::core::NETWORK_ID_MAINNET;
 use crate::core::NETWORK_ID_TESTNET;
 use crate::core::PEER_VERSION_MAINNET;
 use crate::core::PEER_VERSION_TESTNET;
+use crate::core::{StacksEpoch, StacksEpochId};
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
 use crate::types::chainstate::StacksAddress;
@@ -168,7 +167,19 @@ impl BurnchainStateTransition {
         let mut windowed_block_commits = vec![block_commits];
         let mut windowed_missed_commits = vec![];
 
-        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1) {
+        // what epoch are we in?
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_tx, parent_snapshot.block_height + 1)?
+            .expect(&format!(
+                "FATAL: no epoch defined at burn height {}",
+                parent_snapshot.block_height + 1
+            ))
+            .epoch_id;
+
+        if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
+            && !burnchain
+                .pox_constants
+                .is_after_pox_sunset_end(parent_snapshot.block_height + 1, epoch_id)
+        {
             // PoX reward-phase is active!
             // build a map of intended sortition -> missed commit for the missed commits
             //   discovered in this block.
@@ -211,7 +222,7 @@ impl BurnchainStateTransition {
         } else {
             // PoX reward-phase is not active
             debug!(
-                "Block {} is in a prepare phase, so no windowing will take place",
+                "Block {} is in a prepare phase or post-PoX sunset, so no windowing will take place",
                 parent_snapshot.block_height + 1
             );
 
@@ -223,14 +234,22 @@ impl BurnchainStateTransition {
         windowed_block_commits.reverse();
         windowed_missed_commits.reverse();
 
-        // figure out which sortitions must be PoB due to them falling in a prepare phase.
+        // figure out if the PoX sunset finished during the window,
+        // and/or which sortitions must be PoB due to them falling in a prepare phase.
         let window_end_height = parent_snapshot.block_height + 1;
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
         let mut burn_blocks = vec![false; windowed_block_commits.len()];
 
-        // set burn_blocks flags to accomodate prepare phases
+        // set burn_blocks flags to accomodate prepare phases and PoX sunset
         for (i, b) in burn_blocks.iter_mut().enumerate() {
-            if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
+            if PoxConstants::has_pox_sunset(epoch_id)
+                && burnchain
+                    .pox_constants
+                    .is_after_pox_sunset_end(window_start_height + (i as u64), epoch_id)
+            {
+                // past PoX sunset, so must burn
+                *b = true;
+            } else if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
                 // must burn
                 *b = true;
             } else {
@@ -246,6 +265,7 @@ impl BurnchainStateTransition {
             windowed_missed_commits,
             burn_blocks,
         );
+        BurnSamplePoint::prometheus_update_miner_commitments(&burn_dist);
 
         // find out which user burns and block commits we're going to take
         for i in 0..burn_dist.len() {
@@ -291,74 +311,34 @@ impl BurnchainStateTransition {
 
 impl BurnchainSigner {
     #[cfg(test)]
+    pub fn mock_parts(
+        hash_mode: AddressHashMode,
+        num_sigs: usize,
+        public_keys: Vec<StacksPublicKey>,
+    ) -> BurnchainSigner {
+        // This isn't actually a scriptsig.
+        // This is just a byte-serialized representation of the arguments.
+        // This is used for test compatibility.
+        let hex_strs: Vec<_> = public_keys.into_iter().map(|pubk| pubk.to_hex()).collect();
+        let repr = format!("{},{},{:?}", hash_mode as u8, &num_sigs, &hex_strs);
+        BurnchainSigner(repr)
+    }
+
+    #[cfg(test)]
     pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
-        BurnchainSigner {
-            hash_mode: AddressHashMode::SerializeP2PKH,
-            num_sigs: 1,
-            public_keys: vec![pubk.clone()],
-        }
-    }
-
-    pub fn from_bitcoin_input(inp: &BitcoinTxInput) -> BurnchainSigner {
-        match inp.in_type {
-            BitcoinInputType::Standard => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2SH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-            BitcoinInputType::SegwitP2SH => {
-                if inp.num_required == 1 && inp.keys.len() == 1 {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WPKH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                } else {
-                    BurnchainSigner {
-                        hash_mode: AddressHashMode::SerializeP2WSH,
-                        num_sigs: inp.num_required,
-                        public_keys: inp.keys.clone(),
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn to_bitcoin_address(&self, network_type: BitcoinNetworkType) -> String {
-        let addr_type = match &self.hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
-                BitcoinAddressType::PublicKeyHash
-            }
-            _ => BitcoinAddressType::ScriptHash,
-        };
-        BitcoinAddress::from_bytes(network_type, addr_type, &self.to_address_bits())
-            .unwrap()
-            .to_string()
-    }
-
-    pub fn to_address_bits(&self) -> Vec<u8> {
-        let h = public_keys_to_address_hash(&self.hash_mode, self.num_sigs, &self.public_keys);
-        h.as_bytes().to_vec()
+        BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
     }
 }
 
 impl BurnchainRecipient {
-    pub fn from_bitcoin_output(o: &BitcoinTxOutput) -> BurnchainRecipient {
-        let addr = StacksAddress::from_bitcoin_address(&o.address);
-        let pox_addr = PoxAddress::Standard(addr, None);
-        BurnchainRecipient {
-            address: pox_addr,
-            amount: o.units,
+    pub fn try_from_bitcoin_output(o: &BitcoinTxOutput) -> Option<BurnchainRecipient> {
+        if let Some(pox_addr) = PoxAddress::try_from_bitcoin_output(o) {
+            Some(BurnchainRecipient {
+                address: pox_addr,
+                amount: o.units,
+            })
+        } else {
+            None
         }
     }
 }
@@ -454,8 +434,62 @@ impl Burnchain {
         })
     }
 
+    #[deprecated(note = "BROKEN; DO NOT USE IN NEW CODE")]
     pub fn is_mainnet(&self) -> bool {
+        // NOTE: this is always false, and it's consensus-critical so we can't change it :(
         self.network_id == NETWORK_ID_MAINNET
+    }
+
+    /// the expected sunset burn is:
+    ///   total_commit * (progress through sunset phase) / (sunset phase duration)
+    pub fn expected_sunset_burn(
+        &self,
+        burn_height: u64,
+        total_commit: u64,
+        epoch_id: StacksEpochId,
+    ) -> u64 {
+        if !PoxConstants::has_pox_sunset(epoch_id) {
+            // sunset is disabled
+            return 0;
+        }
+        if !self
+            .pox_constants
+            .is_after_pox_sunset_start(burn_height, epoch_id)
+        {
+            // too soon to do this
+            return 0;
+        }
+        if self
+            .pox_constants
+            .is_after_pox_sunset_end(burn_height, epoch_id)
+        {
+            // no need to do an extra burn; PoX is already disabled
+            return 0;
+        }
+
+        // no sunset burn needed in prepare phase -- it's already getting burnt
+        if self.is_in_prepare_phase(burn_height) {
+            return 0;
+        }
+
+        let reward_cycle_height = self.reward_cycle_to_block_height(
+            self.block_height_to_reward_cycle(burn_height)
+                .expect("BUG: Sunset start is less than first_block_height"),
+        );
+
+        if reward_cycle_height <= self.pox_constants.sunset_start {
+            return 0;
+        }
+
+        let sunset_duration =
+            (self.pox_constants.sunset_end - self.pox_constants.sunset_start) as u128;
+        let sunset_progress = (reward_cycle_height - self.pox_constants.sunset_start) as u128;
+
+        // use u128 to avoid any possibilities of overflowing in the calculation here.
+        let expected_u128 = (total_commit as u128) * (sunset_progress) / sunset_duration;
+        u64::try_from(expected_u128)
+            // should never be possible, because sunset_burn is <= total_commit, which is a u64
+            .expect("Overflowed u64 in calculating expected sunset_burn")
     }
 
     pub fn is_reward_cycle_start(&self, burn_height: u64) -> bool {
@@ -688,6 +722,7 @@ impl Burnchain {
         burnchain: &Burnchain,
         burnchain_db: &BurnchainDB,
         block_header: &BurnchainBlockHeader,
+        epoch_id: StacksEpochId,
         burn_tx: &BurnchainTransaction,
         pre_stx_op_map: &HashMap<Txid, PreStxOp>,
     ) -> Option<BlockstackOperationType> {
@@ -707,7 +742,7 @@ impl Burnchain {
                 }
             }
             x if x == Opcodes::LeaderBlockCommit as u8 => {
-                match LeaderBlockCommitOp::from_tx(burnchain, block_header, burn_tx) {
+                match LeaderBlockCommitOp::from_tx(burnchain, block_header, epoch_id, burn_tx) {
                     Ok(op) => Some(BlockstackOperationType::LeaderBlockCommit(op)),
                     Err(e) => {
                         warn!(
@@ -734,18 +769,25 @@ impl Burnchain {
                     }
                 }
             }
-            x if x == Opcodes::PreStx as u8 => match PreStxOp::from_tx(block_header, burn_tx) {
-                Ok(op) => Some(BlockstackOperationType::PreStx(op)),
-                Err(e) => {
-                    warn!(
-                        "Failed to parse pre stack stx tx";
-                        "txid" => %burn_tx.txid(),
-                        "data" => %to_hex(&burn_tx.data()),
-                        "error" => ?e,
-                    );
-                    None
+            x if x == Opcodes::PreStx as u8 => {
+                match PreStxOp::from_tx(
+                    block_header,
+                    epoch_id,
+                    burn_tx,
+                    burnchain.pox_constants.sunset_end,
+                ) {
+                    Ok(op) => Some(BlockstackOperationType::PreStx(op)),
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse pre stack stx tx";
+                            "txid" => %burn_tx.txid(),
+                            "data" => %to_hex(&burn_tx.data()),
+                            "error" => ?e,
+                        );
+                        None
+                    }
                 }
-            },
+            }
             x if x == Opcodes::TransferStx as u8 => {
                 let pre_stx_txid = TransferStxOp::get_sender_txid(burn_tx).ok()?;
                 let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
@@ -783,7 +825,13 @@ impl Burnchain {
                 };
                 if let Some(BlockstackOperationType::PreStx(pre_stack_stx)) = pre_stx_tx {
                     let sender = &pre_stack_stx.output;
-                    match StackStxOp::from_tx(block_header, burn_tx, sender) {
+                    match StackStxOp::from_tx(
+                        block_header,
+                        epoch_id,
+                        burn_tx,
+                        sender,
+                        burnchain.pox_constants.sunset_end,
+                    ) {
                         Ok(op) => Some(BlockstackOperationType::StackStx(op)),
                         Err(e) => {
                             warn!(
@@ -859,6 +907,7 @@ impl Burnchain {
         burnchain: &Burnchain,
         burnchain_db: &mut BurnchainDB,
         block: &BurnchainBlock,
+        epoch_id: StacksEpochId,
     ) -> Result<BurnchainBlockHeader, burnchain_error> {
         debug!(
             "Process block {} {}",
@@ -866,7 +915,8 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let _blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
+        let _blockstack_txs =
+            burnchain_db.store_new_burnchain_block(burnchain, &block, epoch_id)?;
 
         let header = block.header();
 
@@ -887,8 +937,15 @@ impl Burnchain {
             &block.block_hash()
         );
 
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?.expect(&format!(
+                "FATAL: no epoch for burn block height {}",
+                block.block_height()
+            ));
+
         let header = block.header();
-        let blockstack_txs = burnchain_db.store_new_burnchain_block(burnchain, &block)?;
+        let blockstack_txs =
+            burnchain_db.store_new_burnchain_block(burnchain, &block, cur_epoch.epoch_id)?;
 
         let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
 
@@ -952,6 +1009,12 @@ impl Burnchain {
     ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
+            true,
+            indexer.get_first_block_header_hash()?,
+            indexer.get_first_block_header_timestamp()?,
+            indexer.get_stacks_epochs(),
+        )?;
+        let (parser_sortdb, _) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1050,13 +1113,21 @@ impl Burnchain {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
 
+                    let cur_epoch =
+                        SortitionDB::get_stacks_epoch(parser_sortdb.conn(), ipc_block.height())?
+                            .expect(&format!(
+                                "FATAL: no stacks epoch defined for {}",
+                                ipc_block.height()
+                            ));
+
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block)?;
+                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
-                        "Parsed block {} in {}ms",
+                        "Parsed block {} (epoch {}) in {}ms",
                         burnchain_block.block_height(),
+                        cur_epoch.epoch_id,
                         parse_end.saturating_sub(parse_start)
                     );
 
@@ -1201,7 +1272,7 @@ impl Burnchain {
         I: BurnchainIndexer + 'static,
     {
         self.setup_chainstate(indexer)?;
-        let (_, mut burnchain_db) = self.connect_db(
+        let (sortdb, mut burnchain_db) = self.connect_db(
             true,
             indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
@@ -1325,6 +1396,11 @@ impl Burnchain {
 
         let myself = self.clone();
 
+        let epochs = {
+            let (sortdb, _) = self.open_db(false)?;
+            SortitionDB::get_stacks_epochs(sortdb.conn())?
+        };
+
         // TODO: don't re-process blocks.  See if the block hash is already present in the burn db,
         // and if so, do nothing.
         let download_thread: thread::JoinHandle<Result<(), burnchain_error>> =
@@ -1370,13 +1446,19 @@ impl Burnchain {
                 while let Ok(Some(ipc_block)) = parser_recv.recv() {
                     debug!("Try recv next block");
 
+                    let cur_epoch =
+                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?.expect(
+                            &format!("FATAL: no stacks epoch defined for {}", ipc_block.height()),
+                        );
+
                     let parse_start = get_epoch_time_ms();
-                    let burnchain_block = parser.parse(&ipc_block)?;
+                    let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
                     let parse_end = get_epoch_time_ms();
 
                     debug!(
-                        "Parsed block {} in {}ms",
+                        "Parsed block {} (in epoch {}) in {}ms",
                         burnchain_block.block_height(),
+                        cur_epoch.epoch_id,
                         parse_end.saturating_sub(parse_start)
                     );
 
@@ -1391,7 +1473,6 @@ impl Burnchain {
             })
             .unwrap();
 
-        let is_mainnet = self.is_mainnet();
         let db_thread: thread::JoinHandle<Result<BurnchainBlockHeader, burnchain_error>> =
             thread::Builder::new()
                 .name("burnchain-db".to_string())
@@ -1405,22 +1486,19 @@ impl Burnchain {
                             continue;
                         }
 
-                        if is_mainnet {
-                            if last_processed.block_height == STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                info!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                      "block_height" => last_processed.block_height);
-                                continue;
-                            } else if last_processed.block_height > STACKS_2_0_LAST_BLOCK_TO_PROCESS {
-                                debug!("Reached Stacks 2.0 last block to processed, ignoring subsequent burn blocks";
-                                       "last_block" => STACKS_2_0_LAST_BLOCK_TO_PROCESS,
-                                       "block_height" => last_processed.block_height);
-                                continue;
-                            }
-                        }
+                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height).expect(
+                            &format!("FATAL: no epoch defined for height {}", block_height),
+                        );
+
+                        let epoch_id = epochs[epoch_index].epoch_id;
 
                         let insert_start = get_epoch_time_ms();
-                        last_processed =
-                            Burnchain::process_block(&myself, &mut burnchain_db, &burnchain_block)?;
+                        last_processed = Burnchain::process_block(
+                            &myself,
+                            &mut burnchain_db,
+                            &burnchain_block,
+                            epoch_id,
+                        )?;
                         if !coord_comm.announce_new_burn_block() {
                             return Err(burnchain_error::CoordinatorClosed);
                         }
@@ -1592,13 +1670,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1621,13 +1692,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914306231b2782b5f80d944bf69f9d46a1453a0a0eb88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -1650,13 +1714,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a914f464a593895cd58c74a7352dd4a65c491d0c0bf688ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c")
@@ -1845,6 +1902,7 @@ pub mod tests {
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222")
@@ -1864,14 +1922,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -1885,6 +1943,7 @@ pub mod tests {
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222223")
@@ -1904,14 +1963,14 @@ pub mod tests {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0")
@@ -1925,6 +1984,7 @@ pub mod tests {
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
+            sunset_burn: 0,
             commit_outs: vec![],
             block_header_hash: BlockHeaderHash::from_bytes(
                 &hex_bytes("2222222222222222222222222222222222222222222222222222222222222224")
@@ -1944,14 +2004,14 @@ pub mod tests {
 
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "0283d603abdd2392646dbdd0dc80beb39c25bfab96a8a921ea5e7517ce533f8cd5",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes(
                 &hex_bytes("301dc687a9f06a1ae87a013f27133e9cec0843c2983567be73e185827c7c13de")
@@ -2416,21 +2476,11 @@ pub mod tests {
 
             leader_bitcoin_public_keys.push(to_hex(&bitcoin_publickey.to_bytes()));
 
-            let btc_input = BitcoinTxInput {
-                in_type: BitcoinInputType::Standard,
-                keys: vec![bitcoin_publickey.clone()],
-                num_required: 1,
-                tx_ref: (Txid([0; 32]), 0),
-            };
-
-            leader_bitcoin_addresses.push(
-                BitcoinAddress::from_bytes(
-                    BitcoinNetworkType::Testnet,
-                    BitcoinAddressType::PublicKeyHash,
-                    &btc_input.to_address_bits(),
-                )
-                .unwrap(),
-            );
+            leader_bitcoin_addresses.push(BitcoinAddress::from_bytes_legacy(
+                BitcoinNetworkType::Testnet,
+                LegacyBitcoinAddressType::PublicKeyHash,
+                &Hash160::from_data(&bitcoin_publickey.to_bytes()).0,
+            ));
         }
 
         let mut expected_burn_total: u64 = 0;
@@ -2487,6 +2537,7 @@ pub mod tests {
             // insert block commit paired to previous round's leader key, as well as a user burn
             if i > 0 {
                 let next_block_commit = LeaderBlockCommitOp {
+                    sunset_burn: 0,
                     commit_outs: vec![],
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![
                         i, i, i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2510,14 +2561,14 @@ pub mod tests {
 
                     burn_fee: i as u64,
                     input: (Txid([0; 32]), 0),
-                    apparent_sender: BurnchainSigner {
-                        public_keys: vec![StacksPublicKey::from_hex(
+                    apparent_sender: BurnchainSigner::mock_parts(
+                        AddressHashMode::SerializeP2PKH,
+                        1,
+                        vec![StacksPublicKey::from_hex(
                             &leader_bitcoin_public_keys[(i - 1) as usize].clone(),
                         )
                         .unwrap()],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH,
-                    },
+                    ),
 
                     txid: Txid::from_bytes(&vec![
                         i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2552,9 +2603,6 @@ pub mod tests {
                 )
                 .unwrap(),
                 memo: vec![0, 0, 0, 0, i],
-                address: StacksAddress::from_bitcoin_address(
-                    &leader_bitcoin_addresses[i as usize].clone(),
-                ),
 
                 txid: Txid::from_bytes(&vec![
                     i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

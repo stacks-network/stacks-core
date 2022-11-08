@@ -155,6 +155,12 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallableData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub trait_identifier: Option<TraitIdentifier>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TraitIdentifier {
     pub name: ClarityName,
@@ -233,6 +239,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+    CallableContract(CallableData),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -513,7 +520,7 @@ impl SequenceData {
     }
 
     pub fn is_list(&self) -> bool {
-        if let SequenceData::List(x) = self {
+        if let SequenceData::List(..) = self {
             true
         } else {
             false
@@ -760,7 +767,7 @@ impl BurnBlockInfoProperty {
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
                                 ("version".into(), BUFF_1.clone()),
-                                ("hashbytes".into(), BUFF_20.clone()),
+                                ("hashbytes".into(), BUFF_32.clone()),
                             ])
                             .expect("FATAL: bad type signature for pox addr"),
                         ),
@@ -1092,6 +1099,15 @@ impl Value {
         }
     }
 
+    pub fn expect_callable(self) -> CallableData {
+        if let Value::CallableContract(t) = self {
+            t
+        } else {
+            error!("Value '{:?}' is not a callable contract", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_result(self) -> std::result::Result<Value, Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
@@ -1243,6 +1259,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            Value::CallableContract(callable_data) => write!(f, "{}", callable_data),
         }
     }
 }
@@ -1321,6 +1338,20 @@ impl fmt::Display for PrincipalData {
                 contract_identifier.issuer,
                 contract_identifier.name.to_string()
             ),
+        }
+    }
+}
+
+impl fmt::Display for CallableData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(trait_identifier) = &self.trait_identifier {
+            write!(
+                f,
+                "({} as <{}>)",
+                self.contract_identifier, trait_identifier,
+            )
+        } else {
+            write!(f, "{}", self.contract_identifier,)
         }
     }
 }
