@@ -36,6 +36,7 @@ use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::Globals;
 use crate::neon_node::StacksNode;
 use crate::neon_node::RELAYER_MAX_BUFFER;
+use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
@@ -495,6 +496,7 @@ impl RunLoop {
                 "chains-coordinator-{}",
                 &moved_config.node.rpc_bind
             ))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 let mut cost_estimator = moved_config.make_cost_estimator();
                 let mut fee_estimator = moved_config.make_fee_estimator();
