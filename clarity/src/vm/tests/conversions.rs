@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
 pub use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::execute_v2;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
@@ -24,6 +23,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
 use crate::vm::ClarityVersion;
+use std::convert::TryFrom;
 
 #[test]
 fn test_simple_buff_to_int_le() {
@@ -235,56 +235,56 @@ fn test_simple_buff_to_uint_be() {
 
 #[test]
 fn test_simple_string_to_int() {
-    let good1_test = r#"(string-to-int "-1")"#;
+    let good1_test = r#"(string-to-int? "-1")"#;
     assert_eq!(
         Value::some(Value::Int(-1)).unwrap(),
         execute_v2(good1_test).unwrap().unwrap()
     );
 
-    let good2_test = r#"(string-to-int u"-1")"#;
+    let good2_test = r#"(string-to-int? u"-1")"#;
     assert_eq!(
         Value::some(Value::Int(-1)).unwrap(),
         execute_v2(good2_test).unwrap().unwrap()
     );
 
-    let bad_value_error_ascii_test = r#"(string-to-int "")"#;
+    let bad_value_error_ascii_test = r#"(string-to-int? "")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_ascii_test = r#"(string-to-int "a")"#;
+    let bad_value_error_ascii_test = r#"(string-to-int? "a")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_utf8_test = r#"(string-to-int u"a")"#;
+    let bad_value_error_utf8_test = r#"(string-to-int? u"a")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_utf8_test = r#"(string-to-int u"\u{211D}\u{221E}")"#;
+    let bad_value_error_utf8_test = r#"(string-to-int? u"\u{211D}\u{221E}")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
     let bad_value_error_too_big_test =
-        r#"(string-to-int u"340282366920938463463374607431768211455000")"#;
+        r#"(string-to-int? u"340282366920938463463374607431768211455000")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_too_big_test).unwrap().unwrap(),
     );
 
-    let no_args_test = r#"(string-to-int)"#;
+    let no_args_test = r#"(string-to-int?)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 0).into()
     );
 
-    let wrong_type_error_test = r#"(string-to-int 1)"#;
+    let wrong_type_error_test = r#"(string-to-int? 1)"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
@@ -300,56 +300,56 @@ fn test_simple_string_to_int() {
 
 #[test]
 fn test_simple_string_to_uint() {
-    let good1_test = r#"(string-to-uint "1")"#;
+    let good1_test = r#"(string-to-uint? "1")"#;
     assert_eq!(
         Value::some(Value::UInt(1)).unwrap(),
         execute_v2(good1_test).unwrap().unwrap()
     );
 
-    let good2_test = r#"(string-to-uint u"1")"#;
+    let good2_test = r#"(string-to-uint? u"1")"#;
     assert_eq!(
         Value::some(Value::UInt(1)).unwrap(),
         execute_v2(good2_test).unwrap().unwrap()
     );
 
-    let bad_value_error_ascii_test = r#"(string-to-uint "")"#;
+    let bad_value_error_ascii_test = r#"(string-to-uint? "")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_ascii_test = r#"(string-to-uint "a")"#;
+    let bad_value_error_ascii_test = r#"(string-to-uint? "a")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_ascii_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_utf8_test = r#"(string-to-uint u"a")"#;
+    let bad_value_error_utf8_test = r#"(string-to-uint? u"a")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
-    let bad_value_error_utf8_test = r#"(string-to-uint u"\u{211D}\u{221E}")"#;
+    let bad_value_error_utf8_test = r#"(string-to-uint? u"\u{211D}\u{221E}")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_utf8_test).unwrap().unwrap(),
     );
 
     let bad_value_error_too_big_test =
-        r#"(string-to-uint u"340282366920938463463374607431768211455000")"#;
+        r#"(string-to-uint? u"340282366920938463463374607431768211455000")"#;
     assert_eq!(
         Value::none(),
         execute_v2(bad_value_error_too_big_test).unwrap().unwrap(),
     );
 
-    let no_args_test = r#"(string-to-uint)"#;
+    let no_args_test = r#"(string-to-uint?)"#;
     assert_eq!(
         execute_v2(no_args_test).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(1, 0).into()
     );
 
-    let wrong_type_error_test = r#"(string-to-uint 1)"#;
+    let wrong_type_error_test = r#"(string-to-uint? 1)"#;
     assert_eq!(
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(

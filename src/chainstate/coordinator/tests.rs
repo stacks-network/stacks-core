@@ -253,7 +253,6 @@ pub fn setup_states_with_epochs(
                 let public_key = VRFPublicKey::from_private(sk);
                 let consensus_hash = first_consensus_hash.clone();
                 let memo = vec![0];
-                let address = p2pkh_from(miner_sk);
                 let vtxindex = 1 + ix as u32;
                 let block_height = 0;
                 let burn_header_hash = BurnchainHeaderHash([0; 32]);
@@ -264,7 +263,6 @@ pub fn setup_states_with_epochs(
                         public_key,
                         consensus_hash,
                         memo,
-                        address,
                         vtxindex,
                         block_height,
                         burn_header_hash,
@@ -562,11 +560,11 @@ fn make_genesis_block_with_recipients(
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input: (Txid([0; 32]), 0),
-        apparent_sender: BurnchainSigner {
-            num_sigs: 1,
-            hash_mode: address::AddressHashMode::SerializeP2PKH,
-            public_keys: vec![StacksPublicKey::from_private(miner)],
-        },
+        apparent_sender: BurnchainSigner::mock_parts(
+            address::AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_private(miner)],
+        ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
         memo: vec![STACKS_EPOCH_2_1_MARKER],
@@ -784,11 +782,11 @@ fn make_stacks_block_with_input(
         block_header_hash: block.block_hash(),
         burn_fee: my_burn,
         input,
-        apparent_sender: BurnchainSigner {
-            num_sigs: 1,
-            hash_mode: address::AddressHashMode::SerializeP2PKH,
-            public_keys: vec![StacksPublicKey::from_private(miner)],
-        },
+        apparent_sender: BurnchainSigner::mock_parts(
+            address::AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_private(miner)],
+        ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
         memo: vec![STACKS_EPOCH_2_1_MARKER],
