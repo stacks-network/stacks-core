@@ -174,9 +174,8 @@ mod tests {
 }
 
 impl ConfigFile {
-    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
-        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
-        Self::from_str(&content)
+    pub fn read_content(path: &str) -> Result<String, String> {
+        fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
@@ -191,6 +190,12 @@ impl ConfigFile {
             };
         }
         Ok(config)
+    }
+
+    pub fn from_path(path: &str) -> Result<ConfigFile, String> {
+        let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
+        let config_file = Self::from_str(&content)?;
+        Ok(config_file)
     }
 
     pub fn xenon() -> ConfigFile {
@@ -555,13 +560,32 @@ lazy_static! {
 
 impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
+        Config::from_config_file_with_options(config_file, true)
+    }
+    
+    pub fn from_config_file_with_options(
+        config_file: ConfigFile,
+        verbose: bool,
+    ) -> Result<Config, String> {
         let default_node_config = NodeConfig::default();
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
                 let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
+                let node_seed_bytes = match node.seed {
+                    Some(seed) => Some(seed),
+                    None => match std::env::var("STACKS_NODE_SEED") {
+                        Ok(seed) => {
+                            if verbose {
+                                info!("Using STACKS_NODE_SEED for node.seed");
+                            }
+                            Some(seed)
+                        }
+                        Err(_) => None,
+                    },
+                };
                 let node_config = NodeConfig {
                     name: node.name.unwrap_or(default_node_config.name),
-                    seed: match node.seed {
+                    seed: match node_seed_bytes {
                         Some(seed) => hex_bytes(&seed)
                             .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
                         None => default_node_config.seed,
@@ -702,8 +726,18 @@ impl Config {
                     rpc_ssl: burnchain
                         .rpc_ssl
                         .unwrap_or(default_burnchain_config.rpc_ssl),
-                    username: burnchain.username,
-                    password: burnchain.password,
+                    username: burnchain.username.or_else(|| {
+                        if verbose {
+                            info!("Using STACKS_BURNCHAIN_USERNAME");
+                        }
+                        std::env::var("STACKS_BURNCHAIN_USERNAME").ok()
+                    }),
+                    password: burnchain.password.or_else(|| {
+                        if verbose {
+                            info!("Using STACKS_BURNCHAIN_PASSWORD");
+                        }
+                        std::env::var("STACKS_BURNCHAIN_PASSWORD").ok()
+                    }),
                     timeout: burnchain
                         .timeout
                         .unwrap_or(default_burnchain_config.timeout),

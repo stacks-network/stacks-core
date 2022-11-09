@@ -1897,7 +1897,8 @@ impl RelayerThread {
         .expect("Database failure opening mempool");
 
         let keychain = Keychain::default(config.node.seed.clone());
-        let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
+        let config_handle = ConfigHandle::new(config.clone());
+        let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone(), config_handle);
 
         RelayerThread {
             config: config.clone(),
