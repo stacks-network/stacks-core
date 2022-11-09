@@ -36,7 +36,6 @@ use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::Globals;
 use crate::neon_node::StacksNode;
 use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
-use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
 use crate::neon_node::RELAYER_MAX_BUFFER;
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
