@@ -677,6 +677,12 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
+        test_debug!(
+            "Get UTXOs for {} ({}) rbf={}",
+            pubk.to_hex(),
+            addr2str(&address),
+            self.allow_rbf
+        );
         let filter_addresses = vec![addr2str(&address)];
 
         let mut utxos = loop {
@@ -1159,7 +1165,7 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Did a re-org occurred since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
         let mut traversal_depth = 0;
         let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
         let mut found_last_mined_at = false;
@@ -1893,7 +1899,7 @@ impl SerializedTx {
         self.txid.clone()
     }
 
-    fn to_hex(&self) -> String {
+    pub fn to_hex(&self) -> String {
         let formatted_bytes: Vec<String> =
             self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{}", formatted_bytes.join(""))
