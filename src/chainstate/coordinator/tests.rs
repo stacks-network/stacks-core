@@ -4167,7 +4167,7 @@ fn get_total_stacked_info(
 // sent should occur in the "pox.clar" contract.
 #[test]
 fn test_epoch_verify_active_pox_contract() {
-    let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
+    let path = "/tmp/stacks-blockchain-verify-active-pox-contract";
     let _r = std::fs::remove_dir_all(path);
 
     let pox_v1_unlock_ht = 12;
