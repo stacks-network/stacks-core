@@ -75,6 +75,7 @@ pub enum Error {
     BlockCommitAnchorCheck,
     BlockCommitBadModulus,
     BlockCommitBadEpoch,
+    BlockCommitMissDistanceTooBig,
     MissedBlockCommit(MissedBlockCommit),
 
     // all the things that can go wrong with leader key register
@@ -120,6 +121,12 @@ impl fmt::Display for Error {
             }
             Error::BlockCommitBadEpoch => {
                 write!(f, "Block commit has an invalid epoch")
+            }
+            Error::BlockCommitMissDistanceTooBig => {
+                write!(
+                    f,
+                    "Block commit missed its target sortition height by too much"
+                )
             }
             Error::MissedBlockCommit(_) => write!(
                 f,
