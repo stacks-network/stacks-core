@@ -807,8 +807,8 @@ fn make_stacks_block_with_input(
 }
 
 #[test]
-fn missed_block_commits() {
-    let path = "/tmp/stacks-blockchain-missed_block_commits";
+fn missed_block_commits_2_05() {
+    let path = "/tmp/stacks-blockchain-missed_block_commits_2_05";
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
@@ -833,13 +833,14 @@ fn missed_block_commits() {
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
-    setup_states(
+    setup_states_with_epochs(
         &[path],
         &vrf_keys,
         &committers,
         pox_consts.clone(),
         Some(initial_balances),
-        StacksEpochId::Epoch2_05,
+        StacksEpochId::Epoch21,
+        Some(StacksEpoch::all(0, 0, 1000000)),
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -889,6 +890,9 @@ fn missed_block_commits() {
         };
 
         let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        // NOTE: this will accidentally succeed -- the calculation for the recipients is wrong for
+        // late block-commits, but 2.05 accepts them anyway.
         let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
             .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
             .unwrap();
@@ -1104,6 +1108,681 @@ fn missed_block_commits() {
         let pox_id = ic.get_pox_id().unwrap();
         assert_eq!(&pox_id.to_string(),
                    "111111111111",
+                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+}
+
+/// Test new epoch 2.1 features for handling missed commits.
+/// The main difference between this and the 2.05 variant is that missed block-commits here
+/// will be rejected if they have different PoX outputs than those expected by their intended
+/// sortition.  This test generates block-commits exactly like the 2.05 test (which creates
+/// block-commits with bad PoX outputs), and verifies that the burn window is adjusted differently
+/// in 2.1 due to the bad missed block-commit *not* counting towards the miner's sortition weight.
+#[test]
+fn missed_block_commits_2_1() {
+    let path = "/tmp/stacks-blockchain-missed_block_commits_2_1";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        u32::max_value(),
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states_with_epochs(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+        Some(StacksEpoch::all(0, 0, 0)),
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    let mut last_input: Option<(Txid, u32)> = None;
+    let b = get_burnchain(path, None);
+    let mut last_bad_op_height = 0;
+
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        // NOTE: these get used in the late block-commit as well, which will make it invalid (new
+        // in 2.1)
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
+            .unwrap();
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let mut ops = vec![];
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 4 {
+            // make a bad op, and deliberately use the wrong recipients.
+            // This will validate if the commit lands in the reward phase (because we're PoB -- all
+            // the outputs are the same), but will fail if it lands in the prepare phase (because
+            // the number of outputs will be wrong).
+            let (mut bad_op, _) = make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height - 2,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                0,
+                false,
+                last_input.as_ref().unwrap().clone(),
+            );
+            // NOTE: intended for block block_height - 2
+            last_input = Some((
+                bad_op.txid(),
+                if b.is_in_prepare_phase(next_mock_header.block_height - 2 + 1) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
+            bad_op.set_block_height(next_mock_header.block_height);
+            if let BlockstackOperationType::LeaderBlockCommit(ref mut op) = bad_op {
+                op.burn_parent_modulus =
+                    ((next_mock_header.block_height - 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+                op.vtxindex = 3;
+            } else {
+                panic!("Should be leader block commit");
+            }
+            test_debug!(
+                "bad_op meant for block {}: {:?}",
+                burnchain_tip.block_height - 2 + 1,
+                &bad_op
+            );
+            ops.push(bad_op);
+            last_bad_op_height = next_mock_header.block_height;
+            info!("bad block-commit in {}", last_bad_op_height);
+        }
+
+        let (mut good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                0,
+                false,
+                last_input.as_ref().unwrap().clone(),
+            )
+        };
+
+        good_op.set_block_height(next_mock_header.block_height);
+
+        let expected_winner = good_op.txid();
+        ops.push(good_op);
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+            // produce an empty block!
+            produce_burn_block(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                vec![],
+                vec![].iter_mut(),
+            );
+        } else {
+            // produce a block with one good op,
+            last_input = Some((
+                expected_winner,
+                if b.is_in_prepare_phase(next_mock_header.block_height) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
+            produce_burn_block_do_not_set_height(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                ops,
+                vec![].iter_mut(),
+            );
+        }
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let burn_distribution = get_burn_distribution(sort_db.conn(), &tip.sortition_id);
+        eprintln!("{}", ix);
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+            assert!(
+                !tip.sortition,
+                "Sortition should not have occurred because the only block commit was invalid"
+            );
+            // duplicate the last stacks_block
+            stacks_blocks.push(stacks_blocks[ix - 1].clone());
+        } else {
+            // how many commits do we expect to see counted in the current window?
+            let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
+                (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else {
+                if ix >= 3 {
+                    ix
+                } else {
+                    ix + 1
+                }
+            };
+            // there were 2 burn blocks before we started mining
+            let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
+
+            // did we have a bad missed commit in this window?
+            // bad missed commits land in the prepare phase.
+            let have_bad_missed_commit = b.is_in_prepare_phase(last_bad_op_height)
+                && ix >= MINING_COMMITMENT_WINDOW.into()
+                && last_bad_op_height + (MINING_COMMITMENT_WINDOW as u64) > tip.block_height;
+            if have_bad_missed_commit {
+                // bad commit breaks the chain if its PoX outputs are invalid
+                if ix >= 24 && ix < 29 {
+                    expected_window_commits = (tip.block_height - last_bad_op_height + 1) as usize;
+                }
+                info!(
+                    "Expect bad block-commit in window from height {} (tip={}, window={})",
+                    last_bad_op_height, tip.block_height, expected_window_commits
+                );
+            }
+
+            info!(
+                "ix = {}: expected_window_commits = {}, expected_window_size = {}",
+                ix, expected_window_commits, expected_window_size
+            );
+
+            let min_burn = 1;
+            let median_burn = if expected_window_commits > expected_window_size / 2 {
+                10000
+            } else if expected_window_size % 2 == 0
+                && expected_window_commits == expected_window_size / 2
+            {
+                (10000 + 1) / 2
+            } else {
+                1
+            };
+            let last_burn = if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+                0
+            } else {
+                10000
+            };
+
+            if b.is_in_prepare_phase(next_mock_header.block_height) {
+                // in prepare phase -- no smoothing takes place
+                assert_eq!(
+                    burn_distribution[0].burns, last_burn,
+                    "Burn distribution should not do windowing at ix = {} block_height = {}",
+                    ix, next_mock_header.block_height
+                )
+            } else {
+                // in reward phase -- apply min median
+                assert_eq!(
+                    burn_distribution[0].burns,
+                    cmp::min(last_burn, median_burn),
+                    "Burn distribution should match at ix = {} block_height = {}",
+                    ix,
+                    next_mock_header.block_height
+                );
+            }
+
+            assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+            // load the block into staging
+            let block_hash = block.header.block_hash();
+
+            assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+            preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+            // handle the stacks block
+            coord.handle_new_stacks_block().unwrap();
+        }
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+    // 1 block of every $MINING_COMMITMENT_WINDOW is missed
+    let missed_blocks = vrf_keys.len() / (MINING_COMMITMENT_WINDOW as usize);
+    let expected_height = vrf_keys.len() - missed_blocks;
+    assert_eq!(
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+        Value::UInt(expected_height as u128),
+    );
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "111111111111",
+                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+}
+
+/// Verify that a block-commit that is too late in epoch 2.1 (e.g. miss distance > 1) will break
+/// the UTXO chain
+#[test]
+fn late_block_commits_2_1() {
+    let path = "/tmp/stacks-blockchain-late_block_commits_2_1";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        10,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        u32::max_value(),
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states_with_epochs(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+        Some(StacksEpoch::all(0, 0, 0)),
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    let mut last_input: Option<(Txid, u32)> = None;
+    let b = get_burnchain(path, None);
+    let mut last_bad_op_height = 0;
+
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        // NOTE: this will accidentally succeed -- the calculation for the recipients is wrong, but
+        // it's all PoB here anyway so late block-commits will continue to be accepted.
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(&b, reward_cycle_info.as_ref())
+            .unwrap();
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let mut ops = vec![];
+
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 4 {
+            let (mut bad_op, _) = make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height - 3,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                0,
+                false,
+                last_input.as_ref().unwrap().clone(),
+            );
+            // NOTE: intended for block block_height - 3
+            last_input = Some((
+                bad_op.txid(),
+                if b.is_in_prepare_phase(next_mock_header.block_height - 3 + 1) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
+            bad_op.set_block_height(next_mock_header.block_height);
+            if let BlockstackOperationType::LeaderBlockCommit(ref mut op) = bad_op {
+                op.burn_parent_modulus =
+                    ((next_mock_header.block_height - 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+                op.vtxindex = 3;
+            } else {
+                panic!("Should be leader block commit");
+            }
+            test_debug!(
+                "bad_op meant for block {}: {:?}",
+                burnchain_tip.block_height - 3 + 1,
+                &bad_op
+            );
+            ops.push(bad_op);
+            last_bad_op_height = next_mock_header.block_height;
+            info!("bad block-commit in {}", last_bad_op_height);
+        }
+
+        let (mut good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            make_stacks_block_with_input(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+                0,
+                false,
+                last_input.as_ref().unwrap().clone(),
+            )
+        };
+
+        good_op.set_block_height(next_mock_header.block_height);
+
+        let expected_winner = good_op.txid();
+        ops.push(good_op);
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+            // produce an empty block!
+            produce_burn_block(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                vec![],
+                vec![].iter_mut(),
+            );
+        } else {
+            // produce a block with one good op,
+            last_input = Some((
+                expected_winner,
+                if b.is_in_prepare_phase(next_mock_header.block_height) {
+                    2
+                } else {
+                    (OUTPUTS_PER_COMMIT as u32) + 1
+                },
+            ));
+            produce_burn_block_do_not_set_height(
+                &mut burnchain,
+                &burnchain_tip.block_hash,
+                ops,
+                vec![].iter_mut(),
+            );
+        }
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        let burn_distribution = get_burn_distribution(sort_db.conn(), &tip.sortition_id);
+        eprintln!("{}", ix);
+        if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+            assert!(
+                !tip.sortition,
+                "Sortition should not have occurred because the only block commit was invalid"
+            );
+            // duplicate the last stacks_block
+            stacks_blocks.push(stacks_blocks[ix - 1].clone());
+        } else {
+            // how many commit do we expect to see counted in the current window?
+            let mut expected_window_commits = if ix >= (MINING_COMMITMENT_WINDOW as usize) {
+                (MINING_COMMITMENT_WINDOW - 1) as usize
+            } else {
+                if ix >= 3 {
+                    ix
+                } else {
+                    ix + 1
+                }
+            };
+            // there were 2 burn blocks before we started mining
+            let expected_window_size = cmp::min(MINING_COMMITMENT_WINDOW as usize, ix + 3);
+
+            // did we have a bad missed commit in this window?
+            let have_bad_missed_commit = ix >= 4
+                && last_bad_op_height + (MINING_COMMITMENT_WINDOW as u64) > tip.block_height;
+            if have_bad_missed_commit {
+                // bad commit breaks the chain if its miss distance is too high.
+                expected_window_commits = (tip.block_height - last_bad_op_height + 1) as usize;
+                info!(
+                    "Expect bad block-commit in window from height {} (tip={}, window={})",
+                    last_bad_op_height, tip.block_height, expected_window_commits
+                );
+            }
+
+            info!("ix = {}: expected_window_commits = {}, expected_window_size = {}, last_bad_op_height = {}", ix, expected_window_commits, expected_window_size, last_bad_op_height);
+
+            let min_burn = 1;
+            let median_burn = if expected_window_commits > expected_window_size / 2 {
+                10000
+            } else if expected_window_size % 2 == 0
+                && expected_window_commits == expected_window_size / 2
+            {
+                (10000 + 1) / 2
+            } else {
+                1
+            };
+            let last_burn = if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
+                0
+            } else {
+                10000
+            };
+
+            if b.is_in_prepare_phase(next_mock_header.block_height) {
+                // in prepare phase -- no smoothing takes place
+                assert_eq!(
+                    burn_distribution[0].burns, last_burn,
+                    "Burn distribution should not do windowing at ix = {} block_height = {}",
+                    ix, next_mock_header.block_height
+                );
+                info!(
+                    "ix = {} (pp): burn_distribution[0].burns == {:?}",
+                    ix, burn_distribution[0].burns
+                );
+            } else {
+                // in reward phase -- apply min median
+                assert_eq!(
+                    burn_distribution[0].burns,
+                    cmp::min(last_burn, median_burn),
+                    "Burn distribution should match at ix = {} block_height = {}",
+                    ix,
+                    next_mock_header.block_height
+                );
+                info!(
+                    "ix = {} (rp): burn_distribution[0].burns == {:?}",
+                    ix, burn_distribution[0].burns
+                );
+            }
+
+            assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+            // load the block into staging
+            let block_hash = block.header.block_hash();
+
+            assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+            stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+            preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+            // handle the stacks block
+            coord.handle_new_stacks_block().unwrap();
+        }
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+
+    // 1 block of every $MINING_COMMITMENT_WINDOW is missed
+    let missed_blocks = vrf_keys.len() / (MINING_COMMITMENT_WINDOW as usize);
+    let expected_height = vrf_keys.len() - missed_blocks;
+    assert_eq!(
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+        Value::UInt(expected_height as u128),
+    );
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "1111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
 }
