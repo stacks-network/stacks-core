@@ -35,6 +35,8 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
+use crate::chainstate::stacks::boot::POX_1_NAME;
+use crate::chainstate::stacks::boot::POX_2_NAME;
 use crate::chainstate::stacks::db::{
     accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
@@ -43,6 +45,8 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
+use crate::util_lib::boot::boot_code_addr;
+use crate::vm::errors::Error as InterpreterError;
 use clarity::vm::{
     costs::{ExecutionCost, LimitedCostTracker},
     types::PrincipalData,
@@ -3100,6 +3104,393 @@ fn test_stx_transfer_btc_ops() {
     }
 }
 
+// This helper function retrieves the delegation info from the delegate address
+// from the pox-2 contract.
+// Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from the map
+// `delegation-state` in pox-2.
+fn get_delegation_info_pox_2(
+    chainstate: &mut StacksChainState,
+    burn_dbconn: &dyn BurnStateDB,
+    parent_tip: &StacksBlockId,
+    del_addr: &StacksAddress,
+) -> Option<(u128, Option<PoxAddress>)> {
+    let result = chainstate
+        .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
+            conn.with_readonly_clarity_env(
+                false,
+                CHAIN_ID_TESTNET,
+                ClarityVersion::Clarity2,
+                PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                None,
+                LimitedCostTracker::new_free(),
+                |env| {
+                    let eval_str = format!(
+                        "(contract-call? '{}.pox-2 get-delegation-info '{})",
+                        &boot_code_addr(false),
+                        del_addr
+                    );
+
+                    let result = env.eval_raw(&eval_str).unwrap();
+                    Ok(result)
+                },
+            )
+            .unwrap()
+        })
+        .unwrap()
+        .expect_optional();
+    match result {
+        None => None,
+        Some(tuple) => {
+            let data = tuple.expect_tuple().data_map;
+            let delegated_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
+            let reward_addr_opt = if let Some(reward_addr) =
+                data.get("pox-addr").cloned().unwrap().expect_optional()
+            {
+                Some(PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap())
+            } else {
+                None
+            };
+            Some((delegated_amt, reward_addr_opt))
+        }
+    }
+}
+
+// This test ensures that delegate stx burn ops are applied as expected.
+// In this test, the burn chain does not fork at all.
+// First, a DelegateSTX operation is sent in burn block n. The stacks
+// blockchain does not fork for the next 10 blocks, and the test verifies
+// that this delegation persists for the next 40 or so blocks.
+// Second, a DelegateSTX operation is sent in burn block m. This time,
+// the stacks blockchain forks off the stacks block built off of burn
+// block m for the next 10 blocks. The test verifies that this delegate
+// stx operation is only processed and active in the stacks block built off
+// of burn blocks m+1 to m+7 inclusive. From block m+8 onward, the
+// delegation does not persist.
+//
+// The chain in this test looks something like this, where Bi represents the
+// ith burn block, and Sj represents the jth stacks block.
+
+//          1st op sent       2nd op sent
+//              ^                 ^
+// B2 -> .. -> B12 -> B13 -> ... B22 -> B23 -> B24 -> B25 -> B26 -> ... -> B32 -> B33
+// S0 -> .. -> S10 -> S11 -> ... S20 -> S21
+//                                \ _ _ _ _ _  S22
+//                                \ _ _ _ _ _ _ _ _  S23
+//                                \ _ _ _ _ _ _ _ _ _ _ _ _  S24
+//                                  ....
+//                                \ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ S30 -> S31 -> ...
+#[test]
+fn test_delegate_stx_btc_ops() {
+    let path = "/tmp/stacks-blockchain-delegate-stx-btc-ops";
+    let _r = std::fs::remove_dir_all(path);
+
+    let pox_v1_unlock_ht = 12;
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let first_del = p2pkh_from(&StacksPrivateKey::new());
+    let second_del = p2pkh_from(&StacksPrivateKey::new());
+    let delegator_addr = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let delegated_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![
+        (first_del.clone().into(), balance),
+        (second_del.clone().into(), balance),
+    ];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    let mut started_first_reward_cycle = false;
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut anchor_blocks = vec![];
+
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        // The stacks chain will look something like this
+        // S0 -> S1 -> S2 -> ... S20 -> S21
+        //                          \ _ S22
+        //                          \ _ S23
+        //                          \ _ S24
+        //                            ....
+        //                          \ _ S30 -> S31 -> ...
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else if ix >= 22 && ix <= 30 {
+            stacks_blocks[20].1.header.block_hash()
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+        let reward_addr = PoxAddress::Standard(
+            StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap(),
+            Some(AddressHashMode::SerializeP2PKH),
+        );
+        if ix == 0 {
+            // add a pre-stx op
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: first_del.clone(),
+                txid: next_txid(),
+                vtxindex: 4,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: first_del.clone(),
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: second_del.clone(),
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            // The effects of this operation should never materialize,
+            // since this operation was sent before 2.1 is active.
+            ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: first_del.clone(),
+                delegate_to: delegator_addr.clone(),
+                reward_addr: None,
+                delegated_ustx: delegated_amt * 3,
+                until_burn_height: None,
+                txid: next_txid(),
+                vtxindex: 4,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 10 {
+            ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: first_del.clone(),
+                delegate_to: delegator_addr.clone(),
+                reward_addr: Some((1, reward_addr.clone())),
+                delegated_ustx: delegated_amt,
+                until_burn_height: None,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 20 {
+            ops.push(BlockstackOperationType::DelegateStx(DelegateStxOp {
+                sender: second_del.clone(),
+                delegate_to: delegator_addr.clone(),
+                reward_addr: None,
+                delegated_ustx: delegated_amt * 2,
+                until_burn_height: None,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
+            started_first_reward_cycle = true;
+            // store the anchor block for this sortition for later checking
+            let ic = sort_db.index_handle_at_tip();
+            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
+            anchor_blocks.push(bhh);
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let parent_tip = StacksBlockId::new(&tip.consensus_hash, &block_hash);
+
+        // check our delegated balance after Epoch 2.1 begins (at burn height 8)
+        let mut chainstate = get_chainstate(path);
+        if ix >= 6 {
+            let first_delegation_info = get_delegation_info_pox_2(
+                &mut chainstate,
+                &sort_db.index_conn(),
+                &parent_tip,
+                &first_del,
+            );
+            let second_delegation_info = get_delegation_info_pox_2(
+                &mut chainstate,
+                &sort_db.index_conn(),
+                &parent_tip,
+                &second_del,
+            );
+
+            // Check that the effects of the delegate stx op sent when ix==10
+            // are materialized for ix=11... (we check that the
+            // changes endure for the following blocks)
+            if ix >= 11 {
+                assert_eq!(
+                    first_delegation_info,
+                    Some((delegated_amt, Some(reward_addr.clone()))),
+                    "The first delegation should be active"
+                );
+            } else {
+                assert_eq!(
+                    first_delegation_info, None,
+                    "The first delegation should not be active"
+                );
+            }
+
+            // Check that the effects of the delegate stx op sent when ix==20
+            // are materialized for ix=21..27 (n to n+6 inclusive), where each of these
+            // blocks fork off of the state from iteration ix=20.
+            // Want to ensure that a burnchain operation sent in a burn block
+            // is picked up by stacks blocks on the same burnchain block
+            // up to 6 stacks blocks in the future, even if the stacks blockchain is forking.
+            if ix >= 21 && ix <= 27 {
+                assert_eq!(
+                    second_delegation_info,
+                    Some((delegated_amt * 2, None)),
+                    "The second delegation should be active"
+                );
+            } else {
+                assert_eq!(
+                    second_delegation_info, None,
+                    "The second delegation should not be active"
+                );
+            }
+        }
+    }
+
+    let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+    let mut chainstate = get_chainstate(path);
+    assert_eq!(
+        chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| conn
+                    .with_readonly_clarity_env(
+                        false,
+                        CHAIN_ID_TESTNET,
+                        ClarityVersion::Clarity1,
+                        PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| env.eval_raw("block-height")
+                    )
+                    .unwrap()
+            )
+            .unwrap(),
+        Value::UInt(41)
+    );
+
+    {
+        let ic = sort_db.index_handle_at_tip();
+        let pox_id = ic.get_pox_id().unwrap();
+        assert_eq!(&pox_id.to_string(),
+                   "111111111111",
+                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+    }
+}
+
 #[test]
 fn test_initial_coinbase_reward_distributions() {
     let path = "/tmp/initial_coinbase_reward_distributions";
@@ -3529,9 +3920,539 @@ fn test_epoch_switch_cost_contract_instantiation() {
     }
 }
 
+// This test ensures the epoch transition from 2.05 to 2.1 is applied at the proper block boundaries,
+// and that the epoch transition is only applied once. If it were to be applied more than once,
+// the test would panic when trying to re-create the pox-2 contract.
 #[test]
+fn test_epoch_switch_pox_contract_instantiation() {
+    let path = "/tmp/stacks-blockchain-epoch-switch-pox-contract-instantiation";
+    let _r = std::fs::remove_dir_all(path);
+
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..15).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..15).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+
+    for ix in 0..14 {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        // Want to ensure that the pox-2 contract DNE for all blocks after the epoch transition height,
+        // and does exist for blocks after the boundary.
+        //                              Epoch 2.1 transition
+        //                                       ^
+        //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> ..
+        //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6
+        //                                  \
+        //                                    \
+        //                                      _ _ _  S7 -> S8 -> ..
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else if ix == 7 {
+            stacks_blocks[ix - 2].1.header.block_hash()
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let ops = vec![good_op];
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
+        let burn_block_height = tip.block_height;
+
+        // check that the expected stacks epoch ID is equal to the actual stacks epoch ID
+        let expected_epoch = match burn_block_height {
+            x if x < 4 => StacksEpochId::Epoch20,
+            x if x >= 4 && x < 8 => StacksEpochId::Epoch2_05,
+            x => StacksEpochId::Epoch21,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| conn.with_clarity_db_readonly(|db| db
+                        .get_stacks_epoch(burn_block_height as u32)
+                        .unwrap())
+                )
+                .unwrap()
+                .epoch_id,
+            expected_epoch
+        );
+
+        // These expectations are according to according to hard-coded values in
+        // `StacksEpoch::unit_test_2_1`.
+        let expected_runtime = match burn_block_height {
+            x if x < 4 => u64::MAX,
+            x if x >= 4 && x < 8 => 205205,
+            x => 210210,
+        };
+        assert_eq!(
+            chainstate
+                .with_read_only_clarity_tx(
+                    &sort_db.index_conn(),
+                    &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                    |conn| {
+                        conn.with_clarity_db_readonly(|db| {
+                            db.get_stacks_epoch(burn_block_height as u32).unwrap()
+                        })
+                    },
+                )
+                .unwrap()
+                .block_limit
+                .runtime,
+            expected_runtime
+        );
+
+        // check that pox-2 contract DNE before epoch 2.1, and that it does exist after
+        let does_pox_2_contract_exist = chainstate
+            .with_read_only_clarity_tx(
+                &sort_db.index_conn(),
+                &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
+                |conn| {
+                    conn.with_clarity_db_readonly(|db| {
+                        db.get_contract(&boot_code_id(POX_2_NAME, false))
+                    })
+                },
+            )
+            .unwrap();
+
+        if burn_block_height < 8 {
+            assert!(does_pox_2_contract_exist.is_err())
+        } else {
+            assert!(does_pox_2_contract_exist.is_ok())
+        }
+    }
+}
+
+fn get_total_stacked_info(
+    chainstate: &mut StacksChainState,
+    burn_dbconn: &dyn BurnStateDB,
+    parent_tip: &StacksBlockId,
+    reward_cycle: u64,
+    is_pox_2: bool,
+) -> Result<u128, InterpreterError> {
+    chainstate
+        .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
+            conn.with_readonly_clarity_env(
+                false,
+                CHAIN_ID_TESTNET,
+                ClarityVersion::Clarity2,
+                PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
+                None,
+                LimitedCostTracker::new_free(),
+                |env| {
+                    let eval_str = format!(
+                        "(contract-call? '{}.{} get-total-ustx-stacked u{})",
+                        &boot_code_addr(false),
+                        if is_pox_2 { POX_2_NAME } else { POX_1_NAME },
+                        reward_cycle
+                    );
+
+                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128());
+                    Ok(result)
+                },
+            )
+            .unwrap()
+        })
+        .unwrap()
+}
+
+// This test verifies that the correct contract is used for PoX for stacking operations.
+// Need to ensure that after v1_unlock_height, stacking operations are executed in the "pox-2" contract.
+// After the transition to Epoch 2.1 but before v1_unlock_height, stacking operations that are
+// sent should occur in the "pox.clar" contract.
+#[test]
+fn test_epoch_verify_active_pox_contract() {
+    let path = "/tmp/stacks-blockchain-verify-active-pox-contract";
+    let _r = std::fs::remove_dir_all(path);
+
+    let pox_v1_unlock_ht = 12;
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..20).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..20).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let stacker_2 = p2pkh_from(&StacksPrivateKey::new());
+    let rewards = pox_addr_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![
+        (stacker.clone().into(), balance),
+        (stacker_2.clone().into(), balance),
+    ];
+
+    let first_block_ht = burnchain_conf.first_block_height;
+    setup_states_with_epochs(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch21,
+        Some(StacksEpoch::all(
+            first_block_ht,
+            first_block_ht + 4,
+            first_block_ht + 8,
+        )),
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    for ix in 0..20 {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        // Want to ensure that the correct PoX contract is used in the various phases.
+        // The pox-2 contract should be used for stacking operations at and after B12.
+        // Bi represents the ith burn block, and Sj represents the jth stacks block.
+        //
+        //                              Epoch 2.1 transition         active pox contract switch
+        //                                       ^                                ^
+        //.. B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8 -> B9 -> B10 -> B11 -> B12
+        //   S0 -> S1 -> S2 -> S3 -> S4 -> S5 -> S6 -> S7 -> S8 -> S9 -> S10  -> S11
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let b = get_burnchain(path, pox_consts.clone());
+
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let reward_cycle_info = coord.get_reward_cycle_info(&next_mock_header).unwrap();
+
+        let next_block_recipients = get_rw_sortdb(path, pox_consts.clone())
+            .test_get_next_block_recipients(&burnchain_conf, reward_cycle_info.as_ref())
+            .unwrap();
+
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                next_block_recipients.as_ref(),
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+
+        if ix == 0 {
+            // add a pre-stack-stx op
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: stacker.clone(),
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: stacker_2.clone(),
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+            ops.push(BlockstackOperationType::PreStx(PreStxOp {
+                output: stacker_2.clone(),
+                txid: next_txid(),
+                vtxindex: 7,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 1 {
+            // This operation leads to a lock in the `pox.clar` contract
+            ops.push(BlockstackOperationType::StackStx(StackStxOp {
+                sender: stacker.clone(),
+                reward_addr: rewards.clone(),
+                stacked_ustx: stacked_amt,
+                num_cycles: 1,
+                txid: next_txid(),
+                vtxindex: 5,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == 7 {
+            // This will be sent in the first block of epoch 2.1, and will lead
+            // to a state change in `pox.clar`.
+            // The active contract is `pox.clar`, since the v1_unlock_height
+            // has not been reached.
+            ops.push(BlockstackOperationType::StackStx(StackStxOp {
+                sender: stacker_2.clone(),
+                reward_addr: rewards.clone(),
+                stacked_ustx: stacked_amt * 2,
+                num_cycles: 5,
+                txid: next_txid(),
+                vtxindex: 6,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        } else if ix == pox_v1_unlock_ht as usize - 1 {
+            // This will be sent when the burn_block_height == v1_unlock_height,
+            // and leads to a state change in `pox-2.clar`.
+            ops.push(BlockstackOperationType::StackStx(StackStxOp {
+                sender: stacker_2.clone(),
+                reward_addr: rewards.clone(),
+                stacked_ustx: stacked_amt * 4,
+                num_cycles: 1,
+                txid: next_txid(),
+                vtxindex: 7,
+                block_height: 0,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
+            }));
+        }
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+
+        let burn_block_height = tip.block_height;
+
+        let parent_tip = StacksBlockId::new(&tip.consensus_hash, &block_hash);
+        let curr_reward_cycle = b.block_height_to_reward_cycle(burn_block_height).unwrap();
+
+        // Query the pox.clar contract to ensure the total stacked amount is as expected
+        let amount_locked_pox_1_res = get_total_stacked_info(
+            &mut chainstate,
+            &sort_db.index_conn(),
+            &parent_tip,
+            curr_reward_cycle,
+            false,
+        );
+
+        let amount_locked_pox_1 = amount_locked_pox_1_res
+            .expect("Should be able to query pox.clar for total locked ustx");
+
+        if burn_block_height <= pox_v1_unlock_ht.into() {
+            if curr_reward_cycle == 1 {
+                // This is a result of the first stack stx sent.
+                assert_eq!(amount_locked_pox_1, stacked_amt);
+            } else if curr_reward_cycle == 2 {
+                // This assertion checks that we are in Epoch 2.1
+                assert!(burn_block_height >= 8);
+                // This is a result of the second stack stx sent.
+                assert_eq!(amount_locked_pox_1, stacked_amt * 2);
+            } else {
+                assert_eq!(amount_locked_pox_1, 0);
+            }
+        } else {
+            // After the v1_unlock_height, the total stacked amount does not change, since
+            // the third `stack-stx` operation does not alter this amount.
+            assert_eq!(amount_locked_pox_1, stacked_amt * 2);
+        }
+
+        // Query the pox-2.clar contract to ensure the total stacked amount is as expected
+        let amount_locked_pox_2_res = get_total_stacked_info(
+            &mut chainstate,
+            &sort_db.index_conn(),
+            &parent_tip,
+            curr_reward_cycle,
+            true,
+        );
+
+        if burn_block_height >= 8 {
+            let amount_locked_pox_2 = amount_locked_pox_2_res
+                .expect("Should be able to query pox-2.clar for total locked ustx");
+            if curr_reward_cycle == 3 {
+                // This assertion checks that the burn height is at or after the v1_unlock_height
+                assert!(burn_block_height >= pox_v1_unlock_ht as u64);
+                // This is a result of the third stack stx sent.
+                assert_eq!(amount_locked_pox_2, stacked_amt * 4);
+            } else {
+                assert_eq!(amount_locked_pox_2, 0);
+            }
+        } else {
+            // The query fails before since the `pox-2.clar` contract is uninitialized.
+            assert!(amount_locked_pox_2_res.is_err());
+        }
+    }
+}
+
 fn test_sortition_with_sunset() {
     let path = "/tmp/stacks-blockchain-sortition-with-sunset";
+
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 80;
