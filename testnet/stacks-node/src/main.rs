@@ -37,7 +37,7 @@ pub mod tenure;
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
 };
-pub use self::config::{Config, ConfigFile};
+pub use self::config::{Config, ConfigFile, ConfigLoader};
 pub use self::event_dispatcher::EventDispatcher;
 pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
@@ -45,7 +45,7 @@ pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 
 use pico_args::Arguments;
-use std::env;
+use std::{env, thread};
 
 use std::convert::TryInto;
 use std::panic;
@@ -92,6 +92,8 @@ fn main() {
         );
     }
 
+    let mut start_config_path: Option<String> = None;
+
     let config_file = match subcommand.as_str() {
         "mocknet" => {
             args.finish().unwrap();
@@ -136,6 +138,7 @@ fn main() {
         }
         "start" => {
             let config_path: String = args.value_from_str("--config").unwrap();
+            start_config_path = Some(config_path.clone());
             args.finish().unwrap();
             info!("Loading config at path {}", config_path);
             match ConfigFile::from_path(&config_path) {
@@ -208,7 +211,9 @@ fn main() {
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {
+        let config_loader = ConfigLoader::new(&conf, start_config_path);
         let mut run_loop = neon::RunLoop::new(conf);
+        run_loop.set_config_loader(config_loader);
         run_loop.start(None, mine_start.unwrap_or(0));
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);

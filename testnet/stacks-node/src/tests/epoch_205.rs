@@ -27,7 +27,7 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
 
-use crate::config::EventKeyType;
+use crate::config::{ConfigHandle, EventKeyType};
 use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -545,7 +545,8 @@ fn transition_empty_blocks() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
+    let config_handle = ConfigHandle::new(conf.clone());
+    let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone(), config_handle);
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
 
     // these should all succeed across the epoch boundary

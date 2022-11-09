@@ -1,3 +1,6 @@
+use libc;
+use libc::newlocale;
+use std::cell::{Cell, RefCell};
 use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -6,8 +9,7 @@ use std::sync::atomic::AtomicU64;
 
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::Receiver;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -31,6 +33,7 @@ use stacks::net::atlas::{AtlasConfig, Attachment, AttachmentInstance, ATTACHMENT
 use stacks::util_lib::db::Error as db_error;
 use stx_genesis::GenesisData;
 
+use crate::config::{ConfigHandle, ConfigLoader, ConfigLoaderHandle};
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::Globals;
 use crate::neon_node::StacksNode;
@@ -44,7 +47,6 @@ use crate::{
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 
 use super::RunLoopCallbacks;
-use libc;
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
@@ -129,6 +131,7 @@ impl Counters {
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
     config: Config,
+    config_loader_handle: ConfigLoaderHandle,
     pub callbacks: RunLoopCallbacks,
     globals: Option<Globals>,
     counters: Counters,
@@ -174,9 +177,11 @@ impl RunLoop {
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
+        let config_loader_handle = ConfigLoaderHandle::new(ConfigLoader::new(&config, None));
 
         Self {
             config,
+            config_loader_handle,
             globals: None,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
@@ -199,6 +204,10 @@ impl RunLoop {
 
     fn set_globals(&mut self, globals: Globals) {
         self.globals = Some(globals);
+    }
+
+    pub fn set_config_loader(&mut self, config_loader: ConfigLoader) {
+        self.config_loader_handle = ConfigLoaderHandle::new(config_loader);
     }
 
     pub fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
@@ -233,6 +242,14 @@ impl RunLoop {
         &self.config
     }
 
+    pub fn config_loader_handle(&self) -> &ConfigLoaderHandle {
+         &self.config_loader_handle
+    }
+    
+    pub fn config_handle(&self) -> ConfigHandle {
+        self.config_loader_handle.get().get_config_handle().clone()
+    }
+    
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
         self.event_dispatcher.clone()
     }
@@ -346,6 +363,7 @@ impl RunLoop {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
             self.config.clone(),
+            self.config_handle().clone(),
             Some(coordinator_senders),
             burnchain_opt,
             Some(self.should_keep_running.clone()),

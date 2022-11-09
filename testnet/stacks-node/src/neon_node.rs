@@ -136,6 +136,7 @@
 ///    * Metrics about the node's behavior (e.g. number of blocks processed, etc.)
 ///
 /// This file may be refactored in the future into a full-fledged module.
+use std::borrow::Borrow;
 use std::cmp;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
@@ -143,6 +144,7 @@ use std::convert::{TryFrom, TryInto};
 use std::default::Default;
 use std::mem;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
 use std::time::Duration;
@@ -203,6 +205,7 @@ use stacks::{burnchains::BurnchainSigner, chainstate::stacks::db::StacksHeaderIn
 
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
+use crate::config::ConfigHandle;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
