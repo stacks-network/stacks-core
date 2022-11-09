@@ -49,8 +49,9 @@ use crate::chainstate::burn::db::sortdb::SortitionHandle;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::{
-    leader_block_commit::MissedBlockCommit, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    leader_block_commit::MissedBlockCommit, BlockstackOperationType, DelegateStxOp,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp,
+    UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -136,6 +137,9 @@ impl BurnchainStateTransition {
                     // PreStx ops don't need to be processed by sort db, so pass.
                 }
                 BlockstackOperationType::StackStx(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
+                BlockstackOperationType::DelegateStx(_) => {
                     accepted_ops.push(block_ops[i].clone());
                 }
                 BlockstackOperationType::TransferStx(_) => {
@@ -846,6 +850,35 @@ impl Burnchain {
                 } else {
                     warn!(
                         "Failed to find corresponding input to StackStxOp";
+                        "txid" => %burn_tx.txid().to_string(),
+                        "pre_stx_txid" => %pre_stx_txid.to_string()
+                    );
+                    None
+                }
+            }
+            x if x == Opcodes::DelegateStx as u8 => {
+                let pre_stx_txid = DelegateStxOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.get_burnchain_op(pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
+                    let sender = &pre_stx.output;
+                    match DelegateStxOp::from_tx(block_header, burn_tx, sender) {
+                        Ok(op) => Some(BlockstackOperationType::DelegateStx(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse delegate stx tx";
+                                "txid" => %burn_tx.txid(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to DelegateStxOp";
                         "txid" => %burn_tx.txid().to_string(),
                         "pre_stx_txid" => %pre_stx_txid.to_string()
                     );

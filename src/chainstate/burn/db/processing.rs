@@ -98,6 +98,13 @@ impl<'a> SortitionHandleTx<'a> {
                 // no check() required for PreStx
                 Ok(())
             }
+            BlockstackOperationType::DelegateStx(ref op) => op.check().map_err(|e| {
+                warn!(
+                    "REJECTED({}) delegate stx op {} at {},{}: {:?}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex, &e
+                );
+                BurnchainError::OpError(e)
+            }),
         }
     }
 

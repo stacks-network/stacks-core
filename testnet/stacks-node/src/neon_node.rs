@@ -204,6 +204,9 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
+#[cfg(test)]
+use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::run_loop::neon::Counters;
