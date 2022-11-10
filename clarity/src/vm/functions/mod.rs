@@ -176,10 +176,10 @@ define_versioned_named_enum_for_clarity_fns!(NativeFunctions(ClarityVersion, Cla
     // StxBurn re-uses cost function for StxTransfer
     StxBurn("stx-burn?", ClarityVersion::Clarity1, ClarityCostFunction::StxTransfer),
     StxGetAccount("stx-account", ClarityVersion::Clarity2, ClarityCostFunction::StxGetAccount),
-    Slice("slice", ClarityVersion::Clarity2, ClarityCostFunction::Slice),
-    ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2, ClarityCostFunction::ToConsensusBuff),
-    FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2, ClarityCostFunction::FromConsensusBuff),
-    ReplaceAt("replace-at", ClarityVersion::Clarity2, ClarityCostFunction::ReplaceAt),
+    Slice("slice?", ClarityVersion::Clarity2, ClarityCostFunction::Slice),
+    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2, ClarityCostFunction::ToConsensusBuff),
+    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2, ClarityCostFunction::FromConsensusBuff),
+    ReplaceAt("replace-at?", ClarityVersion::Clarity2, ClarityCostFunction::ReplaceAt),
     NoOp("no-op", ClarityVersion::Clarity1, ClarityCostFunction::Unimplemented),
     ContractCallBench("contract-call-bench?", ClarityVersion::Clarity2, ClarityCostFunction::Unimplemented),
 });

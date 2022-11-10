@@ -1206,7 +1206,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
         Ok(())
     }
-
+    
     pub fn execute_function_as_transaction(
         &mut self,
         function: &DefinedFunction,
