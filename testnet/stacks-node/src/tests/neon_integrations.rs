@@ -82,7 +82,7 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-use crate::config::{ConfigHandle, FeeEstimatorName};
+use crate::config::FeeEstimatorName;
 use crate::tests::SK_3;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
@@ -5189,6 +5189,7 @@ fn block_large_tx_integration_test() {
 
 #[test]
 #[ignore]
+#[allow(non_snake_case)]
 fn microblock_large_tx_integration_test_FLAKY() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -6552,7 +6553,7 @@ fn antientropy_integration_test() {
         tip_height, tip_height, target_height
     );
 
-    let mut btc_regtest_controller =
+    let btc_regtest_controller =
         BitcoinRegtestController::with_burnchain_test(conf_bootstrap_node.clone(), burnchain_config.clone());
 
     let mut burnchain_deadline = get_epoch_time_secs() + 60;
