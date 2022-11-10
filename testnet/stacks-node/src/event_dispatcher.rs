@@ -473,7 +473,8 @@ impl BlockEventDispatcher for EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        epoch_id: StacksEpochId
+        epoch_id: StacksEpochId,
+        epoch_transition: bool,
     ) {
         self.process_chain_tip(
             block,
@@ -489,6 +490,7 @@ impl BlockEventDispatcher for EventDispatcher {
             anchored_consumed,
             mblock_confirmed_consumed,
             epoch_id,
+            epoch_transition,
         )
     }
 
@@ -680,6 +682,7 @@ impl EventDispatcher {
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
         epoch_id: StacksEpochId,
+        epoch_transition: bool,
     ) {
         let boot_receipts = if metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
@@ -747,6 +750,7 @@ impl EventDispatcher {
                     anchored_consumed,
                     mblock_confirmed_consumed,
                     epoch_id,
+                    epoch_transition,
                 );
             }
         }
