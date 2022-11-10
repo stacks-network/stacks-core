@@ -212,6 +212,7 @@ use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::syncctl::PoxSyncWatchdogComms;
 use stacks::monitoring;
 
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
@@ -1386,11 +1387,34 @@ impl BlockMinerThread {
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
     /// return None if we were unable to generate the key.
-    fn make_microblock_private_key(&mut self) -> Secp256k1PrivateKey {
+    ///
+    /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
+    /// reproduce it in integration tests.
+    #[cfg(test)]
+    fn make_microblock_private_key(
+        &mut self,
+        _parent_stacks_hash: &StacksBlockId,
+    ) -> Secp256k1PrivateKey {
+        // Generates a new secret key for signing the trail of microblocks
+        // of the upcoming tenure.
+        self.keychain.make_microblock_secret_key(
+            self.burn_block.block_height,
+            &self.burn_block.block_height.to_be_bytes(),
+        )
+    }
+
+    /// Get the microblock private key we'll be using for this tenure, should we win.
+    /// Return the private key on success
+    /// return None if we were unable to generate the key.
+    #[cfg(not(test))]
+    fn make_microblock_private_key(
+        &mut self,
+        _parent_stacks_hash: &StacksBlockId,
+    ) -> Secp256k1PrivateKey {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         self.keychain
-            .make_microblock_secret_key(self.burn_block.block_height)
+            .make_microblock_secret_key(self.burn_block.block_height, &[])
     }
 
     /// Load the parent microblock stream and vet it for the absence of forks.
@@ -1606,7 +1630,9 @@ impl BlockMinerThread {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_private_key = self.make_microblock_private_key();
+        let microblock_private_key = self.make_microblock_private_key(
+            &parent_block_info.stacks_parent_header.index_block_hash(),
+        );
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
 
