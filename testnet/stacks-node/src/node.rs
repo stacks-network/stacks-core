@@ -564,9 +564,9 @@ impl Node {
     pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
         // Register a new key
         let burnchain_tip = burnchain_controller.get_chain_tip();
-        let vrf_pk = self
+        let (vrf_pk, _) = self
             .keychain
-            .rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
+            .make_vrf_keypair(burnchain_tip.block_snapshot.block_height);
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
         let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
@@ -594,6 +594,7 @@ impl Node {
                             vrf_public_key: op.public_key.clone(),
                             block_height: op.block_height as u64,
                             op_vtxindex: op.vtxindex as u32,
+                            target_block_height: (op.block_height as u64) - 1,
                         });
                     }
                 }
@@ -664,19 +665,16 @@ impl Node {
         };
 
         // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = self
-            .keychain
-            .generate_proof(
-                &registered_key.vrf_public_key,
-                block_to_build_upon.block_snapshot.sortition_hash.as_bytes(),
-            )
-            .unwrap();
+        let vrf_proof = self.keychain.generate_proof(
+            registered_key.target_block_height,
+            block_to_build_upon.block_snapshot.sortition_hash.as_bytes(),
+        );
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
         let microblock_secret_key = self
             .keychain
-            .rotate_microblock_keypair(block_to_build_upon.block_snapshot.block_height);
+            .make_microblock_secret_key(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
@@ -736,13 +734,10 @@ impl Node {
         if self.active_registered_key.is_some() {
             let registered_key = self.active_registered_key.clone().unwrap();
 
-            let vrf_proof = self
-                .keychain
-                .generate_proof(
-                    &registered_key.vrf_public_key,
-                    burnchain_tip.block_snapshot.sortition_hash.as_bytes(),
-                )
-                .unwrap();
+            let vrf_proof = self.keychain.generate_proof(
+                registered_key.target_block_height,
+                burnchain_tip.block_snapshot.sortition_hash.as_bytes(),
+            );
 
             let op = self.generate_block_commit_op(
                 anchored_block_from_ongoing_tenure.header.block_hash(),
