@@ -73,8 +73,8 @@ use crate::util_lib::db::tx_busy_handler;
 use crate::util_lib::db::DBTx;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
-    db_mkdirs, query_count, query_row, query_row_columns, query_row_panic, query_rows, sql_pragma,
-    u64_opt_to_sql, u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
+    query_rows, sql_pragma, u64_to_sql, DBConn, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 use clarity::vm::ast::ASTRules;
 use clarity::vm::representations::{ClarityName, ContractName};
@@ -4410,7 +4410,7 @@ impl<'a> SortitionHandleTx<'a> {
             &op.delegate_to.to_string(),
             &serde_json::to_string(&op.reward_addr).unwrap(),
             &op.delegated_ustx.to_string(),
-            &u64_opt_to_sql(op.until_burn_height)?,
+            &opt_u64_to_sql(op.until_burn_height)?,
         ];
 
         self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
