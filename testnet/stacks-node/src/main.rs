@@ -45,7 +45,7 @@ pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 
 use pico_args::Arguments;
-use std::{env, thread};
+use std::env;
 
 use std::convert::TryInto;
 use std::panic;

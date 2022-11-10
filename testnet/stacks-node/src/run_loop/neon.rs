@@ -1,6 +1,4 @@
 use libc;
-use libc::newlocale;
-use std::cell::{Cell, RefCell};
 use std::cmp;
 use std::sync::atomic::{AtomicBool, Ordering};
 

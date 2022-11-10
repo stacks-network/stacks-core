@@ -1,11 +1,11 @@
-use std::cell::{Cell, Ref, RefCell};
+use std::cell::RefCell;
 use std::convert::TryInto;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::SystemTime;
-use std::{convert, fs, thread};
+use std::{convert, fs};
 
 use rand::RngCore;
 
@@ -1571,7 +1571,7 @@ impl FeeEstimationConfig {
                     .try_into()
                     .expect("Configured fee rate window size out of bounds."),
             )
-                .expect("Error opening fee estimator");
+            .expect("Error opening fee estimator");
             Box::new(FeeRateFuzzer::new(
                 underlying_estimator,
                 self.fee_rate_fuzzer_fraction,
