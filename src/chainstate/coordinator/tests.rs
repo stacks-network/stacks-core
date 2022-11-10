@@ -1355,6 +1355,7 @@ fn missed_block_commits_2_1() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             );
             // NOTE: intended for block block_height - 2
             last_input = Some((
@@ -1409,6 +1410,7 @@ fn missed_block_commits_2_1() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             )
         };
 
@@ -1422,6 +1424,7 @@ fn missed_block_commits_2_1() {
         if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
             // produce an empty block!
             produce_burn_block(
+                &b,
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
@@ -1438,6 +1441,7 @@ fn missed_block_commits_2_1() {
                 },
             ));
             produce_burn_block_do_not_set_height(
+                &b,
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
@@ -1688,6 +1692,7 @@ fn late_block_commits_2_1() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             );
             // NOTE: intended for block block_height - 3
             last_input = Some((
@@ -1742,6 +1747,7 @@ fn late_block_commits_2_1() {
                 0,
                 false,
                 last_input.as_ref().unwrap().clone(),
+                None,
             )
         };
 
@@ -1755,6 +1761,7 @@ fn late_block_commits_2_1() {
         if ix % (MINING_COMMITMENT_WINDOW as usize) == 3 {
             // produce an empty block!
             produce_burn_block(
+                &b,
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 vec![],
@@ -1771,6 +1778,7 @@ fn late_block_commits_2_1() {
                 },
             ));
             produce_burn_block_do_not_set_height(
+                &b,
                 &mut burnchain,
                 &burnchain_tip.block_hash,
                 ops,
@@ -3498,6 +3506,7 @@ fn test_delegate_stx_btc_ops() {
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
+            &b,
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
@@ -4167,6 +4176,7 @@ fn test_epoch_switch_pox_contract_instantiation() {
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
+            &b,
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
@@ -4495,6 +4505,7 @@ fn test_epoch_verify_active_pox_contract() {
 
         let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
         produce_burn_block(
+            &b,
             &mut burnchain,
             &burnchain_tip.block_hash,
             ops,
