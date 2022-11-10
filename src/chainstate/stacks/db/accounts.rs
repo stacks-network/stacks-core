@@ -1356,6 +1356,7 @@ mod test {
             false,
             vec![],
             vec![],
+            vec![],
         )
         .unwrap();
         tx.commit().unwrap();
