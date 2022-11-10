@@ -1788,6 +1788,8 @@ fn transition_empty_blocks() {
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
 
+    let mut crossed_21_boundary = false;
+
     // these should all succeed across the epoch boundary
     for _i in 0..15 {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
@@ -1822,6 +1824,9 @@ fn transition_empty_blocks() {
 
         if tip_info.burn_block_height == epoch_2_05 || tip_info.burn_block_height == epoch_2_1 {
             assert!(res);
+            if tip_info.burn_block_height == epoch_2_1 {
+                crossed_21_boundary = true;
+            }
         } else {
             assert!(!res);
         }
@@ -1839,7 +1844,7 @@ fn transition_empty_blocks() {
 
             // let's commit
             let burn_parent_modulus =
-                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+                ((tip_info.burn_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
@@ -1870,6 +1875,7 @@ fn transition_empty_blocks() {
     }
 
     let account = get_account(&http_origin, &miner_account);
+    assert!(crossed_21_boundary);
     assert_eq!(account.nonce, 16);
 
     channel.stop_chains_coordinator();
