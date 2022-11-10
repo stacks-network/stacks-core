@@ -283,7 +283,7 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     Ok(x as i64)
 }
 
-pub fn u64_opt_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
+pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
     match x {
         Some(num) => {
             if num > (i64::MAX as u64) {
