@@ -695,7 +695,8 @@ fn find_microblock_privkey(
     let mut keychain = Keychain::default(conf.node.seed.clone());
     for ix in 0..max_tries {
         // the first rotation occurs at 203.
-        let privk = keychain.make_microblock_secret_key(203 + ix);
+        let privk =
+            keychain.make_microblock_secret_key(203 + ix, &((203 + ix) as u64).to_be_bytes());
         let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
@@ -9599,7 +9600,6 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
 }
 
 enum TxChainStrategy {
-    Nothing,
     Expensive,
     Random,
 }
@@ -9891,7 +9891,6 @@ fn test_competing_miners_build_on_same_chain(
         .map(|(i, pk)| match chain_strategy {
             TxChainStrategy::Expensive => make_expensive_tx_chain(pk, (25 * i) as u64, mblock_only),
             TxChainStrategy::Random => make_random_tx_chain(pk, (25 * i) as u64, mblock_only),
-            TxChainStrategy::Nothing => vec![],
         })
         .collect();
     let mut cnt = 0;
