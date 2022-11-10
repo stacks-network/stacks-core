@@ -226,7 +226,6 @@ type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1Priv
 enum MinerThreadResult {
     Block(
         AssembledAnchorBlock,
-        Keychain,
         Secp256k1PrivateKey,
         Option<OngoingBlockCommit>,
     ),
@@ -517,8 +516,9 @@ struct ParentStacksBlockInfo {
 enum LeaderKeyRegistrationState {
     /// Not started yet
     Inactive,
-    /// Waiting for burnchain confirmation
-    Pending,
+    /// Waiting for burnchain confirmation.  The u64 is the block height at which we created this
+    /// public key.
+    Pending(u64),
     /// Ready to go!
     Active(RegisteredKey),
 }
@@ -1360,44 +1360,24 @@ impl BlockMinerThread {
     fn make_vrf_proof(&mut self) -> Option<VRFProof> {
         // if we're a mock miner, then make sure that the keychain has a keypair for the mocked VRF
         // key
-        if self.config.node.mock_mining {
-            self.keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
-        }
-
-        // Generates a proof out of the sortition hash provided in the params.
-        let vrf_proof = match self.keychain.generate_proof(
-            &self.registered_key.vrf_public_key,
-            self.burn_block.sortition_hash.as_bytes(),
-        ) {
-            Some(vrfp) => vrfp,
-            None => {
-                // Try to recover a key registered in a former session.
-                // registered_key.block_height gives us a pointer to the height of the block
-                // holding the key register op, but the VRF was derived using the height of one
-                // of the parents blocks.
-                let _ = self
-                    .keychain
-                    .rotate_vrf_keypair(self.registered_key.block_height - 1);
-                match self.keychain.generate_proof(
-                    &self.registered_key.vrf_public_key,
-                    self.burn_block.sortition_hash.as_bytes(),
-                ) {
-                    Some(vrfp) => vrfp,
-                    None => {
-                        error!(
-                            "Relayer: Failed to generate proof with {:?}",
-                            &self.registered_key.vrf_public_key
-                        );
-                        return None;
-                    }
-                }
-            }
+        let vrf_proof = if self.config.node.mock_mining {
+            self.keychain.generate_proof(
+                VRF_MOCK_MINER_KEY,
+                self.burn_block.sortition_hash.as_bytes(),
+            )
+        } else {
+            self.keychain.generate_proof(
+                self.registered_key.target_block_height,
+                self.burn_block.sortition_hash.as_bytes(),
+            )
         };
 
         debug!(
-            "Generated VRF Proof: {} over {} with key {}",
+            "Generated VRF Proof: {} over {} ({},{}) with key {}",
             vrf_proof.to_hex(),
             &self.burn_block.sortition_hash,
+            &self.burn_block.block_height,
+            &self.burn_block.burn_header_hash,
             &self.registered_key.vrf_public_key.to_hex()
         );
         Some(vrf_proof)
@@ -1406,27 +1386,11 @@ impl BlockMinerThread {
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
     /// return None if we were unable to generate the key.
-    fn make_microblock_private_key(&mut self, attempt: u64) -> Option<Secp256k1PrivateKey> {
+    fn make_microblock_private_key(&mut self) -> Secp256k1PrivateKey {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_secret_key = if attempt > 1 {
-            match self.keychain.get_microblock_key() {
-                Some(k) => k,
-                None => {
-                    error!(
-                        "Relayer: Failed to obtain microblock key for mining attempt";
-                        "attempt" => %attempt
-                    );
-                    return None;
-                }
-            }
-        } else {
-            // NOTE: this is a no-op if run in a separate thread with a moved copy of the keychain
-            self.keychain
-                .rotate_microblock_keypair(self.burn_block.block_height)
-        };
-
-        Some(microblock_secret_key)
+        self.keychain
+            .make_microblock_secret_key(self.burn_block.block_height)
     }
 
     /// Load the parent microblock stream and vet it for the absence of forks.
@@ -1642,7 +1606,7 @@ impl BlockMinerThread {
 
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        let microblock_private_key = self.make_microblock_private_key(attempt)?;
+        let microblock_private_key = self.make_microblock_private_key();
         let mblock_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
 
@@ -1846,7 +1810,6 @@ impl BlockMinerThread {
                 attempt,
                 tenure_begin,
             },
-            self.keychain.clone(),
             microblock_private_key,
             bitcoin_controller.get_ongoing_commit(),
         ))
@@ -2579,7 +2542,14 @@ impl RelayerThread {
     /// Returns true if we succeed in doing so; false if not.
     pub fn rotate_vrf_and_register(&mut self, burn_block: &BlockSnapshot) -> bool {
         let is_mainnet = self.config.is_mainnet();
-        let vrf_pk = self.keychain.rotate_vrf_keypair(burn_block.block_height);
+        let (vrf_pk, _) = self.keychain.make_vrf_keypair(burn_block.block_height);
+
+        debug!(
+            "Submit leader-key-register for {} {}",
+            &vrf_pk.to_hex(),
+            burn_block.block_height
+        );
+
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
         let op = Self::inner_generate_leader_key_register_op(
             self.keychain.get_address(is_mainnet),
@@ -2588,6 +2558,7 @@ impl RelayerThread {
         );
 
         let mut one_off_signer = self.keychain.generate_op_signer();
+
         self.bitcoin_controller
             .submit_operation(op, &mut one_off_signer, 1)
     }
@@ -2912,7 +2883,6 @@ impl RelayerThread {
             match miner_result {
                 MinerThreadResult::Block(
                     last_mined_block,
-                    modified_keychain,
                     microblock_privkey,
                     ongoing_commit_opt,
                 ) => {
@@ -2936,9 +2906,6 @@ impl RelayerThread {
                     let bhh = last_mined_block.my_burn_hash.clone();
                     let orig_bhh = last_mined_block.orig_burn_hash.clone();
                     let tenure_begin = last_mined_block.tenure_begin;
-
-                    // keep our keychain up-to-date with the miner's progress
-                    self.keychain = modified_keychain;
 
                     self.last_mined_blocks.insert(
                         last_mined_block.anchored_block.block_hash(),
@@ -3829,7 +3796,7 @@ impl StacksNode {
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
-        let mut keychain = Keychain::default(config.node.seed.clone());
+        let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -3855,10 +3822,11 @@ impl StacksNode {
 
         let leader_key_registration_state = if config.node.mock_mining {
             // mock mining, pretend to have a registered key
-            let vrf_public_key = keychain.rotate_vrf_keypair(VRF_MOCK_MINER_KEY);
+            let (vrf_public_key, _) = keychain.make_vrf_keypair(VRF_MOCK_MINER_KEY);
             LeaderKeyRegistrationState::Active(RegisteredKey {
                 block_height: 1,
                 op_vtxindex: 1,
+                target_block_height: VRF_MOCK_MINER_KEY,
                 vrf_public_key,
             })
         } else {
@@ -3915,8 +3883,8 @@ impl StacksNode {
             match self.leader_key_registration_state {
                 LeaderKeyRegistrationState::Active(ref key) => {
                     debug!(
-                        "Tenure: Using key {:?} off of {}",
-                        &key.vrf_public_key, &burnchain_tip.burn_header_hash
+                        "Tenure: Using key {:?} from burn block {} off of {}",
+                        &key.vrf_public_key, &key.block_height, &burnchain_tip.burn_header_hash
                     );
 
                     self.globals
@@ -3932,13 +3900,14 @@ impl StacksNode {
                     warn!(
                         "Tenure: skipped tenure because no active VRF key. Trying to register one."
                     );
-                    self.leader_key_registration_state = LeaderKeyRegistrationState::Pending;
+                    self.leader_key_registration_state =
+                        LeaderKeyRegistrationState::Pending(burnchain_tip.block_height);
                     self.globals
                         .relay_send
                         .send(RelayerDirective::RegisterKey(burnchain_tip))
                         .is_ok()
                 }
-                LeaderKeyRegistrationState::Pending => true,
+                LeaderKeyRegistrationState::Pending(_) => true,
             }
         } else {
             warn!("Tenure: Do not know the last burn block. As a miner, this is bad.");
@@ -4050,11 +4019,13 @@ impl StacksNode {
                 if !ibd {
                     // not in initial block download, so we're not just replaying an old key.
                     // Registered key has been mined
-                    if let LeaderKeyRegistrationState::Pending = self.leader_key_registration_state
+                    if let LeaderKeyRegistrationState::Pending(attempted_block_height) =
+                        self.leader_key_registration_state
                     {
                         self.leader_key_registration_state =
                             LeaderKeyRegistrationState::Active(RegisteredKey {
                                 vrf_public_key: op.public_key,
+                                target_block_height: attempted_block_height,
                                 block_height: op.block_height as u64,
                                 op_vtxindex: op.vtxindex as u32,
                             });
