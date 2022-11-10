@@ -13,8 +13,6 @@ use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
-const PURPOSE_MICROBLOCKS: &'static str = "microblocks";
-
 /// A wrapper around a node's seed, coupled with operations for using it
 #[derive(Clone)]
 pub struct Keychain {
@@ -80,12 +78,12 @@ impl Keychain {
     pub fn make_stacks_keypair(
         &self,
         block_height: u64,
-        purpose: &str,
+        salt: &[u8],
     ) -> (StacksPublicKey, StacksPrivateKey) {
         let seed = {
             let mut secret_state = self.secret_state.clone();
             secret_state.extend_from_slice(&block_height.to_be_bytes());
-            secret_state.extend_from_slice(purpose.as_bytes());
+            secret_state.extend_from_slice(salt);
             Sha256Sum::from_data(&secret_state)
         };
 
@@ -111,9 +109,14 @@ impl Keychain {
         proof
     }
 
-    /// Generate a microblock signing key for this burnchain block height
-    pub fn make_microblock_secret_key(&mut self, burn_block_height: u64) -> StacksPrivateKey {
-        let (_, mut sk) = self.make_stacks_keypair(burn_block_height, PURPOSE_MICROBLOCKS);
+    /// Generate a microblock signing key for this burnchain block height.
+    /// `salt` can be any byte string; in practice, it's the parent Stacks block's block ID hash.
+    pub fn make_microblock_secret_key(
+        &mut self,
+        burn_block_height: u64,
+        salt: &[u8],
+    ) -> StacksPrivateKey {
+        let (_, mut sk) = self.make_stacks_keypair(burn_block_height, salt);
         sk.set_compress_public(true);
 
         debug!("Microblock keypair rotated";
@@ -170,8 +173,7 @@ impl Keychain {
 
     /// Convenience wrapper around make_stacks_keypair
     pub fn get_microblock_key(&self, block_height: u64) -> StacksPrivateKey {
-        self.make_stacks_keypair(block_height, PURPOSE_MICROBLOCKS)
-            .1
+        self.make_stacks_keypair(block_height, &[]).1
     }
 
     /// Sign a transaction as if we were the origin
