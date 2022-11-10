@@ -660,7 +660,6 @@ fn mempool_setup_chainstate() {
 
                 let keychain = Keychain::default(conf.node.seed.clone());
                 for i in 0..4 {
-                    // let microblock_secret_key = keychain.rotate_microblock_keypair(1 + i);
                     let microblock_secret_key = keychain.get_microblock_key(1 + i);
                     let mut microblock_pubkey =
                         Secp256k1PublicKey::from_private(&microblock_secret_key);
