@@ -855,7 +855,7 @@ fn integration_test_get_info() {
                 // evaluate check for explicit compliance against the chain tip of the first block (contract DNE at that block)
                 // N.B. if the block version changes (e.g. due to a new release), this tip value
                 // will also change
-                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=fa1ba17dbe3d085753b228e3d74726d6f04486c1e2249e3d2e4ba6dab5089ca9", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
+                let path = format!("{}/v2/traits/{}/{}/{}/{}/{}?tip=77fe703cad3fd94b0c04328bb95c3312fb0ae26830de9b7a5585639ecf5c529c", &http_origin, &contract_addr, "impl-trait-contract", &contract_addr, "get-info",  "trait-1");
                 let res = client.get(&path).send().unwrap();
                 eprintln!("Test: GET {}", path);
                 assert_eq!(res.text().unwrap(), "No contract analysis found or trait definition not found");
