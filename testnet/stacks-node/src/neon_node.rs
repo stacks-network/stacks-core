@@ -662,6 +662,7 @@ impl MicroblockMinerThread {
     pub fn from_relayer_thread(relayer_thread: &RelayerThread) -> Option<MicroblockMinerThread> {
         let globals = relayer_thread.globals.clone();
         let config = relayer_thread.config.clone();
+        let config_handle = ConfigHandle::new(config.clone());
         let miner_tip = match relayer_thread.miner_tip.clone() {
             Some(tip) => tip,
             None => {
@@ -744,7 +745,7 @@ impl MicroblockMinerThread {
                     relayer_thread.microblock_stream_cost.clone()
                 };
 
-                let frequency = config.node.microblock_frequency;
+                let frequency = config_handle.get().node.microblock_frequency;
                 let settings =
                     config.make_block_builder_settings(0, true, globals.get_miner_status());
 

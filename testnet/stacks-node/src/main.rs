@@ -190,7 +190,7 @@ fn main() {
     let conf = match Config::from_config_file(config_file) {
         Ok(conf) => conf,
         Err(e) => {
-            warn!("Invalid config: {}", e);
+            error!("Invalid config: {}", e);
             process::exit(1);
         }
     };

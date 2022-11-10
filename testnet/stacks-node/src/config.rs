@@ -843,8 +843,8 @@ impl Config {
                 .map(|balance| {
                     let address: PrincipalData =
                         PrincipalData::parse_standard_principal(&balance.address)
-                        .unwrap()
-                        .into();
+                            .unwrap()
+                            .into();
                     InitialBalance {
                         address,
                         amount: balance.amount,
