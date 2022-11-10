@@ -695,7 +695,7 @@ fn find_microblock_privkey(
     let mut keychain = Keychain::default(conf.node.seed.clone());
     for ix in 0..max_tries {
         // the first rotation occurs at 203.
-        let privk = keychain.rotate_microblock_keypair(203 + ix);
+        let privk = keychain.make_microblock_secret_key(203 + ix);
         let pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&privk));
         if pubkh == *pubkey_hash {
             return Some(privk);
@@ -9543,8 +9543,9 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
 
     let full_iters_code = full_iters_code_parts.join("\n      ");
 
-    let iters_mod_code_parts: Vec<String> =
-        (0..iters_mod).map(|cnt| format!("0x{}", cnt)).collect();
+    let iters_mod_code_parts: Vec<String> = (0..iters_mod)
+        .map(|cnt| format!("0x{:0>2x}", cnt))
+        .collect();
 
     let iters_mod_code = format!("(list {})", iters_mod_code_parts.join(" "));
 
@@ -9598,6 +9599,7 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
 }
 
 enum TxChainStrategy {
+    Nothing,
     Expensive,
     Random,
 }
@@ -9676,6 +9678,37 @@ fn make_random_tx_chain(
                 &make_runtime_sized_contract(random_iters, nonce, &addr_prefix),
             )
         };
+        chain.push(tx);
+    }
+    chain
+}
+
+fn make_mblock_tx_chain(privk: &StacksPrivateKey, fee_plus: u64) -> Vec<Vec<u8>> {
+    let addr = to_addr(&privk);
+    let mut chain = vec![];
+
+    for nonce in 0..25 {
+        // N.B. private keys are 32-33 bytes, so this is always safe
+        let random_iters = privk.to_bytes()[nonce as usize] as usize;
+
+        let be_bytes = [
+            privk.to_bytes()[nonce as usize],
+            privk.to_bytes()[(nonce + 1) as usize],
+        ];
+
+        let random_extra_fee = u16::from_be_bytes(be_bytes) as u64;
+
+        let mut addr_prefix = addr.to_string();
+        let _ = addr_prefix.split_off(12);
+        let contract_name = format!("crct-{}-{}-{}", nonce, &addr_prefix, random_iters);
+        eprintln!("Make tx {}", &contract_name);
+        let tx = make_contract_publish_microblock_only(
+            privk,
+            nonce,
+            1049230 + nonce + fee_plus + random_extra_fee,
+            &contract_name,
+            &make_runtime_sized_contract(1, nonce, &addr_prefix),
+        );
         chain.push(tx);
     }
     chain
@@ -9858,6 +9891,7 @@ fn test_competing_miners_build_on_same_chain(
         .map(|(i, pk)| match chain_strategy {
             TxChainStrategy::Expensive => make_expensive_tx_chain(pk, (25 * i) as u64, mblock_only),
             TxChainStrategy::Random => make_random_tx_chain(pk, (25 * i) as u64, mblock_only),
+            TxChainStrategy::Nothing => vec![],
         })
         .collect();
     let mut cnt = 0;
@@ -9931,4 +9965,98 @@ fn test_competing_miners_build_anchor_blocks_and_microblocks_on_same_chain() {
     conf.node.wait_time_for_blocks = 1_000;
 
     test_competing_miners_build_on_same_chain(5, conf, true, 15_000, TxChainStrategy::Random)
+}
+
+#[test]
+#[ignore]
+fn microblock_miner_multiple_attempts() {
+    let (mut conf, miner_account) = neon_integration_test_conf();
+
+    conf.node.mine_microblocks = true;
+    conf.miner.microblock_attempt_time_ms = 2_000;
+    conf.node.wait_time_for_microblocks = 100;
+    conf.node.microblock_frequency = 100;
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 5_000;
+    conf.burnchain.max_rbf = 1000000;
+    conf.node.wait_time_for_blocks = 1_000;
+
+    let privks: Vec<_> = (0..100)
+        .into_iter()
+        .map(|_| StacksPrivateKey::new())
+        .collect();
+    let balances: Vec<_> = privks
+        .iter()
+        .map(|privk| {
+            let addr = to_addr(privk);
+            InitialBalance {
+                address: addr.into(),
+                amount: 1_000_000_000,
+            }
+        })
+        .collect();
+
+    conf.initial_balances = balances;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // let's query the miner's account nonce:
+
+    let account = get_account(&http_origin, &miner_account);
+    eprintln!("Miner account: {:?}", &account);
+
+    let all_txs: Vec<_> = privks
+        .iter()
+        .enumerate()
+        .map(|(i, pk)| make_mblock_tx_chain(pk, (25 * i) as u64))
+        .collect();
+
+    let _handle = thread::spawn(move || {
+        for txi in 0..all_txs.len() {
+            for j in 0..all_txs[txi].len() {
+                let tx = &all_txs[txi][j];
+                eprintln!("\n\nSubmit tx {},{}\n\n", txi, j);
+                submit_tx(&http_origin, tx);
+                sleep_ms(1_000);
+            }
+        }
+    });
+
+    for _i in 0..10 {
+        sleep_ms(30_000);
+        btc_regtest_controller.build_next_block(1);
+    }
+
+    channel.stop_chains_coordinator();
 }
