@@ -674,7 +674,7 @@ impl Node {
         // of the upcoming tenure.
         let microblock_secret_key = self
             .keychain
-            .make_microblock_secret_key(block_to_build_upon.block_snapshot.block_height);
+            .get_microblock_key(block_to_build_upon.block_snapshot.block_height);
 
         // Get the stack's chain tip
         let chain_tip = match self.bootstraping_chain {
