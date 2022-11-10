@@ -28,7 +28,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::{FunctionSignature, BUFF_20, FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TupleTypeSignature, TypeSignature,
@@ -192,27 +192,19 @@ impl FunctionType {
                 }
                 Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
             }
-            FunctionType::ArithmeticBinaryUIntAsSecondArg => {
+            FunctionType::Binary(left_arg_sig, right_arg_sig, return_sig) => {
                 check_argument_count(2, args)?;
-                let (first, second) = (&args[0], &args[1]);
-                analysis_typecheck_cost(accounting, &TypeSignature::IntType, first)?;
-                analysis_typecheck_cost(accounting, &TypeSignature::UIntType, second)?;
 
-                let return_type = match first {
-                    TypeSignature::IntType => Ok(TypeSignature::IntType),
-                    TypeSignature::UIntType => Ok(TypeSignature::UIntType),
-                    _ => Err(CheckErrors::UnionTypeError(
-                        vec![TypeSignature::IntType, TypeSignature::UIntType],
-                        first.clone(),
-                    )),
-                }?;
+                let found_left_type = &args[0];
+                let found_right_type = &args[1];
 
-                match second {
-                    TypeSignature::UIntType => Ok(TypeSignature::UIntType),
-                    _ => Err(CheckErrors::TypeError(TypeSignature::UIntType, second.clone()))
-                }?;
+                check_function_arg_signature(accounting, left_arg_sig, found_left_type)?;
+                check_function_arg_signature(accounting, right_arg_sig, found_right_type)?;
 
-                Ok(return_type)
+                match return_sig {
+                    FunctionReturnsSignature::TypeOfArgAtPosition(pos) => Ok(args[*pos].clone()),
+                    FunctionReturnsSignature::Fixed(return_type) => Ok(return_type.clone()),
+                }
             }
             FunctionType::ArithmeticVariadic
             | FunctionType::ArithmeticBinary
@@ -358,6 +350,42 @@ impl FunctionType {
         }
         Ok(returns.clone())
     }
+}
+
+fn check_function_arg_signature<T: CostTracker>(
+    cost_tracker: &mut T, 
+    expected_sig: &FunctionArgSignature,
+     actual_type: &TypeSignature) -> CheckResult<()> 
+{
+    match expected_sig {
+        FunctionArgSignature::Single(expected_type) => {
+            analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
+            if !expected_type.admits_type(actual_type) {
+                return Err(CheckErrors::TypeError(
+                    expected_type.clone(), 
+                    actual_type.clone()
+                ).into());
+            }
+        },
+        FunctionArgSignature::Union(expected_types) => {
+            let mut admitted = false;
+            for expected_type in expected_types.iter() {
+                if expected_type.admits_type(actual_type) {
+                    // Type check cost only on the matching type instead of all possible types.
+                    // Other function types don't do this, is it really the meaning that callers
+                    // should have to pay extra for using functions that accept union types?
+                    analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
+                    admitted = true;
+                    break;
+                }
+            }
+            if !admitted {
+                return Err(CheckErrors::UnionTypeError(expected_types.clone(), actual_type.clone()).into())
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {

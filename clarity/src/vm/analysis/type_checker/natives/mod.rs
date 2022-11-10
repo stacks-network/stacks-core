@@ -23,7 +23,7 @@ use std::convert::TryFrom;
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
-use crate::vm::types::signatures::SequenceSubtype;
+use crate::vm::types::signatures::{SequenceSubtype, FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -619,7 +619,11 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison))
             }
             Sqrti | Log2 | BitwiseNot => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
-            BitwiseLShift | BitwiseRShift => Simple(SimpleNativeFunction(FunctionType::ArithmeticBinaryUIntAsSecondArg)),
+            BitwiseLShift | BitwiseRShift => Simple(SimpleNativeFunction(FunctionType::Binary(
+                FunctionArgSignature::Union(vec![ TypeSignature::IntType, TypeSignature::UIntType ]),
+                FunctionArgSignature::Single(TypeSignature::UIntType),
+                FunctionReturnsSignature::TypeOfArgAtPosition(0)
+            ))),
             Modulo | Power | BitwiseXor => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
