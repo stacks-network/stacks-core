@@ -283,12 +283,14 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
     Ok(x as i64)
 }
 
-pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
+pub fn u64_opt_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
     match x {
-        Some(x) => match u64_to_sql(x) {
-            Ok(x) => Ok(Some(x)),
-            Err(e) => Err(e),
-        },
+        Some(num) => {
+            if num > (i64::MAX as u64) {
+                return Err(Error::ParseError);
+            }
+            Ok(Some(num as i64))
+        }
         None => Ok(None),
     }
 }

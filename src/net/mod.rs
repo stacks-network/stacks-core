@@ -2147,6 +2147,7 @@ pub mod test {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::TransferStx(_)
+                | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_) => Ok(()),
             }

@@ -2091,6 +2091,7 @@ impl StacksBlockBuilder {
             burn_dbconn,
             burn_dbconn,
             burn_dbconn.conn(),
+            &burn_dbconn.context.pox_constants,
             &self.chain_tip,
             info.burn_tip,
             info.burn_tip_height,
