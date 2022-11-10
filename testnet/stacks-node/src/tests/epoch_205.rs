@@ -27,9 +27,9 @@ use stacks::vm::types::PrincipalData;
 use stacks::vm::ContractName;
 use std::convert::TryFrom;
 
-use crate::config::{ConfigHandle, EventKeyType};
 use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
+use crate::config::{ConfigHandle, EventKeyType};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::make_contract_call;
 use crate::tests::make_contract_call_mblock_only;

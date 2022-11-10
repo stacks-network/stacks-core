@@ -5927,8 +5927,10 @@ fn atlas_integration_test() {
     let bootstrap_node_thread = thread::spawn(move || {
         let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
 
-        let mut btc_regtest_controller =
-            BitcoinRegtestController::with_burnchain_test(conf_bootstrap_node.clone(), burnchain_config.clone());
+        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(
+            conf_bootstrap_node.clone(),
+            burnchain_config.clone(),
+        );
         let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
 
         btc_regtest_controller.bootstrap_chain(201);
@@ -6452,8 +6454,10 @@ fn antientropy_integration_test() {
 
     let conf_bootstrap_node_clone = conf_bootstrap_node.clone();
     let bootstrap_node_thread = thread::spawn(move || {
-        let mut btc_regtest_controller =
-            BitcoinRegtestController::with_burnchain_test(conf_bootstrap_node_clone.clone(), burnchain_config.clone());
+        let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(
+            conf_bootstrap_node_clone.clone(),
+            burnchain_config.clone(),
+        );
 
         btc_regtest_controller.bootstrap_chain(201);
 
@@ -6553,8 +6557,10 @@ fn antientropy_integration_test() {
         tip_height, tip_height, target_height
     );
 
-    let btc_regtest_controller =
-        BitcoinRegtestController::with_burnchain_test(conf_bootstrap_node.clone(), burnchain_config.clone());
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(
+        conf_bootstrap_node.clone(),
+        burnchain_config.clone(),
+    );
 
     let mut burnchain_deadline = get_epoch_time_secs() + 60;
     while tip_height < (target_height - 3) as u64 {
@@ -6677,8 +6683,10 @@ fn atlas_stress_integration_test() {
 
     let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
 
-    let mut btc_regtest_controller =
-        BitcoinRegtestController::with_burnchain_test(conf_bootstrap_node.clone(), burnchain_config.clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(
+        conf_bootstrap_node.clone(),
+        burnchain_config.clone(),
+    );
     let http_origin = format!("http://{}", &conf_bootstrap_node.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
@@ -9864,8 +9872,10 @@ fn test_competing_miners_build_on_same_chain(
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller =
-        BitcoinRegtestController::with_burnchain_test(confs[0].clone(), burnchain_configs[0].clone());
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(
+        confs[0].clone(),
+        burnchain_configs[0].clone(),
+    );
 
     btc_regtest_controller.bootstrap_chain(1);
 

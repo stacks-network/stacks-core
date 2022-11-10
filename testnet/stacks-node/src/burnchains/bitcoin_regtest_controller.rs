@@ -116,7 +116,8 @@ impl LeaderBlockCommitFees {
         config: &Config,
         config_handle: &ConfigHandle,
     ) -> LeaderBlockCommitFees {
-        let mut fees = LeaderBlockCommitFees::estimated_fees_from_payload(payload, config, config_handle);
+        let mut fees =
+            LeaderBlockCommitFees::estimated_fees_from_payload(payload, config, config_handle);
         fees.spent_in_attempts = cmp::max(1, self.spent_in_attempts);
         fees.final_size = self.final_size;
         fees.fee_rate = self.fee_rate + config_handle.get().burnchain.rbf_fee_increment;
@@ -214,7 +215,7 @@ impl BitcoinRegtestController {
         let config_handle = ConfigHandle::new(config.clone());
         Self::with_burnchain(config, config_handle, None, Some(burnchain_config), None)
     }
-    
+
     pub fn with_burnchain(
         config: Config,
         config_handle: ConfigHandle,
@@ -749,7 +750,13 @@ impl BitcoinRegtestController {
         // Serialize the payload
         let op_bytes = {
             let mut buffer = vec![];
-            let mut magic_bytes = self.config_handle.get().burnchain.magic_bytes.as_bytes().to_vec();
+            let mut magic_bytes = self
+                .config_handle
+                .get()
+                .burnchain
+                .magic_bytes
+                .as_bytes()
+                .to_vec();
             buffer.append(&mut magic_bytes);
             payload
                 .consensus_serialize(&mut buffer)
@@ -867,7 +874,8 @@ impl BitcoinRegtestController {
         } else {
             self.prepare_tx(
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte,
+                DUST_UTXO_LIMIT
+                    + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte,
                 None,
                 None,
                 0,
@@ -931,7 +939,8 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
         let max_tx_size = 280;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte;
+        let output_amt =
+            DUST_UTXO_LIMIT + max_tx_size * self.config_handle.get().burnchain.satoshis_per_byte;
         let (mut tx, mut utxos) = self.prepare_tx(&public_key, output_amt, None, None, 0)?;
 
         // Serialize the payload
@@ -983,7 +992,11 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let mut estimated_fees = match previous_fees {
             Some(fees) => fees.fees_from_previous_tx(&payload, &self.config, &self.config_handle),
-            None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config, &self.config_handle),
+            None => LeaderBlockCommitFees::estimated_fees_from_payload(
+                &payload,
+                &self.config,
+                &self.config_handle,
+            ),
         };
 
         let public_key = signer.get_public_key();
@@ -1125,7 +1138,9 @@ impl BitcoinRegtestController {
 
         // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
         if ongoing_op.fees.fee_rate
-            > (self.config_handle.get().burnchain.satoshis_per_byte * self.config_handle.get().burnchain.max_rbf / 100)
+            > (self.config_handle.get().burnchain.satoshis_per_byte
+                * self.config_handle.get().burnchain.max_rbf
+                / 100)
         {
             warn!(
                 "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",

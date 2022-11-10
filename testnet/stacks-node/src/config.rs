@@ -562,7 +562,7 @@ impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         Config::from_config_file_with_options(config_file, true)
     }
-    
+
     pub fn from_config_file_with_options(
         config_file: ConfigFile,
         verbose: bool,

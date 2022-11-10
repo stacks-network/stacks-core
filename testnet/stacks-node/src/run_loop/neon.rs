@@ -241,13 +241,13 @@ impl RunLoop {
     }
 
     pub fn config_loader_handle(&self) -> &ConfigLoaderHandle {
-         &self.config_loader_handle
+        &self.config_loader_handle
     }
-    
+
     pub fn config_handle(&self) -> ConfigHandle {
         self.config_loader_handle.get().get_config_handle().clone()
     }
-    
+
     pub fn get_event_dispatcher(&self) -> EventDispatcher {
         self.event_dispatcher.clone()
     }
