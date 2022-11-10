@@ -11823,7 +11823,7 @@ pub mod test {
             delegated_ustx: ((tenure_id + 1) * 1000) as u128,
             until_burn_height: None,
             // to be filled in
-            txid: Txid_from_test_data(
+            txid: Txid::from_test_data(
                 tenure_id as u64,
                 2,
                 &BurnchainHeaderHash([tenure_id as u8; 32]),
