@@ -1389,7 +1389,7 @@ impl BlockMinerThread {
     ///
     /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
     /// reproduce it in integration tests.
-    #[cfg(test)]
+    #[cfg(not(test))]
     fn make_microblock_private_key(
         &mut self,
         _parent_stacks_hash: &StacksBlockId,
@@ -1404,7 +1404,7 @@ impl BlockMinerThread {
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key.
-    #[cfg(not(test))]
+    #[cfg(test)]
     fn make_microblock_private_key(
         &mut self,
         _parent_stacks_hash: &StacksBlockId,
