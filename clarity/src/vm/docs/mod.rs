@@ -633,12 +633,14 @@ const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, 
 shifting two positions is equivalent to multiplying by 4, and so on. 
 
-Observe that the second parameter (number of positions to shift) must be of type uint.
+Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer.
 ",
     example: "(<< 2 u1) ;; Returns 4
 (<< 16 u2) ;; Returns 64
 (<< -64 u1) ;; Returns -128
 (<< u4 u2) ;; Returns u16
+(<< u240282366920938463463374607431768211327 u2402823) ;; Arithmetic overflow
+(<< u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
 "
 };
 
@@ -653,12 +655,14 @@ shifting two positions is equivilent to dividing by 4, and so on.
 Note: Performing a right-shift on a signed integer is an arithmetic operation which will preserve the sign, 
 whereas performing a right-shift on an unsigned integer is a logical operation, moving the sign bit.
 
-Observe that the second parameter (number of positions to shift) must be of type uint.
+Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer.
 ",
     example: "(>> 2 u1) ;; Returns 1
 (>> 128 u2) ;; Returns 32
 (>> -64 u1) ;; Returns -32
 (>> u128 u2) ;; Returns u32
+(>> u240282366920938463463374607431768211327 u2402823) ;; Arithmetic overflow
+(>> u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
 "
 };
 
