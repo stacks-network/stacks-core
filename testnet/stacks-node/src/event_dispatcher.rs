@@ -37,7 +37,6 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::TransactionPayload;
-use stacks_common::types::StacksEpochId;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -1039,7 +1038,6 @@ mod test {
     use stacks::chainstate::stacks::{StacksBlock};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
-    use stacks_common::types::StacksEpochId;
     use crate::event_dispatcher::EventObserver;
 
     #[test]

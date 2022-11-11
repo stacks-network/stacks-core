@@ -6356,9 +6356,10 @@ impl StacksChainState {
         sort_db: &mut SortitionDB,
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+        let pox_constants = sort_db.pox_constants.clone();
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-        self.process_blocks(tx, max_blocks, null_event_dispatcher, &sort_db.pox_constants)
+        self.process_blocks(tx, max_blocks, null_event_dispatcher, &pox_constants)
     }
 
     /// Process some staging blocks, up to max_blocks.
