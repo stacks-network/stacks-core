@@ -288,6 +288,7 @@ CREATE TABLE db_config(version TEXT NOT NULL);
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
 "#;
 
+const LAST_BURNCHAIN_DB_INDEX: &'static str = "index_burnchain_db_txid";
 const BURNCHAIN_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_headers_height_hash ON burnchain_db_block_headers(block_height DESC, block_hash ASC);",
     "CREATE INDEX IF NOT EXISTS index_burnchain_db_block_hash ON burnchain_db_block_ops(block_hash);",
@@ -917,12 +918,19 @@ impl<'a> BurnchainDBTransaction<'a> {
 
 impl BurnchainDB {
     fn add_indexes(&mut self) -> Result<(), BurnchainError> {
-        // TODO: only do this if the DB didn't already have them
-        let db_tx = self.tx_begin()?;
-        for index in BURNCHAIN_DB_INDEXES.iter() {
-            db_tx.sql_tx.execute_batch(index)?;
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            &[LAST_BURNCHAIN_DB_INDEX],
+        )?
+        .unwrap_or(0);
+        if exists == 0 {
+            let db_tx = self.tx_begin()?;
+            for index in BURNCHAIN_DB_INDEXES.iter() {
+                db_tx.sql_tx.execute_batch(index)?;
+            }
+            db_tx.commit()?;
         }
-        db_tx.commit()?;
         Ok(())
     }
 
