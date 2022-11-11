@@ -185,7 +185,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | IndexOf | Map | Filter | Fold | Slice | ReplaceAt => {
+            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
+            | Fold | Slice | ReplaceAt => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {

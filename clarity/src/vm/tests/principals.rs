@@ -356,7 +356,7 @@ fn create_principal_destruct_tuple_from_strings(
 // Test that we can parse well-formed principals.
 fn test_principal_destruct_good() {
     // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    let input = r#"(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -378,7 +378,7 @@ fn test_principal_destruct_good() {
     );
 
     // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
+    let input = r#"(principal-destruct? 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -400,7 +400,7 @@ fn test_principal_destruct_good() {
     );
 
     // ST is testnet single-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    let input = r#"(principal-destruct? 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -422,7 +422,7 @@ fn test_principal_destruct_good() {
     );
 
     // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
+    let input = r#"(principal-destruct? 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -444,7 +444,7 @@ fn test_principal_destruct_good() {
     );
 
     // SP is mainnet single-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
+    let input = r#"(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -466,7 +466,7 @@ fn test_principal_destruct_good() {
     );
 
     // SM is mainnet multi-sig. We run against mainnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7.foo)"#;
+    let input = r#"(principal-destruct? 'SM3X6QWWETNBZWGBK6DRGTR1KX50S74D341M9C5X7.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -488,7 +488,7 @@ fn test_principal_destruct_good() {
     );
 
     // ST is testnet single-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
+    let input = r#"(principal-destruct? 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -510,7 +510,7 @@ fn test_principal_destruct_good() {
     );
 
     // SN is testnet multi-sig. We run against testnet so should get an `ok` value.
-    let input = r#"(principal-destruct 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7.foo)"#;
+    let input = r#"(principal-destruct? 'SN3X6QWWETNBZWGBK6DRGTR1KX50S74D340JWTSC7.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -537,7 +537,7 @@ fn test_principal_destruct_good() {
 // the error channel.
 fn test_principal_destruct_bad_version_byte() {
     // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
-    let input = r#"(principal-destruct 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
+    let input = r#"(principal-destruct? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -559,7 +559,7 @@ fn test_principal_destruct_bad_version_byte() {
     );
 
     // SP is mainnet, but we run on testnet.
-    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
+    let input = r#"(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -581,7 +581,7 @@ fn test_principal_destruct_bad_version_byte() {
     );
 
     // ST is testet, but we run on mainnet.
-    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
+    let input = r#"(principal-destruct? 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -603,7 +603,7 @@ fn test_principal_destruct_bad_version_byte() {
     );
 
     // SZ is not a valid prefix for any Stacks network. But it's valid for the future.
-    let input = r#"(principal-destruct 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)"#;
+    let input = r#"(principal-destruct? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -625,7 +625,7 @@ fn test_principal_destruct_bad_version_byte() {
     );
 
     // SP is mainnet, but we run on testnet.
-    let input = r#"(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
+    let input = r#"(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -647,7 +647,7 @@ fn test_principal_destruct_bad_version_byte() {
     );
 
     // ST is testet, but we run on mainnet.
-    let input = r#"(principal-destruct 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
+    let input = r#"(principal-destruct? 'ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -679,7 +679,7 @@ fn test_principal_construct_good() {
         .copy_from_slice(&hex_bytes("fa6bf38ed557fe417333710d6033e9419391a320").unwrap());
 
     // Mainnet single-sig, on mainnet.
-    let input = r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let input = r#"(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -699,7 +699,7 @@ fn test_principal_construct_good() {
     );
 
     // Mainnet multi-sig, on mainnet.
-    let input = r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let input = r#"(principal-construct? 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -720,7 +720,7 @@ fn test_principal_construct_good() {
 
     // Mainnet single-sig contract, on mainnet.
     let input =
-        r#"(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        r#"(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -744,7 +744,7 @@ fn test_principal_construct_good() {
 
     // Mainnet multi-sig contract, on mainnet.
     let input =
-        r#"(principal-construct 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        r#"(principal-construct? 0x14 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -767,7 +767,7 @@ fn test_principal_construct_good() {
     );
 
     // Testnet single-sig, run on testnet.
-    let input = r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let input = r#"(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -787,7 +787,7 @@ fn test_principal_construct_good() {
     );
 
     // Testnet multi-sig, run on testnet.
-    let input = r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
+    let input = r#"(principal-construct? 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -808,7 +808,7 @@ fn test_principal_construct_good() {
 
     // Testnet single-sig contract, run on testnet.
     let input =
-        r#"(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        r#"(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -832,7 +832,7 @@ fn test_principal_construct_good() {
 
     // Testnet multi-sig contract, run on testnet.
     let input =
-        r#"(principal-construct 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
+        r#"(principal-construct? 0x15 0xfa6bf38ed557fe417333710d6033e9419391a320 "hello-world")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: true,
@@ -887,7 +887,7 @@ fn create_principal_from_strings(
 // is still valid.
 fn test_principal_construct_version_byte_future() {
     // The version byte 0x1f is unrecognized today, but is valid for the future.
-    let input = r#"(principal-construct 0x1f 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct? 0x1f 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -923,7 +923,7 @@ fn test_principal_construct_version_byte_future() {
 
     // The version byte 0x1f is unrecognized today, but is valid for the future.
     let input =
-        r#"(principal-construct 0x1f 0x0102030405060708091011121314151617181920 "hello-world")"#;
+        r#"(principal-construct? 0x1f 0x0102030405060708091011121314151617181920 "hello-world")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -964,7 +964,7 @@ fn test_principal_construct_version_byte_future() {
 fn test_principal_construct_check_errors() {
     // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
     // `CheckErrors`.
-    let input = r#"(principal-construct 0x590493 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
             BUFF_1.clone(),
@@ -984,7 +984,7 @@ fn test_principal_construct_check_errors() {
 
     // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
     // `CheckErrors`.
-    let input = r#"(principal-construct u22 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(BUFF_1.clone(), Value::UInt(22)).into()),
         execute_with_parameters(
@@ -998,7 +998,7 @@ fn test_principal_construct_check_errors() {
 
     // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
     // should have been caught by the type checker.
-    let input = r#"(principal-construct 0x16 0x010203040506070809101112131415161718192021)"#;
+    let input = r#"(principal-construct? 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
         execute_with_parameters(
             input,
@@ -1018,7 +1018,7 @@ fn test_principal_construct_check_errors() {
     );
 
     // Name is too long, which should have been caught by the type-checker
-    let input = r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
+    let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
             TypeSignature::contract_name_string_ascii_type(),
@@ -1044,7 +1044,7 @@ fn test_principal_construct_check_errors() {
 fn test_principal_construct_response_errors() {
     // Hash key part is too small, should have length 20. This wasn't for the type checker, so the
     // error is signaled in the returned Response.
-    let input = r#"(principal-construct 0x16 0x01020304050607080910111213141516171819)"#;
+    let input = r#"(principal-construct? 0x16 0x01020304050607080910111213141516171819)"#;
     assert_eq!(
         execute_with_parameters(
             input,
@@ -1072,7 +1072,7 @@ fn test_principal_construct_response_errors() {
 
     // Version byte is too small, should have length 1. This error is signaled in the returned
     // Response.
-    let input = r#"(principal-construct 0x 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct? 0x 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         execute_with_parameters(
             input,
@@ -1099,7 +1099,7 @@ fn test_principal_construct_response_errors() {
     );
 
     // The version byte 0x20 is too big, even for the future. So, we get no result.
-    let input = r#"(principal-construct 0x20 0x0102030405060708091011121314151617181920)"#;
+    let input = r#"(principal-construct? 0x20 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -1126,7 +1126,7 @@ fn test_principal_construct_response_errors() {
     );
 
     // The contract name is too short
-    let input = r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "")"#;
+    let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
@@ -1153,7 +1153,7 @@ fn test_principal_construct_response_errors() {
     );
 
     // The contract name is not a valid contract name
-    let input = r#"(principal-construct 0x16 0x0102030405060708091011121314151617181920 "foo[")"#;
+    let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "foo[")"#;
     assert_eq!(
         Value::Response(ResponseData {
             committed: false,
