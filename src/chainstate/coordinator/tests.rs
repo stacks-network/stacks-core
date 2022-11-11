@@ -3520,8 +3520,19 @@ fn test_delegate_stx_btc_ops() {
             started_first_reward_cycle = true;
             // store the anchor block for this sortition for later checking
             let ic = sort_db.index_handle_at_tip();
-            let bhh = ic.get_last_anchor_block_hash().unwrap().unwrap();
-            anchor_blocks.push(bhh);
+            let bhh_opt = ic.get_last_anchor_block_hash().unwrap();
+            if new_burnchain_tip.block_height == 31 {
+                // **New in 2.1** -- a reward cycle can contain an anchor block for at most one other reward cycle.
+                // Usually, cycle N contains the anchor block for cycle N+1.
+                // Here, cycle 6 confirms the *same* anchor block as in cycle 5, so it must have
+                // _no_ anchor block.
+                assert!(
+                    bhh_opt.is_none(),
+                    "FATAL: a reward cycle contains two anchor blocks"
+                );
+            } else {
+                anchor_blocks.push(bhh_opt.unwrap());
+            }
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
