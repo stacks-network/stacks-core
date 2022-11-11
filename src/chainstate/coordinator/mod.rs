@@ -23,10 +23,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::burnchains::{
-    db::{BurnchainBlockData, BurnchainDB},
-    Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, Txid,
-};
+use crate::burnchains::{db::{BurnchainBlockData, BurnchainDB}, Address, Burnchain, BurnchainBlockHeader, Error as BurnchainError, Txid, PoxConstants};
 use crate::chainstate::burn::{
     db::sortdb::SortitionDB, operations::leader_block_commit::RewardSetInfo,
     operations::BlockstackOperationType, BlockSnapshot, ConsensusHash,
@@ -136,8 +133,7 @@ pub trait BlockEventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        epoch_id: StacksEpochId,
-        epoch_transition: bool,
+        pox_constants: &PoxConstants,
     );
 
     /// called whenever a burn block is about to be
@@ -738,7 +734,7 @@ impl<
         let sortdb_handle = self.sortition_db.tx_handle_begin(canonical_sortition_tip)?;
         let mut processed_blocks =
             self.chain_state_db
-                .process_blocks(sortdb_handle, 1, self.dispatcher)?;
+                .process_blocks(sortdb_handle, 1, self.dispatcher, &self.burnchain.pox_constants)?;
 
         while let Some(block_result) = processed_blocks.pop() {
             if let (Some(block_receipt), _) = block_result {
@@ -862,7 +858,7 @@ impl<
             // Right before a block is set to processed, the event dispatcher will emit a new block event
             processed_blocks =
                 self.chain_state_db
-                    .process_blocks(sortdb_handle, 1, self.dispatcher)?;
+                    .process_blocks(sortdb_handle, 1, self.dispatcher, &self.burnchain.pox_constants)?;
         }
 
         Ok(None)

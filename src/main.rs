@@ -1001,15 +1001,16 @@ simulating a miner.
         let path = &argv[2];
         let sort_path = &argv[3];
         let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path, None).unwrap();
+        let pox_constants = PoxConstants::mainnet_default();
         let mut sortition_db =
-            SortitionDB::open(sort_path, true, PoxConstants::mainnet_default()).unwrap();
+            SortitionDB::open(sort_path, true, pox_constants.clone()).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
             .unwrap()
             .sortition_id;
         let mut tx = sortition_db.tx_handle_begin(&sortition_tip).unwrap();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
         chainstate
-            .process_next_staging_block(&mut tx, null_event_dispatcher)
+            .process_next_staging_block(&mut tx, null_event_dispatcher, &pox_constants)
             .unwrap();
         return;
     }
@@ -1305,7 +1306,7 @@ simulating a miner.
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
                 let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
                 let receipts = new_chainstate
-                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher, &burnchain.pox_constants)
                     .unwrap();
                 if receipts.len() == 0 {
                     break;

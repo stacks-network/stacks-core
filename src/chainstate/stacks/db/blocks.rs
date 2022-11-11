@@ -198,8 +198,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
-        _epoch_id: StacksEpochId,
-        _epoch_transition: bool,
+        _pox_constants: &PoxConstants,
     ) {
         assert!(
             false,
@@ -6039,6 +6038,7 @@ impl StacksChainState {
         &mut self,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
+        pox_constants: &PoxConstants,
     ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin()?;
@@ -6320,8 +6320,7 @@ impl StacksChainState {
                 epoch_receipt.parent_burn_block_timestamp,
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
-                epoch_receipt.evaluated_epoch,
-                epoch_receipt.epoch_transition,
+                pox_constants,
             );
         }
 
@@ -6359,7 +6358,7 @@ impl StacksChainState {
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
-        self.process_blocks(tx, max_blocks, null_event_dispatcher)
+        self.process_blocks(tx, max_blocks, null_event_dispatcher, &sort_db.pox_constants)
     }
 
     /// Process some staging blocks, up to max_blocks.
@@ -6371,6 +6370,7 @@ impl StacksChainState {
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
         dispatcher_opt: Option<&'a T>,
+        pox_constants: &PoxConstants,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         debug!("Process up to {} blocks", max_blocks);
 
@@ -6383,7 +6383,7 @@ impl StacksChainState {
 
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
-            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
+            match self.process_next_staging_block(&mut sort_tx, dispatcher_opt, pox_constants) {
                 Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
                     Some(next_tip) => {
                         ret.push((Some(next_tip), next_microblock_poison_opt));

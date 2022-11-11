@@ -11,7 +11,7 @@ use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 use serde_json::json;
 
-use stacks::burnchains::Txid;
+use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
@@ -351,8 +351,7 @@ impl EventObserver {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        epoch_id: StacksEpochId,
-        epoch_transition: bool,
+        pox_constants: &PoxConstants,
     ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -392,8 +391,7 @@ impl EventObserver {
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
             "anchored_cost": anchored_consumed,
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
-            "epoch_id": epoch_id,
-            "epoch_transition": epoch_transition,
+            "pox_v1_unlock_height": pox_constants.v1_unlock_height,
         })
     }
 }
@@ -470,8 +468,7 @@ impl BlockEventDispatcher for EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        epoch_id: StacksEpochId,
-        epoch_transition: bool,
+        pox_constants: &PoxConstants
     ) {
         self.process_chain_tip(
             block,
@@ -486,8 +483,7 @@ impl BlockEventDispatcher for EventDispatcher {
             parent_burn_block_timestamp,
             anchored_consumed,
             mblock_confirmed_consumed,
-            epoch_id,
-            epoch_transition,
+            pox_constants,
         )
     }
 
@@ -678,8 +674,7 @@ impl EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        epoch_id: StacksEpochId,
-        epoch_transition: bool,
+        pox_constants: &PoxConstants,
     ) {
         let boot_receipts = if metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
@@ -746,8 +741,7 @@ impl EventDispatcher {
                     parent_burn_block_timestamp,
                     anchored_consumed,
                     mblock_confirmed_consumed,
-                    epoch_id,
-                    epoch_transition,
+                    pox_constants,
                 );
 
                 // Send payload
@@ -1041,7 +1035,7 @@ impl EventDispatcher {
 #[cfg(test)]
 mod test {
     use clarity::vm::costs::ExecutionCost;
-    use stacks::burnchains::Txid;
+    use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::stacks::{StacksBlock};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
@@ -1065,8 +1059,7 @@ mod test {
         let parent_burn_block_timestamp = 0;
         let anchored_consumed =ExecutionCost::zero();
         let mblock_confirmed_consumed =ExecutionCost::zero();
-        let epoch_id = StacksEpochId::Epoch21;
-        let epoch_transition = true;
+        let pox_constants = PoxConstants::testnet_default();
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
@@ -1082,10 +1075,8 @@ mod test {
             parent_burn_block_timestamp,
             &anchored_consumed,
             &mblock_confirmed_consumed,
-            epoch_id,
-            epoch_transition,
+            &pox_constants,
         );
-        assert_eq!(payload.get("epoch_id").unwrap().as_str().unwrap(), "Epoch21");
-        assert_eq!(payload.get("epoch_transition").unwrap().as_bool().unwrap(), epoch_transition);
+        assert_eq!(payload.get("pox_v1_unlock_height").unwrap().as_u64().unwrap(), pox_constants.v1_unlock_height as u64);
     }
 }

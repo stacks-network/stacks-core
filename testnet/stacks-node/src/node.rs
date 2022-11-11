@@ -836,9 +836,10 @@ impl Node {
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
+                let pox_constants = db.pox_constants.clone();
                 let tx = db.tx_begin_at_tip();
                 self.chain_state
-                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher), &pox_constants)
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {:?}", e),
