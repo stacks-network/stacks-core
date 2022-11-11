@@ -84,21 +84,6 @@ macro_rules! type_force_binary_arithmetic {
     }};
 }
 
-macro_rules! type_force_binary_arithmetic_with_uint_as_2nd_arg {
-    ($function: ident, $x: expr, $y: expr) => {{
-        match ($x, $y) {
-            (Value::Int(_x), Value::Int(y)) => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(y)).into()),
-            (Value::UInt(_x), Value::Int(y)) => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(y)).into()),
-            (Value::Int(x), Value::UInt(y)) => I128Ops::$function(x, y),
-            (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x,y),
-            (_, y) => Err(CheckErrors::UnionTypeValueError(
-                vec![TypeSignature::UIntType],
-                y
-            ).into())
-        }
-    }}
-}
-
 // The originally supported comparable types in Clarity1 were Int and UInt.
 macro_rules! type_force_binary_comparison_v1 {
     ($function: ident, $x: expr, $y: expr) => {{
@@ -229,19 +214,6 @@ macro_rules! make_comparison_ops {
     };
 }
 
-macro_rules! make_arithmetic_ops_with_uint_as_2nd_arg {
-    ($struct_name: ident, $type:ty, $type2:ty) => {
-        impl $struct_name {
-            fn bitwise_left_shift(x: $type, y: $type2) -> InterpreterResult<Value> {
-                Self::make_value(x << y)
-            }
-            fn bitwise_right_shift(x: $type, y: $type2) -> InterpreterResult<Value> {
-                Self::make_value(x >> y)
-            }
-        }
-    }
-}
-
 // This macro creates all of the operation functions for the two arithmetic types
 //  (uint128 and int128) -- this is really hard to do generically because there's no
 //  "Integer" trait in rust, so macros were the most straight-forward solution to do this
@@ -249,6 +221,18 @@ macro_rules! make_arithmetic_ops_with_uint_as_2nd_arg {
 macro_rules! make_arithmetic_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
+            fn bitwise_left_shift(x: $type, y: u32) -> InterpreterResult<Value> {
+                let result = x
+                    .checked_shl(y)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Self::make_value(result)
+            }
+            fn bitwise_right_shift(x: $type, y: u32) -> InterpreterResult<Value> {
+                let result = x
+                    .checked_shr(y)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Self::make_value(result)
+            }
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
@@ -390,9 +374,6 @@ make_comparison_ops!(ASCIIOps, Vec<u8>);
 make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
-make_arithmetic_ops_with_uint_as_2nd_arg!(I128Ops, i128, u128);
-make_arithmetic_ops_with_uint_as_2nd_arg!(U128Ops, u128, u128);
-
 // Used for the `xor` function.
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
@@ -413,14 +394,6 @@ pub fn native_bitwise_or(mut args: Vec<Value>) -> InterpreterResult<Value> {
 
 pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
     type_force_unary_arithmetic!(bitwise_not, a)
-}
-
-pub fn native_bitwise_left_shift(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic_with_uint_as_2nd_arg!(bitwise_left_shift, a, b)
-}
-
-pub fn native_bitwise_right_shift(a: Value, b: Value) -> InterpreterResult<Value> {
-    type_force_binary_arithmetic_with_uint_as_2nd_arg!(bitwise_right_shift, a, b)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -519,6 +492,70 @@ pub fn native_log2(n: Value) -> InterpreterResult<Value> {
 }
 pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)
+}
+
+pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+    if let Value::UInt(u128_val) = pos {
+        let u32_val = 
+            u32::try_from(u128_val)
+            .map_err(|_| RuntimeErrorType::Arithmetic("The second argument to '<<' must be an unsigned 32-bit integer".to_string()))?;
+
+        match input {
+            Value::Int(input) => {
+                let result = input
+                    .checked_shl(u32_val)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Ok(Value::Int(result))
+            },
+            Value::UInt(input) => {
+                let result = input
+                    .checked_shl(u32_val)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Ok(Value::UInt(result))
+            },
+            _ => Err(CheckErrors::UnionTypeError(
+                vec![ 
+                    TypeSignature::IntType, 
+                    TypeSignature::UIntType 
+                ], 
+                TypeSignature::type_of(&input))
+                .into())
+        }
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+    }
+}
+
+pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+    if let Value::UInt(u128_val) = pos {
+        let u32_val = 
+            u32::try_from(u128_val)
+            .map_err(|_| RuntimeErrorType::Arithmetic("The second argument to '>>' must be an unsigned 32-bit integer".to_string()))?;
+
+        match input {
+            Value::Int(input) => {
+                let result = input
+                    .checked_shr(u32_val)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Ok(Value::Int(result))
+            },
+            Value::UInt(input) => {
+                let result = input
+                    .checked_shr(u32_val)
+                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                Ok(Value::UInt(result))
+            },
+            _ => Err(CheckErrors::UnionTypeError(
+                vec![ 
+                    TypeSignature::IntType, 
+                    TypeSignature::UIntType 
+                ], 
+                TypeSignature::type_of(&input))
+                .into())
+        }
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+    }
 }
 
 pub fn native_to_uint(input: Value) -> InterpreterResult<Value> {

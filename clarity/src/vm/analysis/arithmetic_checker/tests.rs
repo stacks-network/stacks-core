@@ -324,7 +324,7 @@ fn test_functions_clarity1() {
         ("(to-consensus-buff 3)",
          Ok(())),
         ("(from-consensus-buff true 0x03)",
-         Ok(()))
+         Ok(())),
     ];
 
     for (contract, result) in tests.iter() {

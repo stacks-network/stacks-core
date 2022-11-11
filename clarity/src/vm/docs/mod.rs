@@ -836,7 +836,6 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
                     match pos {
                         0 => arg_sig = left,
                         1 => arg_sig = right,
-                        // I assume panicking here is ok as this is a part of doc generation, which would otherwise be incorrect if allowed to proceed?
                         _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
                     }
                     match arg_sig {

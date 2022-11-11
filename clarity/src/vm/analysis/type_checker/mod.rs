@@ -370,11 +370,8 @@ fn check_function_arg_signature<T: CostTracker>(
         FunctionArgSignature::Union(expected_types) => {
             let mut admitted = false;
             for expected_type in expected_types.iter() {
+                analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
                 if expected_type.admits_type(actual_type) {
-                    // Type check cost only on the matching type instead of all possible types.
-                    // Other function types don't do this, is it really the meaning that callers
-                    // should have to pay extra for using functions that accept union types?
-                    analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
                     admitted = true;
                     break;
                 }

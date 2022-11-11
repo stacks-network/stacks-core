@@ -1306,6 +1306,11 @@ fn test_bitwise() {
         "(| u2 u4 u32)",        // u38
         "(& 28 24 -1)",         // 24
         "(^ 1 2 4 -1)",         // -8
+        "(>> u240282366920938463463374607431768211327 u240282366920938463463374607431768211327)", // Invalid u32 second arg
+        "(<< u240282366920938463463374607431768211327 u240282366920938463463374607431768211327)", // Invalid u32 second arg
+        "(>> u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
+        "(<< u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
+        "(<< u340282366920938463463374607431768211455 u1)"
     ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -1333,6 +1338,11 @@ fn test_bitwise() {
         Ok(Value::UInt(38)),    // (| u2 u4 u32)
         Ok(Value::Int(24)),     // (& 28 24 -1)
         Ok(Value::Int(-8)),     // (^ 1 2 4 -1)
+        Err(RuntimeErrorType::Arithmetic("The second argument to '>>' must be an unsigned 32-bit integer".to_string()).into()),
+        Err(RuntimeErrorType::Arithmetic("The second argument to '<<' must be an unsigned 32-bit integer".to_string()).into()),
+        Err(RuntimeErrorType::ArithmeticOverflow.into()),
+        Err(RuntimeErrorType::ArithmeticOverflow.into()),
+        Ok(Value::UInt(340282366920938463463374607431768211454)) // (<< u340282366920938463463374607431768211455 u1)
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
