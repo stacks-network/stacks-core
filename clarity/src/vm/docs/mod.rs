@@ -617,7 +617,9 @@ const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("~ (bitwise not)"),
     snippet: "~ ${1:expr-1}",
     signature: "(~ i1)",
-    description: "Returns the result of bitwise not, effectively reversing the bits of `i1`.",
+    description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
+In other words, every bit that is `1` in ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
+",
     example: "(~ 3) ;; Returns -4
 (~ u128) ;; Returns u340282366920938463463374607431768211327
 (~ 128) ;; Returns -129
@@ -628,8 +630,8 @@ const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("<< (binary left shift)"),
     snippet: "<< ${1:expr-1} ${2:expr-2}",
-    signature: "(<< i1 u2)",
-    description: "Moves all the bits in `i1` to the left by the number of places specified in `u2`. 
+    signature: "(<< i1 i2)",
+    description: "Shifts all the bits in `i1` to the left by the number of places specified in `i2`. 
 New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, 
 shifting two positions is equivalent to multiplying by 4, and so on. 
 
@@ -647,13 +649,13 @@ Observe that the second parameter (number of positions to shift) must be a 32-bi
 const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">> (binary right shift)"),
     snippet: ">> ${1:expr-1} ${2:expr-2}",
-    signature: "(>> i1 u2)",
-    description: "Moves all the bits in `i1` to the right by the number of places specified in `u2`.
+    signature: "(>> i1 i2)",
+    description: "Shifts all the bits in `i1` to the right by the number of places specified in `i2`.
 New bits are filled with zeros.  Shifting a value right by one position is equivilent to dividing it by 2,
 shifting two positions is equivilent to dividing by 4, and so on.
 
 Note: Performing a right-shift on a signed integer is an arithmetic operation which will preserve the sign, 
-whereas performing a right-shift on an unsigned integer is a logical operation, moving the sign bit.
+whereas performing a right-shift on an unsigned integer is a logical operation, also shifting the sign bit.
 
 Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer.
 ",
