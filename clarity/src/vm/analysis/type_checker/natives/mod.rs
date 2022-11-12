@@ -24,7 +24,6 @@ use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype, FunctionArgSignature, FunctionReturnsSignature};
-use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
