@@ -22,7 +22,6 @@ use crate::BurnchainController;
 use stacks::core;
 
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::distribution::BurnSamplePoint;
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -144,6 +143,7 @@ fn advance_to_2_1(
         btc_regtest_controller.bootstrap_chain(1);
 
         let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        debug!("Mining pubkey is {}", &mining_pubkey);
         btc_regtest_controller.set_mining_pubkey(MINER_BURN_PUBLIC_KEY.to_string());
 
         mining_pubkey
@@ -151,6 +151,7 @@ fn advance_to_2_1(
         btc_regtest_controller.bootstrap_chain(1);
 
         let mining_pubkey = btc_regtest_controller.get_mining_pubkey().unwrap();
+        debug!("Mining pubkey is {}", &mining_pubkey);
         btc_regtest_controller.set_mining_pubkey(MINER_BURN_PUBLIC_KEY.to_string());
 
         btc_regtest_controller.bootstrap_chain(1);
@@ -280,56 +281,6 @@ fn advance_to_2_1(
         blocks_processed,
         channel,
     );
-}
-
-#[test]
-#[ignore]
-fn transition_fixes_utxo_chaining() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    // very simple test to verify that the miner will keep making valid (empty) blocks after the
-    // transition.  Really tests that the block-commits are well-formed before and after the epoch
-    // transition.
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
-        advance_to_2_1(vec![], None, None, false);
-
-    // post epoch 2.1 -- UTXO chaining should be fixed
-    for i in 0..10 {
-        let tip_info = get_chain_info(&conf);
-
-        if i % 2 == 1 {
-            std::env::set_var(
-                "STX_TEST_LATE_BLOCK_COMMIT",
-                format!("{}", tip_info.burn_block_height + 1),
-            );
-        }
-
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    }
-
-    let sortdb = btc_regtest_controller.sortdb_mut();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    let burn_sample: Vec<BurnSamplePoint> = sortdb
-        .conn()
-        .query_row(
-            "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
-            &[tip.sortition_id],
-            |row| {
-                let data_str: String = row.get_unwrap(0);
-                Ok(serde_json::from_str(&data_str).unwrap())
-            },
-        )
-        .unwrap();
-
-    // if UTXO linking is fixed, then our median burn will be int((20,000 + 1) / 2).
-    // Otherwise, it will be 1.
-    assert_eq!(burn_sample.len(), 1);
-    assert_eq!(burn_sample[0].burns, 10_000);
-
-    test_observer::clear();
-    coord_channel.stop_chains_coordinator();
 }
 
 #[test]
@@ -1837,6 +1788,8 @@ fn transition_empty_blocks() {
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
 
+    let mut crossed_21_boundary = false;
+
     // these should all succeed across the epoch boundary
     for _i in 0..15 {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
@@ -1871,6 +1824,9 @@ fn transition_empty_blocks() {
 
         if tip_info.burn_block_height == epoch_2_05 || tip_info.burn_block_height == epoch_2_1 {
             assert!(res);
+            if tip_info.burn_block_height == epoch_2_1 {
+                crossed_21_boundary = true;
+            }
         } else {
             assert!(!res);
         }
@@ -1888,7 +1844,7 @@ fn transition_empty_blocks() {
 
             // let's commit
             let burn_parent_modulus =
-                (tip_info.burn_block_height % BURN_BLOCK_MINED_AT_MODULUS) as u8;
+                ((tip_info.burn_block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8;
             let op = BlockstackOperationType::LeaderBlockCommit(LeaderBlockCommitOp {
                 sunset_burn: 0,
                 block_header_hash: BlockHeaderHash([0xff; 32]),
@@ -1919,6 +1875,7 @@ fn transition_empty_blocks() {
     }
 
     let account = get_account(&http_origin, &miner_account);
+    assert!(crossed_21_boundary);
     assert_eq!(account.nonce, 16);
 
     channel.stop_chains_coordinator();

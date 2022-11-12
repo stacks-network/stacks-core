@@ -16,6 +16,7 @@
 
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::TypeSignature;
+use crate::vm::ClarityVersion;
 
 use crate::vm::analysis::type_checker::{
     check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
@@ -24,6 +25,7 @@ use crate::vm::analysis::type_checker::{
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::types::signatures::CallableSubtype;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -290,7 +292,7 @@ fn eval_with_new_binding(
         return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into());
     }
 
-    inner_context.variable_types.insert(bind_name, bind_type);
+    inner_context.add_variable_type(bind_name, bind_type, checker.clarity_version);
 
     checker.type_check(body, &inner_context)
 }
