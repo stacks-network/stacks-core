@@ -764,6 +764,68 @@ fn test_unexpected_use_of_field_or_trait_reference() {
 }
 
 #[test]
+fn test_bitwise_good_checks() {
+    let good = [
+        "(& 24 16)",
+        "(^ u24 u16)",
+        "(| 2 1)",
+        "(<< 1 u2)",
+        "(>> u1 u2)",
+        "(| 1 2 4)",
+        "(| -1 -2 4)",
+        "(| u1 u2 u4)"
+    ];
+    let expected = ["int", "uint", "int", "int", "uint", "int", "int", "uint"];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(
+            expected,
+            &format!("{}", type_check_helper(&good_test).unwrap())
+        );
+    }
+}
+
+#[test]
+fn test_bitwise_bad_checks() {
+    let bad = [
+        "(xor 1)",
+        "(^ 1 u2)",
+        "(| u2 1)",
+        "(~ \"hello\")",
+        "(~ 1 2)",
+        "(& 1 u2)",
+        "(>> 1)",
+        "(<< 1)",
+        "(<< true false)",
+        "(>> 1 1)",
+        "(<< 2 1)",
+        "(| 1 2 u4)"
+    ];
+    let bad_expected = [
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType], 
+            SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap())))),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::UnionTypeError(
+            vec![IntType, UIntType],
+            BoolType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(IntType, UIntType),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+    }
+}
+
+#[test]
 fn test_simple_arithmetic_checks() {
     let good = [
         "(>= (+ 1 2 3) (- 1 2))",

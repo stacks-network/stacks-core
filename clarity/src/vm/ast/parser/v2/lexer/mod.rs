@@ -230,7 +230,11 @@ impl<'a> Lexer<'a> {
                 | '>'
                 | '='
                 | '/'
-                | '*' => ident.push(self.next),
+                | '*'
+                | '^'
+                | '&'
+                | '|'
+                | '~' => ident.push(self.next),
                 _ => {
                     if !is_separator(self.next) {
                         return Ok(Token::Placeholder(self.proceed_through_error(
@@ -723,6 +727,10 @@ impl<'a> Lexer<'a> {
             '+' => Token::Plus,
             '*' => Token::Multiply,
             '/' => Token::Divide,
+            '^' => Token::BitwiseXor,
+            '&' => Token::BitwiseAnd,
+            '|' => Token::BitwiseOr,
+            '~' => Token::BitwiseNot,
             '-' => {
                 advance = false;
                 self.read_char()?;
@@ -736,6 +744,8 @@ impl<'a> Lexer<'a> {
                 self.read_char()?;
                 if self.next == '=' {
                     Token::LessEqual
+                } else if self.next == '<' {
+                    Token::BitwiseLShift
                 } else if self.next.is_ascii_alphabetic() {
                     self.read_trait_identifier()?
                 } else {
@@ -747,6 +757,8 @@ impl<'a> Lexer<'a> {
                 self.read_char()?;
                 if self.next == '=' {
                     Token::GreaterEqual
+                } else if self.next == '>' {
+                    Token::BitwiseRShift
                 } else {
                     advance = false;
                     Token::Greater
@@ -848,7 +860,13 @@ impl<'a> Lexer<'a> {
             | Token::Less
             | Token::LessEqual
             | Token::Greater
-            | Token::GreaterEqual => {
+            | Token::GreaterEqual
+            | Token::BitwiseXor
+            | Token::BitwiseAnd
+            | Token::BitwiseOr
+            | Token::BitwiseNot
+            | Token::BitwiseLShift
+            | Token::BitwiseRShift => {
                 if !is_separator(self.next) {
                     self.add_diagnostic(
                         LexerError::ExpectedSeparator,
@@ -1326,6 +1344,30 @@ mod tests {
         assert_eq!(lexer.read_token().unwrap().token, Token::GreaterEqual);
         assert_eq!(lexer.diagnostics.len(), 0);
 
+        lexer = Lexer::new("^", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseXor);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("&", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseAnd);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("|", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseOr);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("~", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseNot);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new("<<", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseLShift);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
+        lexer = Lexer::new(">>", false).unwrap();
+        assert_eq!(lexer.read_token().unwrap().token, Token::BitwiseRShift);
+        assert_eq!(lexer.diagnostics.len(), 0);
+
         lexer = Lexer::new(";; this is a comment", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
@@ -1386,13 +1428,13 @@ mod tests {
             LexerError::InvalidCharPrincipal('O')
         );
 
-        lexer = Lexer::new("~", false).unwrap();
+        lexer = Lexer::new("@", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Placeholder("~".to_string())
+            Token::Placeholder("@".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
-        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));
+        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('@'));
 
         lexer = Lexer::new("okay;; comment", false).unwrap();
         assert_eq!(
@@ -2093,7 +2135,7 @@ mod tests {
             }
         );
 
-        lexer = Lexer::new("123 ~ abc", false).unwrap();
+        lexer = Lexer::new("123 @ abc", false).unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();

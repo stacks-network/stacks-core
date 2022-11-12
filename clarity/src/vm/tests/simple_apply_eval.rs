@@ -1277,6 +1277,80 @@ fn test_stx_ops_errors() {
 }
 
 #[test]
+fn test_bitwise() {
+    // NOTE: Type safety checks (e.g. that the 2nd argument to << and >> must be uint) are not included in this test.
+    // Tests for the type checker are included in analysis/type_checker/tests/mod.rs instead.
+
+    let tests = [
+        "(& 24 16)",            // 16
+        "(& u24 u16)",          // u16
+        "(^ 24 4)",             // 28
+        "(^ u24 u4)",           // u28
+        "(| 128 16)",           // 144
+        "(| u128 u16)",         // u144
+        "(~ 128)",              // -129
+        "(~ u128)",             // u340282366920938463463374607431768211327
+        "(~ u340282366920938463463374607431768211327)", // u128
+        "(>> u128 u2)",         // u32
+        "(<< u4 u2)",           // u16
+        "(& -128 -64)",         // -128
+        "(| -64 -32)",          // -32
+        "(^ -128 64)",          // -64
+        "(~ -128)",             // 127
+        "(>> -64 u1)",          // -32
+        "(<< -64 u1)",          // -128
+        "(>> 32 u2)",           // 8
+        "(<< 4 u4)",            // 64
+        "(| 1 2 4)",            // 7
+        "(| 64 -32 -16)",       // -16
+        "(| u2 u4 u32)",        // u38
+        "(& 28 24 -1)",         // 24
+        "(^ 1 2 4 -1)",         // -8
+        "(>> u123 u24028236699)", // Invalid u32 second arg
+        "(<< u123 u24028236699)", // Invalid u32 second arg
+        "(>> u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
+        "(<< u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
+        "(<< u340282366920938463463374607431768211455 u1)"
+    ];
+
+    let expectations: &[Result<Value, Error>] = &[
+        Ok(Value::Int(16)),     // (& 24 16)
+        Ok(Value::UInt(16)),    // (& u24 u16)
+        Ok(Value::Int(28)),     // (^ 24 4)y
+        Ok(Value::UInt(28)),    // (^ u24 u4)
+        Ok(Value::Int(144)),    // (| 128 16)
+        Ok(Value::UInt(144)),   // (| u128 u16)
+        Ok(Value::Int(-129)),   // (~ 128)
+        Ok(Value::UInt(340282366920938463463374607431768211327)),  // (~ u128)
+        Ok(Value::UInt(128)),   // (~ u340282366920938463463374607431768211327)
+        Ok(Value::UInt(32)),    // (>> u128 u2)
+        Ok(Value::UInt(16)),    // (<< u4 u2)
+        Ok(Value::Int(-128)),   // (& -128 -64)
+        Ok(Value::Int(-32)),    // (| -64 -32)
+        Ok(Value::Int(-64)),    // (^ -128 64)
+        Ok(Value::Int(127)),    // (~ -128)
+        Ok(Value::Int(-32)),    // (>> -64 u1)
+        Ok(Value::Int(-128)),   // (<< -64 u1)
+        Ok(Value::Int(8)),      // (>> 32 u2)
+        Ok(Value::Int(64)),     // (<< 4 u4)
+        Ok(Value::Int(7)),      // (| 1 2 4)
+        Ok(Value::Int(-16)),    // (| 64 -32 -16)
+        Ok(Value::UInt(38)),    // (| u2 u4 u32)
+        Ok(Value::Int(24)),     // (& 28 24 -1)
+        Ok(Value::Int(-8)),     // (^ 1 2 4 -1)
+        Err(RuntimeErrorType::Arithmetic("The second argument to '>>' must be an unsigned 32-bit integer".to_string()).into()),
+        Err(RuntimeErrorType::Arithmetic("The second argument to '<<' must be an unsigned 32-bit integer".to_string()).into()),
+        Err(RuntimeErrorType::ArithmeticOverflow.into()),
+        Err(RuntimeErrorType::ArithmeticOverflow.into()),
+        Ok(Value::UInt(340282366920938463463374607431768211454)) // (<< u340282366920938463463374607431768211455 u1)
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute_v2(program).map(|x| x.unwrap()));
+    }
+}
+
+#[test]
 fn test_some() {
     let tests = [
         "(is-eq (some 1) (some 1))",
