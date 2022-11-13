@@ -4807,7 +4807,7 @@ pub mod test {
         let mut peer = TestPeer::new(peer_config);
         let mut sortdb = peer.sortdb.take().unwrap();
         {
-            let mut tx = sortdb
+            let tx = sortdb
                 .tx_begin()
                 .expect("FATAL: failed to begin tx on sortition DB");
             tx.commit()

@@ -30,7 +30,6 @@ use crate::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, V
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::ASTRules;
 use crate::vm::database::MemoryBackingStore;
 
 use clarity::vm::tests::test_only_mainnet_to_chain_id;
@@ -107,7 +106,7 @@ fn helper_execute_epoch(
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
-        env.initialize_contract(contract_id.clone(), contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_id.clone(), contract)
             .unwrap();
     }
 
