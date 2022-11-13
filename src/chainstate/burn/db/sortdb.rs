@@ -2739,6 +2739,10 @@ impl SortitionDB {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_4(&tx.deref())?;
                         tx.commit()?;
+                    } else if version == "4" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_5(&tx.deref())?;
+                        tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
                     } else {
