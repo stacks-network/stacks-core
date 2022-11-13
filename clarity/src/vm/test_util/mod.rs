@@ -1,4 +1,3 @@
-use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::execute as vm_execute;
@@ -21,22 +20,18 @@ use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_0};
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
-    pub ast_rules: ASTRules,
 }
 pub struct UnitTestHeaderDB {}
 
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
-    ast_rules: ASTRules::Typical,
 };
 pub const TEST_BURN_STATE_DB_205: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch2_05,
-    ast_rules: ASTRules::PrecheckSize,
 };
 pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch21,
-    ast_rules: ASTRules::PrecheckSize,
 };
 
 pub fn execute(s: &str) -> Value {
@@ -229,9 +224,6 @@ impl BurnStateDB for UnitTestBurnStateDB {
         _consensus_hash: &ConsensusHash,
     ) -> Option<SortitionId> {
         None
-    }
-    fn get_ast_rules(&self, _height: u32) -> ASTRules {
-        self.ast_rules
     }
     fn get_pox_payout_addrs(
         &self,

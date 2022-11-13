@@ -22,7 +22,6 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
-use clarity::vm::ast::ASTRules;
 use rusqlite::types::ToSql;
 use rusqlite::Connection;
 use rusqlite::OpenFlags;
@@ -1190,7 +1189,6 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        ASTRules::PrecheckSize,
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1787,7 +1785,6 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
-            ASTRules::PrecheckSize,
         );
         result.unwrap()
     }

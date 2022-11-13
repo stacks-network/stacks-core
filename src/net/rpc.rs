@@ -97,7 +97,6 @@ use clarity::vm::types::TraitIdentifier;
 use clarity::vm::ClarityVersion;
 use clarity::vm::{
     analysis::errors::CheckErrors,
-    ast::ASTRules,
     costs::{ExecutionCost, LimitedCostTracker},
     database::{
         clarity_store::ContractCommitment, BurnStateDB, ClarityDatabase, ClaritySerializable,
@@ -2001,7 +2000,6 @@ impl ConversationHttp {
         attachment: Option<Attachment>,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         canonical_stacks_tip_height: u64,
-        ast_rules: ASTRules,
     ) -> Result<bool, net_error> {
         let txid = tx.txid();
         let response_metadata =
@@ -2030,14 +2028,12 @@ impl ConversationHttp {
                     chainstate.mainnet,
                     stacks_epoch.epoch_id,
                     &tx,
-                    ast_rules,
                 )
                 .is_ok()
             {
                 debug!(
-                    "Transaction {} is problematic in rules {:?}; will not store or relay",
+                    "Transaction {} is problematic; will not store or relay",
                     &tx.txid(),
-                    ast_rules
                 );
                 (
                     HttpResponseType::TransactionID(response_metadata, txid),
@@ -2245,8 +2241,6 @@ impl ConversationHttp {
         let sort_handle = sortdb.index_handle(&ch_sn.sortition_id);
         let parent_block_snapshot =
             Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)?;
-        let ast_rules =
-            SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)?;
         let epoch_id =
             SortitionDB::get_stacks_epoch(&sort_handle, parent_block_snapshot.block_height)?
                 .expect("FATAL: no epoch defined")
@@ -2256,7 +2250,6 @@ impl ConversationHttp {
             chainstate.mainnet,
             epoch_id,
             microblock,
-            ast_rules,
         ) {
             info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &block_hash);
             (
@@ -2707,7 +2700,6 @@ impl ConversationHttp {
                             attachment.clone(),
                             handler_opts.event_observer.as_deref(),
                             network.burnchain_tip.canonical_stacks_tip_height,
-                            network.ast_rules,
                         )?;
                         if accepted {
                             // forward to peer network

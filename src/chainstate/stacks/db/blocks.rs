@@ -25,7 +25,6 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use clarity::types::chainstate::SortitionId;
-use clarity::vm::ast::ASTRules;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
@@ -4585,7 +4584,6 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &Vec<StacksMicroblock>,
-        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
@@ -4594,7 +4592,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)
+                    StacksChainState::process_transaction(clarity_tx, tx, false)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4934,14 +4932,13 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         block: &StacksBlock,
         mut tx_index: u32,
-        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block.txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false)?;
             fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
@@ -5344,12 +5341,6 @@ impl StacksChainState {
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
 
-        let parent_burn_height =
-            SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?
-                .expect("Failed to get snapshot for parent's sortition")
-                .block_height;
-        let microblock_ast_rules = SortitionDB::get_ast_rules(conn, parent_burn_height)?;
-
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
             let latest_miners = StacksChainState::get_scheduled_block_rewards(
@@ -5447,7 +5438,6 @@ impl StacksChainState {
             match StacksChainState::process_microblocks_transactions(
                 &mut clarity_tx,
                 &parent_microblocks,
-                microblock_ast_rules,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
                 Err((e, mblock_header_hash)) => {
@@ -5636,9 +5626,6 @@ impl StacksChainState {
             &block.block_hash().to_hex(),
             block.txs.len()
         );
-
-        let ast_rules =
-            SortitionDB::get_ast_rules(burn_dbconn.tx(), chain_tip_burn_header_height.into())?;
 
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
@@ -5835,7 +5822,6 @@ impl StacksChainState {
                     &mut clarity_tx,
                     &block,
                     microblock_txs_receipts.len() as u32,
-                    ast_rules,
                 ) {
                     Err(e) => {
                         let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
@@ -6987,7 +6973,6 @@ pub mod test {
 
     use super::*;
 
-    use clarity::vm::ast::ASTRules;
     use clarity::vm::types::StacksAddressExtensions;
 
     use serde_json;
@@ -11046,7 +11031,6 @@ pub mod test {
                             &microblock_privkey,
                             &anchored_block.0.block_hash(),
                             microblocks.last().map(|mblock| &mblock.header),
-                            ASTRules::PrecheckSize,
                         )
                         .unwrap();
                         microblocks.push(microblock);

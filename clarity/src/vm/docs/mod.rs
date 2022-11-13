@@ -2486,7 +2486,6 @@ mod test {
         vm::database::{ClarityDatabase, MemoryBackingStore},
     };
 
-    use crate::vm::ast::ASTRules;
     use crate::vm::costs::ExecutionCost;
     use stacks_common::consts::CHAIN_ID_TESTNET;
 
@@ -2609,9 +2608,6 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
-        }
-        fn get_ast_rules(&self, height: u32) -> ASTRules {
-            ASTRules::PrecheckSize
         }
         fn get_pox_payout_addrs(
             &self,
@@ -2881,21 +2877,11 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(
-                    contract_id,
-                    &token_contract_content,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(contract_id, &token_contract_content, None)
+                    .unwrap();
 
-                env.initialize_contract(
-                    trait_def_id,
-                    super::DEFINE_TRAIT_API.example,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
+                    .unwrap();
             }
 
             let example = &func_api.example;

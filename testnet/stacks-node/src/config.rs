@@ -699,7 +699,6 @@ impl Config {
                         .unwrap_or(default_burnchain_config.rbf_fee_increment),
                     // will be overwritten below
                     epochs: default_burnchain_config.epochs,
-                    ast_precheck_size_height: burnchain.ast_precheck_size_height,
                     pox_2_activation: burnchain
                         .pox_2_activation
                         .or(default_burnchain_config.pox_2_activation),
@@ -1192,7 +1191,6 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
-    pub ast_precheck_size_height: Option<u64>,
 }
 
 impl BurnchainConfig {
@@ -1222,7 +1220,6 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
-            ast_precheck_size_height: None,
         }
     }
 
@@ -1289,7 +1286,6 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_2_activation: Option<u32>,
-    pub ast_precheck_size_height: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default)]

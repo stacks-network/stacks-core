@@ -204,9 +204,6 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
-#[cfg(test)]
-use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
-
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::run_loop::neon::Counters;
@@ -221,7 +218,6 @@ use stacks::monitoring;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::types::PrincipalData;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
@@ -936,11 +932,6 @@ impl MicroblockMinerThread {
                 })?
                 .block_height;
 
-        let ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), burn_height).map_err(|e| {
-            error!("Failed to get AST rules for microblock: {}", e);
-            e
-        })?;
-
         let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), burn_height)
             .map_err(|e| {
                 error!("Failed to get epoch for microblock: {}", e);
@@ -1002,7 +993,6 @@ impl MicroblockMinerThread {
             chainstate.mainnet,
             epoch_id,
             &mined_microblock,
-            ASTRules::PrecheckSize,
         ) {
             // nope!
             warn!(
@@ -1045,19 +1035,12 @@ impl MicroblockMinerThread {
                     );
                 }
             }
-            if !Relayer::process_mined_problematic_blocks(ast_rules, ASTRules::PrecheckSize) {
-                // don't process it
-                warn!(
-                    "Will NOT process our problematic mined microblock {}",
-                    &mined_microblock.block_hash()
-                );
-                return Err(ChainstateError::NoTransactionsToMine);
-            } else {
-                warn!(
-                    "Will process our problematic mined microblock {}",
-                    &mined_microblock.block_hash()
-                )
-            }
+            // don't process it
+            warn!(
+                "Will NOT process our problematic mined microblock {}",
+                &mined_microblock.block_hash()
+            );
+            return Err(ChainstateError::NoTransactionsToMine);
         }
 
         // cancelled?
@@ -2246,7 +2229,6 @@ impl RelayerThread {
                 })?
                 .block_height;
 
-        let ast_rules = SortitionDB::get_ast_rules(self.sortdb_ref().conn(), burn_height)?;
         let epoch_id = SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
@@ -2256,7 +2238,6 @@ impl RelayerThread {
             self.chainstate_ref().mainnet,
             epoch_id,
             &anchored_block,
-            ASTRules::PrecheckSize,
         ) {
             // nope!
             warn!(
@@ -2297,19 +2278,12 @@ impl RelayerThread {
                     );
                 }
             }
-            if !Relayer::process_mined_problematic_blocks(ast_rules, ASTRules::PrecheckSize) {
-                // don't process it
-                warn!(
-                    "Will NOT process our problematic mined block {}",
-                    &anchored_block.block_hash()
-                );
-                return Err(ChainstateError::NoTransactionsToMine);
-            } else {
-                warn!(
-                    "Will process our problematic mined block {}",
-                    &anchored_block.block_hash()
-                )
-            }
+            // don't process it
+            warn!(
+                "Will NOT process our problematic mined block {}",
+                &anchored_block.block_hash()
+            );
+            return Err(ChainstateError::NoTransactionsToMine);
         }
 
         // Preprocess the anchored block
@@ -3688,28 +3662,6 @@ impl StacksNode {
         node_privkey
     }
 
-    /// Set up the AST size-precheck height, if configured
-    fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
-        if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
-            info!(
-                "Override burnchain height of {:?} to {}",
-                ASTRules::PrecheckSize,
-                ast_precheck_size_height
-            );
-            let mut tx = sortdb
-                .tx_begin()
-                .expect("FATAL: failed to begin tx on sortition DB");
-            SortitionDB::override_ast_rule_height(
-                &mut tx,
-                ASTRules::PrecheckSize,
-                ast_precheck_size_height,
-            )
-            .expect("FATAL: failed to override AST PrecheckSize rule height");
-            tx.commit()
-                .expect("FATAL: failed to commit sortition DB transaction");
-        }
-    }
-
     /// Set up the mempool DB by making sure it exists.
     /// Panics on failure.
     fn setup_mempool_db(config: &Config) -> MemPoolDB {
@@ -3983,17 +3935,6 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = AtlasConfig::default(config.is_mainnet());
         let mut keychain = Keychain::default(config.node.seed.clone());
-
-        // we can call _open_ here rather than _connect_, since connect is first called in
-        //   make_genesis_block
-        let mut sortdb = SortitionDB::open(
-            &config.get_burn_db_file_path(),
-            true,
-            burnchain.pox_constants.clone(),
-        )
-        .expect("Error while instantiating sor/tition db");
-
-        Self::setup_ast_size_precheck(&config, &mut sortdb);
 
         let _ = Self::setup_mempool_db(&config);
 

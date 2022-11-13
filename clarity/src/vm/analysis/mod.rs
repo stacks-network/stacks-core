@@ -42,8 +42,6 @@ use self::contract_interface_builder::build_contract_interface;
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::TypeChecker;
-use crate::vm::ast::build_ast_with_rules;
-use crate::vm::ast::ASTRules;
 
 /// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(
@@ -51,17 +49,11 @@ pub fn mem_type_check(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    use super::ast::build_ast;
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let mut contract = build_ast_with_rules(
-        &contract_identifier,
-        snippet,
-        &mut (),
-        version,
-        epoch,
-        ASTRules::PrecheckSize,
-    )
-    .unwrap()
-    .expressions;
+    let mut contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+        .unwrap()
+        .expressions;
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();

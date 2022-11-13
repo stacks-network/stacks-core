@@ -24,7 +24,6 @@ use rstest_reuse::{self, *};
 
 use crate::vm::ast;
 use crate::vm::ast::errors::ParseErrors;
-use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::ExecutionCost;
@@ -143,12 +142,7 @@ fn test_get_block_info_eval() {
         let mut owned_env = OwnedEnvironment::new(marf.as_clarity_db());
         let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
         owned_env
-            .initialize_contract(
-                contract_identifier.clone(),
-                contracts[i],
-                None,
-                ASTRules::PrecheckSize,
-            )
+            .initialize_contract(contract_identifier.clone(), contracts[i], None)
             .unwrap();
 
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
@@ -201,13 +195,11 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -346,13 +338,11 @@ fn test_tx_sponsor(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -402,13 +392,11 @@ fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("contract-b").unwrap(),
             contract_b,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -537,11 +525,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_identifier, tokens_contract)
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_identifier, names_contract)
             .unwrap();
     }
 
@@ -707,11 +695,11 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     );
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial-contract").unwrap();
-    env.initialize_contract(contract_identifier, contract_1, ASTRules::PrecheckSize)
+    env.initialize_contract(contract_identifier, contract_1)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-compute").unwrap();
-    env.initialize_contract(contract_identifier, contract_2, ASTRules::PrecheckSize)
+    env.initialize_contract(contract_identifier, contract_2)
         .unwrap();
 
     let args = symbols_from_values(vec![]);
@@ -786,11 +774,11 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-1").unwrap();
-    env.initialize_contract(contract_identifier, contract_1, ASTRules::PrecheckSize)
+    env.initialize_contract(contract_identifier, contract_1)
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("contract-2").unwrap();
-    env.initialize_contract(contract_identifier, contract_2, ASTRules::PrecheckSize)
+    env.initialize_contract(contract_identifier, contract_2)
         .unwrap();
 
     env.sender = Some(get_principal_as_principal_data());
@@ -897,12 +885,8 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("factorial").unwrap();
-    env.initialize_contract(
-        contract_identifier,
-        FACTORIAL_CONTRACT,
-        ASTRules::PrecheckSize,
-    )
-    .unwrap();
+    env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT)
+        .unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [
@@ -1001,7 +985,6 @@ fn test_at_unknown_block() {
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
                 None,
-                ASTRules::PrecheckSize,
             )
             .unwrap_err();
         eprintln!("{}", err);
@@ -1031,7 +1014,6 @@ fn test_as_max_len() {
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 &contract,
                 None,
-                ASTRules::PrecheckSize,
             )
             .unwrap();
     }
@@ -1105,12 +1087,12 @@ fn test_cc_stack_depth() {
             let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-            env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
+            env.initialize_contract(contract_identifier, contract_one)
                 .unwrap();
 
             let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
             assert_eq!(
-                env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
+                env.initialize_contract(contract_identifier, contract_two)
                     .unwrap_err(),
                 RuntimeErrorType::MaxStackDepthReached.into()
             );
@@ -1147,12 +1129,12 @@ fn test_cc_trait_stack_depth() {
             let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
             let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
-            env.initialize_contract(contract_identifier, contract_one, ASTRules::PrecheckSize)
+            env.initialize_contract(contract_identifier, contract_one)
                 .unwrap();
 
             let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
             assert_eq!(
-                env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
+                env.initialize_contract(contract_identifier, contract_two)
                     .unwrap_err(),
                 RuntimeErrorType::MaxStackDepthReached.into()
             );

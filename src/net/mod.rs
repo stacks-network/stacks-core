@@ -2071,7 +2071,6 @@ pub mod test {
     use std::thread;
     use std::{collections::HashMap, sync::Mutex};
 
-    use clarity::vm::ast::ASTRules;
     use mio;
     use rand;
     use rand::RngCore;
@@ -2708,7 +2707,6 @@ pub mod test {
                             clarity,
                             &boot_code_smart_contract,
                             &boot_code_account,
-                            ASTRules::PrecheckSize,
                         )
                         .unwrap()
                     });

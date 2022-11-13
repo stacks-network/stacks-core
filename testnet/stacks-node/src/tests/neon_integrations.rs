@@ -87,7 +87,6 @@ use super::{
 use crate::config::FeeEstimatorName;
 use crate::tests::SK_3;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::miner::{
@@ -7959,9 +7958,6 @@ fn test_problematic_txs_are_not_stored() {
         },
     ]);
 
-    // take effect immediately
-    conf.burnchain.ast_precheck_size_height = Some(0);
-
     test_observer::spawn();
 
     conf.events_observers.push(EventObserverConfig {
@@ -8123,8 +8119,6 @@ fn spawn_follower_node(
 
     conf.initial_balances = initial_conf.initial_balances.clone();
     conf.burnchain.epochs = initial_conf.burnchain.epochs.clone();
-    conf.burnchain.ast_precheck_size_height =
-        initial_conf.burnchain.ast_precheck_size_height.clone();
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -8197,9 +8191,6 @@ fn test_problematic_blocks_are_not_mined() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
-
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
 
     test_observer::spawn();
 
@@ -8333,15 +8324,12 @@ fn test_problematic_blocks_are_not_mined() {
 
     assert!(found);
 
-    let (tip, cur_ast_rules) = {
+    let tip = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
         eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
+        tip
     };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool
     debug!("Submit problematic tx_high transaction {}", &tx_high_txid);
@@ -8367,17 +8355,6 @@ fn test_problematic_blocks_are_not_mined() {
             break;
         }
     }
-
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
     let old_tip_info = get_chain_info(&conf);
@@ -8551,9 +8528,6 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         },
     ]);
 
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
-
     test_observer::spawn();
 
     conf.events_observers.push(EventObserverConfig {
@@ -8685,15 +8659,12 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     assert!(found);
 
-    let (tip, cur_ast_rules) = {
+    let tip = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
         eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
+        tip
     };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     btc_regtest_controller.build_next_block(1);
 
@@ -8706,35 +8677,13 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
             break;
         }
     }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
 
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
-
-    // the follower we will soon boot up will start applying the new AST rules at this height.
     // Make it so the miner does *not* follow the rules
     {
         let sortdb = btc_regtest_controller.sortdb_mut();
-        let mut tx = sortdb.tx_begin().unwrap();
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 10_000).unwrap();
+        let tx = sortdb.tx_begin().unwrap();
         tx.commit().unwrap();
     }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // we reverted to the old rules (but the follower won't)
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool.
     // because the miner is now non-conformant, it should mine this tx.
@@ -8763,17 +8712,6 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
         cur_files = cur_files_new;
-
-        let cur_ast_rules = {
-            let sortdb = btc_regtest_controller.sortdb_mut();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-            let cur_ast_rules =
-                SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-            cur_ast_rules
-        };
-
-        // we reverted to the old rules (but the follower won't)
-        assert_eq!(cur_ast_rules, ASTRules::Typical);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -8934,9 +8872,6 @@ fn test_problematic_microblocks_are_not_mined() {
         },
     ]);
 
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
-
     // mine microblocks
     conf.node.mine_microblocks = true;
     conf.node.microblock_frequency = 1_000;
@@ -9083,15 +9018,12 @@ fn test_problematic_microblocks_are_not_mined() {
 
     assert!(found);
 
-    let (tip, cur_ast_rules) = {
+    let tip = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
         eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
+        tip
     };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool
     info!("Submit problematic tx_high transaction {}", &tx_high_txid);
@@ -9125,16 +9057,6 @@ fn test_problematic_microblocks_are_not_mined() {
             break;
         }
     }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
     let old_tip_info = get_chain_info(&conf);
@@ -9308,9 +9230,6 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         },
     ]);
 
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
-
     // mine microblocks
     conf.node.mine_microblocks = true;
     conf.node.microblock_frequency = 1_000;
@@ -9453,15 +9372,12 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
 
     assert!(found);
 
-    let (tip, cur_ast_rules) = {
+    let tip = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
         eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
+        tip
     };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     btc_regtest_controller.build_next_block(1);
 
@@ -9474,35 +9390,13 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
             break;
         }
     }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
 
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
-
-    // the follower we will soon boot up will start applying the new AST rules at this height.
     // Make it so the miner does *not* follow the rules
     {
         let sortdb = btc_regtest_controller.sortdb_mut();
-        let mut tx = sortdb.tx_begin().unwrap();
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 10_000).unwrap();
+        let tx = sortdb.tx_begin().unwrap();
         tx.commit().unwrap();
     }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // we reverted to the old rules (but the follower won't)
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool.
     // because the miner is now non-conformant, it should mine this tx.
@@ -9532,17 +9426,6 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
         cur_files = cur_files_new;
-
-        let cur_ast_rules = {
-            let sortdb = btc_regtest_controller.sortdb_mut();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-            let cur_ast_rules =
-                SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-            cur_ast_rules
-        };
-
-        // we reverted to the old rules (but the follower won't)
-        assert_eq!(cur_ast_rules, ASTRules::Typical);
 
         // give the microblock miner a chance
         sleep_ms(5_000);

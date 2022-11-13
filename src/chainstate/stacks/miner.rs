@@ -69,7 +69,6 @@ use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
 use clarity::vm::analysis::{CheckError, CheckErrors};
 use clarity::vm::ast::errors::ParseErrors;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
@@ -196,7 +195,6 @@ pub struct MinerEpochInfo<'a> {
     pub burn_tip_height: u32,
     pub parent_microblocks: Vec<StacksMicroblock>,
     pub mainnet: bool,
-    pub ast_rules: ASTRules,
 }
 
 impl From<&UnconfirmedState> for MicroblockMinerRuntime {
@@ -588,7 +586,6 @@ pub struct StacksMicroblockBuilder<'a> {
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
-    ast_rules: ASTRules,
 }
 
 impl<'a> StacksMicroblockBuilder<'a> {
@@ -620,8 +617,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
         let anchor_block_height = anchor_block_header.stacks_block_height;
-        let burn_height = anchor_block_header.burn_header_height;
-        let ast_rules = burn_dbconn.get_ast_rules(burn_height);
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -660,7 +655,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header_reader,
             unconfirmed: false,
             settings: settings,
-            ast_rules,
         })
     }
 
@@ -680,36 +674,30 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let (
-            anchored_consensus_hash,
-            anchored_block_hash,
-            anchored_block_height,
-            anchored_burn_height,
-        ) = if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
-            let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                chainstate.db(),
-                &unconfirmed.confirmed_chain_tip,
-            )?
-            .ok_or_else(|| {
-                warn!(
-                    "No such confirmed block {}",
-                    &unconfirmed.confirmed_chain_tip
-                );
-                Error::NoSuchBlockError
-            })?;
-            (
-                header_info.consensus_hash,
-                header_info.anchored_header.block_hash(),
-                header_info.stacks_block_height,
-                header_info.burn_header_height,
-            )
-        } else {
-            // unconfirmed state needs to be initialized
-            debug!("Unconfirmed chainstate not initialized");
-            return Err(Error::NoSuchBlockError)?;
-        };
-
-        let ast_rules = burn_dbconn.get_ast_rules(anchored_burn_height);
+        let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
+            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+                let header_info =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        chainstate.db(),
+                        &unconfirmed.confirmed_chain_tip,
+                    )?
+                    .ok_or_else(|| {
+                        warn!(
+                            "No such confirmed block {}",
+                            &unconfirmed.confirmed_chain_tip
+                        );
+                        Error::NoSuchBlockError
+                    })?;
+                (
+                    header_info.consensus_hash,
+                    header_info.anchored_header.block_hash(),
+                    header_info.stacks_block_height,
+                )
+            } else {
+                // unconfirmed state needs to be initialized
+                debug!("Unconfirmed chainstate not initialized");
+                return Err(Error::NoSuchBlockError)?;
+            };
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(
@@ -738,7 +726,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             header_reader,
             unconfirmed: true,
             settings: settings,
-            ast_rules,
         })
     }
 
@@ -749,7 +736,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
         miner_key: &Secp256k1PrivateKey,
         parent_anchor_block_hash: &BlockHeaderHash,
         prev_microblock_header: Option<&StacksMicroblockHeader>,
-        ast_rules: ASTRules,
     ) -> Result<StacksMicroblock, Error> {
         let miner_pubkey_hash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(miner_key));
@@ -769,12 +755,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksMicroblockHeader::first_unsigned(parent_anchor_block_hash, &tx_merkle_root)
         };
 
-        if ast_rules != ASTRules::Typical {
-            next_microblock_header.version = cmp::max(
-                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
-                next_microblock_header.version,
-            );
-        }
+        next_microblock_header.version = cmp::max(
+            STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+            next_microblock_header.version,
+        );
 
         next_microblock_header.sign(miner_key).unwrap();
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
@@ -799,7 +783,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             miner_key,
             &self.anchor_block,
             self.runtime.prev_microblock_header.as_ref(),
-            self.ast_rules,
         )?;
         self.runtime.prev_microblock_header = Some(microblock.header.clone());
 
@@ -846,7 +829,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_len: u64,
         bytes_so_far: u64,
         limit_behavior: &BlockLimitFunction,
-        ast_rules: ASTRules,
     ) -> Result<TransactionResult, Error> {
         if tx.anchor_mode != TransactionAnchorMode::OffChainOnly
             && tx.anchor_mode != TransactionAnchorMode::Any
@@ -906,7 +888,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             clarity_tx.config.mainnet,
             clarity_tx.get_epoch(),
             &tx,
-            ast_rules,
         ) {
             info!(
                 "Detected problematic tx {} while mining; dropping from mempool",
@@ -916,7 +897,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         }
 
         let quiet = !cfg!(test);
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules) {
+        match StacksChainState::process_transaction(clarity_tx, &tx, quiet) {
             Ok((fee, receipt)) => Ok(TransactionResult::success(&tx, fee, receipt)),
             Err(e) => {
                 let (is_problematic, e) =
@@ -1001,7 +982,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 tx_len,
                 bytes_so_far,
                 &block_limit_hit,
-                self.ast_rules,
             ) {
                 Ok(tx_result) => {
                     tx_events.push(tx_result.convert_to_event());
@@ -1160,7 +1140,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             mempool_tx.metadata.len,
                             bytes_so_far,
                             &block_limit_hit,
-                            self.ast_rules.clone(),
                         ) {
                             Ok(tx_result) => {
                                 let result_event = tx_result.convert_to_event();
@@ -1501,16 +1480,9 @@ impl StacksBlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
-        ast_rules: ASTRules,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
-        match self.try_mine_tx_with_len(
-            clarity_tx,
-            tx,
-            tx_len,
-            &BlockLimitFunction::NO_LIMIT_HIT,
-            ast_rules,
-        ) {
+        match self.try_mine_tx_with_len(clarity_tx, tx, tx_len, &BlockLimitFunction::NO_LIMIT_HIT) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => Err(error),
@@ -1528,7 +1500,6 @@ impl StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        ast_rules: ASTRules,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
@@ -1585,7 +1556,6 @@ impl StacksBlockBuilder {
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
                 &tx,
-                ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
@@ -1593,9 +1563,8 @@ impl StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
-            let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
-            ) {
+            let (fee, receipt) = match StacksChainState::process_transaction(clarity_tx, tx, quiet)
+            {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
@@ -1666,7 +1635,6 @@ impl StacksBlockBuilder {
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
                 &tx,
-                ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
@@ -1674,9 +1642,8 @@ impl StacksBlockBuilder {
                 );
                 return TransactionResult::problematic(&tx, Error::NetError(e));
             }
-            let (fee, receipt) = match StacksChainState::process_transaction(
-                clarity_tx, tx, quiet, ast_rules,
-            ) {
+            let (fee, receipt) = match StacksChainState::process_transaction(clarity_tx, tx, quiet)
+            {
                 Ok((fee, receipt)) => (fee, receipt),
                 Err(e) => {
                     let (is_problematic, e) =
@@ -1759,7 +1726,7 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1770,7 +1737,7 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, ASTRules::Typical) {
+            match StacksChainState::process_transaction(clarity_tx, tx, quiet) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -2046,9 +2013,6 @@ impl StacksBlockBuilder {
         // data won't be committed, so do a concurrent transaction
         let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin()?;
 
-        let ast_rules =
-            SortitionDB::get_ast_rules(burn_dbconn.conn(), (burn_tip_height + 1).into())?;
-
         Ok(MinerEpochInfo {
             chainstate_tx,
             clarity_instance,
@@ -2056,7 +2020,6 @@ impl StacksBlockBuilder {
             burn_tip_height: burn_tip_height + 1,
             parent_microblocks,
             mainnet,
-            ast_rules,
         })
     }
 
@@ -2139,10 +2102,9 @@ impl StacksBlockBuilder {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
-        let ast_rules = miner_epoch_info.ast_rules;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.drain(..) {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, ast_rules.clone()) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2319,13 +2281,10 @@ impl StacksBlockBuilder {
         let ts_start = get_epoch_time_ms();
 
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
-        let ast_rules = miner_epoch_info.ast_rules;
-        if ast_rules != ASTRules::Typical {
-            builder.header.version = cmp::max(
-                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
-                builder.header.version,
-            );
-        }
+        builder.header.version = cmp::max(
+            STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+            builder.header.version,
+        );
 
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
@@ -2337,7 +2296,7 @@ impl StacksBlockBuilder {
         let mut tx_events = Vec::new();
         tx_events.push(
             builder
-                .try_mine_tx(&mut epoch_tx, coinbase_tx, ast_rules.clone())?
+                .try_mine_tx(&mut epoch_tx, coinbase_tx)?
                 .convert_to_event(),
         );
 
@@ -2443,7 +2402,6 @@ impl StacksBlockBuilder {
                             &txinfo.tx,
                             txinfo.metadata.len,
                             &block_limit_hit,
-                            ast_rules,
                         );
 
                         let result_event = tx_result.convert_to_event();

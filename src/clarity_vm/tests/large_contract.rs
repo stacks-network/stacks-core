@@ -23,8 +23,8 @@ use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 
+use clarity::vm::ast;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::{self, ASTRules};
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
@@ -66,7 +66,6 @@ fn test_block_headers(n: u8) -> StacksBlockId {
 
 pub const TEST_BURN_STATE_DB_AST_PRECHECK: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
-    ast_rules: ast::ASTRules::PrecheckSize,
 };
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
@@ -458,11 +457,11 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
         let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
         let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
-        env.initialize_contract(contract_identifier, tokens_contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_identifier, tokens_contract)
             .unwrap();
 
         let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
-        env.initialize_contract(contract_identifier, names_contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_identifier, names_contract)
             .unwrap();
     }
 
@@ -668,12 +667,7 @@ pub fn rollback_log_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    &contract,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -748,12 +742,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    &contract,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -831,12 +820,7 @@ pub fn argument_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    &contract,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -930,12 +914,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    &contract_ok,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok)
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
@@ -956,12 +935,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    &contract_err,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -1048,12 +1022,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(
-                            &contract_identifier,
-                            clarity_version,
-                            &contract,
-                            ASTRules::PrecheckSize,
-                        )
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
@@ -1070,12 +1039,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(
-                            &contract_identifier,
-                            clarity_version,
-                            &contract,
-                            ASTRules::PrecheckSize,
-                        )
+                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
                         .unwrap();
                     assert!(format!(
                         "{:?}",
@@ -1134,12 +1098,8 @@ fn test_deep_tuples() {
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a checkerror
-            let analysis_resp = tx.analyze_smart_contract(
-                &contract_identifier,
-                *version,
-                &meets_stack_depth_tuple,
-                ASTRules::PrecheckSize,
-            );
+            let analysis_resp =
+                tx.analyze_smart_contract(&contract_identifier, *version, &meets_stack_depth_tuple);
             eprintln!(
                 "analyze_smart_contract() with meets_stack_depth_tuple: {}",
                 analysis_resp.is_ok()
@@ -1160,7 +1120,6 @@ fn test_deep_tuples() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
-                ASTRules::PrecheckSize,
             );
             analysis_resp.unwrap_err()
         });
@@ -1229,7 +1188,6 @@ fn test_deep_tuples_ast_precheck() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
-                ASTRules::PrecheckSize,
             );
             analysis_resp.unwrap_err()
         });
@@ -1300,12 +1258,8 @@ fn test_deep_type_nesting() {
             }
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a checkerror
-            let analysis_resp = tx.analyze_smart_contract(
-                &contract_identifier,
-                *version,
-                &exceeds_type_depth,
-                ASTRules::PrecheckSize,
-            );
+            let analysis_resp =
+                tx.analyze_smart_contract(&contract_identifier, *version, &exceeds_type_depth);
             analysis_resp.unwrap_err()
         });
 

@@ -1,4 +1,3 @@
-use crate::vm::ast::ASTRules;
 use crate::vm::execute_with_parameters;
 use crate::vm::types::BufferLength;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
@@ -37,7 +36,6 @@ fn test_simple_is_standard_check_inputs() {
             wrong_type_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap_err(),
@@ -54,7 +52,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -66,7 +63,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -80,7 +76,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -92,7 +87,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -106,7 +100,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -118,7 +111,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -132,7 +124,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -144,7 +135,6 @@ fn test_simple_is_standard_testnet_cases() {
             testnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -160,7 +150,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -172,7 +161,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -186,7 +174,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -198,7 +185,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -212,7 +198,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -224,7 +209,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -238,7 +222,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -250,7 +233,6 @@ fn test_simple_is_standard_mainnet_cases() {
             mainnet_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -268,7 +250,6 @@ fn test_simple_is_standard_undefined_cases() {
             invalid_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -280,7 +261,6 @@ fn test_simple_is_standard_undefined_cases() {
             invalid_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -294,7 +274,6 @@ fn test_simple_is_standard_undefined_cases() {
             invalid_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -306,7 +285,6 @@ fn test_simple_is_standard_undefined_cases() {
             invalid_addr_test,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -370,7 +348,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -392,7 +369,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -414,7 +390,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -436,7 +411,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -458,7 +432,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -480,7 +453,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -502,7 +474,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -524,7 +495,6 @@ fn test_principal_destruct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -551,7 +521,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -573,7 +542,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -595,7 +563,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -617,7 +584,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -639,7 +605,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -661,7 +626,6 @@ fn test_principal_destruct_bad_version_byte() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -691,7 +655,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -711,7 +674,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -735,7 +697,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -759,7 +720,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             true
         )
         .unwrap()
@@ -779,7 +739,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -799,7 +758,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -823,7 +781,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -847,7 +804,6 @@ fn test_principal_construct_good() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -914,7 +870,6 @@ fn test_principal_construct_version_byte_future() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -950,7 +905,6 @@ fn test_principal_construct_version_byte_future() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -977,7 +931,6 @@ fn test_principal_construct_check_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
     );
@@ -991,7 +944,6 @@ fn test_principal_construct_check_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
     );
@@ -1004,7 +956,6 @@ fn test_principal_construct_check_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap_err(),
@@ -1033,7 +984,6 @@ fn test_principal_construct_check_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
     );
@@ -1050,7 +1000,6 @@ fn test_principal_construct_response_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1078,7 +1027,6 @@ fn test_principal_construct_response_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1118,7 +1066,6 @@ fn test_principal_construct_response_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1145,7 +1092,6 @@ fn test_principal_construct_response_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()
@@ -1172,7 +1118,6 @@ fn test_principal_construct_response_errors() {
             input,
             ClarityVersion::Clarity2,
             StacksEpochId::Epoch21,
-            ASTRules::PrecheckSize,
             false
         )
         .unwrap()

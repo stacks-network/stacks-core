@@ -86,8 +86,6 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::types::chainstate::{PoxId, SortitionId};
 
-use clarity::vm::ast::ASTRules;
-
 /// inter-thread request to send a p2p message from another thread in this program.
 #[derive(Debug)]
 pub enum NetworkRequest {
@@ -238,7 +236,6 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
-    pub ast_rules: ASTRules,
 
     // handles to p2p databases
     pub peerdb: PeerDB,
@@ -390,7 +387,6 @@ impl PeerNetwork {
             local_peer: local_peer,
             chain_view: chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            ast_rules: ASTRules::Typical,
             burnchain_tip: BlockSnapshot::initial(
                 first_block_height,
                 &first_burn_header_hash,
@@ -4962,9 +4958,6 @@ impl PeerNetwork {
             // update cached burnchain view for /v2/info
             self.chain_view = new_chain_view;
             self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
-
-            // update tx validation information
-            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
         }
 
         if sn.burn_header_hash != self.burnchain_tip.burn_header_hash {
