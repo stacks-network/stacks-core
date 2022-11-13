@@ -503,14 +503,12 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
         match input {
             Value::Int(input) => {
                 let result = input
-                    .checked_shl(u32_val)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .wrapping_shl(u32_val);
                 Ok(Value::Int(result))
             },
             Value::UInt(input) => {
                 let result = input
-                    .checked_shl(u32_val)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .wrapping_shl(u32_val);
                 Ok(Value::UInt(result))
             },
             _ => Err(CheckErrors::UnionTypeError(
@@ -535,14 +533,12 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult
         match input {
             Value::Int(input) => {
                 let result = input
-                    .checked_shr(u32_val)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .wrapping_shr(u32_val);
                 Ok(Value::Int(result))
             },
             Value::UInt(input) => {
                 let result = input
-                    .checked_shr(u32_val)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .wrapping_shr(u32_val);
                 Ok(Value::UInt(result))
             },
             _ => Err(CheckErrors::UnionTypeError(

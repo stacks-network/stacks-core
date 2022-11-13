@@ -632,17 +632,24 @@ const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "<< ${1:expr-1} ${2:expr-2}",
     signature: "(<< i1 i2)",
     description: "Shifts all the bits in `i1` to the left by the number of places specified in `i2`. 
-New bits are filled with zeros. Shifting a value left by one position is equivalent to multiplying it by 2, 
-shifting two positions is equivalent to multiplying by 4, and so on. 
+Excess bits shifted off to the left are discarded, and zero-bits are shifted in from the right.
 
-Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer.
+Yields `i1` << mask(`i2`), where `mask` removes any high-order bits of `i2` that would cause the shift
+to exceed the bitwidth of `i1`.
+
+Note: This is not the same as a rotate-left; The `i2` operand is restricted to the bit range of type of `i1`, 
+rather than the bits shifted off to the left being returned to the other end.
+
+Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer (meaning
+that the maximum allowed value is 4294967295).
 ",
     example: "(<< 2 u1) ;; Returns 4
 (<< 16 u2) ;; Returns 64
 (<< -64 u1) ;; Returns -128
 (<< u4 u2) ;; Returns u16
-(<< u240282366920938463463374607431768211327 u2402823) ;; Arithmetic overflow
 (<< u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
+(<< -1 u7) ;; Returns -128
+(<< -1 u128) ;; Returns -1
 "
 };
 
@@ -650,21 +657,36 @@ const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some(">> (binary right shift)"),
     snippet: ">> ${1:expr-1} ${2:expr-2}",
     signature: "(>> i1 i2)",
-    description: "Shifts all the bits in `i1` to the right by the number of places specified in `i2`.
-New bits are filled with zeros.  Shifting a value right by one position is equivilent to dividing it by 2,
-shifting two positions is equivilent to dividing by 4, and so on.
+    description: "Shifts all of the bits in `i1` to the right by the number of places specified in `i2`. 
+Excess bits shifted off to the right are discarded.
 
-Note: Performing a right-shift on a signed integer is an arithmetic operation which will preserve the sign, 
-whereas performing a right-shift on an unsigned integer is a logical operation, also shifting the sign bit.
+Yields `i1` >> mask(`i2`), where `mask` removes any high-order bits of `i2` that would cause the shift 
+to exceed the bitwidth of `i1`.
 
-Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer.
+Note: This is not the same as a rotate-right; The `i2` operand is restricted to the bit range of the type of `i1`, 
+rather than the bits shifted off to the right being returned to the other end.
+
+Right-shifting signed integers:
+Performing a right-shift on a signed integer is an arithmetic operation which performs a sign-extending shift 
+of the binary representation of `i1` (evaluated as a two's complement bit string). Copies of the leftmost
+bit are shifted in from the left.
+
+Right-shifting unsigned integers:
+Performing a right-shift on an unsigned integer is a logical operation, also shifting the sign bit shifting in
+zero-bits from the left.
+
+Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer (meaning
+that the maximum allowed value is 4294967295).
 ",
     example: "(>> 2 u1) ;; Returns 1
 (>> 128 u2) ;; Returns 32
 (>> -64 u1) ;; Returns -32
 (>> u128 u2) ;; Returns u32
-(>> u240282366920938463463374607431768211327 u2402823) ;; Arithmetic overflow
 (>> u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
+(>> -128 u7) ;; Returns -1
+(>> -256 u1) ;; Returns -128
+(>> 5 u2) ;; Returns 1
+(>> -5 u2) ;; Returns -2
 "
 };
 

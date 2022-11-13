@@ -1308,9 +1308,15 @@ fn test_bitwise() {
         "(^ 1 2 4 -1)",         // -8
         "(>> u123 u24028236699)", // Invalid u32 second arg
         "(<< u123 u24028236699)", // Invalid u32 second arg
-        "(>> u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
-        "(<< u240282366920938463463374607431768211327 u2402823)", // Arithmetic overflow
-        "(<< u340282366920938463463374607431768211455 u1)"
+        "(>> u240282366920938463463374607431768211327 u2402823)", // u1877205991569831745807614120560689150
+        "(<< u240282366920938463463374607431768211327 u2402823)", // u130729942995661611608235082407192018816
+        "(<< u340282366920938463463374607431768211455 u1)", // u340282366920938463463374607431768211454
+        "(<< -1 u7)",           // -128
+        "(<< -1 u128)",         // -1
+        "(>> -128 u7)",         // -1
+        "(>> -256 u1)",         // -128
+        "(>> 5 u2)",            // 1
+        "(>> -5 u2)",           // -2
     ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -1340,9 +1346,15 @@ fn test_bitwise() {
         Ok(Value::Int(-8)),     // (^ 1 2 4 -1)
         Err(RuntimeErrorType::Arithmetic("The second argument to '>>' must be an unsigned 32-bit integer".to_string()).into()),
         Err(RuntimeErrorType::Arithmetic("The second argument to '<<' must be an unsigned 32-bit integer".to_string()).into()),
-        Err(RuntimeErrorType::ArithmeticOverflow.into()),
-        Err(RuntimeErrorType::ArithmeticOverflow.into()),
-        Ok(Value::UInt(340282366920938463463374607431768211454)) // (<< u340282366920938463463374607431768211455 u1)
+        Ok(Value::UInt(1877205991569831745807614120560689150)),
+        Ok(Value::UInt(130729942995661611608235082407192018816)),
+        Ok(Value::UInt(340282366920938463463374607431768211454)), // (<< u340282366920938463463374607431768211455 u1)
+        Ok(Value::Int(-128)),   // (<< -1 7)
+        Ok(Value::Int(-1)),     // (<< -1 128)
+        Ok(Value::Int(-1)),     // (>> -128 u7)
+        Ok(Value::Int(-128)),   // (>> -256 64)
+        Ok(Value::Int(1)),      //
+        Ok(Value::Int(-2)),     //
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
