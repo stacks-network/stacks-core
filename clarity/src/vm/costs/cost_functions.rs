@@ -52,9 +52,7 @@ define_named_enum!(ClarityCostFunction {
     Filter("cost_filter"),
     Len("cost_len"),
     ElementAt("cost_element_at"),
-    ElementAtAlias("cost_element_at"),
     IndexOf("cost_index_of"),
-    IndexOfAlias("cost_index_of"),
     Fold("cost_fold"),
     ListCons("cost_list_cons"),
     TypeParseStep("cost_type_parse_step"),
@@ -150,5 +148,6 @@ define_named_enum!(ClarityCostFunction {
     FromConsensusBuff("cost_from_consensus_buff"),
     StxTransferMemo("cost_stx_transfer_memo"),
     ReplaceAt("cost_replace_at"),
+    AsContract("cost_as_contract"),
     Unimplemented("cost_unimplemented"),
 });
