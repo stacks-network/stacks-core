@@ -221,18 +221,6 @@ macro_rules! make_comparison_ops {
 macro_rules! make_arithmetic_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn bitwise_left_shift(x: $type, y: u32) -> InterpreterResult<Value> {
-                let result = x
-                    .checked_shl(y)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-                Self::make_value(result)
-            }
-            fn bitwise_right_shift(x: $type, y: u32) -> InterpreterResult<Value> {
-                let result = x
-                    .checked_shr(y)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-                Self::make_value(result)
-            }
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
