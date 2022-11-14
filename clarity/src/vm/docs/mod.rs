@@ -640,14 +640,16 @@ to exceed the bitwidth of `i1`.
 Note: This is not the same as a rotate-left; The `i2` operand is restricted to the bit range of type of `i1`, 
 rather than the bits shifted off to the left being returned to the other end.
 
-Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer (meaning
-that the maximum allowed value is 4294967295).
+Observe that the second operand (number of positions to shift) must be a 32-bit unsigned integer (meaning
+that the maximum usable value is 4294967295). If the provided value is larger, only the lower 32 bits
+will be used.
 ",
     example: "(<< 2 u1) ;; Returns 4
 (<< 16 u2) ;; Returns 64
 (<< -64 u1) ;; Returns -128
 (<< u4 u2) ;; Returns u16
-(<< u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
+(<< 123 u9999999999) ;; Returns -170141183460469231731687303715884105728
+(<< u123 u9999999999) ;; Returns u170141183460469231731687303715884105728
 (<< -1 u7) ;; Returns -128
 (<< -1 u128) ;; Returns -1
 "
@@ -675,14 +677,16 @@ Right-shifting unsigned integers:
 Performing a right-shift on an unsigned integer is a logical operation, also shifting the sign bit shifting in
 zero-bits from the left.
 
-Observe that the second parameter (number of positions to shift) must be a 32-bit unsigned integer (meaning
-that the maximum allowed value is 4294967295).
+Observe that the second operand (number of positions to shift) must be a 32-bit unsigned integer (meaning
+that the maximum usable value is 4294967295). If the provided value is larger, only the lower 32 bits
+will be used.
 ",
     example: "(>> 2 u1) ;; Returns 1
 (>> 128 u2) ;; Returns 32
 (>> -64 u1) ;; Returns -32
 (>> u128 u2) ;; Returns u32
-(>> u123 u24028236699) ;; Arithmetic error: `u2` is larger than a 32-bit unsigned integer
+(>> 123 u9999999999) ;; Returns 0
+(>> u123 u9999999999) ;; Returns u0
 (>> -128 u7) ;; Returns -1
 (>> -256 u1) ;; Returns -128
 (>> 5 u2) ;; Returns 1

@@ -496,19 +496,18 @@ pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
 
 pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let u32_val = 
-            u32::try_from(u128_val)
-            .map_err(|_| RuntimeErrorType::Arithmetic("The second argument to '<<' must be an unsigned 32-bit integer".to_string()))?;
+        let shamt = u32::try_from(u128_val & 0xffffffff)
+            .expect("FATAL: lower 32 bits did not convert to u32");
 
         match input {
             Value::Int(input) => {
                 let result = input
-                    .wrapping_shl(u32_val);
+                    .wrapping_shl(shamt);
                 Ok(Value::Int(result))
             },
             Value::UInt(input) => {
                 let result = input
-                    .wrapping_shl(u32_val);
+                    .wrapping_shl(shamt);
                 Ok(Value::UInt(result))
             },
             _ => Err(CheckErrors::UnionTypeError(
@@ -526,19 +525,18 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
 
 pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let u32_val = 
-            u32::try_from(u128_val)
-            .map_err(|_| RuntimeErrorType::Arithmetic("The second argument to '>>' must be an unsigned 32-bit integer".to_string()))?;
+        let shamt = u32::try_from(u128_val & 0xffffffff)
+            .expect("FATAL: lower 32 bits did not convert to u32");
 
         match input {
             Value::Int(input) => {
                 let result = input
-                    .wrapping_shr(u32_val);
+                    .wrapping_shr(shamt);
                 Ok(Value::Int(result))
             },
             Value::UInt(input) => {
                 let result = input
-                    .wrapping_shr(u32_val);
+                    .wrapping_shr(shamt);
                 Ok(Value::UInt(result))
             },
             _ => Err(CheckErrors::UnionTypeError(
