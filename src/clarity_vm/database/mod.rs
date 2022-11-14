@@ -186,7 +186,7 @@ impl HeadersDB for MARF<StacksBlockId> {
     }
 }
 
-fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
+pub fn get_stacks_header_info(conn: &DBConn, id_bhh: &StacksBlockId) -> Option<StacksHeaderInfo> {
     conn.query_row(
         "SELECT * FROM block_headers WHERE index_block_hash = ?",
         [id_bhh].iter(),
@@ -560,6 +560,10 @@ impl ClarityBackingStore for MemoryBackingStore {
         } else {
             None
         }
+    }
+
+    fn get_confirmed_block_id(&self) -> StacksBlockId {
+        StacksBlockId::sentinel()
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
