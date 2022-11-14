@@ -956,12 +956,16 @@
          (stacker-state (unwrap! (map-get? stacking-state 
                                           { stacker: tx-sender })
                                           (err ERR_STACK_INCREASE_NOT_LOCKED))))
+      ;; tx-sender must be currently locked
       (asserts! (> amount-stacked u0)
                 (err ERR_STACK_INCREASE_NOT_LOCKED))
+      ;; must be called with positive `increase-by`
       (asserts! (>= increase-by u1)
                 (err ERR_STACKING_INVALID_AMOUNT))
+      ;; stacker must have enough stx to lock
       (asserts! (>= amount-unlocked increase-by)
                 (err ERR_STACKING_INSUFFICIENT_FUNDS))
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
       ;; stacker must be directly stacking
