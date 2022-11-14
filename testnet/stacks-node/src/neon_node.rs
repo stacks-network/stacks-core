@@ -1390,31 +1390,32 @@ impl BlockMinerThread {
     ///
     /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
     /// reproduce it in integration tests.
-    #[cfg(test)]
+    #[cfg(not(any(test, feature = "testing")))]
     fn make_microblock_private_key(
         &mut self,
-        _parent_stacks_hash: &StacksBlockId,
+        parent_stacks_hash: &StacksBlockId,
     ) -> Secp256k1PrivateKey {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        self.keychain.make_microblock_secret_key(
-            self.burn_block.block_height,
-            &self.burn_block.block_height.to_be_bytes(),
-        )
+        self.keychain
+            .make_microblock_secret_key(self.burn_block.block_height, &parent_stacks_hash.0)
     }
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
     /// return None if we were unable to generate the key.
-    #[cfg(not(test))]
+    #[cfg(any(test, feature = "testing"))]
     fn make_microblock_private_key(
         &mut self,
         _parent_stacks_hash: &StacksBlockId,
     ) -> Secp256k1PrivateKey {
         // Generates a new secret key for signing the trail of microblocks
         // of the upcoming tenure.
-        self.keychain
-            .make_microblock_secret_key(self.burn_block.block_height, &[])
+        warn!("test version of make_microblock_secret_key");
+        self.keychain.make_microblock_secret_key(
+            self.burn_block.block_height,
+            &self.burn_block.block_height.to_be_bytes(),
+        )
     }
 
     /// Load the parent microblock stream and vet it for the absence of forks.
