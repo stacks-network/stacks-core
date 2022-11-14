@@ -80,11 +80,11 @@ jobs:
           - tests::epoch_205::test_cost_limit_switch_version205
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::bigger_microblock_streams_in_2_05
-          - tests::epoch_21::transition_fixes_utxo_chaining
           - tests::epoch_21::transition_adds_burn_block_height
           - tests::epoch_21::transition_fixes_bitcoin_rigidity
           - tests::epoch_21::transition_adds_pay_to_contract
           - tests::epoch_21::transition_adds_get_pox_addr_recipients
+          - tests::epoch_21::transition_adds_mining_from_segwit
           - tests::epoch_21::transition_removes_pox_sunset
           - tests::epoch_21::transition_empty_blocks
     steps:

@@ -31,12 +31,12 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::NO_PARAMS;
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use crate::chainstate::burn::operations::{StackStxOp, TransferStxOp};
+use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
@@ -1100,8 +1100,8 @@ impl StacksChainState {
 
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
-        let mut stacks_address = match BitcoinAddress::from_b58(&addr) {
-            Ok(addr) => StacksAddress::from_bitcoin_address(&addr),
+        let mut stacks_address = match LegacyBitcoinAddress::from_b58(&addr) {
+            Ok(addr) => StacksAddress::from_legacy_bitcoin_address(&addr),
             // A few addresses (from legacy placeholder accounts) are already STX addresses
             _ => match StacksAddress::from_string(addr) {
                 Some(addr) => addr,
@@ -2204,6 +2204,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
     ) -> Result<(), Error> {
         let mut txids: Vec<_> = burn_stack_stx_ops
             .into_iter()
@@ -2220,6 +2221,15 @@ impl StacksChainState {
             });
 
         txids.append(&mut xfer_txids);
+
+        let mut delegate_txids = burn_delegate_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        txids.append(&mut delegate_txids);
 
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
@@ -2249,6 +2259,7 @@ impl StacksChainState {
         applied_epoch_transition: bool,
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2313,6 +2324,7 @@ impl StacksChainState {
             &index_block_hash,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            burn_delegate_stx_ops,
         )?;
 
         if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts

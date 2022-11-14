@@ -29,6 +29,7 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
+use crate::core::StacksEpochId;
 use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
 use crate::util_lib::strings::VecDisplay;
 use clarity::codec::StacksMessageCodec;
@@ -63,6 +64,8 @@ use crate::util_lib::boot;
 use crate::vm::{costs::LimitedCostTracker, SymbolicExpression};
 use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::ClarityVersion;
+
+use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -135,13 +138,14 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
+#[derive(Clone)]
 pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
     /// This data contains the set of principals who missed a reward slot
     ///  in this reward cycle.
@@ -152,7 +156,7 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RewardSet {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
@@ -409,11 +413,19 @@ impl StacksChainState {
     ///   are repeated floor(stacked_amt / threshold) times.
     /// If an address appears in `addresses` multiple times, then the address's associated amounts
     ///   are summed.
-    pub fn make_reward_set(threshold: u128, mut addresses: Vec<RawRewardSetEntry>) -> RewardSet {
+    pub fn make_reward_set(
+        threshold: u128,
+        mut addresses: Vec<RawRewardSetEntry>,
+        epoch_id: StacksEpochId,
+    ) -> RewardSet {
         let mut reward_set = vec![];
         let mut missed_slots = vec![];
         // the way that we sum addresses relies on sorting.
-        addresses.sort_by_key(|k| k.reward_address.bytes());
+        if epoch_id < StacksEpochId::Epoch21 {
+            addresses.sort_by_cached_key(|k| k.reward_address.bytes());
+        } else {
+            addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
+        }
         while let Some(RawRewardSetEntry {
             reward_address: address,
             amount_stacked: mut stacked_amt,
@@ -769,6 +781,7 @@ pub mod test {
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::Error as chainstate_error;
     use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochId;
     use crate::core::*;
     use crate::net::test::*;
     use clarity::vm::contracts::Contract;
@@ -783,29 +796,10 @@ pub mod test {
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
-    /// Extract a PoX address from its tuple representation
-    fn tuple_to_pox_addr(tuple_data: TupleData) -> (AddressHashMode, Hash160) {
-        let version_value = tuple_data
-            .get("version")
-            .expect("FATAL: no 'version' field in pox-addr")
-            .to_owned();
-        let hashbytes_value = tuple_data
-            .get("hashbytes")
-            .expect("FATAL: no 'hashbytes' field in pox-addr")
-            .to_owned();
-
-        let version_u8 = version_value.expect_buff_padded(1, 0)[0];
-        let version: AddressHashMode = version_u8
-            .try_into()
-            .expect("FATAL: PoX version is not a supported version byte");
-
-        let hashbytes_vec = hashbytes_value.expect_buff_padded(20, 0);
-
-        let mut hashbytes_20 = [0u8; 20];
-        hashbytes_20.copy_from_slice(&hashbytes_vec[0..20]);
-        let hashbytes = Hash160(hashbytes_20);
-
-        (version, hashbytes)
+    /// Extract a PoX address from its tuple representation.
+    /// Doesn't work on segwit addresses
+    fn tuple_to_pox_addr(tuple_data: TupleData) -> PoxAddress {
+        PoxAddress::try_from_pox_tuple(false, &Value::Tuple(tuple_data)).unwrap()
     }
 
     #[test]
@@ -847,7 +841,7 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses)
+            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
                 .rewarded_addresses
                 .len(),
             3
@@ -1116,7 +1110,7 @@ pub mod test {
     pub fn get_stacker_info(
         peer: &mut TestPeer,
         addr: &PrincipalData,
-    ) -> Option<(u128, (AddressHashMode, Hash160), u128, u128)> {
+    ) -> Option<(u128, PoxAddress, u128, u128)> {
         let value_opt = eval_at_tip(
             peer,
             "pox",
@@ -1223,18 +1217,22 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
-        addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr: PoxAddress,
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
+        // (define-public (stack-stx (amount-ustx uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+        //                           (burn-height uint)
+        //                           (lock-period uint))
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_2_NAME,
             "stack-stx",
             vec![
                 Value::UInt(amount),
-                make_pox_addr(addr_version, addr_bytes),
+                addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
             ],
@@ -1263,18 +1261,15 @@ pub mod test {
     pub fn make_pox_2_extend(
         key: &StacksPrivateKey,
         nonce: u64,
-        addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr: PoxAddress,
         lock_period: u128,
     ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox-2",
             "stack-extend",
-            vec![
-                Value::UInt(lock_period),
-                make_pox_addr(addr_version, addr_bytes),
-            ],
+            vec![Value::UInt(lock_period), addr_tuple],
         )
         .unwrap();
 
@@ -1571,7 +1566,10 @@ pub mod test {
 
     #[test]
     fn test_liquid_ustx() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1756,7 +1754,10 @@ pub mod test {
 
     #[test]
     fn test_hook_special_contract_call() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 3;
         burnchain.pox_constants.prepare_length = 1;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1869,7 +1870,10 @@ pub mod test {
 
     #[test]
     fn test_liquid_ustx_burns() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -1974,7 +1978,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2183,7 +2190,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender_100() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2440,7 +2450,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_contract() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2704,7 +2717,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_multi_tx_sender() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -2917,7 +2933,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_no_double_stacking() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -3127,7 +3146,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_single_tx_sender_unlock() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -3365,7 +3387,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_unlock_relock() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -3887,7 +3912,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_unlock_on_spend() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
@@ -4331,7 +4359,10 @@ pub mod test {
 
     #[test]
     fn test_pox_lockup_reject() {
-        let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+        );
         burnchain.pox_constants.reward_cycle_length = 5;
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;

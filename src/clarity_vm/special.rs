@@ -473,7 +473,7 @@ pub fn handle_contract_call_special_cases(
                 <= global_context.database.get_current_burnchain_block_height()
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
-            warn!("PoX-1 Lock attempted on an account after v1 unlock height";
+            warn!("PoX-1 function call attempted on an account after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
                   "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
                   "function_name" => function_name,

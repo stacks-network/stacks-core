@@ -31,6 +31,7 @@ use crate::vm::types::{
     BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
     BUFF_33, BUFF_65,
 };
+use crate::vm::Value::CallableContract;
 use crate::vm::{eval, Environment, LocalContext};
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash;
@@ -101,16 +102,18 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     AsMaxLen("as-max-len?", ClarityVersion::Clarity1),
     Len("len", ClarityVersion::Clarity1),
     ElementAt("element-at", ClarityVersion::Clarity1),
+    ElementAtAlias("element-at?", ClarityVersion::Clarity2),
     IndexOf("index-of", ClarityVersion::Clarity1),
+    IndexOfAlias("index-of?", ClarityVersion::Clarity2),
     BuffToIntLe("buff-to-int-le", ClarityVersion::Clarity2),
     BuffToUIntLe("buff-to-uint-le", ClarityVersion::Clarity2),
     BuffToIntBe("buff-to-int-be", ClarityVersion::Clarity2),
     BuffToUIntBe("buff-to-uint-be", ClarityVersion::Clarity2),
     IsStandard("is-standard", ClarityVersion::Clarity2),
-    PrincipalDestruct("principal-destruct", ClarityVersion::Clarity2),
-    PrincipalConstruct("principal-construct", ClarityVersion::Clarity2),
-    StringToInt("string-to-int", ClarityVersion::Clarity2),
-    StringToUInt("string-to-uint", ClarityVersion::Clarity2),
+    PrincipalDestruct("principal-destruct?", ClarityVersion::Clarity2),
+    PrincipalConstruct("principal-construct?", ClarityVersion::Clarity2),
+    StringToInt("string-to-int?", ClarityVersion::Clarity2),
+    StringToUInt("string-to-uint?", ClarityVersion::Clarity2),
     IntToAscii("int-to-ascii", ClarityVersion::Clarity2),
     IntToUtf8("int-to-utf8", ClarityVersion::Clarity2),
     ListCons("list", ClarityVersion::Clarity1),
@@ -169,10 +172,10 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
-    Slice("slice", ClarityVersion::Clarity2),
-    ToConsensusBuff("to-consensus-buff", ClarityVersion::Clarity2),
-    FromConsensusBuff("from-consensus-buff", ClarityVersion::Clarity2),
-    ReplaceAt("replace-at", ClarityVersion::Clarity2),
+    Slice("slice?", ClarityVersion::Clarity2),
+    ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
+    FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
+    ReplaceAt("replace-at?", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -335,12 +338,12 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&sequences::native_len),
                 ClarityCostFunction::Len,
             ),
-            ElementAt => NativeFunction(
+            ElementAt | ElementAtAlias => NativeFunction(
                 "native_element_at",
                 NativeHandle::DoubleArg(&sequences::native_element_at),
                 ClarityCostFunction::ElementAt,
             ),
-            IndexOf => NativeFunction205(
+            IndexOf | IndexOfAlias => NativeFunction205(
                 "native_index_of",
                 NativeHandle::DoubleArg(&sequences::native_index_of),
                 ClarityCostFunction::IndexOf,
@@ -687,6 +690,11 @@ fn special_let(
             let bind_mem_use = binding_value.get_memory_use();
             env.add_memory(bind_mem_use)?;
             memory_use += bind_mem_use; // no check needed, b/c it's done in add_memory.
+            if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+                if let CallableContract(trait_data) = &binding_value {
+                    inner_context.callable_contracts.insert(binding_name.clone(), trait_data.clone());
+                }
+            }
             inner_context.variables.insert(binding_name.clone(), binding_value);
             Ok(())
         })?;
@@ -741,13 +749,15 @@ fn special_contract_of(
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
-        Some((ref contract_identifier, _trait_identifier)) => {
+        Some(trait_data) => {
             env.global_context
                 .database
-                .get_contract(contract_identifier)
-                .map_err(|_e| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+                .get_contract(&trait_data.contract_identifier)
+                .map_err(|_e| {
+                    CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                })?;
 
-            contract_identifier
+            &trait_data.contract_identifier
         }
         _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
     };

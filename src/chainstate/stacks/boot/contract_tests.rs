@@ -586,7 +586,7 @@ fn pox_2_contract_caller_units() {
     sim.execute_next_block(|env| {
         env.initialize_versioned_contract(cc.clone(), ClarityVersion::Clarity2,
                                 "(define-public (cc-stack-stx (amount-ustx uint)
-                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 20))))
+                                                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",

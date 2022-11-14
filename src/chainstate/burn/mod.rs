@@ -74,6 +74,7 @@ pub enum Opcodes {
     StackStx = 'x' as u8,
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
+    DelegateStx = '#' as u8,
 }
 
 // a burnchain block snapshot
@@ -300,6 +301,8 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());
+
+        test_debug!("Consensus hash {} from burn hash {}, ops-hash {}, total_burn {}, pox-id {}, priors: {:?}", &ConsensusHash(ch_bytes.clone()), burn_header_hash, opshash, total_burn, pox_id, prev_consensus_hashes);
         ConsensusHash(ch_bytes)
     }
 
@@ -487,6 +490,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();

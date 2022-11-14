@@ -106,13 +106,13 @@ impl UserBurnSupportOp {
         tx: &BurnchainTransaction,
     ) -> Result<UserBurnSupportOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
+        let num_inputs = tx.num_signers();
         let outputs = tx.get_recipients();
 
-        if inputs.len() == 0 || outputs.len() == 0 {
+        if num_inputs == 0 || outputs.len() == 0 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
+                num_inputs,
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
@@ -121,7 +121,7 @@ impl UserBurnSupportOp {
         if outputs.len() < 2 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
+                num_inputs,
                 outputs.len()
             );
             return Err(op_error::InvalidInput);
@@ -132,14 +132,19 @@ impl UserBurnSupportOp {
             return Err(op_error::InvalidInput);
         }
 
+        let output_0 = outputs[0].clone().ok_or_else(|| {
+            warn!("Invalid tx: unrecognized output 0");
+            op_error::InvalidInput
+        })?;
+
         // outputs[0] should be the burn output
-        if !outputs[0].address.is_burn() {
+        if !output_0.address.is_burn() {
             // wrong burn output
             test_debug!("Invalid tx: burn output missing (got {:?})", outputs[0]);
             return Err(op_error::ParseError);
         }
 
-        let burn_fee = outputs[0].amount;
+        let burn_fee = output_0.amount;
 
         let data = match UserBurnSupportOp::parse_data(&tx.data()) {
             None => {
@@ -164,6 +169,11 @@ impl UserBurnSupportOp {
         }
 
         let output = outputs[1]
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: unrecognized output 1");
+                op_error::InvalidInput
+            })?
             .address
             .clone()
             .try_into_stacks_address()
@@ -303,6 +313,7 @@ mod tests {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::core::StacksEpochId;
     use crate::types::chainstate::StacksAddress;
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -345,7 +356,7 @@ mod tests {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402204c51707ac34b6dcbfc518ba40c5fc4ef737bf69cc21a9f8a8e6f621f511f78e002200caca0f102d5df509c045c4fe229d957aa7ef833dc8103dc2fe4db15a22bab9e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000030000000000000000536a4c5069645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a3333333333333333333333333333333333333333010203040539300000000000001976a914000000000000000000000000000000000000000088aca05b0000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
                 opstr: "69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a33333333333333333333333333333333333333330102030405".to_string(),
                 result: Some(UserBurnSupportOp {
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_string(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap()),
+                    address: StacksAddress::from_legacy_bitcoin_address(&BitcoinAddress::from_string(&"mgbpit8FvkVJ9kuXY8QSM5P7eibnhcEMBk".to_string()).unwrap().expect_legacy()),
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222200").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("22a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7a33333333333333333333333333333333333333").unwrap()).unwrap(),
@@ -389,8 +400,11 @@ mod tests {
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
-            let burnchain_tx =
-                BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            let burnchain_tx = BurnchainTransaction::Bitcoin(
+                parser
+                    .parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05)
+                    .unwrap(),
+            );
 
             let header = match tx_fixture.result {
                 Some(ref op) => BurnchainBlockHeader {
@@ -532,13 +546,6 @@ mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -635,6 +642,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
