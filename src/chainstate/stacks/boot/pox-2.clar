@@ -955,9 +955,9 @@
          (first-increased-cycle (+ cur-cycle u1))
          (stacker-state (unwrap! (map-get? stacking-state 
                                           { stacker: tx-sender })
-                                          (err ERR_STACK_EXTEND_NOT_LOCKED))))
+                                          (err ERR_STACK_INCREASE_NOT_LOCKED))))
       (asserts! (> amount-stacked u0)
-                (err ERR_STACK_EXTEND_NOT_LOCKED))
+                (err ERR_STACK_INCREASE_NOT_LOCKED))
       (asserts! (>= increase-by u1)
                 (err ERR_STACKING_INVALID_AMOUNT))
       (asserts! (>= amount-unlocked increase-by)
