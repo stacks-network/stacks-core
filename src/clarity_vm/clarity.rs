@@ -53,6 +53,7 @@ use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_co
 use crate::util_lib::strings::StacksString;
 use crate::{
     burnchains::Burnchain,
+    burnchains::PoxConstants,
     clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
 };
 use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
@@ -806,7 +807,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
 
             let v1_unlock_height = self.burn_state_db.get_v1_unlock_height();
-            let pox_2_first_cycle = Burnchain::static_block_height_to_reward_cycle(
+            let pox_2_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
                 v1_unlock_height as u64,
                 first_block_height as u64,
                 pox_reward_cycle_length as u64,

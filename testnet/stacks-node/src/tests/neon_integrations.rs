@@ -1689,9 +1689,8 @@ fn bitcoind_resubmission_test() {
     .unwrap();
 
     let burn_tip = burnchain_db.get_canonical_chain_tip().unwrap();
-    let last_burn_block = burnchain_db
-        .get_burnchain_block(&burn_tip.block_hash)
-        .unwrap();
+    let last_burn_block =
+        BurnchainDB::get_burnchain_block(burnchain_db.conn(), &burn_tip.block_hash).unwrap();
 
     assert_eq!(
         last_burn_block.ops.len(),
@@ -1784,6 +1783,7 @@ fn bitcoind_forking_test() {
 
     // Let's create another fork, deeper
     let burn_header_hash_to_fork = btc_regtest_controller.get_block_hash(206);
+    eprintln!("Instigate 10-block deep fork");
     btc_regtest_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_regtest_controller.build_next_block(10);
 
@@ -1793,16 +1793,17 @@ fn bitcoind_forking_test() {
 
     let account = get_account(&http_origin, &miner_account);
 
+    eprintln!("account after deep fork: {:?}", &account);
     // N.B. rewards mature after 2 confirmations...
-    assert_eq!(account.balance, 0);
-    assert_eq!(account.nonce, 3);
+    assert_eq!(account.balance, 1020400000);
+    assert_eq!(account.nonce, 4);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let account = get_account(&http_origin, &miner_account);
 
     // but we're able to keep on mining
-    assert!(account.nonce >= 3);
+    assert!(account.nonce > 4);
 
     eprintln!("End of test");
     channel.stop_chains_coordinator();
