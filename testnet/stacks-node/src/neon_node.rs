@@ -1385,8 +1385,7 @@ impl BlockMinerThread {
     }
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
-    /// Return the private key on success
-    /// return None if we were unable to generate the key.
+    /// Return the private key.
     ///
     /// In testing, we ignore the parent stacks block hash because we don't have an easy way to
     /// reproduce it in integration tests.
@@ -1403,7 +1402,6 @@ impl BlockMinerThread {
 
     /// Get the microblock private key we'll be using for this tenure, should we win.
     /// Return the private key on success
-    /// return None if we were unable to generate the key.
     #[cfg(any(test, feature = "testing"))]
     fn make_microblock_private_key(
         &mut self,

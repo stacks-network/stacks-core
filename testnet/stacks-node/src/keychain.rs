@@ -42,7 +42,7 @@ impl Keychain {
     /// Create a secret key from our secret state
     fn get_secret_key(&self) -> StacksPrivateKey {
         let sk_bytes = Keychain::make_secret_key_bytes(&self.secret_state);
-        StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::makee_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!")
+        StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::make_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!")
     }
 
     /// Create a default keychain from the seed
@@ -88,7 +88,7 @@ impl Keychain {
         };
 
         let sk_bytes = Keychain::make_secret_key_bytes(&seed.0);
-        let sk = StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::makee_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!");
+        let sk = StacksPrivateKey::from_slice(&sk_bytes[..]).expect("FATAL: Keychain::make_secret_key_bytes() returned bytes that could not be parsed into a secp256k1 secret key!");
         let pk = StacksPublicKey::from_private(&sk);
 
         (pk, sk)
