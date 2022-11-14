@@ -468,6 +468,7 @@ impl BitcoinRegtestController {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
+
             match burnchain.sync_with_indexer(
                 &mut self.indexer,
                 coordinator_comms.clone(),
@@ -1175,9 +1176,12 @@ impl BitcoinRegtestController {
                 break;
             }
 
-            let parent = burnchain_db
-                .get_burnchain_block(&burn_chain_tip.parent_block_hash)
-                .ok()?;
+            let parent = BurnchainDB::get_burnchain_block(
+                &burnchain_db.conn(),
+                &burn_chain_tip.parent_block_hash,
+            )
+            .ok()?;
+
             burn_chain_tip = parent.header;
             traversal_depth += 1;
         }

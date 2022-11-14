@@ -81,6 +81,10 @@ pub trait ClarityBackingStore {
     ///   return data about the chain tip that is currently open for writing.
     fn get_current_block_height(&mut self) -> u32;
 
+    /// Get the confirmed chain tip.  This is the parent Stacks block of whatever context we're
+    /// running in right now.
+    fn get_confirmed_block_id(&self) -> StacksBlockId;
+
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
     fn get_side_store(&mut self) -> &Connection;
@@ -245,6 +249,10 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
+    fn get_confirmed_block_id(&self) -> StacksBlockId {
+        panic!("NullBackingStore can't get confirmed block ID")
+    }
+
     fn put_all(&mut self, mut _items: Vec<(String, String)>) {
         panic!("NullBackingStore cannot put")
     }
@@ -297,6 +305,10 @@ impl ClarityBackingStore for MemoryBackingStore {
         } else {
             None
         }
+    }
+
+    fn get_confirmed_block_id(&self) -> StacksBlockId {
+        StacksBlockId([0u8; 32])
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {

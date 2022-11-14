@@ -402,6 +402,10 @@ impl<'a> RollbackWrapper<'a> {
         self.store.get_block_at_height(block_height)
     }
 
+    pub fn get_confirmed_block_id(&self) -> StacksBlockId {
+        self.store.get_confirmed_block_id()
+    }
+
     pub fn prepare_for_contract_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
