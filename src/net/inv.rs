@@ -2654,6 +2654,13 @@ mod test {
 
     use super::*;
 
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+    use crate::burnchains::db::BurnchainHeaderReader;
+    use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::chainstate::coordinator::tests::get_burnchain;
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+
     #[test]
     fn peerblocksinv_has_ith_block() {
         let peer_inv =
@@ -3185,13 +3192,70 @@ mod test {
             41982,
         );
 
+        let peer_1_test_path = TestPeer::make_test_path(&peer_1_config);
+        let peer_2_test_path = TestPeer::make_test_path(&peer_2_config);
+
+        let mut peer_1 = TestPeer::new(peer_1_config.clone());
+        let mut peer_2 = TestPeer::new(peer_2_config.clone());
+
+        for (test_path, burnchain) in [
+            (peer_1_test_path, &mut peer_1.config.burnchain),
+            (peer_2_test_path, &mut peer_2.config.burnchain),
+        ]
+        .iter_mut()
+        {
+            let working_dir = get_burnchain(&test_path, None).working_dir;
+
+            // pre-populate headers
+            let mut indexer = BitcoinIndexer::new_unit_test(&working_dir);
+            let now = BURNCHAIN_TEST_BLOCK_TIME;
+
+            for header_height in 1..6 {
+                let parent_hdr = indexer
+                    .read_burnchain_header(header_height - 1)
+                    .unwrap()
+                    .unwrap();
+
+                let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
+                    &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
+                        .bitcoin_hash(),
+                );
+
+                let block_header = BurnchainBlockHeader {
+                    block_height: header_height,
+                    block_hash: block_header_hash.clone(),
+                    parent_block_hash: parent_hdr.block_hash.clone(),
+                    num_txs: 0,
+                    timestamp: now,
+                };
+
+                test_debug!(
+                    "Pre-populate block header for {}-{} ({})",
+                    &block_header.block_hash,
+                    &block_header.parent_block_hash,
+                    block_header.block_height
+                );
+                indexer.raw_store_header(block_header.clone()).unwrap();
+            }
+
+            let hdr = indexer
+                .read_burnchain_header(burnchain.first_block_height)
+                .unwrap()
+                .unwrap();
+            burnchain.first_block_hash = hdr.block_hash;
+        }
+
         peer_1_config.burnchain.first_block_height = 5;
         peer_2_config.burnchain.first_block_height = 5;
+        peer_1.config.burnchain.first_block_height = 5;
+        peer_2.config.burnchain.first_block_height = 5;
+
+        assert_eq!(
+            peer_1_config.burnchain.first_block_hash,
+            peer_2_config.burnchain.first_block_hash
+        );
 
         let burnchain = peer_1_config.burnchain.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
 
         let num_blocks = 5;
         let first_stacks_block_height = {

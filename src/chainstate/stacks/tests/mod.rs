@@ -26,7 +26,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
-use crate::burnchains::test::*;
+use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::{

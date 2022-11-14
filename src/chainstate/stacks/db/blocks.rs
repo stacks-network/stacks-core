@@ -895,6 +895,7 @@ impl StacksChainState {
     }
 
     /// Do we have a stored a block in the chunk store?
+    /// Will be true even if it's invalid.
     pub fn has_block_indexed(
         blocks_dir: &str,
         index_block_hash: &StacksBlockId,
@@ -912,6 +913,25 @@ impl StacksChainState {
         }
     }
 
+    /// Do we have a stored a block in the chunk store?
+    /// Will be true only if it's also valid (i.e. non-zero sized)
+    pub fn has_valid_block_indexed(
+        blocks_dir: &str,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<bool, Error> {
+        let block_path = StacksChainState::get_index_block_path(blocks_dir, index_block_hash)?;
+        match fs::metadata(block_path) {
+            Ok(md) => Ok(md.len() > 0),
+            Err(e) => {
+                if e.kind() == io::ErrorKind::NotFound {
+                    Ok(false)
+                } else {
+                    Err(Error::DBError(db_error::IOError(e)))
+                }
+            }
+        }
+    }
+
     /// Have we processed and stored a particular block?
     pub fn has_stored_block(
         blocks_db: &DBConn,
@@ -919,22 +939,34 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
-        let staging_status =
-            StacksChainState::has_staging_block(blocks_db, consensus_hash, block_hash)?;
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        if staging_status {
-            // not processed yet
-            test_debug!(
-                "Block {}/{} ({}) is staging",
-                consensus_hash,
-                block_hash,
-                &index_block_hash
-            );
-            return Ok(false);
-        }
+        let staging_status_opt =
+            StacksChainState::get_staging_block_status(blocks_db, consensus_hash, block_hash)?
+                .map(|processed| !processed);
 
-        // only accepted if we stored it
-        StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
+        match staging_status_opt {
+            Some(staging_status) => {
+                let index_block_hash =
+                    StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
+                if staging_status {
+                    // not processed yet
+                    test_debug!(
+                        "Block {}/{} ({}) is staging",
+                        consensus_hash,
+                        block_hash,
+                        &index_block_hash
+                    );
+                    Ok(false)
+                } else {
+                    // have a row in the DB at least.
+                    // only accepted if we stored it
+                    StacksChainState::has_block_indexed(blocks_dir, &index_block_hash)
+                }
+            }
+            None => {
+                // no row in the DB, so not processed at all.
+                Ok(false)
+            }
+        }
     }
 
     /// Store a block to the chunk store, named by its hash
@@ -979,9 +1011,9 @@ impl StacksChainState {
             StacksChainState::make_block_dir(blocks_dir, consensus_hash, &block_header_hash)
                 .expect("FATAL: failed to create block directory");
 
-        // already freed?
-        let sz = StacksChainState::get_file_size(&block_path)
-            .expect(&format!("FATAL: failed to stat {}", &block_path));
+        let sz = fs::metadata(&block_path)
+            .expect(&format!("FATAL: failed to stat '{}'", &block_path))
+            .len();
 
         if sz > 0 {
             // try make this thread-safe. It's okay if this block gets copied more than once; we
@@ -1002,16 +1034,26 @@ impl StacksChainState {
                 &invalid_path.to_string_lossy(),
             ));
 
-            // truncate the original
-            fs::OpenOptions::new()
-                .read(false)
-                .write(true)
-                .truncate(true)
-                .open(&block_path)
+            // already freed?
+            let sz = fs::metadata(&invalid_path)
                 .expect(&format!(
-                    "FATAL: Failed to mark block path '{}' as free",
-                    &block_path
-                ));
+                    "FATAL: failed to stat '{}'",
+                    &invalid_path.to_string_lossy()
+                ))
+                .len();
+
+            if sz > 0 {
+                // truncate the original
+                fs::OpenOptions::new()
+                    .read(false)
+                    .write(true)
+                    .truncate(true)
+                    .open(&block_path)
+                    .expect(&format!(
+                        "FATAL: Failed to mark block path '{}' as free",
+                        &block_path
+                    ));
+            }
         }
     }
 
@@ -2074,6 +2116,19 @@ impl StacksChainState {
             })
     }
 
+    /// Do we have a given Stacks block in any PoX fork or sortition fork?
+    pub fn get_staging_block_consensus_hashes(
+        blocks_conn: &DBConn,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<Vec<ConsensusHash>, Error> {
+        query_rows::<ConsensusHash, _>(
+            blocks_conn,
+            "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1",
+            &[block_hash],
+        )
+        .map_err(|e| e.into())
+    }
+
     /// Is a block orphaned?
     pub fn is_block_orphaned(
         blocks_conn: &DBConn,
@@ -2512,6 +2567,34 @@ impl StacksChainState {
         Ok(())
     }
 
+    /// Forget that a block and microblock stream was marked as invalid, given a particular consensus hash.
+    /// This is necessary when dealing with PoX reorgs, whereby an epoch can be unprocessible on one
+    /// fork but processable on another (i.e. the same block can show up in two different PoX
+    /// forks, but will only be valid in at most one of them).
+    /// This does not restore any block data; it merely makes it possible to go re-process them.
+    pub fn forget_orphaned_epoch_data<'a>(
+        tx: &mut DBTx<'a>,
+        consensus_hash: &ConsensusHash,
+        anchored_block_hash: &BlockHeaderHash,
+    ) -> Result<(), Error> {
+        test_debug!(
+            "Forget that {}/{} is orphaned, if it is orphaned at all",
+            consensus_hash,
+            anchored_block_hash
+        );
+
+        let sql = "DELETE FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1 AND processed = 1";
+        let args: &[&dyn ToSql] = &[consensus_hash, anchored_block_hash];
+
+        tx.execute(sql, args)?;
+
+        let sql = "DELETE FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1 AND processed = 1";
+
+        tx.execute(sql, args)?;
+
+        Ok(())
+    }
+
     /// Clear out a staging block -- mark it as processed.
     /// Mark its children as attachable.
     /// Idempotent.
@@ -2533,8 +2616,6 @@ impl StacksChainState {
             consensus_hash,
             anchored_block_hash,
         )?;
-        let _block_path =
-            StacksChainState::make_block_dir(blocks_path, consensus_hash, anchored_block_hash)?;
 
         let rows = query_rows::<StagingBlock, _>(tx, &sql, args).map_err(Error::DBError)?;
         let block = match rows.len() {
@@ -3858,6 +3939,7 @@ impl StacksChainState {
     }
 
     /// Do we already have an anchored block?
+    /// Note that this will return false for an *invalid* block that *not* been processed *yet*
     pub fn has_anchored_block(
         conn: &DBConn,
         blocks_path: &str,
@@ -3887,7 +3969,7 @@ impl StacksChainState {
                 &index_block_hash
             );
             return Ok(true);
-        } else if StacksChainState::has_block_indexed(&blocks_path, &index_block_hash)? {
+        } else if StacksChainState::has_valid_block_indexed(&blocks_path, &index_block_hash)? {
             debug!(
                 "Block already stored to chunk store: {}/{} ({})",
                 consensus_hash,
@@ -6184,6 +6266,9 @@ impl StacksChainState {
                 None => {
                     // no more work to do!
                     debug!("No staging blocks");
+
+                    // save any orphaning we did
+                    chainstate_tx.commit().map_err(Error::DBError)?;
                     return Ok((None, None));
                 }
             };
@@ -6228,7 +6313,13 @@ impl StacksChainState {
         let block_size = next_staging_block.block_data.len() as u64;
 
         // sanity check -- don't process this block again if we already did so
-        if StacksChainState::has_stored_block(
+        if StacksChainState::has_stacks_block(
+            chainstate_tx.tx.deref().deref(),
+            &StacksBlockHeader::make_index_block_hash(
+                &next_staging_block.consensus_hash,
+                &next_staging_block.anchored_block_hash,
+            ),
+        )? || StacksChainState::has_stored_block(
             chainstate_tx.tx.deref().deref(),
             &blocks_path,
             &next_staging_block.consensus_hash,
@@ -6983,8 +7074,6 @@ pub mod test {
     use crate::cost_estimates::UnitEstimator;
     use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore};
 
-    use crate::burnchains::test::Txid_from_test_data;
-
     use super::*;
 
     use clarity::vm::ast::ASTRules;
@@ -7662,7 +7751,9 @@ pub mod test {
         )
         .unwrap();
         assert!(fs::metadata(&path).is_ok());
-        assert!(StacksChainState::has_stored_block(
+
+        // empty block is considered _not_ stored
+        assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
@@ -7680,7 +7771,8 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
+        let mut chainstate =
+            instantiate_chainstate(false, 0x80000000, "stacks_db_block_load_store");
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7707,9 +7799,30 @@ pub mod test {
         )
         .unwrap());
 
-        StacksChainState::store_block(&chainstate.blocks_path, &ConsensusHash([1u8; 20]), &block)
-            .unwrap();
-        assert!(fs::metadata(&path).is_ok());
+        assert!(!StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
+        store_staging_block(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block,
+            &ConsensusHash([2u8; 20]),
+            1,
+            2,
+        );
+
+        set_block_processed(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+            true,
+        );
+
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7717,6 +7830,7 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
+
         assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
@@ -7751,6 +7865,7 @@ pub mod test {
             &block.header,
         );
 
+        // database determines that it's still there
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7758,6 +7873,48 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
+        assert!(StacksChainState::load_block(
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap()
+        .is_none());
+
+        set_block_processed(
+            &mut chainstate,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+            false,
+        );
+
+        // still technically stored -- we processed it
+        assert!(StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
+        let mut dbtx = chainstate.db_tx_begin().unwrap();
+        StacksChainState::forget_orphaned_epoch_data(
+            &mut dbtx,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash(),
+        )
+        .unwrap();
+        dbtx.commit().unwrap();
+
+        // *now* it's not there
+        assert!(!StacksChainState::has_stored_block(
+            &chainstate.db(),
+            &chainstate.blocks_path,
+            &ConsensusHash([1u8; 20]),
+            &block.block_hash()
+        )
+        .unwrap());
+
         assert!(StacksChainState::load_block(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
@@ -11640,7 +11797,7 @@ pub mod test {
             transfered_ustx: ((tenure_id + 1) * 1000) as u128,
             memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
 
-            txid: Txid_from_test_data(
+            txid: Txid::from_test_data(
                 tenure_id as u64,
                 1,
                 &BurnchainHeaderHash([tenure_id as u8; 32]),
@@ -11666,7 +11823,7 @@ pub mod test {
             delegated_ustx: ((tenure_id + 1) * 1000) as u128,
             until_burn_height: None,
             // to be filled in
-            txid: Txid_from_test_data(
+            txid: Txid::from_test_data(
                 tenure_id as u64,
                 2,
                 &BurnchainHeaderHash([tenure_id as u8; 32]),
