@@ -24,6 +24,8 @@ use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::codec::StacksMessageCodec;
 use crate::util_lib::db::Error as DatabaseError;
 
+use crate::clarity_vm::database::get_stacks_header_info;
+
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
 /// The Clarity VM and type checker do not "know" to begin/commit the block they are currently processing:
@@ -204,6 +206,7 @@ impl MarfedKV {
             .clone();
 
         WritableMarfStore {
+            current_tip: current.clone(),
             chain_tip,
             marf: tx,
         }
@@ -225,6 +228,7 @@ impl MarfedKV {
             .clone();
 
         WritableMarfStore {
+            current_tip: current.clone(),
             chain_tip,
             marf: tx,
         }
@@ -232,10 +236,6 @@ impl MarfedKV {
 
     pub fn get_chain_tip(&self) -> &StacksBlockId {
         &self.chain_tip
-    }
-
-    pub fn set_chain_tip(&mut self, bhh: &StacksBlockId) {
-        self.chain_tip = bhh.clone();
     }
 
     pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
@@ -256,6 +256,11 @@ impl MarfedKV {
 }
 
 pub struct WritableMarfStore<'a> {
+    /// this is the `current` argument to MarfedKV::begin(). It's the hash of the parent block, and
+    /// is used to load up confirmed state.
+    current_tip: StacksBlockId,
+    /// this is the `next` argument to MarfedKV::begin(). It's usually the miner hash (which is a
+    /// constant).
     chain_tip: StacksBlockId,
     marf: MarfTransaction<'a, StacksBlockId>,
 }
@@ -295,6 +300,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
         Some(&handle_contract_call_special_cases)
     }
 
+    /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
@@ -354,6 +360,10 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                 panic!("{}", &msg);
             }
         }
+    }
+
+    fn get_confirmed_block_id(&self) -> StacksBlockId {
+        self.chain_tip.clone()
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
@@ -644,6 +654,10 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                 panic!("{}", &msg);
             }
         }
+    }
+
+    fn get_confirmed_block_id(&self) -> StacksBlockId {
+        self.current_tip.clone()
     }
 
     fn put_all(&mut self, items: Vec<(String, String)>) {
