@@ -59,6 +59,7 @@ use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::chainstate::burn::operations::*;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
+use core::*;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -429,7 +430,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -887,7 +891,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1126,7 +1133,10 @@ fn delegate_stack_increase() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1415,7 +1425,10 @@ fn stack_increase() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1634,7 +1647,10 @@ fn test_lock_period_invariant_extend_transition() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1794,7 +1810,10 @@ fn test_pox_extend_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -2192,7 +2211,10 @@ fn test_delegate_extend_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -2828,7 +2850,10 @@ fn test_pox_2_getters() {
     let EMPTY_SORTITIONS = 25;
     let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3109,7 +3134,10 @@ fn test_pox_2_getters() {
 
 #[test]
 fn test_get_pox_addrs() {
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3375,7 +3403,10 @@ fn test_get_pox_addrs() {
 
 #[test]
 fn test_stack_with_segwit() {
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3691,7 +3722,10 @@ fn test_pox_2_delegate_stx_addr_validation() {
     let EMPTY_SORTITIONS = 25;
     let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3865,7 +3899,10 @@ fn stack_aggregation_increase() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
