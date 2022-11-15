@@ -766,14 +766,14 @@ fn test_unexpected_use_of_field_or_trait_reference() {
 #[test]
 fn test_bitwise_good_checks() {
     let good = [
-        "(& 24 16)",
-        "(^ u24 u16)",
-        "(| 2 1)",
-        "(<< 1 u2)",
-        "(>> u1 u2)",
-        "(| 1 2 4)",
-        "(| -1 -2 4)",
-        "(| u1 u2 u4)"
+        "(bit-and 24 16)",
+        "(bit-xor u24 u16)",
+        "(bit-or 2 1)",
+        "(bit-shift-left 1 u2)",
+        "(bit-shift-right u1 u2)",
+        "(bit-or 1 2 4)",
+        "(bit-or -1 -2 4)",
+        "(bit-or u1 u2 u4)"
     ];
     let expected = ["int", "uint", "int", "int", "uint", "int", "int", "uint"];
 
@@ -789,17 +789,17 @@ fn test_bitwise_good_checks() {
 fn test_bitwise_bad_checks() {
     let bad = [
         "(xor 1)",
-        "(^ 1 u2)",
-        "(| u2 1)",
-        "(~ \"hello\")",
-        "(~ 1 2)",
-        "(& 1 u2)",
-        "(>> 1)",
-        "(<< 1)",
-        "(<< true false)",
-        "(>> 1 1)",
-        "(<< 2 1)",
-        "(| 1 2 u4)"
+        "(bit-xor 1 u2)",
+        "(bit-or u2 1)",
+        "(bit-not \"hello\")",
+        "(bit-not 1 2)",
+        "(bit-and 1 u2)",
+        "(bit-shift-right 1)",
+        "(bit-shift-left 1)",
+        "(bit-shift-left true false)",
+        "(bit-shift-right 1 1)",
+        "(bit-shift-left 2 1)",
+        "(bit-or 1 2 u4)"
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(2, 1),

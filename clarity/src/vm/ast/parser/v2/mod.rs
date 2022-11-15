@@ -808,13 +808,7 @@ impl<'a> Parser<'a> {
             | Token::Less
             | Token::LessEqual
             | Token::Greater
-            | Token::GreaterEqual
-            | Token::BitwiseXor
-            | Token::BitwiseAnd
-            | Token::BitwiseOr
-            | Token::BitwiseNot
-            | Token::BitwiseLShift
-            | Token::BitwiseRShift => {
+            | Token::GreaterEqual => {
                 let name = ClarityName::try_from(token.token.to_string()).unwrap();
                 let mut e = PreSymbolicExpression::atom(name);
                 e.span = token.span;
@@ -3149,120 +3143,6 @@ mod tests {
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">="),
             _ => panic!("expected atom '>='"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 3
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(^ 1 2)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "^"),
-            _ => panic!("expected atom '^'"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 2
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(~ 1)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "~"),
-            _ => panic!("expected atom '~'"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 2
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(& 1 2)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "&"),
-            _ => panic!("expected atom '&'"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 2
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(| 1 2)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "|"),
-            _ => panic!("expected atom '|'"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 2
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(<< 1 2)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "<<"),
-            _ => panic!("expected atom '<<'"),
-        }
-        assert_eq!(
-            exprs[0].span,
-            Span {
-                start_line: 1,
-                start_column: 2,
-                end_line: 1,
-                end_column: 3
-            }
-        );
-
-        let (stmts, diagnostics, success) = parse_collect_diagnostics("(>> 1 2)");
-        assert_eq!(success, true);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(diagnostics.len(), 0);
-        let exprs = stmts[0].match_list().unwrap();
-        match &exprs[0].pre_expr {
-            PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">>"),
-            _ => panic!("expected atom '>>'"),
         }
         assert_eq!(
             exprs[0].span,

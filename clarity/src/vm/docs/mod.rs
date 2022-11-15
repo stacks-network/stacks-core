@@ -576,121 +576,96 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: None,
-    snippet: "^ ${1:expr-1} ${2:expr-2}",
-    signature: "(^ i1 i2...)",
-    description: "Alias for the `xor` function.  Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
-    example: "(^ 1 2) ;; Returns 3
-(^ 120 280) ;; Returns 352
-(^ -128 64) ;; Returns -64
-(^ u24 u4) ;; Returns u28
-(^ 1 2 4 -1) ;; Returns -8
+    name: Some("Bitwise Xor"),
+    snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-xor i1 i2...)",
+    description: "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    example: "(bit-xor 1 2) ;; Returns 3
+(bit-xor 120 280) ;; Returns 352
+(bit-xor -128 64) ;; Returns -64
+(bit-xor u24 u4) ;; Returns u28
+(bit-xor 1 2 4 -1) ;; Returns -8
 ",
 };
 
 const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("& (bitwise and)"),
-    snippet: "& ${1:expr-1} ${2:expr-2}",
-    signature: "(& i1 i2...)",
+    name: Some("Bitwise And"),
+    snippet: "bit-and ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-and i1 i2...)",
     description: "Returns the result of bitwise and'ing a variable number of integer inputs.",
-    example: "(& 24 16) ;; Returns 16
-(& 28 24 -1) ;; Returns 24
-(& u24 u16) ;; Returns u16
-(& -128 -64) ;; Returns -128
-(& 28 24 -1) ;; Returns 24
+    example: "(bit-and 24 16) ;; Returns 16
+(bit-and 28 24 -1) ;; Returns 24
+(bit-and u24 u16) ;; Returns u16
+(bit-and -128 -64) ;; Returns -128
+(bit-and 28 24 -1) ;; Returns 24
 "
 };
 
 const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("| (bitwise or)"),
-    snippet: "| ${1:expr-1} ${2:expr-2}",
-    signature: "(| i1 i2...)",
+    name: Some("Bitwise Or"),
+    snippet: "bit-or ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-or i1 i2...)",
     description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
-    example: "(| 4 8) ;; Returns 12
-(| 1 2 4) ;; Returns 7
-(| 64 -32 -16) ;; Returns -16
-(| u2 u4 u32) ;; Returns u38
+    example: "(bit-or 4 8) ;; Returns 12
+(bit-or 1 2 4) ;; Returns 7
+(bit-or 64 -32 -16) ;; Returns -16
+(bit-or u2 u4 u32) ;; Returns u38
 "
 };
 
 const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("~ (bitwise not)"),
-    snippet: "~ ${1:expr-1}",
-    signature: "(~ i1)",
+    name: Some("Bitwise Not"),
+    snippet: "bit-not ${1:expr-1}",
+    signature: "(bit-not i1)",
     description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
 In other words, every bit that is `1` in ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
 ",
-    example: "(~ 3) ;; Returns -4
-(~ u128) ;; Returns u340282366920938463463374607431768211327
-(~ 128) ;; Returns -129
-(~ -128) ;; Returns 127
+    example: "(bit-not 3) ;; Returns -4
+(bit-not u128) ;; Returns u340282366920938463463374607431768211327
+(bit-not 128) ;; Returns -129
+(bit-not -128) ;; Returns 127
 "
 };
 
 const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some("<< (binary left shift)"),
-    snippet: "<< ${1:expr-1} ${2:expr-2}",
-    signature: "(<< i1 i2)",
-    description: "Shifts all the bits in `i1` to the left by the number of places specified in `i2`. 
-Excess bits shifted off to the left are discarded, and zero-bits are shifted in from the right.
+    name: Some("Bitwise Left Shift"),
+    snippet: "bit-shift-left ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-left i1 shamt)",
+    description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
 
-Yields `i1` << mask(`i2`), where `mask` removes any high-order bits of `i2` that would cause the shift
-to exceed the bitwidth of `i1`.
-
-Note: This is not the same as a rotate-left; The `i2` operand is restricted to the bit range of type of `i1`, 
-rather than the bits shifted off to the left being returned to the other end.
-
-Observe that the second operand (number of positions to shift) must be a 32-bit unsigned integer (meaning
-that the maximum usable value is 4294967295). If the provided value is larger, only the lower 32 bits
-will be used.
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation.  In use cases where overflow should be detected, developers
+should use `*`, `/`, and `pow` instead of the shift operators.
 ",
-    example: "(<< 2 u1) ;; Returns 4
-(<< 16 u2) ;; Returns 64
-(<< -64 u1) ;; Returns -128
-(<< u4 u2) ;; Returns u16
-(<< 123 u9999999999) ;; Returns -170141183460469231731687303715884105728
-(<< u123 u9999999999) ;; Returns u170141183460469231731687303715884105728
-(<< -1 u7) ;; Returns -128
-(<< -1 u128) ;; Returns -1
+    example: "(bit-shift-left 2 u1) ;; Returns 4
+(bit-shift-left 16 u2) ;; Returns 64
+(bit-shift-left -64 u1) ;; Returns -128
+(bit-shift-left u4 u2) ;; Returns u16
+(bit-shift-left 123 u9999999999) ;; Returns -170141183460469231731687303715884105728 (== 123 bit-shift-left 127)
+(bit-shift-left u123 u9999999999) ;; Returns u170141183460469231731687303715884105728 (== u123 bit-shift-left 127)
+(bit-shift-left -1 u7) ;; Returns -128
+(bit-shift-left -1 u128) ;; Returns -1
 "
 };
 
 const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: Some(">> (binary right shift)"),
-    snippet: ">> ${1:expr-1} ${2:expr-2}",
-    signature: "(>> i1 i2)",
-    description: "Shifts all of the bits in `i1` to the right by the number of places specified in `i2`. 
-Excess bits shifted off to the right are discarded.
+    name: Some("Bitwise Right Shift"),
+    snippet: "bit-shift-right ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-right i1 shamt)",
+    description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+When `i1` is a `uint` (unsigned), new bits are filled with zeros. When `i1` is an `int` (signed), the sign is preserved, meaning that new bits are filled with the value of the previous sign-bit.
 
-Yields `i1` >> mask(`i2`), where `mask` removes any high-order bits of `i2` that would cause the shift 
-to exceed the bitwidth of `i1`.
-
-Note: This is not the same as a rotate-right; The `i2` operand is restricted to the bit range of the type of `i1`, 
-rather than the bits shifted off to the right being returned to the other end.
-
-Right-shifting signed integers:
-Performing a right-shift on a signed integer is an arithmetic operation which performs a sign-extending shift 
-of the binary representation of `i1` (evaluated as a two's complement bit string). Copies of the leftmost
-bit are shifted in from the left.
-
-Right-shifting unsigned integers:
-Performing a right-shift on an unsigned integer is a logical operation, also shifting the sign bit shifting in
-zero-bits from the left.
-
-Observe that the second operand (number of positions to shift) must be a 32-bit unsigned integer (meaning
-that the maximum usable value is 4294967295). If the provided value is larger, only the lower 32 bits
-will be used.
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation. In use cases where overflow should be detected, developers should use `*`, `/`, and `pow` instead of the shift operators.
 ",
-    example: "(>> 2 u1) ;; Returns 1
-(>> 128 u2) ;; Returns 32
-(>> -64 u1) ;; Returns -32
-(>> u128 u2) ;; Returns u32
-(>> 123 u9999999999) ;; Returns 0
-(>> u123 u9999999999) ;; Returns u0
-(>> -128 u7) ;; Returns -1
-(>> -256 u1) ;; Returns -128
-(>> 5 u2) ;; Returns 1
-(>> -5 u2) ;; Returns -2
+    example: "(bit-shift-right 2 u1) ;; Returns 1
+(bit-shift-right 128 u2) ;; Returns 32
+(bit-shift-right -64 u1) ;; Returns -32
+(bit-shift-right u128 u2) ;; Returns u32
+(bit-shift-right 123 u9999999999) ;; Returns 0
+(bit-shift-right u123 u9999999999) ;; Returns u0
+(bit-shift-right -128 u7) ;; Returns -1
+(bit-shift-right -256 u1) ;; Returns -128
+(bit-shift-right 5 u2) ;; Returns 1
+(bit-shift-right -5 u2) ;; Returns -2
 "
 };
 
