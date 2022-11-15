@@ -39,6 +39,8 @@ use stacks_common::util::hash;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
 
+use stacks_common::types::StacksEpochId;
+
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
         pub fn $Name(
@@ -725,8 +727,8 @@ fn special_as_contract(
     // arg0 => body
     check_argument_count(1, args)?;
 
-    // in Clarity 2, this has a cost
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+    // in epoch 2.1 and later, this has a cost
+    if *env.epoch() >= StacksEpochId::Epoch21 {
         runtime_cost(ClarityCostFunction::AsContract, env, 0)?;
     }
 
