@@ -230,11 +230,7 @@ impl<'a> Lexer<'a> {
                 | '>'
                 | '='
                 | '/'
-                | '*'
-                | '^'
-                | '&'
-                | '|'
-                | '~' => ident.push(self.next),
+                | '*' => ident.push(self.next),
                 _ => {
                     if !is_separator(self.next) {
                         return Ok(Token::Placeholder(self.proceed_through_error(
