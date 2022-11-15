@@ -443,7 +443,7 @@ impl BlockSnapshot {
 
 #[cfg(test)]
 mod test {
-    use crate::burnchains::test::*;
+    use crate::burnchains::tests::*;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;

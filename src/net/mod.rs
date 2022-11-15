@@ -2076,12 +2076,14 @@ pub mod test {
     use rand;
     use rand::RngCore;
 
+    use crate::address::*;
     use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
     use crate::burnchains::bitcoin::keys::*;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::db::BurnchainDB;
-    use crate::burnchains::test::*;
+    use crate::burnchains::tests::*;
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb;
     use crate::chainstate::burn::db::sortdb::*;
@@ -2123,6 +2125,8 @@ pub mod test {
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
 
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+
     use super::*;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::StacksMicroblockHeader;
@@ -2132,6 +2136,10 @@ pub mod test {
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::chainstate::TrieHash;
 
+    use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
+
+    use crate::burnchains::db::BurnchainHeaderReader;
+
     impl StacksMessageCodec for BlockstackOperationType {
         fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
             match self {
@@ -2139,6 +2147,7 @@ pub mod test {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::UserBurnSupport(ref op) => op.consensus_serialize(fd),
                 BlockstackOperationType::TransferStx(_)
+                | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
                 | BlockstackOperationType::StackStx(_) => Ok(()),
             }
@@ -2430,10 +2439,7 @@ pub mod test {
             let start_block = 0;
             let mut burnchain = Burnchain::default_unittest(
                 start_block,
-                &BurnchainHeaderHash::from_hex(
-                    "0000000000000000000000000000000000000000000000000000000000000000",
-                )
-                .unwrap(),
+                &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
             );
 
             burnchain.pox_constants = PoxConstants::new(
@@ -2580,10 +2586,7 @@ pub mod test {
             )
         }
 
-        pub fn new_with_observer(
-            mut config: TestPeerConfig,
-            observer: Option<&'a TestEventObserver>,
-        ) -> TestPeer<'a> {
+        pub fn make_test_path(config: &TestPeerConfig) -> String {
             let test_path = TestPeer::test_path(&config);
             match fs::metadata(&test_path) {
                 Ok(_) => {
@@ -2593,7 +2596,14 @@ pub mod test {
             };
 
             fs::create_dir_all(&test_path).unwrap();
+            test_path
+        }
 
+        pub fn new_with_observer(
+            mut config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestPeer<'a> {
+            let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
@@ -2623,9 +2633,7 @@ pub mod test {
 
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
-                first_burnchain_block_height,
-                &first_burnchain_block_hash,
-                0,
+                &config.burnchain,
                 true,
             )
             .unwrap();
@@ -2862,10 +2870,47 @@ pub mod test {
             &self.network.local_peer
         }
 
+        // TODO: DRY up from PoxSyncWatchdog
+        pub fn infer_initial_burnchain_block_download(
+            burnchain: &Burnchain,
+            last_processed_height: u64,
+            burnchain_height: u64,
+        ) -> bool {
+            let ibd =
+                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+            if ibd {
+                debug!(
+                    "PoX watchdog: {} + {} < {}, so initial block download",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            } else {
+                debug!(
+                    "PoX watchdog: {} + {} >= {}, so steady-state",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            }
+            ibd
+        }
+
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let mut sortdb = self.sortdb.take().unwrap();
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
+
+            let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .unwrap()
+                .block_height;
+            let stacks_tip_height = stacks_node
+                .chainstate
+                .get_stacks_chain_tip(&sortdb)
+                .unwrap()
+                .map(|blkdat| blkdat.height)
+                .unwrap_or(0);
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
+                &self.config.burnchain,
+                stacks_tip_height,
+                burn_tip_height,
+            );
 
             let ret = self.network.run(
                 &mut sortdb,
@@ -2873,7 +2918,7 @@ pub mod test {
                 &mut mempool,
                 None,
                 false,
-                false,
+                ibd,
                 100,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2891,13 +2936,28 @@ pub mod test {
             let mut stacks_node = self.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
 
+            let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .unwrap()
+                .block_height;
+            let stacks_tip_height = stacks_node
+                .chainstate
+                .get_stacks_chain_tip(&sortdb)
+                .unwrap()
+                .map(|blkdat| blkdat.height)
+                .unwrap_or(0);
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
+                &self.config.burnchain,
+                stacks_tip_height,
+                burn_tip_height,
+            );
+
             let ret = self.network.run(
                 &mut sortdb,
                 &mut stacks_node.chainstate,
                 &mut mempool,
                 Some(dns_client),
                 false,
-                false,
+                ibd,
                 100,
                 &RPCHandlerArgs::default(),
                 &mut HashSet::new(),
@@ -2926,6 +2986,19 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, true, true);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_and_missing_pox_anchor(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             self.inner_next_burnchain_block(blockstack_ops, true, true)
         }
 
@@ -2933,6 +3006,19 @@ pub mod test {
             &mut self,
             blockstack_ops: Vec<BlockstackOperationType>,
         ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+            let x = self.inner_next_burnchain_block(blockstack_ops, false, false);
+            (x.0, x.1, x.2)
+        }
+
+        pub fn next_burnchain_block_raw_and_missing_pox_anchor(
+            &mut self,
+            blockstack_ops: Vec<BlockstackOperationType>,
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             self.inner_next_burnchain_block(blockstack_ops, false, false)
         }
 
@@ -2967,7 +3053,12 @@ pub mod test {
             mut blockstack_ops: Vec<BlockstackOperationType>,
             set_consensus_hash: bool,
             set_burn_hash: bool,
-        ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        ) -> (
+            u64,
+            BurnchainHeaderHash,
+            ConsensusHash,
+            Option<BlockHeaderHash>,
+        ) {
             let sortdb = self.sortdb.take().unwrap();
             let (block_height, block_hash) = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
@@ -2976,22 +3067,33 @@ pub mod test {
                     TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
                 }
 
-                // quick'n'dirty hash of all operations and block height
-                let mut op_buf = vec![];
-                for op in blockstack_ops.iter() {
-                    op.consensus_serialize(&mut op_buf).unwrap();
-                }
-                op_buf.append(&mut (tip.block_height + 1).to_be_bytes().to_vec());
-                let h = Sha512Trunc256Sum::from_data(&op_buf);
-                let mut hash_buf = [0u8; 32];
-                hash_buf.copy_from_slice(&h.0);
+                let mut indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+                let parent_hdr = indexer
+                    .read_burnchain_header(tip.block_height)
+                    .unwrap()
+                    .unwrap();
 
-                let block_header_hash = BurnchainHeaderHash(hash_buf);
-                let block_header = BurnchainBlockHeader::from_parent_snapshot(
-                    &tip,
-                    block_header_hash.clone(),
-                    blockstack_ops.len() as u64,
+                test_debug!("parent hdr ({}): {:?}", &tip.block_height, &parent_hdr);
+                assert_eq!(parent_hdr.block_hash, tip.burn_header_hash);
+
+                let now = BURNCHAIN_TEST_BLOCK_TIME;
+                let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
+                    &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
+                        .bitcoin_hash(),
                 );
+                test_debug!(
+                    "Block header hash at {} is {}",
+                    tip.block_height + 1,
+                    &block_header_hash
+                );
+
+                let block_header = BurnchainBlockHeader {
+                    block_height: tip.block_height + 1,
+                    block_hash: block_header_hash.clone(),
+                    parent_block_hash: parent_hdr.block_hash.clone(),
+                    num_txs: blockstack_ops.len() as u64,
+                    timestamp: now,
+                };
 
                 if set_burn_hash {
                     TestPeer::set_ops_burn_header_hash(&mut blockstack_ops, &block_header_hash);
@@ -2999,14 +3101,36 @@ pub mod test {
 
                 let mut burnchain_db =
                     BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), true).unwrap();
+
+                test_debug!(
+                    "Store header and block ops for {}-{} ({})",
+                    &block_header.block_hash,
+                    &block_header.parent_block_hash,
+                    block_header.block_height
+                );
+                indexer.raw_store_header(block_header.clone()).unwrap();
                 burnchain_db
-                    .raw_store_burnchain_block(block_header.clone(), blockstack_ops)
+                    .raw_store_burnchain_block(
+                        &self.config.burnchain,
+                        &indexer,
+                        block_header.clone(),
+                        blockstack_ops,
+                    )
                     .unwrap();
+
+                Burnchain::process_affirmation_maps(
+                    &self.config.burnchain,
+                    &mut burnchain_db,
+                    &indexer,
+                    block_header.block_height,
+                )
+                .unwrap();
 
                 (block_header.block_height, block_header_hash)
             };
 
-            self.coord.handle_new_burnchain_block().unwrap();
+            let missing_pox_anchor_block_hash_opt =
+                self.coord.handle_new_burnchain_block().unwrap();
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -3024,7 +3148,12 @@ pub mod test {
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
             self.sortdb = Some(sortdb);
-            (block_height, block_hash, tip.consensus_hash)
+            (
+                block_height,
+                block_hash,
+                tip.consensus_hash,
+                missing_pox_anchor_block_hash_opt,
+            )
         }
 
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {

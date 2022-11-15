@@ -252,7 +252,11 @@ fn handle_define_trait(
 ) -> Result<DefineResult> {
     check_legal_define(&name, &env.contract_context)?;
 
-    let trait_signature = TypeSignature::parse_trait_type_repr(&functions, env)?;
+    let trait_signature = TypeSignature::parse_trait_type_repr(
+        &functions,
+        env,
+        *env.contract_context.get_clarity_version(),
+    )?;
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }

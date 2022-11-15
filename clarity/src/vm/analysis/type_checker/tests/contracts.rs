@@ -14,22 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+use std::fs::read_to_string;
+
 use assert_json_diff;
 use serde_json;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::run_analysis;
 use crate::vm::analysis::type_checker::tests::mem_type_check;
 use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::errors::Error;
+use crate::vm::types::signatures::CallableSubtype;
+use crate::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
+};
+use crate::vm::ContractName;
 use crate::vm::{
     analysis::{CheckError, ContractAnalysis},
     costs::LimitedCostTracker,
     ClarityVersion, SymbolicExpression,
 };
 use stacks_common::types::StacksEpochId;
+
+fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
+}
 
 #[template]
 #[rstest]
@@ -38,6 +50,12 @@ use stacks_common::types::StacksEpochId;
 #[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
 fn test_clarity_versions_contracts(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
+#[template]
+#[rstest]
+#[case(ClarityVersion::Clarity1)]
+#[case(ClarityVersion::Clarity2)]
+fn test_epoch21_clarity_versions(#[case] version: ClarityVersion) {}
+
 /// backwards-compatibility shim
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
@@ -45,13 +63,29 @@ pub fn type_check(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
 ) -> Result<ContractAnalysis, CheckError> {
+    type_check_version(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        ClarityVersion::Clarity2,
+    )
+}
+
+pub fn type_check_version(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &mut [SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+    version: ClarityVersion,
+) -> Result<ContractAnalysis, CheckError> {
     run_analysis(
         contract_identifier,
         expressions,
         analysis_db,
         save_contract,
         LimitedCostTracker::new_free(),
-        ClarityVersion::Clarity2,
+        version,
     )
     .map_err(|(e, _)| e)
 }
@@ -629,4 +663,2773 @@ fn test_expects() {
         &CheckErrors::CouldNotDetermineResponseOkType => true,
         _ => false,
     });
+}
+
+/// Pass a trait to a trait parameter with the same type
+#[test]
+fn test_trait_to_trait() {
+    let trait_to_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-1 (contract <trait-1>))
+        (internal-get-1 contract))
+    (define-public (internal-get-1 (contract <trait-1>))
+        (contract-call? contract get-1 u1))";
+
+    mem_type_check(trait_to_trait).unwrap();
+    mem_type_check_v1(trait_to_trait).unwrap();
+}
+
+/// Pass a trait to a trait parameter with a compatible trait type
+#[test]
+fn test_trait_to_compatible_trait() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    mem_type_check(trait_to_compatible_trait).unwrap();
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a principal to a trait parameter
+#[test]
+fn test_bad_principal_to_trait() {
+    let bad_principal_to_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-1 (contract principal))
+        (internal-get-1 contract))
+    (define-public (internal-get-1 (contract <trait-1>))
+        (contract-call? contract get-1 u1))";
+
+    let err = mem_type_check(bad_principal_to_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::PrincipalType,
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::PrincipalType,
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait to a trait parameter which is not compatible
+#[test]
+fn test_bad_other_trait() {
+    let bad_other_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-2 (contract <trait-1>))
+        (internal-get-2 contract))
+    (define-public (internal-get-2 (contract <trait-2>))
+        (contract-call? contract get-2 u1))";
+
+    let err = mem_type_check(bad_other_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_other_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait embedded in a compound type
+#[test]
+fn test_embedded_trait() {
+    let embedded_trait = "(define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-12>))
+        (internal-get-1 (some contract)))
+    (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
+        )
+    )";
+
+    mem_type_check(embedded_trait).unwrap();
+    let err = mem_type_check_v1(embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait embedded in a compound type to a parameter with a compatible
+/// trait type
+#[test]
+fn test_embedded_trait_compatible() {
+    let embedded_trait_compatible = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-12>))
+        (internal-get-1 (some contract)))
+    (define-public (internal-get-1 (opt-contract (optional <trait-1>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
+        )
+    )";
+
+    mem_type_check(embedded_trait_compatible).unwrap();
+    let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait embedded in a compound type to a parameter with an
+/// incompatible trait type
+#[test]
+fn test_bad_embedded_trait() {
+    let bad_embedded_trait = "(define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-12 (
+        (get-1 (uint) (response uint uint))
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-opt-get-1 (contract <trait-1>))
+        ;; Passing (optional <trait-1>) as an (optional <trait-12>) should be an error
+        (wrapped-get-1 (some contract)))
+    (define-public (wrapped-get-1 (opt-contract (optional <trait-12>)))
+        (internal-get-1 opt-contract)
+    )
+    (define-public (internal-get-1 (opt-contract (optional <trait-12>)))
+        (match opt-contract
+            contract (contract-call? contract get-1 u1)
+            (err u1)
+        )
+    )";
+
+    let err = mem_type_check(bad_embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-12");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "contract");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Bind a trait in a let expression
+#[test]
+fn test_let_trait() {
+    let let_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (contract-call? t1 echo u42)
+        )
+    )";
+
+    mem_type_check(let_trait).unwrap();
+    let err = mem_type_check_v1(let_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t1");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Bind a trait in transitively in multiple let expressions
+#[test]
+fn test_let3_trait() {
+    let let3_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2 t1))
+                (let ((t3 t2))
+                    (contract-call? t3 echo u42)
+                )
+            )
+        )
+    )";
+
+    mem_type_check(let3_trait).unwrap();
+    let err = mem_type_check_v1(let3_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t3");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Bind a trait transitively in multiple let expressions with compound types
+#[test]
+fn test_let3_compound_trait() {
+    let let3_compound_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-private (foo (a (response (optional <trait-1>) uint)))
+        (ok true)
+    )
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2-opt (some t1)))
+                (let ((t3-res (ok t2-opt)))
+                    (foo t3-res)
+                )
+            )
+        )
+    )";
+
+    mem_type_check(let3_compound_trait).unwrap();
+    mem_type_check_v1(let3_compound_trait).unwrap();
+}
+
+/// Bind a trait transitively in multiple let expressions with compound types,
+/// then unwrap it and use it to call the contract.
+#[test]
+fn test_let3_compound_trait_call() {
+    let let3_compound_trait_call = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-private (foo (a (response (optional <trait-1>) uint)))
+        (ok true)
+    )
+    (define-public (let-echo (t <trait-1>))
+        (let ((t1 t))
+            (let ((t2-opt (some t1)))
+                (let ((t3-res (ok t2-opt)))
+                    (let ((t4 (unwrap! (unwrap! t3-res (err u1)) (err u2))))
+                        (contract-call? t4 echo u23)
+                    )
+                )
+            )
+        )
+    )";
+
+    mem_type_check(let3_compound_trait_call).unwrap();
+    let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TraitReferenceUnknown(name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(name.as_str(), "t4");
+            true
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility between traits where the function parameter type
+/// differs
+#[test]
+fn test_trait_args_differ() {
+    let trait_args_differ = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (int) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_args_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_args_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait to a trait parameter with an compatible trait type
+#[test]
+fn test_trait_arg_counts_differ1() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(found.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Pass a trait to a trait parameter with an compatible trait type
+#[test]
+fn test_trait_arg_counts_differ2() {
+    let trait_to_compatible_trait = "(define-trait trait-1 (
+        (echo (uint uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (ok true))";
+
+    let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(found.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility between traits where the response types differ
+#[test]
+fn test_trait_ret_ty_differ() {
+    let trait_ret_ty_differ = "(define-trait trait-1 (
+        (echo (uint) (response int uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-1>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-2>))
+        (contract-call? contract echo u1))";
+
+    let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter has a
+/// compatible type
+#[test]
+fn test_trait_with_compatible_trait_arg() {
+    let trait_with_compatible_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    mem_type_check(trait_with_compatible_trait_arg).unwrap();
+    let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter has an
+/// incompatible trait type
+#[test]
+fn test_trait_with_bad_trait_arg() {
+    let trait_with_bad_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response int uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>))
+        (internal-echo contract))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-b");
+            assert_eq!(actual.name.as_str(), "trait-a");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter from one trait
+/// has a trait type which is a superset of the corresponding trait
+#[test]
+fn test_trait_with_superset_trait_arg() {
+    let trait_with_superset_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-a>) (callee <trait-2>))
+        (internal-echo contract callee))
+    (define-public (internal-echo (contract <trait-b>) (callee <trait-2>))
+        (contract-call? contract echo callee))";
+
+    let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-b");
+            assert_eq!(actual.name.as_str(), "trait-a");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-b");
+                    assert_eq!(found_trait.name.as_str(), "trait-a");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Check for compatibility of traits where a function parameter from one trait
+/// has a trait type which is a subset of the corresponding trait
+#[test]
+fn test_trait_with_subset_trait_arg() {
+    let trait_with_subset_trait_arg = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-trait trait-a (
+        (echo (<trait-1>) (response uint uint))
+    ))
+    (define-trait trait-b (
+        (echo (<trait-2>) (response uint uint))
+    ))
+    (define-public (wrapped-echo (contract <trait-b>) (callee <trait-1>))
+        (internal-echo contract callee))
+    (define-public (internal-echo (contract <trait-a>) (callee <trait-1>))
+        (contract-call? contract echo callee))";
+
+    mem_type_check(trait_with_subset_trait_arg).unwrap();
+    let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-a");
+                    assert_eq!(found_trait.name.as_str(), "trait-b");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Define a trait with a duplicated method name
+#[test]
+fn test_trait_with_duplicate_method() {
+    let trait_with_duplicate_method = "(define-trait double-method (
+        (foo (uint) (response uint uint))
+        (foo (bool) (response bool bool))
+      ))";
+
+    let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::DefineTraitDuplicateMethod(method_name),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(method_name.as_str(), "foo");
+            true
+        }
+        _ => false,
+    });
+    mem_type_check_v1(trait_with_duplicate_method).unwrap();
+}
+
+/// Pass a trait to a subtrait, then back to the original trait
+#[test]
+fn test_trait_to_subtrait_and_back() {
+    let trait_to_subtrait_and_back = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (echo (uint) (response uint uint))
+        (foo (uint) (response uint uint))
+    ))
+    (define-private (foo-0 (impl-contract <trait-2>))
+        (foo-1 impl-contract))
+ 
+    (define-private (foo-1 (impl-contract <trait-1>))
+        (foo-2 impl-contract))
+    
+    (define-private (foo-2 (impl-contract <trait-2>))
+        true)";
+
+    let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IncompatibleTrait(expected, actual),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            assert_eq!(expected.name.as_str(), "trait-2");
+            assert_eq!(actual.name.as_str(), "trait-1");
+            true
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::TypeError(expected, found),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (expected, found) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+                ) => {
+                    assert_eq!(expected_trait.name.as_str(), "trait-2");
+                    assert_eq!(found_trait.name.as_str(), "trait-1");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Use `map` on a list of traits
+#[test]
+fn test_trait_list_to_map() {
+    let trait_list_to_map = "(define-trait token-trait (
+        (echo (uint) (response uint uint))
+    ))
+    (define-public (send-many (data (list 10 {amount: uint, sender: principal, recipient: principal})) (token <token-trait>))
+        (ok (map my-iter data (list token token token token token token token token token token)))
+    )
+    (define-private (my-iter (data {amount: uint, sender: principal, recipient: principal}) (token <token-trait>))
+        (contract-call? token echo u5)
+    )";
+
+    mem_type_check(trait_list_to_map).unwrap();
+    mem_type_check_v1(trait_list_to_map).unwrap();
+}
+
+/// If branches with incompatible trait types
+#[test]
+fn test_if_branches_with_incompatible_trait_types() {
+    let if_branches_with_incompatible_trait_types = "(define-trait trait-1 (
+        (echo (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (foo (uint) (response uint uint))
+    ))
+    (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
+        (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
+            (contract-call? to-invoke method)
+        )
+    )";
+    let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// If branches with compatible trait types
+#[test]
+fn test_if_branches_with_compatible_trait_types() {
+    let if_branches_with_compatible_trait_types = "(define-trait trait-1 (
+            (echo (uint) (response uint uint))
+        ))
+        (define-trait trait-2 (
+            (echo (uint) (response uint uint))
+            (foo (uint) (response uint uint))
+        ))
+        (define-public (foo (contract-1 <trait-1>) (contract-2 <trait-2>))
+            (let ((to-invoke (if (> 1 2) contract-1 contract-2)))
+                (contract-call? to-invoke method)
+            )
+        )";
+
+    let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+    let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
+    assert!(match err {
+        CheckError {
+            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            expressions: _,
+            diagnostic: _,
+        } => {
+            match (type1, type2) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+                ) => {
+                    assert_eq!(trait1.name.as_str(), "trait-1");
+                    assert_eq!(trait2.name.as_str(), "trait-2");
+                    true
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    });
+}
+
+/// Based on issue #3215 from sskeirik
+#[apply(test_epoch21_clarity_versions)]
+fn test_traits_multi_contract(#[case] version: ClarityVersion) {
+    let epoch = StacksEpochId::latest();
+
+    let trait_contract_src = "(define-trait a (
+        (do-it () (response bool bool))
+    ))";
+    let use_contract_src = "(use-trait a-alias .a-trait.a)
+    (define-trait a (
+      (do-that () (response bool bool))
+    ))
+    (define-public (call-do-it (a-contract <a-alias>))
+      (contract-call? a-contract do-it)
+    )";
+
+    let use_contract_id = QualifiedContractIdentifier::local("use-a-trait").unwrap();
+    let trait_contract_id = QualifiedContractIdentifier::local("a-trait").unwrap();
+
+    let mut use_contract = parse(&use_contract_id, use_contract_src, version, epoch).unwrap();
+    let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version, epoch).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    match db.execute(|db| {
+        type_check_version(&trait_contract_id, &mut trait_contract, db, true, version)?;
+        type_check_version(&use_contract_id, &mut use_contract, db, true, version)
+    }) {
+        Err(CheckError {
+            err: CheckErrors::TraitMethodUnknown(trait_name, function),
+            expressions: _,
+            diagnostic: _,
+        }) if version < ClarityVersion::Clarity2 => {
+            assert_eq!(trait_name.as_str(), "a");
+            assert_eq!(function.as_str(), "do-it");
+        }
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
+        res => panic!("{:?}", res),
+    }
+}
+
+// Tests below are derived from https://github.com/sskeirik/clarity-trait-experiments.
+
+fn load_versioned(
+    db: &mut AnalysisDatabase,
+    name: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<ContractAnalysis, String> {
+    let source = read_to_string(format!(
+        "{}/src/vm/analysis/type_checker/tests/contracts/{}.clar",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    ))
+    .unwrap();
+    let contract_id = QualifiedContractIdentifier::local(name).unwrap();
+    let mut contract =
+        parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
+    type_check_version(&contract_id, &mut contract, db, true, version).map_err(|e| e.to_string())
+}
+
+fn call_versioned(
+    db: &mut AnalysisDatabase,
+    contract: &str,
+    function: &str,
+    args: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<ContractAnalysis, String> {
+    let source = format!("(contract-call? .{} {} {})", contract, function, args);
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract =
+        parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
+    type_check_version(&contract_id, &mut contract, db, false, version).map_err(|e| e.to_string())
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "use-math-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_empty_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define an empty trait?
+    let result = db.execute(|db| load_versioned(db, "empty-trait", version, epoch));
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_duplicate_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we re-define a trait with the same type and same name in a different contract?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "empty-trait-copy", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_undefined(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that use traits in not-yet-deployed contracts?
+    let err = db
+        .execute(|db| load_versioned(db, "no-trait", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with(
+        "ASTError(ParseError { err: TraitReferenceUnknown(\"trait-to-be-defined-later\")"
+    ));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_circular(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits in a contract that are circular?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "circular-trait-1", version, epoch)?;
+            load_versioned(db, "circular-trait-2", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"circular\"])"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_no_response(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that do not return a response type?
+    let err = db
+        .execute(|db| load_versioned(db, "no-response-trait", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with("DefineTraitBadSignature"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_out_of_order(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define traits that occur in a contract out-of-order?
+    let result = db.execute(|db| load_versioned(db, "out-of-order-traits", version, epoch));
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different types?
+    match db.execute(|db| load_versioned(db, "double-trait", version, epoch)) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_both(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-both", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-1", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("BadTraitImplementation(\"double-method\", \"foo\")"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_double_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-2", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-1", version, epoch)?;
+        load_versioned(db, "use-double-trait", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(BoolType, UIntType)"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_partial_double_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-1", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-1", version, epoch)
+    }) {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(BoolType, UIntType)"))
+        }
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_partial_double_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_identical_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and the same type?
+    match db.execute(|db| load_versioned(db, "identical-double-trait", version, epoch)) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_identical_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait with two methods with the same name and different types?
+    match db.execute(|db| {
+        load_versioned(db, "identical-double-trait", version, epoch)?;
+        load_versioned(db, "impl-identical-double-trait", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_selfret_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we implement a trait that returns itself?
+    let err = db
+        .execute(|db| load_versioned(db, "selfret-trait", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: CircularReference([\"self-return\"])"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_math_trait_transitive_alias(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we import a trait from a contract that uses but does not define the trait?
+    // Does the transitive import use the trait alias or the trait name?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait-transitive-alias", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_math_trait_transitive_name(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we import a trait from a contract that uses but does not define the trait?
+    // Does the transitive import use the trait alias or the trait name?
+    match db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "use-math-trait", version, epoch)?;
+        load_versioned(db, "use-math-trait-transitive-name", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"math-alias\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_original_and_define_a_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we reference original trait and define trait with the same name in one contract?
+    let result = db.execute(|db| {
+        load_versioned(db, "a-trait", version, epoch)?;
+        load_versioned(db, "use-original-and-define-a-trait", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_redefined_and_define_a_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we reference redefined trait and define trait with the same name in one contract?
+    // Will this redefined trait also overwrite the trait alias?
+    match db.execute(|db| {
+        load_versioned(db, "a-trait", version, epoch)?;
+        load_versioned(db, "use-redefined-and-define-a-trait", version, epoch)
+    }) {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-that\")"))
+        }
+        res => panic!("got {:?}", res),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_a_trait_transitive_original(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use the original trait from a contract that redefines it?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "a-trait", version, epoch)?;
+            load_versioned(db, "use-and-define-a-trait", version, epoch)?;
+            load_versioned(db, "use-a-trait-transitive-original", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitMethodUnknown(\"a\", \"do-it\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_use_a_trait_transitive_redefined(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use the redefined trait from a contract that redefines it?
+    let result = db.execute(|db| {
+        load_versioned(db, "a-trait", version, epoch)?;
+        load_versioned(db, "use-and-define-a-trait", version, epoch)?;
+        load_versioned(db, "use-a-trait-transitive-redefined", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_nested_traits(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we nest traits in other types inside a function parameter type?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-1", version, epoch)?;
+        load_versioned(db, "nested-trait-2", version, epoch)?;
+        load_versioned(db, "nested-trait-3", version, epoch)?;
+        load_versioned(db, "nested-trait-4", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-1", version, epoch)?;
+        call_versioned(
+            db,
+            "nested-trait-1",
+            "foo",
+            "(list .empty .math-trait)",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-2", version, epoch)?;
+        call_versioned(db, "nested-trait-2", "foo", "(some .empty)", version, epoch)
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_3_ok(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-3", version, epoch)?;
+        call_versioned(db, "nested-trait-3", "foo", "(ok .empty)", version, epoch)
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_3_err(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-3", version, epoch)?;
+        call_versioned(db, "nested-trait-3", "foo", "(err false)", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_nested_trait_4(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call functions with nested trait types by passing a trait parameter?
+    // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
+    let result = db.execute(|db| {
+        load_versioned(db, "empty", version, epoch)?;
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "nested-trait-4", version, epoch)?;
+        call_versioned(
+            db,
+            "nested-trait-4",
+            "foo",
+            "(tuple (empty .empty))",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError"))
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_impl_math_trait_incomplete(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use impl-trait on a partial trait implementation?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait-incomplete", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_literal(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a literal where a trait is expected with a full implementation?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "trait-literal", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_pass_let_rename_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we rename a trait with let and pass it to a function?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "pass-let-rename-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_literal_incomplete(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a literal where a trait is expected with a partial implementation?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "partial-math-trait", version, epoch)?;
+            load_versioned(db, "trait-literal-incomplete", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_let_rename_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we rename a trait with let and call it?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "call-let-rename-trait", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"new-math-contract\")"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_data_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we save trait in data-var or data-map?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait", version, epoch)?;
+            load_versioned(db, "trait-data-1", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_data_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we save trait in data-var or data-map?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait", version, epoch)?;
+            load_versioned(db, "trait-data-2", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("ASTError(ParseError { err: TraitReferenceNotAllowed"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_upcast_trait_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "upcast-trait-1", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_upcast_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "upcast-trait-2", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(TupleType(TupleTypeSignature { \"val\": principal,}), TupleType(TupleTypeSignature { \"val\": <S1G2081040G2081040G2081040G208105NK8PE5.math-trait.math>,}))"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_upcast_trait_3(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a trait exp where a principal type is expected?
+    // Principal can be expected in var/map/function
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "upcast-trait-3", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_return_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we return a trait from a function and use it?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "return-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_upcast_renamed(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a let-renamed trait where a principal type is expected?
+    // That is, does let-renaming affect the type?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "upcast-renamed", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(PrincipalType, CallableType"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_constant_call(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal in a constant should be callable.
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "constant-call", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_constant_to_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal in a constant should be callable.
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "constant-to-trait", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_constant_to_constant_call(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal from a constant should be treated as a principal
+    // literal (and therefore be callable)
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "constant-to-constant-call", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_literal_1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal literal returned from a function should not be castable to a
+    // trait
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-literal-1", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_literal_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal returned from a function should not be callable
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-literal-2", version, epoch)
+        })
+        .unwrap_err();
+    match version {
+        ClarityVersion::Clarity2 => assert!(err.starts_with("ExpectedCallableType(PrincipalType)")),
+        ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"principal-value\")"))
+        }
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_literal_3(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // A principal saved in a let binding should not be callable
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-literal-3", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TraitReferenceUnknown(\"p\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_trait_2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-trait-2", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_trait_3(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "downcast-trait-3", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_trait_4(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "downcast-trait-4", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_downcast_trait_5(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we use a principal exp where a trait type is expected?
+    // Principal can come from constant/var/map/function/keyword
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "downcast-trait-5", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"math\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(S1G2081040G2081040G2081040G208105NK8PE5), name: ContractName(\"math-trait\") } })), PrincipalType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_identical_trait_cast(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to a different trait with the same signature?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "empty-trait-copy", version, epoch)?;
+        load_versioned(db, "identical-trait-cast", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+        }
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_cast(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to an compatible trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "trait-cast", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_cast_incompatible(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to an incompatible trait?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "empty-trait", version, epoch)?;
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "trait-cast-incompatible", version, epoch)
+        })
+        .unwrap_err();
+    match version {
+        ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
+        }
+        ClarityVersion::Clarity2 => assert!(err.starts_with("IncompatibleTrait")),
+    }
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_renamed_trait_cast(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we cast a trait to a renaming of itself?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "renamed-trait-cast", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_readonly_use_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a trait to a read-only function?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "readonly-use-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_readonly_pass_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we pass a trait to a read-only function?
+    let result = db.execute(|db| {
+        load_versioned(db, "empty-trait", version, epoch)?;
+        load_versioned(db, "readonly-pass-trait", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+// TODO: This should be allowed
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_readonly_call_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a trait in a read-only function?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "empty-trait", version, epoch)?;
+            load_versioned(db, "readonly-call-trait", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("WriteAttemptedInReadOnly"));
+}
+
+// TODO: This should be allowed
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_readonly_static_call(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a readonly function in a separate contract from a readonly function?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "readonly-static-call", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_readonly_static_call_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a function with traits from a read-only function statically?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "readonly-static-call-trait", version, epoch)
+        })
+        .unwrap_err();
+    assert!(err.starts_with("WriteAttemptedInReadOnly"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_dyn_call_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that fully implements a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "use-math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        call_versioned(
+            db,
+            "use-math-trait",
+            "add-call",
+            ".impl-math-trait u3 u5",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_dyn_call_trait_partial(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that just implements one function from a trait?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait", version, epoch)?;
+            load_versioned(db, "partial-math-trait", version, epoch)?;
+            call_versioned(
+                db,
+                "use-math-trait",
+                "add-call",
+                ".partial-math-trait u3 u5",
+                version,
+                epoch,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"sub\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_dyn_call_not_implemented(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we dynamically call a contract that doesn't implement the function call via the trait?
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "use-math-trait", version, epoch)?;
+            load_versioned(db, "empty", version, epoch)?;
+            call_versioned(
+                db,
+                "use-math-trait",
+                "add-call",
+                ".empty u3 u5",
+                version,
+                epoch,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("BadTraitImplementation(\"math\", \"add\")"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_use_principal(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract with takes a principal with a contract identifier that is not bound to a deployed contract?
+    let result = db.execute(|db| {
+        load_versioned(db, "use-principal", version, epoch)?;
+        call_versioned(db, "use-principal", "use", ".made-up", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_return_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "return-trait", version, epoch)?;
+        call_versioned(
+            db,
+            "return-trait",
+            "add-call-indirect",
+            ".impl-math-trait u3 u5",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_full_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "impl-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)?;
+        call_versioned(
+            db,
+            "use-partial-double-trait-2",
+            "call-double",
+            ".impl-double-trait-2",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_call_partial_double_trait(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we call a contract where a function returns a trait?
+    let result = db.execute(|db| {
+        load_versioned(db, "double-trait", version, epoch)?;
+        load_versioned(db, "partial-double-trait-2", version, epoch)?;
+        load_versioned(db, "use-partial-double-trait-2", version, epoch)?;
+        call_versioned(
+            db,
+            "use-partial-double-trait-2",
+            "call-double",
+            ".partial-double-trait-2",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity1 => (),
+        Err(err) if version == ClarityVersion::Clarity2 => {
+            assert!(err.starts_with("DefineTraitDuplicateMethod(\"foo\")"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_trait_recursion(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load_versioned(db, "simple-trait", version, epoch)?;
+        load_versioned(db, "impl-simple-trait", version, epoch)?;
+        load_versioned(db, "impl-simple-trait-2", version, epoch)?;
+        call_versioned(
+            db,
+            "simple-trait",
+            "call-simple",
+            ".impl-simple-trait-2",
+            version,
+            epoch,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+// Additional tests using this framework
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_principals_list_to_traits_list(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "list-of-principals", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(SequenceType(ListType"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_traits_list_to_traits_list(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "list-of-traits", version, epoch)
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_mixed_list_to_traits_list(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
+    let result = db.execute(|db| {
+        load_versioned(db, "math-trait", version, epoch)?;
+        load_versioned(db, "impl-math-trait", version, epoch)?;
+        load_versioned(db, "mixed-list", version, epoch)
+    });
+    match result {
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TypeError(SequenceType(ListType"))
+        }
+        res => panic!("got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_double_trait_method1_v1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use the first method in Clarity1?
+    let err = db
+        .execute(|db| {
+            load_versioned(
+                db,
+                "double-trait",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "impl-double-trait-2",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "use-partial-double-trait-1",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(BoolType, UIntType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_double_trait_method2_v1(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use it in Clarity1?
+    let result = db.execute(|db| {
+        load_versioned(
+            db,
+            "double-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "impl-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "use-partial-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_double_trait_method1_v1_v2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types and use the first method in Clarity1?
+    let err = db
+        .execute(|db| {
+            load_versioned(
+                db,
+                "double-trait",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "impl-double-trait-2",
+                ClarityVersion::Clarity1,
+                StacksEpochId::Epoch21,
+            )?;
+            load_versioned(
+                db,
+                "use-partial-double-trait-1",
+                ClarityVersion::Clarity2,
+                StacksEpochId::Epoch21,
+            )
+        })
+        .unwrap_err();
+    assert!(err.starts_with("TypeError(BoolType, UIntType)"));
+}
+
+#[apply(test_clarity_versions_contracts)]
+fn clarity_trait_experiments_double_trait_method2_v1_v2(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    // Can we define a trait with two methods with the same name and different
+    // types in Clarity1, then use it in Clarity2?
+    let result = db.execute(|db| {
+        load_versioned(
+            db,
+            "double-trait",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "impl-double-trait-2",
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch21,
+        )?;
+        load_versioned(
+            db,
+            "use-partial-double-trait-2",
+            ClarityVersion::Clarity2,
+            StacksEpochId::Epoch21,
+        )
+    });
+    match result {
+        Ok(_) => (),
+        res => panic!("expected success, got {:?}", res),
+    };
 }

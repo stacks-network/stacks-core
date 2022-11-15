@@ -123,7 +123,7 @@ pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 100;
 pub const BITCOIN_REGTEST_STACKS_2_05_BURN_HEIGHT: u64 = 120;
 pub const BITCOIN_REGTEST_STACKS_21_BURN_HEIGHT: u64 = 140;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+    "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 
 pub const FIRST_STACKS_BLOCK_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
 pub const EMPTY_MICROBLOCK_PARENT_HASH: BlockHeaderHash = BlockHeaderHash([0u8; 32]);
@@ -381,9 +381,13 @@ pub trait StacksEpochExtension {
     #[cfg(test)]
     fn unit_test_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
     #[cfg(test)]
+    fn unit_test_2_05_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    #[cfg(test)]
     fn unit_test_pre_2_05(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
     #[cfg(test)]
     fn unit_test_2_1(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
+    #[cfg(test)]
+    fn unit_test_2_1_only(epoch_2_0_block_height: u64) -> Vec<StacksEpoch>;
     fn all(
         epoch_2_0_block_height: u64,
         epoch_2_05_block_height: u64,
@@ -456,6 +460,44 @@ impl StacksEpochExtension for StacksEpoch {
     }
 
     #[cfg(test)]
+    fn unit_test_2_05_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: first_burnchain_height,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost {
+                    write_length: 205205,
+                    write_count: 205205,
+                    read_length: 205205,
+                    read_count: 205205,
+                    runtime: 205205,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+        ]
+    }
+
+    #[cfg(test)]
     fn unit_test_2_1(first_burnchain_height: u64) -> Vec<StacksEpoch> {
         info!(
             "StacksEpoch unit_test first_burn_height = {}",
@@ -493,6 +535,57 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: first_burnchain_height + 8,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost {
+                    write_length: 210210,
+                    write_count: 210210,
+                    read_length: 210210,
+                    read_count: 210210,
+                    runtime: 210210,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+        ]
+    }
+
+    #[cfg(test)]
+    fn unit_test_2_1_only(first_burnchain_height: u64) -> Vec<StacksEpoch> {
+        info!(
+            "StacksEpoch unit_test first_burn_height = {}",
+            first_burnchain_height
+        );
+
+        vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: ExecutionCost {
+                    write_length: 205205,
+                    write_count: 205205,
+                    read_length: 205205,
+                    read_count: 205205,
+                    runtime: 205205,
+                },
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: first_burnchain_height,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost {
                     write_length: 210210,

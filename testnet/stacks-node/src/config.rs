@@ -572,6 +572,7 @@ impl Config {
                         .pox_sync_sample_secs
                         .unwrap_or(default_node_config.pox_sync_sample_secs),
                     use_test_genesis_chainstate: node.use_test_genesis_chainstate,
+                    always_use_affirmation_maps: node.always_use_affirmation_maps.unwrap_or(false),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1323,6 +1324,7 @@ pub struct NodeConfig {
     pub marf_defer_hashing: bool,
     pub pox_sync_sample_secs: u64,
     pub use_test_genesis_chainstate: Option<bool>,
+    pub always_use_affirmation_maps: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1597,6 +1599,7 @@ impl NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
+            always_use_affirmation_maps: false,
         }
     }
 
@@ -1796,6 +1799,7 @@ pub struct NodeConfigFile {
     pub marf_defer_hashing: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
+    pub always_use_affirmation_maps: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Debug)]

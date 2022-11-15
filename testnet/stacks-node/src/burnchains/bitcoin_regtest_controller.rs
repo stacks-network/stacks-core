@@ -43,6 +43,7 @@ use stacks::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+#[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
@@ -55,9 +56,11 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-use stacks_common::deps_common::bitcoin::network::serialize::{
-    deserialize as btc_deserialize, RawEncoder,
-};
+
+#[cfg(test)]
+use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
+
+use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 
 use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
@@ -465,6 +468,7 @@ impl BitcoinRegtestController {
             if !self.should_keep_running() {
                 return Err(BurnchainControllerError::CoordinatorClosed);
             }
+
             match burnchain.sync_with_indexer(
                 &mut self.indexer,
                 coordinator_comms.clone(),
@@ -674,6 +678,12 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
+        test_debug!(
+            "Get UTXOs for {} ({}) rbf={}",
+            pubk.to_hex(),
+            addr2str(&address),
+            self.allow_rbf
+        );
         let filter_addresses = vec![addr2str(&address)];
 
         let mut utxos = loop {
@@ -844,6 +854,7 @@ impl BitcoinRegtestController {
             BlockstackOperationType::LeaderBlockCommit(_)
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
+            | BlockstackOperationType::DelegateStx(_)
             | BlockstackOperationType::UserBurnSupport(_) => {
                 unimplemented!();
             }
@@ -1155,7 +1166,7 @@ impl BitcoinRegtestController {
             }
         }
 
-        // Did a re-org occurred since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
+        // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
         let mut traversal_depth = 0;
         let mut burn_chain_tip = burnchain_db.get_canonical_chain_tip().ok()?;
         let mut found_last_mined_at = false;
@@ -1165,9 +1176,12 @@ impl BitcoinRegtestController {
                 break;
             }
 
-            let parent = burnchain_db
-                .get_burnchain_block(&burn_chain_tip.parent_block_hash)
-                .ok()?;
+            let parent = BurnchainDB::get_burnchain_block(
+                &burnchain_db.conn(),
+                &burn_chain_tip.parent_block_hash,
+            )
+            .ok()?;
+
             burn_chain_tip = parent.header;
             traversal_depth += 1;
         }
@@ -1683,6 +1697,7 @@ impl BitcoinRegtestController {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
+            BlockstackOperationType::DelegateStx(_payload) => unimplemented!(),
         };
 
         transaction.map(|tx| SerializedTx::new(tx))
@@ -1888,7 +1903,7 @@ impl SerializedTx {
         self.txid.clone()
     }
 
-    fn to_hex(&self) -> String {
+    pub fn to_hex(&self) -> String {
         let formatted_bytes: Vec<String> =
             self.bytes.iter().map(|b| format!("{:02x}", b)).collect();
         format!("{}", formatted_bytes.join(""))
