@@ -1348,7 +1348,7 @@ fn test_bitwise() {
         Ok(Value::Int(24)),     // (bit-and 28 24 -1)
         Ok(Value::Int(-8)),     // (bit-xor 1 2 4 -1)
         Ok(Value::UInt(0)),     // (bit-shift-right u123 u9999999999)
-        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)),//170141183460469231731687303715884105728)),     // (bit-shift-left u123 u9999999999)
+        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)),     // (bit-shift-left u123 u9999999999)
         Ok(Value::UInt(1877205991569831745807614120560689150)),
         Ok(Value::UInt(130729942995661611608235082407192018816)),
         Ok(Value::UInt(u128::MAX - 1)), // (bit-shift-left u340282366920938463463374607431768211455 u1)
