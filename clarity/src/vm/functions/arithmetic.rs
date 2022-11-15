@@ -484,7 +484,7 @@ pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
 
 pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let shamt = u32::try_from(u128_val & 0xffffffff)
+        let shamt = u32::try_from(u128_val & 0x7f)
             .expect("FATAL: lower 32 bits did not convert to u32");
 
         match input {
@@ -513,7 +513,7 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
 
 pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let shamt = u32::try_from(u128_val & 0xffffffff)
+        let shamt = u32::try_from(u128_val & 0x7f)
             .expect("FATAL: lower 32 bits did not convert to u32");
 
         match input {

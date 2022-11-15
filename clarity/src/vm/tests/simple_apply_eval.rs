@@ -1319,6 +1319,7 @@ fn test_bitwise() {
         "(bit-shift-right -5 u2)",            // -2
         "(bit-shift-left 123 u9999999999)",  // -170141183460469231731687303715884105728
         "(bit-shift-right 123 u9999999999)",  // 0
+        "(bit-shift-left -64 u121)",           // -170141183460469231731687303715884105728
     ];
 
     let expectations: &[Result<Value, Error>] = &[
@@ -1347,18 +1348,19 @@ fn test_bitwise() {
         Ok(Value::Int(24)),     // (bit-and 28 24 -1)
         Ok(Value::Int(-8)),     // (bit-xor 1 2 4 -1)
         Ok(Value::UInt(0)),     // (bit-shift-right u123 u9999999999)
-        Ok(Value::UInt(170141183460469231731687303715884105728)),     // (bit-shift-left u123 u9999999999)
+        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)),//170141183460469231731687303715884105728)),     // (bit-shift-left u123 u9999999999)
         Ok(Value::UInt(1877205991569831745807614120560689150)),
         Ok(Value::UInt(130729942995661611608235082407192018816)),
-        Ok(Value::UInt(340282366920938463463374607431768211454)), // (bit-shift-left u340282366920938463463374607431768211455 u1)
+        Ok(Value::UInt(u128::MAX - 1)), // (bit-shift-left u340282366920938463463374607431768211455 u1)
         Ok(Value::Int(-128)),   // (bit-shift-left -1 7)
         Ok(Value::Int(-1)),     // (bit-shift-left -1 128)
         Ok(Value::Int(-1)),     // (bit-shift-right -128 u7)
         Ok(Value::Int(-128)),   // (bit-shift-right -256 64)
         Ok(Value::Int(1)),      // (bit-shift-right 5 u2)
         Ok(Value::Int(-2)),     // (bit-shift-right -5 u2)
-        Ok(Value::Int(-170141183460469231731687303715884105728)),      // (bit-shift-left 123 u9999999999)
+        Ok(Value::Int(i128::MIN)),      // (bit-shift-left 123 u9999999999)
         Ok(Value::Int(0)),      // (bit-shift-right 123 u9999999999)
+        Ok(Value::Int(i128::MIN)),      // (bit-shift-left -64 u121)
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
