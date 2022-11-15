@@ -149,10 +149,10 @@ define_named_enum!(ClarityCostFunction {
     StxTransferMemo("cost_stx_transfer_memo"),
     ReplaceAt("cost_replace_at"),
     AsContract("cost_as_contract"),
-    Unimplemented("cost_unimplemented"),
     BitwiseAnd("cost_bitwise_and"),
     BitwiseOr("cost_bitwise_or"),
     BitwiseNot("cost_bitwise_not"),
     BitwiseLShift("cost_bitwise_left_shift"),
     BitwiseRShift("cost_bitwise_right_shift"),
+    Unimplemented("cost_unimplemented"),
 });
