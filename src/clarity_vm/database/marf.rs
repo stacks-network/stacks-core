@@ -118,6 +118,13 @@ impl MarfedKV {
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
         path.push(to_hex(&random_bytes));
 
+        debug!(
+            "Temporary MARF path at {}",
+            &path
+                .to_str()
+                .expect("FATAL: non-UTF-8 character in filename")
+        );
+
         let marf = MarfedKV::setup_db(
             path.to_str()
                 .expect("Inexplicably non-UTF-8 character in filename"),
