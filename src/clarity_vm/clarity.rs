@@ -799,7 +799,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
             // epoch initialization is *free*.
-            // NOTE: this also means that cost functions won't be evaluated. 
+            // NOTE: this also means that cost functions won't be evaluated.
             // This is important because pox-2 is instantiated before costs-3.
             self.cost_track.replace(LimitedCostTracker::new_free());
 
