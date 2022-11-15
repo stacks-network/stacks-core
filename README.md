@@ -107,7 +107,7 @@ Run the tests:
 cargo test testnet  -- --test-threads=1
 ```
 
-_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you check out the repository to avoid any potential issues._
+_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you clone the repository to avoid any potential issues. This is due to the Clarity language currently being sensitive to line endings._
 
 ### Encode and sign transactions
 
