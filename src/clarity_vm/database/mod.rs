@@ -671,10 +671,6 @@ impl ClarityBackingStore for MemoryBackingStore {
         }
     }
 
-    fn get_confirmed_block_id(&self) -> StacksBlockId {
-        StacksBlockId::sentinel()
-    }
-
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
         StacksBlockId::sentinel()
     }

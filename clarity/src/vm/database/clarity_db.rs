@@ -757,11 +757,21 @@ impl<'a> ClarityDatabase<'a> {
     /// block height (i.e. that returned by `get_index_block_header_hash` for
     /// `get_current_block_height`).
     pub fn get_current_burnchain_block_height(&mut self) -> u32 {
-        let last_mined_bhh = self.store.get_confirmed_block_id();
+        let cur_stacks_height = self.store.get_current_block_height();
+        let last_mined_bhh = if cur_stacks_height == 0 {
+            return self.burn_state_db.get_burn_start_height();
+        } else {
+            self.get_index_block_header_hash(
+                cur_stacks_height
+                    .checked_sub(1)
+                    .expect("BUG: cannot eval burn-block-height in boot code"),
+            )
+        };
+
         self.get_burnchain_block_height(&last_mined_bhh)
             .expect(&format!(
-                "Block header hash '{}' must return a burnchain block height",
-                &last_mined_bhh,
+                "Block header hash '{}' must return for provided stacks block height {}",
+                &last_mined_bhh, cur_stacks_height
             ))
     }
 
