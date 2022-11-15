@@ -85,7 +85,7 @@ The first step is to ensure that you have Rust and the support software installe
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-_For building on Windows, follow the rustup installer instructions at https://rustup.rs/_
+_For building on Windows, follow the rustup installer instructions at https://rustup.rs/._
 
 From there, you can clone this repository:
 
@@ -106,6 +106,8 @@ Run the tests:
 ```bash
 cargo test testnet  -- --test-threads=1
 ```
+
+_On Windows, many tests will fail if the line endings aren't `LF`. Please ensure that you are have git's `core.autocrlf` set to `input` when you check out the repository to avoid any potential issues._
 
 ### Encode and sign transactions
 
