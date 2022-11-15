@@ -47,7 +47,7 @@ lazy_static! {
         *STANDARD_PRINCIPAL_REGEX_STRING, *CONTRACT_PRINCIPAL_REGEX_STRING
     );
     pub static ref CLARITY_NAME_REGEX_STRING: String =
-        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*^~&|]$|^<[=<]?$|^>[=>]?$".into();
+        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
         Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap();
     pub static ref CONTRACT_NAME_REGEX: Regex =
