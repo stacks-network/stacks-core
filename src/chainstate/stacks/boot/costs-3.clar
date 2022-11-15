@@ -597,7 +597,7 @@
 
 (define-read-only (cost_burn_block_info (n uint))
     {
-        runtime: u102965,
+        runtime: u98376,
         write_length: u0,
         write_count: u0,
         read_count: u1,
