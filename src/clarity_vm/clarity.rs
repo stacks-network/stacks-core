@@ -447,6 +447,99 @@ impl ClarityInstance {
         conn
     }
 
+    /// begin a genesis block with the default cost contract
+    ///  used in testing + benchmarking
+    pub fn begin_test_genesis_block_2_1<'a, 'b>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let writable = self.datastore.begin(current, next);
+
+        let epoch = GENESIS_EPOCH;
+
+        let cost_track = Some(LimitedCostTracker::new_free());
+
+        let mut conn = ClarityBlockConnection {
+            datastore: writable,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch,
+        };
+
+        let use_mainnet = self.mainnet;
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    BOOT_CODE_COSTS_2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    BOOT_CODE_COSTS_3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    BOOT_CODE_COSTS_3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &*POX_2_TESTNET_CODE,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    &*POX_2_TESTNET_CODE,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn
+    }
+
     pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) {
         let datastore = self.datastore.begin_unconfirmed(block);
         datastore.rollback_unconfirmed()
