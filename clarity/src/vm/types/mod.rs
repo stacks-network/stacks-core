@@ -259,6 +259,15 @@ impl SequenceData {
         }
     }
 
+    pub fn element_size(&self) -> u32 {
+        match self {
+            SequenceData::Buffer(..) => TypeSignature::min_buffer().size(),
+            SequenceData::List(ref data) => data.type_signature.get_list_item_type().size(),
+            SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii().size(),
+            SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8().size(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match &self {
             SequenceData::Buffer(data) => data.items().len(),
