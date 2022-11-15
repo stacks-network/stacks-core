@@ -1754,6 +1754,7 @@ impl<'a> ClarityDatabase<'a> {
         let stx_balance = self.get_account_stx_balance(principal);
         let cur_burn_height = self.get_current_burnchain_block_height() as u64;
 
+        /*
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
             stx_balance.amount_unlocked(),
@@ -1762,7 +1763,7 @@ impl<'a> ClarityDatabase<'a> {
             cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
-
+        */
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
 
@@ -1773,6 +1774,7 @@ impl<'a> ClarityDatabase<'a> {
         let stx_balance = self.get_account_stx_balance(principal);
         let cur_burn_height = 0;
 
+        /*
         test_debug!("Balance of {} (raw={},locked={},unlock-height={},current-height={}) is {} (has_unlockable_tokens_at_burn_block={})",
             principal,
             stx_balance.amount_unlocked(),
@@ -1781,7 +1783,7 @@ impl<'a> ClarityDatabase<'a> {
             cur_burn_height,
             stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height()),
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height()));
-
+        */
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
 

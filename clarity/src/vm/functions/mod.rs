@@ -178,6 +178,9 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
     ReplaceAt("replace-at?", ClarityVersion::Clarity2),
+    // specific to benchmarking
+    NoOp("no-op", ClarityVersion::Clarity1),
+    ContractCallBench("contract-call-bench?", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
