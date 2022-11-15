@@ -274,9 +274,12 @@ fn get_stacks_header_column<F, R>(
 where
     F: FnOnce(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = &[&column_name.to_string(), id_bhh];
+    let args: &[&dyn ToSql] = &[id_bhh];
     conn.query_row(
-        "SELECT ? FROM block_headers WHERE index_block_hash = ?",
+        &format!(
+            "SELECT {} FROM block_headers WHERE index_block_hash = ?",
+            column_name
+        ),
         args,
         |x| Ok(loader(x)),
     )
@@ -296,9 +299,12 @@ fn get_miner_column<F, R>(
 where
     F: FnOnce(&Row) -> R,
 {
-    let args: &[&dyn ToSql] = &[&column_name.to_string(), id_bhh];
+    let args: &[&dyn ToSql] = &[id_bhh];
     conn.query_row(
-        "SELECT ? FROM payments WHERE index_block_hash = ? AND miner = 1",
+        &format!(
+            "SELECT {} FROM payments WHERE index_block_hash = ? AND miner = 1",
+            column_name
+        ),
         args,
         |x| Ok(loader(x)),
     )
@@ -671,10 +677,6 @@ impl ClarityBackingStore for MemoryBackingStore {
         } else {
             None
         }
-    }
-
-    fn get_confirmed_block_id(&self) -> StacksBlockId {
-        StacksBlockId::sentinel()
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {

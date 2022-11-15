@@ -204,7 +204,6 @@ impl MarfedKV {
             .clone();
 
         WritableMarfStore {
-            current_tip: current.clone(),
             chain_tip,
             marf: tx,
         }
@@ -226,7 +225,6 @@ impl MarfedKV {
             .clone();
 
         WritableMarfStore {
-            current_tip: current.clone(),
             chain_tip,
             marf: tx,
         }
@@ -254,11 +252,6 @@ impl MarfedKV {
 }
 
 pub struct WritableMarfStore<'a> {
-    /// this is the `current` argument to MarfedKV::begin(). It's the hash of the parent block, and
-    /// is used to load up confirmed state.
-    current_tip: StacksBlockId,
-    /// this is the `next` argument to MarfedKV::begin(). It's usually the miner hash (which is a
-    /// constant).
     chain_tip: StacksBlockId,
     marf: MarfTransaction<'a, StacksBlockId>,
 }
@@ -358,10 +351,6 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                 panic!("{}", &msg);
             }
         }
-    }
-
-    fn get_confirmed_block_id(&self) -> StacksBlockId {
-        self.chain_tip.clone()
     }
 
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
@@ -652,10 +641,6 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                 panic!("{}", &msg);
             }
         }
-    }
-
-    fn get_confirmed_block_id(&self) -> StacksBlockId {
-        self.current_tip.clone()
     }
 
     fn put_all(&mut self, items: Vec<(String, String)>) {
