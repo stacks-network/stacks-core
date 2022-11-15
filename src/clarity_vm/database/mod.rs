@@ -25,6 +25,7 @@ use crate::chainstate::stacks::Error as ChainstateError;
 use crate::types::chainstate::StacksBlockId;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 use crate::types::chainstate::{StacksAddress, VRFSeed};
+use crate::util::vrf::VRFProof;
 
 use crate::core::StacksEpoch;
 use crate::core::StacksEpochId;
@@ -82,7 +83,8 @@ impl<'a> HeadersDB for HeadersDBConn<'a> {
 
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_column(self.0, id_bhh, "proof", |r| {
-            VRFSeed::from_column(r, "proof").expect("FATAL: malformed proof")
+            let proof = VRFProof::from_column(r, "proof").expect("FATAL: malformed proof");
+            VRFSeed::from_proof(&proof)
         })
     }
 
@@ -155,7 +157,8 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
 
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_column(self.deref().deref(), id_bhh, "proof", |r| {
-            VRFSeed::from_column(r, "proof").expect("FATAL: malformed proof")
+            let proof = VRFProof::from_column(r, "proof").expect("FATAL: malformed proof");
+            VRFSeed::from_proof(&proof)
         })
     }
 
@@ -231,7 +234,8 @@ impl HeadersDB for MARF<StacksBlockId> {
 
     fn get_vrf_seed_for_block(&self, id_bhh: &StacksBlockId) -> Option<VRFSeed> {
         get_stacks_header_column(self.sqlite_conn(), id_bhh, "proof", |r| {
-            VRFSeed::from_column(r, "proof").expect("FATAL: malformed proof")
+            let proof = VRFProof::from_column(r, "proof").expect("FATAL: malformed proof");
+            VRFSeed::from_proof(&proof)
         })
     }
 
