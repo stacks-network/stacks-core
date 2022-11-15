@@ -24,8 +24,6 @@ use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::codec::StacksMessageCodec;
 use crate::util_lib::db::Error as DatabaseError;
 
-use crate::clarity_vm::database::get_stacks_header_info;
-
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
 /// The Clarity VM and type checker do not "know" to begin/commit the block they are currently processing:
