@@ -24,7 +24,7 @@ use std::convert::TryFrom;
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
-use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype};
+use crate::vm::types::signatures::{CallableSubtype, SequenceSubtype, FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -800,14 +800,19 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
         match function {
-            Add | Subtract | Divide | Multiply => {
+            Add | Subtract | Divide | Multiply | BitwiseOr | BitwiseAnd | BitwiseXor2 => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic))
             }
             CmpGeq | CmpLeq | CmpLess | CmpGreater => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison))
             }
-            Sqrti | Log2 => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
-            Modulo | Power | BitwiseXOR => {
+            Sqrti | Log2 | BitwiseNot => Simple(SimpleNativeFunction(FunctionType::ArithmeticUnary)),
+            BitwiseLShift | BitwiseRShift => Simple(SimpleNativeFunction(FunctionType::Binary(
+                FunctionArgSignature::Union(vec![ TypeSignature::IntType, TypeSignature::UIntType ]),
+                FunctionArgSignature::Single(TypeSignature::UIntType),
+                FunctionReturnsSignature::TypeOfArgAtPosition(0)
+            ))),
+            Modulo | Power | BitwiseXor => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary))
             }
             And | Or => Simple(SimpleNativeFunction(FunctionType::Variadic(

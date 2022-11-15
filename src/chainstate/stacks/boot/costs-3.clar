@@ -195,6 +195,21 @@
 (define-read-only (cost_div (n uint))
     (runtime (linear n u13 u125)))
 
+(define-read-only (cost_bitwise_and (n uint))
+    (runtime (linear n u13 u125)))
+
+(define-read-only (cost_bitwise_or (n uint))
+    (runtime (linear n u13 u125)))
+
+(define-read-only (cost_bitwise_not (n uint))
+    (runtime u138))
+
+(define-read-only (cost_bitwise_left_shift (n uint))
+    (runtime u138))
+
+(define-read-only (cost_bitwise_right_shift (n uint))
+    (runtime u138))
+
 (define-read-only (cost_geq (n uint))
     (runtime (linear n u7 u128)))
 
@@ -446,7 +461,7 @@
 
 (define-read-only (cost_stx_balance (n uint))
     {
-        runtime: u1712,
+        runtime: u4294,
         write_length: u0,
         write_count: u0,
         read_count: u1,
@@ -455,7 +470,7 @@
 
 (define-read-only (cost_stx_transfer (n uint))
     {
-        runtime: u1672,
+        runtime: u4640,
         write_length: u1,
         write_count: u1,
         read_count: u1,
@@ -597,7 +612,7 @@
 
 (define-read-only (cost_burn_block_info (n uint))
     {
-        runtime: u98376,
+        runtime: u96479,
         write_length: u0,
         write_count: u0,
         read_count: u1,
@@ -606,7 +621,7 @@
 
 (define-read-only (cost_stx_account (n uint))
     {
-        runtime: u2021,
+        runtime: u4654,
         write_length: u0,
         write_count: u0,
         read_count: u1,
@@ -624,7 +639,7 @@
 
 (define-read-only (cost_stx_transfer_memo (n uint))
     {
-        runtime: u1761,
+        runtime: u4709,
         write_length: u1,
         write_count: u1,
         read_count: u1,
