@@ -1667,6 +1667,7 @@ impl BlockMinerThread {
             burn_db,
             &self.burnchain,
             &OnChainRewardSetProvider(),
+            self.config.node.always_use_affirmation_maps,
         ) {
             Ok(x) => x,
             Err(e) => {
