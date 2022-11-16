@@ -18,6 +18,8 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{CostTracker, MemoryConsumer};
 use std::cmp;
 use std::convert::{TryFrom, TryInto};
+use clarity::vm::{ast, eval_all};
+use clarity::vm::ast::ASTRules;
 
 use crate::chainstate::stacks::boot::POX_1_NAME;
 use crate::chainstate::stacks::boot::POX_2_NAME;
@@ -32,13 +34,14 @@ use clarity::vm::errors::{
 };
 use clarity::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use clarity::vm::types::{
-    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, TupleData,
+    BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData, TupleData,
     TypeSignature, Value,
 };
 
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 
 use stacks_common::util::hash::Hash160;
+use crate::chainstate::stacks::address::PoxAddress;
 
 use crate::vm::costs::runtime_cost;
 
@@ -256,26 +259,94 @@ fn handle_pox_v1_api_contract_call(
     Ok(())
 }
 
+// TODO: move clarity code into event-data.clar
+fn event_data_constructor() -> String {
+    r###"
+        (define-private (get-event-info (stacker principal))
+            (let (
+                (stacker-info (stx-account stacker))
+                (total-balance (stx-get-balance stacker))
+            )
+                {
+                    ;; The principal of the stacker
+                    stacker: stacker,
+                    ;; The current available balance, as string quoted micro-STX */
+                    balance: total-balance,
+                    ;; [PoX] The amount of locked STX, as string quoted micro-STX. Zero if no tokens are locked. */
+                    locked: (get locked stacker-info),
+                    ;; [PoX] The burnchain block height of when the tokens unlock. Zero if no tokens are locked. */
+                    burnchain-unlock-height: (get unlock-height stacker-info),
+                }
+            )
+        )
+    "###.to_string()
+}
+
+fn event_data_delegate_stacks_stx() -> String {
+    r###"
+        (merge get-event-info {
+            name: "delegate-stack-stx",
+            data: {
+                lock-amount: amount-ustx,
+                unlock-burn-height: unlock-burn-height,
+                pox-addr: pox-addr,
+                start-burn-height: start-burn-ht,
+                lock-period: lock-period,
+                delegator: tx-sender,
+            }
+          })
+        )
+    "###.to_string()
+}
+
 /// Handle special cases when calling into the PoX API contract
 fn handle_pox_v2_api_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
+    args: &Vec<Value>,
     value: &Value,
 ) -> Result<()> {
     // First, generate a synthetic print event for all functions that alter stacking state
-    if function_name == "stack-stx"
-        || function_name == "delegate-stack-stx"
-        || function_name == "stack-extend"
-        || function_name == "delegate-stack-extend"
-        || function_name == "stack-increase"
-        || function_name == "delegate-stack-increase"
-        || function_name == "stack-aggregation-commit"
-    {
-        let tx_event = Environment::construct_print_transaction_event(contract_id, value);
-        if let Some(batch) = global_context.event_batches.last_mut() {
-            batch.events.push(tx_event);
+    if let Value::Response(response) = value {
+        if let Some(program_extra) = match function_name {
+            "stack-stx" => Some(event_data_delegate_stacks_stx()),
+            "delegate-stack-stx" => Some(event_data_delegate_stacks_stx()),
+            "stack-extend" => Some(event_data_delegate_stacks_stx()),
+            "delegate-stack-extend" => Some(event_data_delegate_stacks_stx()),
+            "stack-increase" => Some(event_data_delegate_stacks_stx()),
+            "delegate-stack-increate" => Some(event_data_delegate_stacks_stx()),
+            "stack-aggregation-commit" => Some(event_data_delegate_stacks_stx()),
+            _ => None
+        } {
+            let mut contract = global_context.database.get_contract(contract_id)?; // dangerous?
+            let epoch_id = global_context.epoch_id;
+            let mut program = event_data_constructor();
+            program.push_str(&program_extra);
+            match global_context.execute(|g| {
+                let parsed = ast::build_ast_with_rules(
+                    &contract_id,
+                    &program,
+                    &mut (),
+                    contract.contract_context.get_clarity_version().clone(),
+                    epoch_id,
+                    ASTRules::Typical,
+                )?
+                    .expressions;
+                eval_all(&parsed, &mut contract.contract_context, g, None)
+            }) {
+                Ok(Some(value)) => {
+                    let event_value = Value::Response(ResponseData { committed: response.committed, data: Box::from(value) });
+
+                    let tx_event = Environment::construct_print_transaction_event(contract_id, &event_value);
+                    if let Some(batch) = global_context.event_batches.last_mut() {
+                        batch.events.push(tx_event);
+                    }
+                }
+                Ok(None) => warn!(""),
+                Err(err0) => warn!("")
+            }
         }
     }
 
@@ -465,6 +536,7 @@ pub fn handle_contract_call_special_cases(
     _sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
+    args: &Vec<Value>,
     result: &Value,
 ) -> Result<()> {
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
@@ -488,6 +560,7 @@ pub fn handle_contract_call_special_cases(
             sender,
             contract_id,
             function_name,
+            args,
             result,
         );
     }

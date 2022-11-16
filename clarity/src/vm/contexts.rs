@@ -1186,6 +1186,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                             self.sponsor.as_ref(),
                             contract_identifier,
                             tx_name,
+                            &args,
                             &value
                         )?;
                     }

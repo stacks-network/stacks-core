@@ -50,6 +50,8 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &QualifiedContractIdentifier,
     // the invoked function name
     &str,
+    // the function parameters
+    &Vec<Value>,
     // the result of the function call
     &Value,
 ) -> Result<()>;
