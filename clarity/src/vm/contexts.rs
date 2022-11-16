@@ -1649,6 +1649,44 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         Ok(result)
     }
 
+    /// Only use within special-case contract-call handlers
+    pub fn special_execute_read_only<F, A, E>(
+        &mut self,
+        sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        initial_context: Option<ContractContext>,
+        f: F,
+    ) -> std::result::Result<A, E>
+    where
+        E: From<crate::vm::errors::Error>,
+        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+    {
+        self.begin();
+
+        let result = {
+            let initial_context = initial_context.unwrap_or(ContractContext::new(
+                QualifiedContractIdentifier::transient(),
+                ClarityVersion::Clarity1,
+            ));
+            let mut callstack = CallStack::new();
+            let mut exec_env = Environment::new(
+                self,
+                &initial_context,
+                &mut callstack,
+                Some(sender.clone()),
+                Some(sender),
+                sponsor,
+            );
+            f(&mut exec_env)
+        };
+        self.roll_back();
+
+        match result {
+            Ok(return_value) => Ok(return_value),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn is_read_only(&self) -> bool {
         // top level context defaults to writable.
         self.read_only.last().cloned().unwrap_or(false)
