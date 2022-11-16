@@ -6097,6 +6097,7 @@ mod test {
     #[test]
     fn test_http_response_type_codec() {
         let test_neighbors_info = RPCNeighborsInfo {
+            bootstrap: vec![],
             sample: vec![
                 RPCNeighbor {
                     network_id: 1,
@@ -6731,6 +6732,7 @@ mod test {
             ) => assert_eq!(
                 neighbors_data,
                 RPCNeighborsInfo {
+                    bootstrap: vec![],
                     sample: vec![],
                     inbound: vec![],
                     outbound: vec![]
