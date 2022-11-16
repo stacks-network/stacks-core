@@ -138,9 +138,9 @@ secret key, the corresponding public key, and the corresponding P2PKH Stacks add
 
 const ADDRESSES_USAGE: &str = "blockstack-cli (options) addresses [secret-key-hex]
 
-The addresses command calculates both the Bitcoin and Stacks addresses from a secret key.
-If successful, this command outputs both the Bitcoin and Stacks addresses to stdout, formatted
-as JSON, and exits with code 0.";
+The addresses command calculates both the Bitcoin address, Stacks addresses, and hexadecimal public
+key from a secret key.  If successful, this command outputs both the Bitcoin and Stacks addresses
+to stdout, formatted as JSON, and exits with code 0.";
 
 const DECODE_TRANSACTION_USAGE: &str =
     "blockstack-cli (options) decode-tx [transaction-hex-or-stdin]
@@ -623,9 +623,12 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     Ok(format!(
         "{{
     \"STX\": \"{}\",
-    \"BTC\": \"{}\"
+    \"BTC\": \"{}\",
+    \"public-key\": \"{}\"
 }}",
-        &stx_address, &b58_address_string
+        &stx_address,
+        &b58_address_string,
+        &pk.to_hex(),
     ))
 }
 
