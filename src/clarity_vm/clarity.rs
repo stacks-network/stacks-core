@@ -23,8 +23,9 @@ use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
 use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
 use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, POX_2_NAME,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, POX_2_NAME,
 };
 use crate::chainstate::stacks::db::StacksAccount;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -446,6 +447,99 @@ impl ClarityInstance {
         conn
     }
 
+    /// begin a genesis block with the default cost contract
+    ///  used in testing + benchmarking
+    pub fn begin_test_genesis_block_2_1<'a, 'b>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let writable = self.datastore.begin(current, next);
+
+        let epoch = GENESIS_EPOCH;
+
+        let cost_track = Some(LimitedCostTracker::new_free());
+
+        let mut conn = ClarityBlockConnection {
+            datastore: writable,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch,
+        };
+
+        let use_mainnet = self.mainnet;
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-2", use_mainnet),
+                    ClarityVersion::Clarity1,
+                    &ast,
+                    BOOT_CODE_COSTS_2,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    BOOT_CODE_COSTS_3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("costs-3", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    BOOT_CODE_COSTS_3,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn.as_transaction(|clarity_db| {
+            let (ast, _analysis) = clarity_db
+                .analyze_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &*POX_2_TESTNET_CODE,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &boot_code_id("pox-2", use_mainnet),
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    &*POX_2_TESTNET_CODE,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+        });
+
+        conn
+    }
+
     pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) {
         let datastore = self.datastore.begin_unconfirmed(block);
         datastore.rollback_unconfirmed()
@@ -797,7 +891,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
-            // epoch initialization is *free*
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            // This is important because pox-2 is instantiated before costs-3.
             self.cost_track.replace(LimitedCostTracker::new_free());
 
             let mainnet = self.mainnet;
@@ -845,8 +941,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 stx_balance: STXBalance::zero(),
             };
 
-            // instantiate PoX 2 contract...
-
+            /////////////////// .pox-2 ////////////////////////
             let pox_2_code = if mainnet {
                 &*POX_2_MAINNET_CODE
             } else {
@@ -922,6 +1017,56 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             {
                 panic!(
                     "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
+                    &initialization_receipt
+                );
+            }
+
+            /////////////////// .costs-3 ////////////////////////
+            let cost_3_code = &*BOOT_CODE_COSTS_3;
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_3_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_3_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            let costs_3_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 2.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch21;
+
+                // initialize with a synthetic transaction
+                debug!("Instantiate .costs-3 contract");
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_3_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process costs-3 contract initialization");
+
+                receipt
+            });
+
+            if initialization_receipt.result != Value::okay_true()
+                || initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 3 contract initialization: {:#?}",
                     &initialization_receipt
                 );
             }

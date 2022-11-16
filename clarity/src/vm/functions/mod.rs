@@ -39,6 +39,8 @@ use stacks_common::util::hash;
 use crate::types::chainstate::StacksAddress;
 use crate::vm::callables::cost_input_sized_vararg;
 
+use stacks_common::types::StacksEpochId;
+
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
         pub fn $Name(
@@ -88,7 +90,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Power("pow", ClarityVersion::Clarity1),
     Sqrti("sqrti", ClarityVersion::Clarity1),
     Log2("log2", ClarityVersion::Clarity1),
-    BitwiseXOR("xor", ClarityVersion::Clarity1),
+    BitwiseXor("xor", ClarityVersion::Clarity1),
     And("and", ClarityVersion::Clarity1),
     Or("or", ClarityVersion::Clarity1),
     Not("not", ClarityVersion::Clarity1),
@@ -172,6 +174,12 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
+    BitwiseAnd("bit-and", ClarityVersion::Clarity2),
+    BitwiseOr("bit-or", ClarityVersion::Clarity2),
+    BitwiseNot("bit-not", ClarityVersion::Clarity2),
+    BitwiseLShift("bit-shift-left", ClarityVersion::Clarity2),
+    BitwiseRShift("bit-shift-right", ClarityVersion::Clarity2),
+    BitwiseXor2("bit-xor", ClarityVersion::Clarity2),
     Slice("slice?", ClarityVersion::Clarity2),
     ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
@@ -256,7 +264,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&arithmetic::native_log2),
                 ClarityCostFunction::Log2,
             ),
-            BitwiseXOR => NativeFunction(
+            BitwiseXor => NativeFunction(
                 "native_xor",
                 NativeHandle::DoubleArg(&arithmetic::native_xor),
                 ClarityCostFunction::Xor,
@@ -283,42 +291,42 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BuffToIntLe => NativeFunction(
                 "native_buff_to_int_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_le),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::BuffToIntLe,
             ),
             BuffToUIntLe => NativeFunction(
                 "native_buff_to_uint_le",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_le),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::BuffToUIntLe,
             ),
             BuffToIntBe => NativeFunction(
                 "native_buff_to_int_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_int_be),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::BuffToIntBe,
             ),
             BuffToUIntBe => NativeFunction(
                 "native_buff_to_uint_be",
                 NativeHandle::SingleArg(&conversions::native_buff_to_uint_be),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::BuffToUIntBe,
             ),
             StringToInt => NativeFunction(
                 "native_string_to_int",
                 NativeHandle::SingleArg(&conversions::native_string_to_int),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::StringToInt,
             ),
             StringToUInt => NativeFunction(
                 "native_string_to_uint",
                 NativeHandle::SingleArg(&conversions::native_string_to_uint),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::StringToUInt,
             ),
             IntToAscii => NativeFunction(
                 "native_int_to_ascii",
                 NativeHandle::SingleArg(&conversions::native_int_to_ascii),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::IntToAscii,
             ),
             IntToUtf8 => NativeFunction(
                 "native_int_to_utf8",
                 NativeHandle::SingleArg(&conversions::native_int_to_utf8),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::IntToUtf8,
             ),
             IsStandard => SpecialFunction("special_is_standard", &principals::special_is_standard),
             PrincipalDestruct => SpecialFunction(
@@ -511,15 +519,46 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ),
             StxBurn => SpecialFunction("special_stx_burn", &assets::special_stx_burn),
             StxGetAccount => SpecialFunction("stx_get_account", &assets::special_stx_account),
-            ToConsensusBuff => NativeFunction(
+            ToConsensusBuff => NativeFunction205(
                 "to_consensus_buff",
                 NativeHandle::SingleArg(&conversions::to_consensus_buff),
-                ClarityCostFunction::Unimplemented,
+                ClarityCostFunction::ToConsensusBuff,
+                &cost_input_sized_vararg,
             ),
             FromConsensusBuff => {
                 SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
             }
             ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
+            BitwiseAnd => NativeFunction(
+                "native_bitwise_and",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
+                ClarityCostFunction::BitwiseAnd,
+            ),
+            BitwiseOr => NativeFunction(
+                "native_bitwise_or",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_or),
+                ClarityCostFunction::BitwiseOr,
+            ),
+            BitwiseNot => NativeFunction(
+                "native_bitwise_not",
+                NativeHandle::SingleArg(&arithmetic::native_bitwise_not),
+                ClarityCostFunction::BitwiseNot,
+            ),
+            BitwiseLShift => NativeFunction(
+                "native_bitwise_left_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_left_shift),
+                ClarityCostFunction::BitwiseLShift,
+            ),
+            BitwiseRShift => NativeFunction(
+                "native_bitwise_right_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
+                ClarityCostFunction::BitwiseRShift,
+            ),
+            BitwiseXor2 => NativeFunction(
+                "native_bitwise_xor",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
+                ClarityCostFunction::Xor,
+            ),
         };
         Some(callable)
     } else {
@@ -718,6 +757,11 @@ fn special_as_contract(
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
+
+    // in epoch 2.1 and later, this has a cost
+    if *env.epoch() >= StacksEpochId::Epoch21 {
+        runtime_cost(ClarityCostFunction::AsContract, env, 0)?;
+    }
 
     // nest an environment.
     env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
