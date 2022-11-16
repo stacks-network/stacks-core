@@ -218,7 +218,7 @@ pub enum FunctionArgSignature {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionReturnsSignature {
     TypeOfArgAtPosition(usize),
-    Fixed(TypeSignature)
+    Fixed(TypeSignature),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -231,7 +231,11 @@ pub enum FunctionType {
     ArithmeticUnary,
     ArithmeticBinary,
     ArithmeticComparison,
-    Binary(FunctionArgSignature, FunctionArgSignature, FunctionReturnsSignature),
+    Binary(
+        FunctionArgSignature,
+        FunctionArgSignature,
+        FunctionReturnsSignature,
+    ),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

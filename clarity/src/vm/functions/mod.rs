@@ -557,8 +557,8 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             BitwiseXor2 => NativeFunction(
                 "native_bitwise_xor",
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
-                ClarityCostFunction::Xor
-            )
+                ClarityCostFunction::Xor,
+            ),
         };
         Some(callable)
     } else {

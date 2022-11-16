@@ -773,7 +773,7 @@ fn test_bitwise_good_checks() {
         "(bit-shift-right u1 u2)",
         "(bit-or 1 2 4)",
         "(bit-or -1 -2 4)",
-        "(bit-or u1 u2 u4)"
+        "(bit-or u1 u2 u4)",
     ];
     let expected = ["int", "uint", "int", "int", "uint", "int", "int", "uint"];
 
@@ -799,22 +799,21 @@ fn test_bitwise_bad_checks() {
         "(bit-shift-left true false)",
         "(bit-shift-right 1 1)",
         "(bit-shift-left 2 1)",
-        "(bit-or 1 2 u4)"
+        "(bit-or 1 2 u4)",
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::TypeError(IntType, UIntType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::UnionTypeError(
-            vec![IntType, UIntType], 
-            SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap())))),
+            vec![IntType, UIntType],
+            SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap()))),
+        ),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::TypeError(IntType, UIntType),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(
-            vec![IntType, UIntType],
-            BoolType),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::TypeError(UIntType, IntType),
         CheckErrors::TypeError(IntType, UIntType),

@@ -28,7 +28,9 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, BUFF_20, FunctionArgSignature, FunctionReturnsSignature};
+use crate::vm::types::signatures::{
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature, BUFF_20,
+};
 use crate::vm::types::{
     parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
     ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
@@ -467,20 +469,19 @@ impl FunctionType {
 }
 
 fn check_function_arg_signature<T: CostTracker>(
-    cost_tracker: &mut T, 
+    cost_tracker: &mut T,
     expected_sig: &FunctionArgSignature,
-     actual_type: &TypeSignature) -> CheckResult<()> 
-{
+    actual_type: &TypeSignature,
+) -> CheckResult<()> {
     match expected_sig {
         FunctionArgSignature::Single(expected_type) => {
             analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
             if !expected_type.admits_type(actual_type) {
-                return Err(CheckErrors::TypeError(
-                    expected_type.clone(), 
-                    actual_type.clone()
-                ).into());
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
             }
-        },
+        }
         FunctionArgSignature::Union(expected_types) => {
             let mut admitted = false;
             for expected_type in expected_types.iter() {
@@ -491,7 +492,11 @@ fn check_function_arg_signature<T: CostTracker>(
                 }
             }
             if !admitted {
-                return Err(CheckErrors::UnionTypeError(expected_types.clone(), actual_type.clone()).into())
+                return Err(CheckErrors::UnionTypeError(
+                    expected_types.clone(),
+                    actual_type.clone(),
+                )
+                .into());
             }
         }
     }
