@@ -19,9 +19,12 @@ use crate::vm::analysis::type_checker::TypedNativeFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::types::{FixedFunction, FunctionType, Value};
+use crate::vm::types::signatures::ASCII_40;
+use crate::vm::types::{FixedFunction, FunctionType, SequenceSubtype, StringSubtype, Value};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
+
+use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 
 pub mod contracts;
 
@@ -538,24 +541,30 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "sqrti ${1:expr-1}",
     signature: "(sqrti n)",
-    description: "Returns the largest integer that is less than or equal to the square root of `n`.  Fails on a negative numbers.",
+    description:
+        "Returns the largest integer that is less than or equal to the square root of `n`.  
+Fails on a negative numbers.
+",
     example: "(sqrti u11) ;; Returns u3
 (sqrti 1000000) ;; Returns 1000
 (sqrti u1) ;; Returns u1
 (sqrti 0) ;; Returns 0
-"
+",
 };
 
 const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
-    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    description:
+        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+down to the nearest integer. Fails on a negative numbers.
+",
     example: "(log2 u8) ;; Returns u3
 (log2 8) ;; Returns 3
 (log2 u1) ;; Returns u0
 (log2 1000) ;; Returns 9
-"
+",
 };
 
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -568,11 +577,110 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Xor"),
+    snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-xor i1 i2...)",
+    description:
+        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    example: "(bit-xor 1 2) ;; Returns 3
+(bit-xor 120 280) ;; Returns 352
+(bit-xor -128 64) ;; Returns -64
+(bit-xor u24 u4) ;; Returns u28
+(bit-xor 1 2 4 -1) ;; Returns -8
+",
+};
+
+const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise And"),
+    snippet: "bit-and ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-and i1 i2...)",
+    description: "Returns the result of bitwise and'ing a variable number of integer inputs.",
+    example: "(bit-and 24 16) ;; Returns 16
+(bit-and 28 24 -1) ;; Returns 24
+(bit-and u24 u16) ;; Returns u16
+(bit-and -128 -64) ;; Returns -128
+(bit-and 28 24 -1) ;; Returns 24
+",
+};
+
+const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Or"),
+    snippet: "bit-or ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-or i1 i2...)",
+    description:
+        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    example: "(bit-or 4 8) ;; Returns 12
+(bit-or 1 2 4) ;; Returns 7
+(bit-or 64 -32 -16) ;; Returns -16
+(bit-or u2 u4 u32) ;; Returns u38
+",
+};
+
+const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Not"),
+    snippet: "bit-not ${1:expr-1}",
+    signature: "(bit-not i1)",
+    description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
+In other words, every bit that is `1` in ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
+",
+    example: "(bit-not 3) ;; Returns -4
+(bit-not u128) ;; Returns u340282366920938463463374607431768211327
+(bit-not 128) ;; Returns -129
+(bit-not -128) ;; Returns 127
+"
+};
+
+const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Left Shift"),
+    snippet: "bit-shift-left ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-left i1 shamt)",
+    description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation.  In use cases where overflow should be detected, developers
+should use `*`, `/`, and `pow` instead of the shift operators.
+",
+    example: "(bit-shift-left 2 u1) ;; Returns 4
+(bit-shift-left 16 u2) ;; Returns 64
+(bit-shift-left -64 u1) ;; Returns -128
+(bit-shift-left u4 u2) ;; Returns u16
+(bit-shift-left 123 u9999999999) ;; Returns -170141183460469231731687303715884105728
+(bit-shift-left u123 u9999999999) ;; Returns u170141183460469231731687303715884105728
+(bit-shift-left -1 u7) ;; Returns -128
+(bit-shift-left -1 u128) ;; Returns -1
+"
+};
+
+const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Right Shift"),
+    snippet: "bit-shift-right ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-right i1 shamt)",
+    description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+When `i1` is a `uint` (unsigned), new bits are filled with zeros. When `i1` is an `int` (signed), the sign is preserved, meaning that new bits are filled with the value of the previous sign-bit.
+
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation. In use cases where overflow should be detected, developers should use `*`, `/`, and `pow` instead of the shift operators.
+",
+    example: "(bit-shift-right 2 u1) ;; Returns 1
+(bit-shift-right 128 u2) ;; Returns 32
+(bit-shift-right -64 u1) ;; Returns -32
+(bit-shift-right u128 u2) ;; Returns u32
+(bit-shift-right 123 u9999999999) ;; Returns 0
+(bit-shift-right u123 u9999999999) ;; Returns u0
+(bit-shift-right -128 u7) ;; Returns -1
+(bit-shift-right -256 u1) ;; Returns -128
+(bit-shift-right 5 u2) ;; Returns 1
+(bit-shift-right -5 u2) ;; Returns -2
+"
+};
+
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "and ${1:expr-1} ${2:expr-2}",
     signature: "(and b1 b2 ...)",
-    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function 
+short-circuits, and no subsequent arguments are evaluated.
+",
     example: "(and true false) ;; Returns false
 (and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
 (and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
@@ -583,7 +691,9 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "or ${1:expr-1} ${2:expr-2}",
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function 
+short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
@@ -683,6 +793,38 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticUnary => "int | uint".to_string(),
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
+        },
+        FunctionType::Binary(ref left_sig, ref right_sig, _) => {
+            let mut in_types: Vec<String> = Vec::new();
+            match left_sig {
+                FunctionArgSignature::Single(left) => {
+                    match right_sig {
+                        FunctionArgSignature::Single(right) => {
+                            in_types.push(format!("{}, {}", left, right));
+                        },
+                        FunctionArgSignature::Union(right_types) => {
+                            for right in right_types.iter() {
+                                in_types.push(format!("{}, {}", left, right));
+                            }
+                        }
+                    }
+                },
+                FunctionArgSignature::Union(left_types) => {
+                    for left in left_types.iter() {
+                        match right_sig {
+                            FunctionArgSignature::Single(right) => {
+                                in_types.push(format!("{}, {}", left, right));
+                            },
+                            FunctionArgSignature::Union(right_types) => {
+                                for right in right_types.iter() {
+                                    in_types.push(format!("{}, {}", left, right));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            in_types.join(" | ")
         }
     }
 }
@@ -696,6 +838,25 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         | FunctionType::ArithmeticUnary
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
+        FunctionType::Binary(left, right, ref out_sig) => match out_sig {
+            FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
+            FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
+                let arg_sig: &FunctionArgSignature;
+                match pos {
+                        0 => arg_sig = left,
+                        1 => arg_sig = right,
+                        _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                    }
+                match arg_sig {
+                    FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
+                    FunctionArgSignature::Union(arg_types) => {
+                        let out_types: Vec<String> =
+                            arg_types.iter().map(|x| format!("{}", x)).collect();
+                        out_types.join(" | ")
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -2279,7 +2440,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
         Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
-        BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, &BitwiseXor, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
         Not => make_for_simple_native(&NOT_API, &Not, name),
@@ -2354,6 +2515,12 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXor2, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &BitwiseAnd, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &BitwiseOr, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNot, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name),
     }
 }
 
@@ -2465,16 +2632,21 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, STXBalance},
+        docs::get_output_type_string,
         eval_all, execute,
-        types::PrincipalData,
+        types::{
+            signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40},
+            BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype,
+            TypeSignature,
+        },
         ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
     use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
     use stacks_common::util::hash::hex_bytes;
 
-    use super::make_all_api_reference;
     use super::make_json_api_reference;
+    use super::{get_input_type_string, make_all_api_reference};
     use crate::address::AddressHashMode;
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::Address;
@@ -2911,5 +3083,207 @@ mod test {
                 execute(expect_err).unwrap_err();
             }
         }
+    }
+
+    #[test]
+    fn test_get_input_type_string_binary() {
+        let mut result: String;
+        let ret = FunctionReturnsSignature::Fixed(TypeSignature::IntType);
+
+        let mut function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, int | uint, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Union(vec![TypeSignature::UIntType, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int | uint, uint | uint, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![TypeSignature::UIntType, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![ASCII_40, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, (string-ascii 40) | int, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int | int, principal");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::PrincipalType,
+                TypeSignature::IntType,
+            ]),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
+    }
+
+    #[test]
+    fn test_get_input_type_string_unionargs() {
+        let mut result: String;
+        let ret = TypeSignature::BoolType;
+
+        let mut function_type = FunctionType::UnionArgs(vec![TypeSignature::UIntType], ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::UnionArgs(
+            vec![TypeSignature::UIntType, TypeSignature::IntType],
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint | int");
+
+        function_type = FunctionType::UnionArgs(
+            vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ],
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint | int | principal");
+    }
+
+    #[test]
+    fn test_get_input_type_string_variadic() {
+        let mut result: String;
+        let ret = TypeSignature::BoolType;
+
+        let mut function_type = FunctionType::Variadic(TypeSignature::IntType, ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, ...");
+
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "principal, ...");
+    }
+
+    #[test]
+    fn test_get_output_type_string_binary() {
+        let mut result: String;
+        let mut function_type: FunctionType;
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::Fixed(TypeSignature::PrincipalType),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "principal");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::PrincipalType,
+                ASCII_40,
+            ]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint | principal | (string-ascii 40)");
+    }
+
+    #[test]
+    #[should_panic(expected = "Index out of range")]
+    fn test_get_output_type_string_binary_arg_at_pos_out_of_range_panics() {
+        let function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(2),
+        );
+        get_output_type_string(&function_type);
     }
 }

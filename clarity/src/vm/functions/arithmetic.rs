@@ -225,6 +225,25 @@ macro_rules! make_arithmetic_ops {
             fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
                 Self::make_value(x ^ y)
             }
+            fn bitwise_xor2(args: &[$type]) -> InterpreterResult<Value> {
+                let result = args.iter().fold(0, |acc: $type, x: &$type| (acc ^ x));
+                Self::make_value(result)
+            }
+            fn bitwise_and(args: &[$type]) -> InterpreterResult<Value> {
+                let first: $type = args[0];
+                let result = args
+                    .iter()
+                    .skip(1)
+                    .fold(first, |acc: $type, x: &$type| (acc & x));
+                Self::make_value(result)
+            }
+            fn bitwise_or(args: &[$type]) -> InterpreterResult<Value> {
+                let result = args.iter().fold(0, |acc: $type, x: &$type| (acc | x));
+                Self::make_value(result)
+            }
+            fn bitwise_not(x: $type) -> InterpreterResult<Value> {
+                Self::make_value(!x)
+            }
             fn add(args: &[$type]) -> InterpreterResult<Value> {
                 let result = args
                     .iter()
@@ -340,8 +359,26 @@ make_comparison_ops!(ASCIIOps, Vec<u8>);
 make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
+// Used for the `xor` function.
 pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
+}
+
+// Used for the `^` xor function.
+pub fn native_bitwise_xor(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_xor2, args)
+}
+
+pub fn native_bitwise_and(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_and, args)
+}
+
+pub fn native_bitwise_or(mut args: Vec<Value>) -> InterpreterResult<Value> {
+    type_force_variadic_arithmetic!(bitwise_or, args)
+}
+
+pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
+    type_force_unary_arithmetic!(bitwise_not, a)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -536,6 +573,56 @@ pub fn native_log2(n: Value) -> InterpreterResult<Value> {
 }
 pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)
+}
+
+pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+    if let Value::UInt(u128_val) = pos {
+        let shamt =
+            u32::try_from(u128_val & 0x7f).expect("FATAL: lower 32 bits did not convert to u32");
+
+        match input {
+            Value::Int(input) => {
+                let result = input.wrapping_shl(shamt);
+                Ok(Value::Int(result))
+            }
+            Value::UInt(input) => {
+                let result = input.wrapping_shl(shamt);
+                Ok(Value::UInt(result))
+            }
+            _ => Err(CheckErrors::UnionTypeError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::type_of(&input),
+            )
+            .into()),
+        }
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+    }
+}
+
+pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+    if let Value::UInt(u128_val) = pos {
+        let shamt =
+            u32::try_from(u128_val & 0x7f).expect("FATAL: lower 32 bits did not convert to u32");
+
+        match input {
+            Value::Int(input) => {
+                let result = input.wrapping_shr(shamt);
+                Ok(Value::Int(result))
+            }
+            Value::UInt(input) => {
+                let result = input.wrapping_shr(shamt);
+                Ok(Value::UInt(result))
+            }
+            _ => Err(CheckErrors::UnionTypeError(
+                vec![TypeSignature::IntType, TypeSignature::UIntType],
+                TypeSignature::type_of(&input),
+            )
+            .into()),
+        }
+    } else {
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+    }
 }
 
 pub fn native_to_uint(input: Value) -> InterpreterResult<Value> {
