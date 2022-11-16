@@ -3665,6 +3665,7 @@ pub mod test {
                 &mut sortdb,
                 &self.config.burnchain,
                 &OnChainRewardSetProvider(),
+                true,
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {
