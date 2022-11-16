@@ -2110,6 +2110,114 @@ impl StacksChainState {
         }
     }
 
+    /// Create a Clarity VM transaction connection for testing in 2.1
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_1<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block_2_1(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
+    /// Create a Clarity VM transaction connection for testing in 2.05
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_05<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,

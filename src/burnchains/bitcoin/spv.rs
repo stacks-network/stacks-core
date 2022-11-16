@@ -712,12 +712,6 @@ impl SpvClient {
             &u64_to_sql(height)?,
         ];
 
-        test_debug!(
-            "SPV: insert header {} {}: {:?}",
-            height,
-            &header.bitcoin_hash(),
-            &header
-        );
         tx.execute(sql, args)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))
             .and_then(|_x| Ok(()))
