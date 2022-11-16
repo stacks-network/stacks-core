@@ -3917,14 +3917,44 @@ impl SortitionDB {
         burnchain: &Burnchain,
         block: &BlockSnapshot,
     ) -> Result<bool, db_error> {
-        let reward_start_height = burnchain.reward_cycle_to_block_height(
+        let mut reward_start_height = burnchain.reward_cycle_to_block_height(
             burnchain
                 .block_height_to_reward_cycle(block.block_height)
-                .ok_or_else(|| db_error::NotFoundError)?,
+                .ok_or_else(|| {
+                    warn!(
+                        "block height {} does not have a reward cycle",
+                        block.block_height
+                    );
+                    db_error::NotFoundError
+                })?,
         );
+
+        // N.B. the reward cycle start height is 1 + (reward_cycle_number * reward_cycle_length),
+        // which can be bigger than block.block_height. If this is true, then we really meant the
+        // last reward cycle
+        if reward_start_height > block.block_height && block.block_height > 0 {
+            reward_start_height = burnchain.reward_cycle_to_block_height(
+                burnchain
+                    .block_height_to_reward_cycle(block.block_height - 1)
+                    .ok_or_else(|| {
+                        warn!(
+                            "block height {} does not have a reward cycle",
+                            block.block_height - 1
+                        );
+                        db_error::NotFoundError
+                    })?,
+            );
+        }
+
         let sort_id_of_start =
             get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
-                .ok_or_else(|| db_error::NotFoundError)?;
+                .ok_or_else(|| {
+                    warn!(
+                "reward start height {} (from block height {}) does not have a sortition from {}",
+                reward_start_height, block.block_height, &block.sortition_id
+            );
+                    db_error::NotFoundError
+                })?;
 
         let handle = self.index_handle(&sort_id_of_start);
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
