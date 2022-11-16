@@ -28,7 +28,9 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::{CallableSubtype, FunctionSignature, BUFF_20};
+use crate::vm::types::signatures::{
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature, BUFF_20,
+};
 use crate::vm::types::{
     parse_name_type_pairs, CallableData, FixedFunction, FunctionArg, FunctionType, ListData,
     ListTypeData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
@@ -196,6 +198,20 @@ impl FunctionType {
                     }
                 }
                 Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
+            }
+            FunctionType::Binary(left_arg_sig, right_arg_sig, return_sig) => {
+                check_argument_count(2, args)?;
+
+                let found_left_type = &args[0];
+                let found_right_type = &args[1];
+
+                check_function_arg_signature(accounting, left_arg_sig, found_left_type)?;
+                check_function_arg_signature(accounting, right_arg_sig, found_right_type)?;
+
+                match return_sig {
+                    FunctionReturnsSignature::TypeOfArgAtPosition(pos) => Ok(args[*pos].clone()),
+                    FunctionReturnsSignature::Fixed(return_type) => Ok(return_type.clone()),
+                }
             }
             FunctionType::ArithmeticVariadic
             | FunctionType::ArithmeticBinary
@@ -450,6 +466,42 @@ impl FunctionType {
         }
         Ok(returns.clone())
     }
+}
+
+fn check_function_arg_signature<T: CostTracker>(
+    cost_tracker: &mut T,
+    expected_sig: &FunctionArgSignature,
+    actual_type: &TypeSignature,
+) -> CheckResult<()> {
+    match expected_sig {
+        FunctionArgSignature::Single(expected_type) => {
+            analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
+            if !expected_type.admits_type(actual_type) {
+                return Err(
+                    CheckErrors::TypeError(expected_type.clone(), actual_type.clone()).into(),
+                );
+            }
+        }
+        FunctionArgSignature::Union(expected_types) => {
+            let mut admitted = false;
+            for expected_type in expected_types.iter() {
+                analysis_typecheck_cost(cost_tracker, expected_type, actual_type)?;
+                if expected_type.admits_type(actual_type) {
+                    admitted = true;
+                    break;
+                }
+            }
+            if !admitted {
+                return Err(CheckErrors::UnionTypeError(
+                    expected_types.clone(),
+                    actual_type.clone(),
+                )
+                .into());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Used to check if a function signature is compatible with the function
