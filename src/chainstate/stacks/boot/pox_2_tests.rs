@@ -209,8 +209,10 @@ fn check_pox_print_event(
         let args = outer_tuple
             .data_map
             .get("data")
-            .expect("The event tuple should have a field named `args`");
+            .expect("The event tuple should have a field named `data`");
         let inner_tuple = args.clone().expect_tuple();
+
+        test_debug!("Check for ops {:?}", &op_data);
         for (inner_key, inner_val) in op_data {
             assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
         }
