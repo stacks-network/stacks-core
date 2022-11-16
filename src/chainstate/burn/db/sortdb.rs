@@ -2785,28 +2785,6 @@ impl SortitionDB {
         }
     }
 
-    /// Get the height of a burnchain block hash
-    pub fn get_burnchain_block_hash_height(
-        conn: &DBConn,
-        bhh: &BurnchainHeaderHash,
-    ) -> Result<Option<u64>, db_error> {
-        let qry = "SELECT block_height FROM snapshots WHERE burn_header_hash = ?1";
-        let mut heights: Vec<u64> = query_rows(conn, qry, &[bhh])?;
-        if let Some(height) = heights.pop() {
-            for next_height in heights {
-                if height != next_height {
-                    panic!(
-                        "BUG: burnchain header hash {} has two different heights",
-                        bhh
-                    );
-                }
-            }
-            Ok(Some(height))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Get the schema version of a sortition DB, given the path to it.
     /// Returns the version string, if it exists
     pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
