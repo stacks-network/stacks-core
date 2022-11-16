@@ -458,12 +458,7 @@ impl RPCPoxInfoData {
             .ok_or_else(|| net_error::DBError(db_error::Overflow))?
             as u64;
 
-        debug!(
-            "About to see if PoX is active using tip {:?}",
-            &burnchain_tip
-        );
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
-        debug!("Checked to see if PoX is active! Used {:?}", &burnchain_tip);
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
