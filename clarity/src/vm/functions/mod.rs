@@ -90,7 +90,7 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     Power("pow", ClarityVersion::Clarity1),
     Sqrti("sqrti", ClarityVersion::Clarity1),
     Log2("log2", ClarityVersion::Clarity1),
-    BitwiseXOR("xor", ClarityVersion::Clarity1),
+    BitwiseXor("xor", ClarityVersion::Clarity1),
     And("and", ClarityVersion::Clarity1),
     Or("or", ClarityVersion::Clarity1),
     Not("not", ClarityVersion::Clarity1),
@@ -174,6 +174,12 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     StxTransferMemo("stx-transfer-memo?", ClarityVersion::Clarity2),
     StxBurn("stx-burn?", ClarityVersion::Clarity1),
     StxGetAccount("stx-account", ClarityVersion::Clarity2),
+    BitwiseAnd("bit-and", ClarityVersion::Clarity2),
+    BitwiseOr("bit-or", ClarityVersion::Clarity2),
+    BitwiseNot("bit-not", ClarityVersion::Clarity2),
+    BitwiseLShift("bit-shift-left", ClarityVersion::Clarity2),
+    BitwiseRShift("bit-shift-right", ClarityVersion::Clarity2),
+    BitwiseXor2("bit-xor", ClarityVersion::Clarity2),
     Slice("slice?", ClarityVersion::Clarity2),
     ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
@@ -258,7 +264,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::SingleArg(&arithmetic::native_log2),
                 ClarityCostFunction::Log2,
             ),
-            BitwiseXOR => NativeFunction(
+            BitwiseXor => NativeFunction(
                 "native_xor",
                 NativeHandle::DoubleArg(&arithmetic::native_xor),
                 ClarityCostFunction::Xor,
@@ -523,6 +529,36 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
             }
             ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
+            BitwiseAnd => NativeFunction(
+                "native_bitwise_and",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
+                ClarityCostFunction::BitwiseAnd,
+            ),
+            BitwiseOr => NativeFunction(
+                "native_bitwise_or",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_or),
+                ClarityCostFunction::BitwiseOr,
+            ),
+            BitwiseNot => NativeFunction(
+                "native_bitwise_not",
+                NativeHandle::SingleArg(&arithmetic::native_bitwise_not),
+                ClarityCostFunction::BitwiseNot,
+            ),
+            BitwiseLShift => NativeFunction(
+                "native_bitwise_left_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_left_shift),
+                ClarityCostFunction::BitwiseLShift,
+            ),
+            BitwiseRShift => NativeFunction(
+                "native_bitwise_right_shift",
+                NativeHandle::DoubleArg(&arithmetic::native_bitwise_right_shift),
+                ClarityCostFunction::BitwiseRShift,
+            ),
+            BitwiseXor2 => NativeFunction(
+                "native_bitwise_xor",
+                NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
+                ClarityCostFunction::Xor,
+            ),
         };
         Some(callable)
     } else {
