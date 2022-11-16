@@ -676,7 +676,7 @@ check if the associated microblocks can be downloaded
             let pox_consts = PoxConstants::mainnet_default();
 
             let result = sort_conn
-                .get_chosen_pox_anchor_check_position(
+                .get_chosen_pox_anchor_check_position_v205(
                     &eval_tip.burn_header_hash,
                     &pox_consts,
                     false,
