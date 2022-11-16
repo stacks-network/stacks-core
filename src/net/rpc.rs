@@ -120,6 +120,8 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::types::StacksPublicKeyBuffer;
 
+use crate::clarity_vm::clarity::Error as clarity_error;
+
 use crate::{
     chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT, types, util,
     util::hash::Sha256Sum, version_string,
@@ -277,15 +279,15 @@ impl RPCPoxInfoData {
             .pox_constants
             .active_pox_contract(current_burn_height);
 
-        debug!(
-            "Active PoX contract is '{}' (current_burn_height = {}, v1_unlock_height = {}",
-            &pox_contract_name, current_burn_height, burnchain.pox_constants.v1_unlock_height
-        );
-
         let contract_identifier = boot_code_id(pox_contract_name, mainnet);
         let function = "get-pox-info";
         let cost_track = LimitedCostTracker::new_free();
         let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+
+        debug!(
+            "Active PoX contract is '{}' (current_burn_height = {}, v1_unlock_height = {}",
+            &contract_identifier, current_burn_height, burnchain.pox_constants.v1_unlock_height
+        );
 
         // Note: should always be 0 unless somehow configured to start later
         let pox_1_first_cycle = burnchain
@@ -418,12 +420,23 @@ impl RPCPoxInfoData {
             reward_cycle_id as u128,
             cur_cycle_pox_contract,
         )?;
-        let next_cycle_stacked_ustx = chainstate.get_total_ustx_stacked(
-            &sortdb,
-            tip,
-            reward_cycle_id as u128 + 1,
-            next_cycle_pox_contract,
-        )?;
+        let next_cycle_stacked_ustx =
+            // next_cycle_pox_contract might not be instantiated yet
+            match chainstate.get_total_ustx_stacked(
+                &sortdb,
+                tip,
+                reward_cycle_id as u128 + 1,
+                next_cycle_pox_contract,
+            ) {
+                Ok(ustx) => ustx,
+                Err(chain_error::ClarityError(_)) => {
+                    // contract not instantiated yet
+                    0
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            };
 
         let reward_slots = pox_consts.reward_slots() as u64;
 
@@ -445,7 +458,12 @@ impl RPCPoxInfoData {
             .ok_or_else(|| net_error::DBError(db_error::Overflow))?
             as u64;
 
+        debug!(
+            "About to see if PoX is active using tip {:?}",
+            &burnchain_tip
+        );
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
+        debug!("Checked to see if PoX is active! Used {:?}", &burnchain_tip);
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_cycle_pox_contract, chainstate.mainnet).to_string(),
