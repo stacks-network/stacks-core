@@ -3001,7 +3001,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "+"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '+'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3028,7 +3028,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "-"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '-'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3047,7 +3047,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "*"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '*'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3066,7 +3066,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "/"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '/'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3085,7 +3085,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "<"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '<'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3104,7 +3104,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), "<="),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '<='"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3123,7 +3123,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">"),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '>'"),
         }
         assert_eq!(
             exprs[0].span,
@@ -3142,7 +3142,7 @@ mod tests {
         let exprs = stmts[0].match_list().unwrap();
         match &exprs[0].pre_expr {
             PreSymbolicExpressionType::Atom(cname) => assert_eq!(cname.as_str(), ">="),
-            _ => panic!("expected atom 'foo'"),
+            _ => panic!("expected atom '>='"),
         }
         assert_eq!(
             exprs[0].span,
