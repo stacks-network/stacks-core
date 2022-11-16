@@ -19,6 +19,7 @@ use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, Ru
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
+use std::cmp;
 use std::convert::TryFrom;
 
 use crate::vm::costs::runtime_cost;
@@ -345,7 +346,7 @@ pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-pub fn special_geq(
+fn special_geq_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
@@ -354,12 +355,64 @@ pub fn special_geq(
     runtime_cost(ClarityCostFunction::Geq, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
+    type_force_binary_comparison_v1!(geq, a, b)
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_geq_v2(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Geq, env, cmp::min(a.size(), b.size()))?;
+    type_force_binary_comparison_v2!(geq, a, b)
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+pub fn special_geq(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        // Only if the version is Clarity2 will we use the new comparators.
-        type_force_binary_comparison_v2!(geq, a, b)
+        special_geq_v2(args, env, context)
     } else {
-        type_force_binary_comparison_v1!(geq, a, b)
+        special_geq_v1(args, env, context)
     }
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+// 2.05 and earlier
+fn special_leq_v1(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    runtime_cost(ClarityCostFunction::Leq, env, 0)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    type_force_binary_comparison_v1!(leq, a, b)
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_leq_v2(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Leq, env, cmp::min(a.size(), b.size()))?;
+    type_force_binary_comparison_v2!(leq, a, b)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -369,15 +422,39 @@ pub fn special_leq(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_leq_v2(args, env, context)
+    } else {
+        special_leq_v1(args, env, context)
+    }
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_greater_v1(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Leq, env, 0)?;
+    runtime_cost(ClarityCostFunction::Ge, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(leq, a, b)
-    } else {
-        type_force_binary_comparison_v1!(leq, a, b)
-    }
+    type_force_binary_comparison_v1!(greater, a, b)
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_greater_v2(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size(), b.size()))?;
+    type_force_binary_comparison_v2!(greater, a, b)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -387,15 +464,39 @@ pub fn special_greater(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
+    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
+        special_greater_v2(args, env, context)
+    } else {
+        special_greater_v1(args, env, context)
+    }
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_less_v1(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Ge, env, 0)?;
+    runtime_cost(ClarityCostFunction::Le, env, 0)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(greater, a, b)
-    } else {
-        type_force_binary_comparison_v1!(greater, a, b)
-    }
+    type_force_binary_comparison_v1!(less, a, b)
+}
+
+// This function is 'special', because it must access the context to determine
+// the clarity version.
+fn special_less_v2(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    check_argument_count(2, args)?;
+    let a = eval(&args[0], env, context)?;
+    let b = eval(&args[1], env, context)?;
+    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size(), b.size()))?;
+    type_force_binary_comparison_v2!(less, a, b)
 }
 
 // This function is 'special', because it must access the context to determine
@@ -405,14 +506,10 @@ pub fn special_less(
     env: &mut Environment,
     context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    check_argument_count(2, args)?;
-    runtime_cost(ClarityCostFunction::Le, env, 0)?;
-    let a = eval(&args[0], env, context)?;
-    let b = eval(&args[1], env, context)?;
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
-        type_force_binary_comparison_v2!(less, a, b)
+        special_less_v2(args, env, context)
     } else {
-        type_force_binary_comparison_v1!(less, a, b)
+        special_less_v1(args, env, context)
     }
 }
 

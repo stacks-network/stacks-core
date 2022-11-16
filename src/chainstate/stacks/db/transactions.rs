@@ -1401,12 +1401,14 @@ pub mod test {
     use rand::Rng;
 
     use crate::burnchains::Address;
+    use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
     use crate::chainstate::stacks::Error;
     use crate::chainstate::stacks::*;
     use crate::chainstate::*;
+    use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;
     use clarity::vm::representations::ClarityName;
     use clarity::vm::representations::ContractName;
@@ -3441,7 +3443,8 @@ pub mod test {
             instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens");
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
-            let mut conn = chainstate.block_begin(
+            // make sure costs-3 is instantiated, so as-contract works in 2.1
+            let mut conn = chainstate.test_genesis_block_begin_2_1(
                 burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
@@ -4164,7 +4167,8 @@ pub mod test {
             instantiate_chainstate(false, 0x80000000, "process-post-conditions-tokens-deny");
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
-            let mut conn = chainstate.block_begin(
+            // make sure costs-3 is installed so as-contract will work in epoch 2.1
+            let mut conn = chainstate.test_genesis_block_begin_2_1(
                 burn_db,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
