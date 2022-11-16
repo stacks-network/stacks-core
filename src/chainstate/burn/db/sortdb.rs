@@ -2174,38 +2174,6 @@ impl<'a> SortitionHandleConn<'a> {
             }
         };
 
-        /*
-        let prepare_end_sortid =
-            self.get_sortition_id_for_bhh(prepare_end_bhh)?
-                .ok_or_else(|| {
-                    warn!("Missing parent"; "burn_header_hash" => %prepare_end_bhh, "sortition_tip" => %&self.context.chain_tip);
-                    BurnchainError::MissingParentBlock
-                })?;
-        let block_height = SortitionDB::get_block_height(self.deref(), &prepare_end_sortid)?
-            .expect("CORRUPTION: SortitionID known, but no block height in SQL store");
-
-        // if this block is the _end_ of a prepare phase,
-        let effective_height = block_height - self.context.first_block_height as u32;
-        let position_in_cycle = effective_height % pox_consts.reward_cycle_length;
-        if position_in_cycle != 0 {
-            debug!(
-                "effective_height = {}, reward cycle length == {}",
-                effective_height, pox_consts.reward_cycle_length
-            );
-            if check_position {
-                return Err(CoordinatorError::NotPrepareEndBlock);
-            }
-        }
-
-        if effective_height == 0 {
-            debug!(
-                "effective_height = {}, reward cycle length == {}",
-                effective_height, pox_consts.reward_cycle_length
-            );
-            return Ok(Err(0));
-        }
-        */
-
         let prepare_end = block_height;
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
