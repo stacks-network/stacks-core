@@ -223,7 +223,7 @@
     (runtime u133))
 
 (define-read-only (cost_xor (n uint))
-    (runtime u139))
+    (runtime (linear n u15 u129)))
 
 (define-read-only (cost_not (n uint))
     (runtime u138))
@@ -637,3 +637,17 @@
 (define-read-only (cost_as_contract (n uint))
     (runtime u138))
 
+(define-read-only (cost_bitwise_and (n uint))
+    (runtime (linear n u15 u129)))
+
+(define-read-only (cost_bitwise_or (n uint))
+    (runtime (linear n u15 u129)))
+
+(define-read-only (cost_bitwise_not (n uint))
+    (runtime u147))
+
+(define-read-only (cost_bitwise_left_shift (n uint))
+    (runtime u167))
+
+(define-read-only (cost_bitwise_right_shift (n uint))
+    (runtime u167))
