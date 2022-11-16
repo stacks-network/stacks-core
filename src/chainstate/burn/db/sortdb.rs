@@ -8897,43 +8897,6 @@ pub mod tests {
         );
     }
 
-    /*
-    fn make_child_commit(commit: &LeaderBlockCommitOp) -> LeaderBlockCommitOp {
-        let mut child_block_header_hash_bytes = [0u8; 32];
-        child_block_header_hash_bytes.copy_from_slice(&commit.block_header_hash.0);
-        child_block_header_hash_bytes[0..4].copy_from_slice(&(commit.block_height + 1).to_be_bytes());
-
-        let mut child_new_seed_bytes = [0u8; 32];
-        child_new_seed_bytes.copy_from_slice(&commit.new_seed.0);
-        child_new_seed_bytes[0..4].copy_from_slice(&(commit.block_height + 1).to_be_bytes());
-
-        let mut child_txid_bytes = [0u8; 32];
-        child_txid_bytes.copy_from_slice(&commit.txid.0);
-        child_txid_bytes[0..4].copy_from_slice(&(commit.block_height + 1).to_be_bytes());
-
-        LeaderBlockCommitOp {
-            sunset_burn: 0,
-            block_header_hash: BlockHeaderHash(child_block_header_hash_bytes.clone()),
-            new_seed: VRFSeed(child_new_seed_bytes),
-            parent_block_ptr: commit.block_height,
-            parent_vtxindex: commit.vtxindex,
-            key_block_ptr: commit.key_block_ptr,
-            key_vtxindex: commit.key_vtxindex,
-            memo: vec![0x80],
-            commit_outs: vec![],
-
-            burn_fee: 1,
-            input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner(format!("{}-{}-{}", &commit.apparent_sender.0, commit.key_block_ptr, commit.key_block_index)),
-            txid: Txid(child_txid_bytes),
-            vtxindex: commit.vtxindex,
-            block_height: commit.block_height + 1,
-            burn_parent_modulus: ((commit.block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
-            burn_header_hash: BurnchainHeaderHash(child_block_header_hash_bytes),
-        }
-    }
-    */
-
     #[test]
     fn test_get_chosen_pox_anchor() {
         use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
