@@ -53,6 +53,9 @@ use clarity::vm::version::ClarityVersion;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
+use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3};
+use crate::util_lib::boot::boot_code_id;
+
 #[template]
 #[rstest]
 #[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
@@ -120,14 +123,62 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
         _ => panic!("Epoch {} not covered", &epoch),
     };
 
-    clarity
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &StacksBlockId([0xfe as u8; 32]),
-            &TEST_HEADER_DB,
-            burn_db,
-        )
-        .commit_block();
+    let mut gb = clarity.begin_test_genesis_block(
+        &StacksBlockId::sentinel(),
+        &StacksBlockId([0xfe as u8; 32]),
+        &TEST_HEADER_DB,
+        burn_db,
+    );
+
+    gb.as_transaction(|tx| {
+        tx.with_clarity_db(|db| {
+            db.set_clarity_epoch_version(epoch);
+            Ok(())
+        })
+        .unwrap();
+
+        if epoch == StacksEpochId::Epoch2_05 {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
+                    &boot_code_id("costs-2", false),
+                    ClarityVersion::Clarity1,
+                    BOOT_CODE_COSTS_2,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-2", false),
+                ClarityVersion::Clarity1,
+                &ast,
+                BOOT_CODE_COSTS_2,
+                None,
+                |_, _| false,
+            )
+            .unwrap();
+        }
+
+        if epoch == StacksEpochId::Epoch21 {
+            let (ast, _analysis) = tx
+                .analyze_smart_contract(
+                    &boot_code_id("costs-3", false),
+                    ClarityVersion::Clarity2,
+                    BOOT_CODE_COSTS_3,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            tx.initialize_smart_contract(
+                &boot_code_id("costs-3", false),
+                ClarityVersion::Clarity2,
+                &ast,
+                BOOT_CODE_COSTS_3,
+                None,
+                |_, _| false,
+            )
+            .unwrap();
+        }
+    });
+
+    gb.commit_block();
 
     {
         let mut block = clarity.begin_block(

@@ -69,13 +69,14 @@ use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
-const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
+pub const BOOT_CODE_LOCKUP: &'static str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &'static str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &'static str = std::include_str!("costs-2.clar");
+pub const BOOT_CODE_COSTS_3: &'static str = std::include_str!("costs-3.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &'static str = std::include_str!("costs-2-testnet.clar");
-const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
-const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
-const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
+pub const BOOT_CODE_COST_VOTING_MAINNET: &'static str = std::include_str!("cost-voting.clar");
+pub const BOOT_CODE_BNS: &'static str = std::include_str!("bns.clar");
+pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 
@@ -85,6 +86,7 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
+pub const COSTS_3_NAME: &'static str = "costs-3";
 
 pub mod docs;
 

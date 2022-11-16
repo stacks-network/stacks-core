@@ -211,6 +211,12 @@ fn advance_to_2_1(
     // these should all succeed across the epoch 2.1 boundary
     for _i in 0..5 {
         let tip_info = get_chain_info(&conf);
+        let pox_info = get_pox_info(&http_origin);
+
+        eprintln!(
+            "\nPoX info at {}\n{:?}\n\n",
+            tip_info.burn_block_height, &pox_info
+        );
 
         // this block is the epoch transition?
         let (chainstate, _) = StacksChainState::open(
@@ -763,6 +769,15 @@ fn transition_fixes_bitcoin_rigidity() {
                 true,
             )
             .unwrap();
+
+            // costs-3 should be initialized now
+            let _ = get_contract_src(
+                &http_origin,
+                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "costs-3".to_string(),
+                true,
+            )
+            .unwrap();
         } else {
             assert!(!res);
 
@@ -775,6 +790,16 @@ fn transition_fixes_bitcoin_rigidity() {
             )
             .unwrap_err();
             eprintln!("No pox-2: {}", &e);
+
+            // costs-3 should NOT be initialized
+            let e = get_contract_src(
+                &http_origin,
+                StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
+                "costs-3".to_string(),
+                true,
+            )
+            .unwrap_err();
+            eprintln!("No costs-3: {}", &e);
         }
 
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -1750,6 +1775,23 @@ fn transition_empty_blocks() {
     conf.burnchain.epochs = Some(epochs);
 
     let keychain = Keychain::default(conf.node.seed.clone());
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let reward_cycle_len = 10;
+    let prepare_phase_len = 3;
+    let pox_constants = PoxConstants::new(
+        reward_cycle_len,
+        prepare_phase_len,
+        4 * prepare_phase_len / 5,
+        5,
+        15,
+        u64::max_value() - 2,
+        u64::max_value() - 1,
+        epoch_2_1 as u32,
+    );
+    burnchain_config.pox_constants = pox_constants.clone();
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
     btcd_controller
@@ -1757,8 +1799,12 @@ fn transition_empty_blocks() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -1769,7 +1815,8 @@ fn transition_empty_blocks() {
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
-    thread::spawn(move || run_loop.start(None, 0));
+    let runloop_burnchain_config = burnchain_config.clone();
+    thread::spawn(move || run_loop.start(Some(runloop_burnchain_config), 0));
 
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
@@ -1793,10 +1840,16 @@ fn transition_empty_blocks() {
     let mut crossed_21_boundary = false;
 
     // these should all succeed across the epoch boundary
-    for _i in 0..15 {
+    for _i in 0..30 {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
+        let pox_info = get_pox_info(&http_origin);
+
+        eprintln!(
+            "\nPoX info at {}\n{:?}\n\n",
+            tip_info.burn_block_height, &pox_info
+        );
 
         // this block is the epoch transition?
         let (chainstate, _) = StacksChainState::open(
@@ -1878,7 +1931,7 @@ fn transition_empty_blocks() {
 
     let account = get_account(&http_origin, &miner_account);
     assert!(crossed_21_boundary);
-    assert_eq!(account.nonce, 16);
+    assert!(account.nonce >= 31);
 
     channel.stop_chains_coordinator();
 }

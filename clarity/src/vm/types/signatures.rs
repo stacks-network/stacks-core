@@ -210,6 +210,18 @@ pub struct FixedFunction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FunctionArgSignature {
+    Union(Vec<TypeSignature>),
+    Single(TypeSignature),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FunctionReturnsSignature {
+    TypeOfArgAtPosition(usize),
+    Fixed(TypeSignature),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
     Fixed(FixedFunction),
@@ -219,6 +231,11 @@ pub enum FunctionType {
     ArithmeticUnary,
     ArithmeticBinary,
     ArithmeticComparison,
+    Binary(
+        FunctionArgSignature,
+        FunctionArgSignature,
+        FunctionReturnsSignature,
+    ),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
