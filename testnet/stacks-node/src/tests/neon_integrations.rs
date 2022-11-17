@@ -1172,6 +1172,7 @@ fn bad_microblock_pubkey() {
     for _i in 0..10 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
+    env::set_var("STACKS_MICROBLOCK_PUBKEY_HASH", "");
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
