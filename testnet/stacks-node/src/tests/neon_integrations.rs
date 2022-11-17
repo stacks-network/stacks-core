@@ -1150,7 +1150,6 @@ fn bad_microblock_pubkey() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
-    let _client = reqwest::blocking::Client::new();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
@@ -1167,8 +1166,11 @@ fn bad_microblock_pubkey() {
     // second block will be the first mined Stacks block
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // fault injection 
-    env::set_var("STACKS_MICROBLOCK_PUBKEY_HASH", "0000000000000000000000000000000000000000");
+    // fault injection
+    env::set_var(
+        "STACKS_MICROBLOCK_PUBKEY_HASH",
+        "0000000000000000000000000000000000000000",
+    );
     for _i in 0..10 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     }
@@ -1179,7 +1181,8 @@ fn bad_microblock_pubkey() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert!(blocks.len() <= 3);
+    assert!(blocks.len() >= 5);
+    assert!(blocks.len() <= 6);
 
     channel.stop_chains_coordinator();
     test_observer::clear();

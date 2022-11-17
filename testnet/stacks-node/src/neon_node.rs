@@ -1633,11 +1633,18 @@ impl BlockMinerThread {
             &parent_block_info.stacks_parent_header.index_block_hash(),
         );
         let mblock_pubkey_hash = {
-            let mut pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
+            let mut pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &microblock_private_key,
+            ));
             if cfg!(test) {
                 if let Ok(mblock_pubkey_hash_str) = std::env::var("STACKS_MICROBLOCK_PUBKEY_HASH") {
-                    debug!("Fault injection: set microblock public key hash to {}", &mblock_pubkey_hash_str);
-                    pubkh = Hash160::from_hex(&mblock_pubkey_hash_str).expect(&format!("Malformed fault-injected microblock public key hash '{}'", &mblock_pubkey_hash_str));
+                    if let Ok(bad_pubkh) = Hash160::from_hex(&mblock_pubkey_hash_str) {
+                        debug!(
+                            "Fault injection: set microblock public key hash to {}",
+                            &bad_pubkh
+                        );
+                        pubkh = bad_pubkh
+                    }
                 }
             }
             pubkh
@@ -2481,16 +2488,25 @@ impl RelayerThread {
 
         if let Some(miner_tip) = miner_tip.take() {
             // sanity check -- is this also the canonical tip?
-            let (stacks_tip_consensus_hash, stacks_tip_block_hash) = self.with_chainstate(|_relayer_thread, sortdb, _chainstate, _| {
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
-                    .expect("FATAL: failed to query sortition DB for canonical stacks chain tip hashes")
-            });
+            let (stacks_tip_consensus_hash, stacks_tip_block_hash) =
+                self.with_chainstate(|_relayer_thread, sortdb, _chainstate, _| {
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).expect(
+                        "FATAL: failed to query sortition DB for canonical stacks chain tip hashes",
+                    )
+                });
 
-            if miner_tip.consensus_hash != stacks_tip_consensus_hash || miner_tip.block_hash != stacks_tip_block_hash {
-                debug!("Relayer: miner tip {}/{} is NOT canonical ({}/{})", &miner_tip.consensus_hash, &miner_tip.block_hash, &stacks_tip_consensus_hash, &stacks_tip_block_hash);
+            if miner_tip.consensus_hash != stacks_tip_consensus_hash
+                || miner_tip.block_hash != stacks_tip_block_hash
+            {
+                debug!(
+                    "Relayer: miner tip {}/{} is NOT canonical ({}/{})",
+                    &miner_tip.consensus_hash,
+                    &miner_tip.block_hash,
+                    &stacks_tip_consensus_hash,
+                    &stacks_tip_block_hash
+                );
                 self.miner_tip = None;
-            }
-            else {
+            } else {
                 debug!(
                     "Relayer: Microblock miner tip is now {}/{} ({})",
                     miner_tip.consensus_hash,
