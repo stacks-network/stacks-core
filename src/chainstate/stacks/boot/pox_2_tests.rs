@@ -1763,7 +1763,7 @@ fn stack_increase() {
     assert_eq!(alice_txs.len() as u64, alice_nonce);
 
     // transaction should fail because lock isn't applied
-    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 26)");
+    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 27)");
 
     // transaction should fail because Alice doesn't have enough funds
     assert_eq!(
