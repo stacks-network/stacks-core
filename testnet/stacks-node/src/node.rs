@@ -303,12 +303,11 @@ impl Node {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-        let mut pox_constants = match config.burnchain.get_bitcoin_network() {
+        let pox_constants = match config.burnchain.get_bitcoin_network() {
             (_, BitcoinNetworkType::Mainnet) => PoxConstants::mainnet_default(),
             (_, BitcoinNetworkType::Testnet) => PoxConstants::testnet_default(),
             (_, BitcoinNetworkType::Regtest) => PoxConstants::regtest_default(),
         };
-        config.update_pox_constants(&mut pox_constants);
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -455,10 +454,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let mut burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
-        self.config
-            .update_pox_constants(&mut burnchain.pox_constants);
-
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
@@ -468,6 +464,8 @@ impl Node {
 
         let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");
+
+        Config::assert_valid_epoch_settings(&burnchain, &epochs);
 
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -598,6 +596,11 @@ impl Node {
             burnchain.pox_constants.clone(),
         )
         .expect("Error while opening sortition db");
+
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
+            .expect("FATAL: failed to read sortition DB");
+
+        Config::assert_valid_epoch_settings(&burnchain, &epochs);
 
         let cur_epoch =
             SortitionDB::get_stacks_epoch(sortdb.conn(), burnchain_tip.block_snapshot.block_height)
@@ -1047,10 +1050,7 @@ impl Node {
             ),
         };
 
-        let mut burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
-        self.config
-            .update_pox_constants(&mut burnchain.pox_constants);
-
+        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
         let commit_outs = if burnchain_tip.block_snapshot.block_height + 1
             < burnchain.pox_constants.sunset_end
             && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
