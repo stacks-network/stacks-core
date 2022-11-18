@@ -1649,12 +1649,14 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         Ok(result)
     }
 
-    /// Only use within special-case contract-call handlers
-    pub fn special_execute_read_only<F, A, E>(
+    /// Run a snippet of Clarity code in the given contract context
+    /// Only use within special-case contract-call handlers.
+    /// DO NOT CALL FROM ANYWHERE ELSE!
+    pub fn special_cc_handler_execute_read_only<F, A, E>(
         &mut self,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
-        initial_context: Option<ContractContext>,
+        contract_context: ContractContext,
         f: F,
     ) -> std::result::Result<A, E>
     where
@@ -1664,14 +1666,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.begin();
 
         let result = {
-            let initial_context = initial_context.unwrap_or(ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity1,
-            ));
+            // this right here is why it's dangerous to call this anywhere else.
+            // the call stack gets reset to empyt each time!
             let mut callstack = CallStack::new();
             let mut exec_env = Environment::new(
                 self,
-                &initial_context,
+                &contract_context,
                 &mut callstack,
                 Some(sender.clone()),
                 Some(sender),
