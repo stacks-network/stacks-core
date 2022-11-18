@@ -1632,8 +1632,23 @@ impl BlockMinerThread {
         let microblock_private_key = self.make_microblock_private_key(
             &parent_block_info.stacks_parent_header.index_block_hash(),
         );
-        let mblock_pubkey_hash =
-            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_private_key));
+        let mblock_pubkey_hash = {
+            let mut pubkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                &microblock_private_key,
+            ));
+            if cfg!(test) {
+                if let Ok(mblock_pubkey_hash_str) = std::env::var("STACKS_MICROBLOCK_PUBKEY_HASH") {
+                    if let Ok(bad_pubkh) = Hash160::from_hex(&mblock_pubkey_hash_str) {
+                        debug!(
+                            "Fault injection: set microblock public key hash to {}",
+                            &bad_pubkh
+                        );
+                        pubkh = bad_pubkh
+                    }
+                }
+            }
+            pubkh
+        };
 
         // create our coinbase
         let coinbase_tx = self.inner_generate_coinbase_tx(parent_block_info.coinbase_nonce);
@@ -2185,10 +2200,10 @@ impl RelayerThread {
     /// Return Err(..) if we couldn't reach the chains coordiantor thread
     fn process_new_block(&self) -> Result<bool, Error> {
         // process the block
+        let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
         if !self.globals.coord_comms.announce_new_stacks_block() {
             return Err(Error::CoordinatorClosed);
         }
-        let stacks_blocks_processed = self.globals.coord_comms.get_stacks_blocks_processed();
         if !self
             .globals
             .coord_comms
@@ -2471,21 +2486,44 @@ impl RelayerThread {
             self.last_tenure_consensus_hash = Some(consensus_hash);
         }
 
-        if let Some(miner_tip) = miner_tip.as_ref() {
-            debug!(
-                "Relayer: Microblock miner tip is now {}/{} ({})",
-                miner_tip.consensus_hash,
-                miner_tip.block_hash,
-                StacksBlockHeader::make_index_block_hash(
-                    &miner_tip.consensus_hash,
-                    &miner_tip.block_hash
-                )
-            );
+        if let Some(mtip) = miner_tip.take() {
+            // sanity check -- is this also the canonical tip?
+            let (stacks_tip_consensus_hash, stacks_tip_block_hash) =
+                self.with_chainstate(|_relayer_thread, sortdb, _chainstate, _| {
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).expect(
+                        "FATAL: failed to query sortition DB for canonical stacks chain tip hashes",
+                    )
+                });
 
-            self.with_chainstate(|relayer_thread, sortdb, chainstate, _mempool| {
-                Relayer::refresh_unconfirmed(chainstate, sortdb);
-                relayer_thread.globals.send_unconfirmed_txs(chainstate);
-            });
+            if mtip.consensus_hash != stacks_tip_consensus_hash
+                || mtip.block_hash != stacks_tip_block_hash
+            {
+                debug!(
+                    "Relayer: miner tip {}/{} is NOT canonical ({}/{})",
+                    &mtip.consensus_hash,
+                    &mtip.block_hash,
+                    &stacks_tip_consensus_hash,
+                    &stacks_tip_block_hash
+                );
+                miner_tip = None;
+            } else {
+                debug!(
+                    "Relayer: Microblock miner tip is now {}/{} ({})",
+                    mtip.consensus_hash,
+                    mtip.block_hash,
+                    StacksBlockHeader::make_index_block_hash(
+                        &mtip.consensus_hash,
+                        &mtip.block_hash
+                    )
+                );
+
+                self.with_chainstate(|relayer_thread, sortdb, chainstate, _mempool| {
+                    Relayer::refresh_unconfirmed(chainstate, sortdb);
+                    relayer_thread.globals.send_unconfirmed_txs(chainstate);
+                });
+
+                miner_tip = Some(mtip);
+            }
         }
 
         // update state for microblock mining
