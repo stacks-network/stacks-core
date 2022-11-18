@@ -467,7 +467,7 @@ impl BlockEventDispatcher for EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-        pox_constants: &PoxConstants
+        pox_constants: &PoxConstants,
     ) {
         self.process_chain_tip(
             block,
@@ -726,26 +726,26 @@ impl EventDispatcher {
                     .map(|event_id| (*event_id, &events[*event_id]))
                     .collect();
 
-                let payload = self.registered_observers[observer_id].make_new_block_processed_payload(
-                    filtered_events,
-                    block,
-                    metadata,
-                    receipts,
-                    parent_index_hash,
-                    &boot_receipts,
-                    &winner_txid,
-                    &mature_rewards,
-                    parent_burn_block_hash,
-                    parent_burn_block_height,
-                    parent_burn_block_timestamp,
-                    anchored_consumed,
-                    mblock_confirmed_consumed,
-                    pox_constants,
-                );
+                let payload = self.registered_observers[observer_id]
+                    .make_new_block_processed_payload(
+                        filtered_events,
+                        block,
+                        metadata,
+                        receipts,
+                        parent_index_hash,
+                        &boot_receipts,
+                        &winner_txid,
+                        &mature_rewards,
+                        parent_burn_block_hash,
+                        parent_burn_block_height,
+                        parent_burn_block_timestamp,
+                        anchored_consumed,
+                        mblock_confirmed_consumed,
+                        pox_constants,
+                    );
 
                 // Send payload
                 self.registered_observers[observer_id].send_payload(&payload, PATH_BLOCK_PROCESSED);
-
             }
         }
     }
@@ -1033,30 +1033,32 @@ impl EventDispatcher {
 
 #[cfg(test)]
 mod test {
+    use crate::event_dispatcher::EventObserver;
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
-    use stacks::chainstate::stacks::{StacksBlock};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
+    use stacks::chainstate::stacks::StacksBlock;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
-    use crate::event_dispatcher::EventObserver;
 
     #[test]
     fn build_block_processed_event() {
-        let observer = EventObserver { endpoint: "nowhere".to_string() };
+        let observer = EventObserver {
+            endpoint: "nowhere".to_string(),
+        };
 
         let filtered_events = vec![];
         let block = StacksBlock::genesis_block();
         let metadata = StacksHeaderInfo::regtest_genesis();
         let receipts = vec![];
-        let parent_index_hash =StacksBlockId([0; 32]);
+        let parent_index_hash = StacksBlockId([0; 32]);
         let boot_receipts = vec![];
-        let winner_txid = Txid([0;32]);
+        let winner_txid = Txid([0; 32]);
         let mature_rewards = serde_json::Value::Array(vec![]);
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
         let parent_burn_block_height = 0;
         let parent_burn_block_timestamp = 0;
-        let anchored_consumed =ExecutionCost::zero();
-        let mblock_confirmed_consumed =ExecutionCost::zero();
+        let anchored_consumed = ExecutionCost::zero();
+        let mblock_confirmed_consumed = ExecutionCost::zero();
         let pox_constants = PoxConstants::testnet_default();
 
         let payload = observer.make_new_block_processed_payload(
@@ -1075,6 +1077,13 @@ mod test {
             &mblock_confirmed_consumed,
             &pox_constants,
         );
-        assert_eq!(payload.get("pox_v1_unlock_height").unwrap().as_u64().unwrap(), pox_constants.v1_unlock_height as u64);
+        assert_eq!(
+            payload
+                .get("pox_v1_unlock_height")
+                .unwrap()
+                .as_u64()
+                .unwrap(),
+            pox_constants.v1_unlock_height as u64
+        );
     }
 }
