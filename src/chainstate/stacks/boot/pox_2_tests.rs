@@ -178,8 +178,23 @@ fn check_pox_print_event(
     op_data: HashMap<&str, Value>,
 ) {
     if let StacksTransactionEvent::SmartContractEvent(data) = event {
+        test_debug!(
+            "Decode event, expecting for {}: {:?}",
+            common_data.op_name,
+            data
+        );
         assert_eq!(data.key.1, "print");
         let outer_tuple = data.value.clone().expect_result().unwrap().expect_tuple();
+        test_debug!(
+            "Check name: {:?} =?= {:?}",
+            &outer_tuple
+                .data_map
+                .get("name")
+                .unwrap()
+                .clone()
+                .expect_ascii(),
+            common_data.op_name
+        );
         assert_eq!(
             outer_tuple
                 .data_map
@@ -213,10 +228,33 @@ fn check_pox_print_event(
         let inner_tuple = args.clone().expect_tuple();
 
         test_debug!("Check for ops {:?}", &op_data);
+        test_debug!("Inner tuple is {:?}", &inner_tuple);
+        let mut missing = vec![];
+        let mut wrong = vec![];
         for (inner_key, inner_val) in op_data {
-            assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
+            match inner_tuple.data_map.get(inner_key) {
+                Some(v) => {
+                    if v != &inner_val {
+                        wrong.push((
+                            format!("{}", &inner_key),
+                            format!("{}", v),
+                            format!("{}", &inner_val),
+                        ));
+                    }
+                }
+                None => {
+                    missing.push(format!("{}", &inner_key));
+                }
+            }
+            // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
+        }
+        if missing.len() > 0 || wrong.len() > 0 {
+            eprintln!("missing:\n{:#?}", &missing);
+            eprintln!("wrong:\n{:#?}", &wrong);
+            assert!(false);
         }
     } else {
+        error!("unexpected event type: {:?}", event);
         panic!("Unexpected transaction event type.")
     }
 }
