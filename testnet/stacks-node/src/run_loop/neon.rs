@@ -366,8 +366,13 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
-        // Upgrade chainstate databases if they exist already
+        let burnchain = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
+
+        // sanity check -- epoch data must be valid
+        Config::assert_valid_epoch_settings(&burnchain, &epochs);
+
+        // Upgrade chainstate databases if they exist already
         match migrate_chainstate_dbs(
             &epochs,
             &self.config.get_burn_db_file_path(),
