@@ -5014,6 +5014,11 @@ fn microblock_limit_hit_integration_test() {
     let txid_3 = submit_tx(&http_origin, &tx_3);
     let txid_4 = submit_tx(&http_origin, &tx_4);
 
+    eprintln!(
+        "transactions: {},{},{},{}",
+        &txid_1, &txid_2, &txid_3, &txid_4
+    );
+
     sleep_ms(50_000);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
@@ -5024,6 +5029,16 @@ fn microblock_limit_hit_integration_test() {
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     sleep_ms(50_000);
+
+    loop {
+        let res = get_account(&http_origin, &addr);
+        if res.nonce < 2 {
+            next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+            sleep_ms(50_000);
+        } else {
+            break;
+        }
+    }
 
     let res = get_account(&http_origin, &addr);
     assert_eq!(res.nonce, 2);

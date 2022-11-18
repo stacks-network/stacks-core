@@ -2486,7 +2486,7 @@ impl RelayerThread {
             self.last_tenure_consensus_hash = Some(consensus_hash);
         }
 
-        if let Some(miner_tip) = miner_tip.take() {
+        if let Some(mtip) = miner_tip.take() {
             // sanity check -- is this also the canonical tip?
             let (stacks_tip_consensus_hash, stacks_tip_block_hash) =
                 self.with_chainstate(|_relayer_thread, sortdb, _chainstate, _| {
@@ -2495,25 +2495,25 @@ impl RelayerThread {
                     )
                 });
 
-            if miner_tip.consensus_hash != stacks_tip_consensus_hash
-                || miner_tip.block_hash != stacks_tip_block_hash
+            if mtip.consensus_hash != stacks_tip_consensus_hash
+                || mtip.block_hash != stacks_tip_block_hash
             {
                 debug!(
                     "Relayer: miner tip {}/{} is NOT canonical ({}/{})",
-                    &miner_tip.consensus_hash,
-                    &miner_tip.block_hash,
+                    &mtip.consensus_hash,
+                    &mtip.block_hash,
                     &stacks_tip_consensus_hash,
                     &stacks_tip_block_hash
                 );
-                self.miner_tip = None;
+                miner_tip = None;
             } else {
                 debug!(
                     "Relayer: Microblock miner tip is now {}/{} ({})",
-                    miner_tip.consensus_hash,
-                    miner_tip.block_hash,
+                    mtip.consensus_hash,
+                    mtip.block_hash,
                     StacksBlockHeader::make_index_block_hash(
-                        &miner_tip.consensus_hash,
-                        &miner_tip.block_hash
+                        &mtip.consensus_hash,
+                        &mtip.block_hash
                     )
                 );
 
@@ -2522,7 +2522,7 @@ impl RelayerThread {
                     relayer_thread.globals.send_unconfirmed_txs(chainstate);
                 });
 
-                self.miner_tip = Some(miner_tip);
+                miner_tip = Some(mtip);
             }
         }
 
