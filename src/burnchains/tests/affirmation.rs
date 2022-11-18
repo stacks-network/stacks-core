@@ -140,7 +140,7 @@ fn affirmation_map_find_divergence() {
     );
 }
 
-fn make_simple_key_register(
+pub fn make_simple_key_register(
     burn_header_hash: &BurnchainHeaderHash,
     block_height: u64,
     vtxindex: u32,

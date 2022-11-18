@@ -1526,14 +1526,14 @@ impl BurnchainDB {
             if let Some((commit, metadata)) = BurnchainDB::get_anchor_block_commit(conn, rc)? {
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
-                    test_debug!("Assume present anchor block at reward cycle {}", rc);
+                    debug!("Assume present anchor block at reward cycle {}", rc);
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
-                    test_debug!("Assume absent anchor block at reward cycle {}", rc);
+                    debug!("Assume absent anchor block at reward cycle {}", rc);
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
                 }
             } else {
-                test_debug!("Assume no anchor block at reward cycle {}", rc);
+                debug!("Assume no anchor block at reward cycle {}", rc);
                 heaviest_am.push(AffirmationMapEntry::Nothing);
             }
         }
