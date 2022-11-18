@@ -19,6 +19,7 @@ use crate::burnchains::Error as burnchain_error;
 use crate::chainstate::burn::ConsensusHash;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::util::log;
+use std::collections::HashSet;
 use std::convert::TryFrom;
 
 pub use self::mempool::MemPoolDB;
@@ -41,7 +42,7 @@ pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 pub const SYSTEM_FORK_SET_VERSION: [u8; 4] = [23u8, 0u8, 0u8, 0u8];
 
 // chain id
-pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)
@@ -90,8 +91,6 @@ pub const INITIAL_MINING_BONUS_WINDOW: u16 = 10_000;
 pub const STACKS_2_0_LAST_BLOCK_TO_PROCESS: u64 = 700_000;
 pub const MAINNET_2_0_GENESIS_ROOT_HASH: &str =
     "9653c92b1ad726e2dc17862a3786f7438ab9239c16dd8e7aaba8b0b5c34b52af";
-
-pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
 
 /// This is the "dummy" parent to the actual first burnchain block that we process.
 pub const FIRST_BURNCHAIN_CONSENSUS_HASH: ConsensusHash = ConsensusHash([0u8; 20]);
@@ -389,6 +388,7 @@ pub trait StacksEpochExtension {
         epoch_2_05_block_height: u64,
         epoch_2_1_block_height: u64,
     ) -> Vec<StacksEpoch>;
+    fn validate_epochs(epochs: &[StacksEpoch]) -> Vec<StacksEpoch>;
 }
 
 impl StacksEpochExtension for StacksEpoch {
@@ -641,5 +641,44 @@ impl StacksEpochExtension for StacksEpoch {
                 network_epoch: PEER_VERSION_EPOCH_1_0,
             },
         ]
+    }
+
+    /// Verify that a list of epochs is well-formed, and if so, return the list of epochs.
+    /// Epochs must proceed in order, and must represent contiguous block ranges.
+    /// Panic if the list is not well-formed.
+    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
+        // sanity check -- epochs must all be contiguous, each epoch must be unique,
+        // and the range of epochs should span the whole non-negative i64 space.
+        let mut epochs = epochs_ref.to_vec();
+        let mut seen_epochs = HashSet::new();
+        epochs.sort();
+
+        let mut epoch_end_height = 0;
+        for epoch in epochs.iter() {
+            assert!(
+                epoch.start_height <= epoch.end_height,
+                "{} > {} for {:?}",
+                epoch.start_height,
+                epoch.end_height,
+                &epoch.epoch_id
+            );
+
+            if epoch_end_height == 0 {
+                // first ever epoch must be defined for all of the prior chain history
+                assert_eq!(epoch.start_height, 0);
+                epoch_end_height = epoch.end_height;
+            } else {
+                assert_eq!(epoch_end_height, epoch.start_height);
+                epoch_end_height = epoch.end_height;
+            }
+            if seen_epochs.contains(&epoch.epoch_id) {
+                panic!("BUG: duplicate epoch");
+            }
+
+            seen_epochs.insert(epoch.epoch_id);
+        }
+
+        assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
+        epochs
     }
 }
