@@ -414,7 +414,7 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                         ;; total amount locked now
                         ;; NOTE: the lock itself has not yet been applied!
                         ;; this is for the stacker, so args[0]
-                        total-locked: (+ {increase_by} (get locked (stx-account {stacker}))),
+                        total-locked: (+ {increase_by} (get locked (stx-account '{stacker}))),
                         ;; delegator
                         delegator: tx-sender,
                         ;; stacker
@@ -796,20 +796,25 @@ fn handle_pox_v2_api_contract_call(
     value: &Value,
 ) -> Result<()> {
     // Generate a synthetic print event for all functions that alter stacking state
-    let print_event_opt = if let Value::Response(_response) = value {
-        let event_info_opt = synthesize_pox_2_event_info(
-            global_context,
-            contract_id,
-            sender_opt,
-            function_name,
-            args,
-        );
-        if let Some(event_info) = event_info_opt {
-            let event_response =
-                Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
-            let tx_event =
-                Environment::construct_print_transaction_event(contract_id, &event_response);
-            Some(tx_event)
+    let print_event_opt = if let Value::Response(response) = value {
+        if response.committed {
+            // method succeeded
+            let event_info_opt = synthesize_pox_2_event_info(
+                global_context,
+                contract_id,
+                sender_opt,
+                function_name,
+                args,
+            );
+            if let Some(event_info) = event_info_opt {
+                let event_response =
+                    Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
+                let tx_event =
+                    Environment::construct_print_transaction_event(contract_id, &event_response);
+                Some(tx_event)
+            } else {
+                None
+            }
         } else {
             None
         }
