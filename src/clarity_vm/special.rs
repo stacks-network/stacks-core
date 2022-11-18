@@ -253,8 +253,12 @@ fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> V
     }
 }
 
-/// Craft the code snippet to evaluate an event-info.
-fn create_event_info_code(sender: &PrincipalData, function_name: &str, args: &[Value]) -> String {
+/// Craft the code snippet to evaluate an event-info for a stack-* or a delegate-stack-* function
+fn create_event_info_stack_or_delegate_code(
+    sender: &PrincipalData,
+    function_name: &str,
+    args: &[Value],
+) -> String {
     format!(
         r#"
         (let (
@@ -276,8 +280,35 @@ fn create_event_info_code(sender: &PrincipalData, function_name: &str, args: &[V
                 burnchain-unlock-height: (get unlock-height stacker-info),
             }}
         )
-    "#,
+        "#,
         stacker = get_stacker(sender, function_name, args),
+        func_name = function_name
+    )
+}
+
+/// Craft the code snippet to evaluate a stack-aggregation-* function
+fn create_event_info_aggregation_code(function_name: &str) -> String {
+    format!(
+        r#"
+        (let (
+            (stacker-info (stx-account tx-sender))
+        )
+            {{
+                ;; Function name
+                name: "{func_name}",
+                ;; who called this
+                ;; NOTE: these fields are required by downstream clients.
+                ;; Even though tx-sender is *not* a stacker, the field is
+                ;; called "stacker" and these clients know to treat it as
+                ;; the delegator.
+                stacker: tx-sender,
+                balance: (stx-get-balance tx-sender),
+                locked: (get locked stacker-info),
+                burnchain-unlock-height: (get unlock-height stacker-info),
+
+            }}
+        )
+        "#,
         func_name = function_name
     )
 }
@@ -291,33 +322,214 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                 {{
                     data: {{
                         ;; amount of ustx to lock.
-                        ;; equal args[0]
+                        ;; equal to args[0]
                         lock-amount: {lock_amount},
                         ;; burnchain height when the unlock finishes.
                         ;; derived from args[3]
-                        unlock-burn-height: (reward-cycle-to-burn-height (+ u1 current-pox-reward-cycle u{lock_period})),
+                        unlock-burn-height: (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 {lock_period})),
                         ;; PoX address tuple.
                         ;; equal to args[1].
                         pox-addr: {pox_addr},
                         ;; start of lock-up.
                         ;; equal to args[2]
-                        start-burn-height: {start_burn_height}
+                        start-burn-height: {start_burn_height},
+                        ;; how long to lock, in burn blocks
+                        ;; equal to args[3]
+                        lock-period: {lock_period}
                     }}
                 }}
-            "#,
+                "#,
                 lock_amount = &args[0],
                 lock_period = &args[3],
                 pox_addr = &args[1],
-                start_burn_height = &args[2]
+                start_burn_height = &args[2],
             )
         }
-        // TODO: fill in the rest of the method-specific data you need here
+        "delegate-stack-stx" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; amount of ustx to lock.
+                        ;; equal to args[1]
+                        lock-amount: {lock_amount},
+                        ;; burnchain height when the unlock finishes.
+                        ;; derived from args[4]
+                        unlock-burn-height: (reward-cycle-to-burn-height (+ (current-pox-reward-cycle) u1 {lock_period})),
+                        ;; PoX address tuple.
+                        ;; equal to args[2]
+                        pox-addr: {pox_addr},
+                        ;; start of lock-up
+                        ;; equal to args[3]
+                        start-burn-height: {start_burn_height},
+                        ;; how long to lock, in burn blocks
+                        ;; equal to args[3]
+                        lock-period: {lock_period},
+                        ;; delegator
+                        delegator: tx-sender,
+                        ;; stacker
+                        ;; equal to args[0]
+                        stacker: '{stacker}
+                    }}
+                }}
+                "#,
+                stacker = &args[0],
+                lock_amount = &args[1],
+                pox_addr = &args[2],
+                start_burn_height = &args[3],
+                lock_period = &args[4],
+            )
+        }
+        "stack-increase" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; amount to increase by
+                        ;; equal to args[0]
+                        increase-by: {increase_by},
+                        ;; new amount locked
+                        ;; NOTE: the lock has not yet been applied!
+                        ;; derived from args[0]
+                        total-locked: (+ {increase_by} (get locked (stx-account tx-sender))),
+                        ;; pox addr increased
+                        pox-addr: (get pox-addr (unwrap-panic (map-get? stacking-state {{ stacker: tx-sender }})))
+                    }}
+                }}
+                "#,
+                increase_by = &args[0]
+            )
+        }
+        "delegate-stack-increase" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; pox addr
+                        ;; equal to args[1]
+                        pox-addr: {pox_addr},
+                        ;; amount to increase by
+                        ;; equal to args[2]
+                        increase-by: {increase_by},
+                        ;; total amount locked now
+                        ;; NOTE: the lock itself has not yet been applied!
+                        ;; this is for the stacker, so args[0]
+                        total-locked: (+ {increase_by} (get locked (stx-account {stacker}))),
+                        ;; delegator
+                        delegator: tx-sender,
+                        ;; stacker
+                        ;; equal to args[0]
+                        stacker: '{stacker}
+                    }}
+                }}
+                "#,
+                stacker = &args[0],
+                pox_addr = &args[1],
+                increase_by = &args[2],
+            )
+        }
+        "stack-extend" => {
+            format!(
+                r#"
+                (let (
+                    ;; variable declarations derived from pox-2
+                    (cur-cycle (current-pox-reward-cycle))
+                    (unlock-height (get unlock-height (stx-account tx-sender)))
+                    (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+                    (first-extend-cycle
+                        (if (> (+ cur-cycle u1) unlock-in-cycle)
+                            (+ cur-cycle u1)
+                            unlock-in-cycle))
+                    (last-extend-cycle  (- (+ first-extend-cycle {extend_count}) u1))
+                    (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle)))
+                )
+                {{
+                    data: {{
+                        ;; pox addr extended
+                        ;; equal to args[1]
+                        pox-addr: {pox_addr},
+                        ;; number of cycles extended
+                        ;; equal to args[0]
+                        extend-count: {extend_count},
+                        ;; new unlock burnchain block height
+                        unlock-burn-height: new-unlock-ht
+                    }}
+                }})
+                "#,
+                extend_count = &args[0],
+                pox_addr = &args[1],
+            )
+        }
+        "delegate-stack-extend" => {
+            format!(
+                r#"
+                (let (
+                    (unlock-height (get unlock-height (stx-account '{stacker})))
+                    (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
+                    (cur-cycle (current-pox-reward-cycle))
+                    (first-extend-cycle
+                        (if (> (+ cur-cycle u1) unlock-in-cycle)
+                            (+ cur-cycle u1)
+                            unlock-in-cycle))
+                    (last-extend-cycle  (- (+ first-extend-cycle {extend_count}) u1))
+                    (new-unlock-ht (reward-cycle-to-burn-height (+ u1 last-extend-cycle)))
+                )
+                {{
+                    data: {{
+                        ;; pox addr extended
+                        ;; equal to args[1]
+                        pox-addr: {pox_addr},
+                        ;; number of cycles extended
+                        ;; equal to args[2]
+                        extend-count: {extend_count},
+                        ;; new unlock burnchain block height
+                        unlock-burn-height: new-unlock-ht,
+                        ;; delegator locking this up
+                        delegator: tx-sender,
+                        ;; stacker
+                        ;; equal to args[0]
+                        stacker: '{stacker}
+                    }}
+                }})
+                "#,
+                stacker = &args[0],
+                pox_addr = &args[1],
+                extend_count = &args[2]
+            )
+        }
+        "stack-aggregation-commit"
+        | "stack-aggregation-commit-indexed"
+        | "stack-aggregation-increase" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; pox addr locked up
+                        ;; equal to args[0] in all methods
+                        pox-addr: {pox_addr},
+                        ;; reward cycle locked up
+                        ;; equal to args[1] in all methods
+                        reward-cycle: {reward_cycle},
+                        ;; amount locked behind this PoX address by this method
+                        amount-ustx: (get stacked-amount
+                                        (unwrap-panic (map-get? logged-partial-stacked-by-cycle
+                                            {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
+                        ;; delegator (this is the caller)
+                        delegator: tx-sender
+                    }}
+                }}
+                "#,
+                pox_addr = &args[0],
+                reward_cycle = &args[1]
+            )
+        }
         _ => format!("{{ data: {{ unimplemented: true }} }}"),
     }
 }
 
 /// Synthesize an events data tuple to return on the successful execution of a pox-2 stacking
-/// function
+/// function.  It runs a series of Clarity queries against the PoX contract's data space (including
+/// calling PoX functions).
 fn synthesize_pox_2_event_info(
     global_context: &mut GlobalContext,
     contract_id: &QualifiedContractIdentifier,
@@ -332,7 +544,14 @@ fn synthesize_pox_2_event_info(
         | "stack-extend"
         | "delegate-stack-extend"
         | "stack-increase"
-        | "delegate-stack-increase" => Some(create_event_info_code(sender, function_name, args)),
+        | "delegate-stack-increase" => Some(create_event_info_stack_or_delegate_code(
+            sender,
+            function_name,
+            args,
+        )),
+        "stack-aggregation-commit"
+        | "stack-aggregation-commit-indexed"
+        | "stack-aggregation-increase" => Some(create_event_info_aggregation_code(function_name)),
         _ => None,
     };
 
@@ -348,10 +567,10 @@ fn synthesize_pox_2_event_info(
             .expect("FATAL: could not load PoX-2 contract metadata");
 
         let event_info = global_context
-            .special_execute_read_only(
+            .special_cc_handler_execute_read_only(
                 sender.clone(),
                 None,
-                Some(pox_2_contract.contract_context),
+                pox_2_contract.contract_context,
                 |env| {
                     let base_event_info = env
                         .eval_read_only_with_rules(
@@ -360,6 +579,7 @@ fn synthesize_pox_2_event_info(
                             ASTRules::PrecheckSize,
                         )
                         .expect("FATAL: failed to run event-info code-snippet");
+
                     let data_event_info = env
                         .eval_read_only_with_rules(
                             contract_id,
@@ -379,9 +599,11 @@ fn synthesize_pox_2_event_info(
             )
             .expect("FATAL: failed to synthesize PoX-2 event");
 
-        debug!(
+        test_debug!(
             "Synthesized PoX-2 event info for '{}''s call to '{}': {:?}",
-            sender, function_name, &event_info
+            sender,
+            function_name,
+            &event_info
         );
         Some(event_info)
     } else {
@@ -394,7 +616,7 @@ fn handle_stack_lockup(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<()> {
+) -> Result<Option<StacksTransactionEvent>> {
     debug!(
         "Handle special-case contract-call to {:?} {} (which returned {:?})",
         boot_code_id(POX_2_NAME, global_context.mainnet),
@@ -417,18 +639,17 @@ fn handle_stack_lockup(
                 unlock_height as u64,
             ) {
                 Ok(_) => {
-                    if let Some(batch) = global_context.event_batches.last_mut() {
-                        batch.events.push(StacksTransactionEvent::STXEvent(
-                            STXEventType::STXLockEvent(STXLockEventData {
-                                locked_amount,
-                                unlock_height,
-                                locked_address: stacker,
-                            }),
-                        ));
-                    }
+                    let event = StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(
+                        STXLockEventData {
+                            locked_amount,
+                            unlock_height,
+                            locked_address: stacker,
+                        },
+                    ));
+                    return Ok(Some(event));
                 }
                 Err(ChainstateError::DefunctPoxContract) => {
-                    return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
+                    return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
                 }
                 Err(e) => {
                     panic!(
@@ -437,12 +658,10 @@ fn handle_stack_lockup(
                     );
                 }
             }
-
-            return Ok(());
         }
         Err(_) => {
             // nothing to do -- the function failed
-            return Ok(());
+            return Ok(None);
         }
     }
 }
@@ -453,7 +672,7 @@ fn handle_stack_lockup_extension(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<()> {
+) -> Result<Option<StacksTransactionEvent>> {
     // in this branch case, the PoX-2 contract has stored the extension information
     //  and performed the extension checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -478,15 +697,14 @@ fn handle_stack_lockup_extension(
             unlock_height as u64,
         ) {
             Ok(locked_amount) => {
-                if let Some(batch) = global_context.event_batches.last_mut() {
-                    batch.events.push(StacksTransactionEvent::STXEvent(
-                        STXEventType::STXLockEvent(STXLockEventData {
-                            locked_amount,
-                            unlock_height,
-                            locked_address: stacker,
-                        }),
-                    ));
-                }
+                let event = StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(
+                    STXLockEventData {
+                        locked_amount,
+                        unlock_height,
+                        locked_address: stacker,
+                    },
+                ));
+                return Ok(Some(event));
             }
             Err(ChainstateError::DefunctPoxContract) => {
                 return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
@@ -501,13 +719,11 @@ fn handle_stack_lockup_extension(
                 );
             }
         }
-
-        return Ok(());
     } else {
         // The stack-extend function returned an error: we do not need to apply a lock
         //  in this case, and can just return and let the normal VM codepath surface the
         //  error response type.
-        return Ok(());
+        return Ok(None);
     }
 }
 
@@ -517,7 +733,7 @@ fn handle_stack_lockup_increase(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<()> {
+) -> Result<Option<StacksTransactionEvent>> {
     // in this branch case, the PoX-2 contract has stored the increase information
     //  and performed the increase checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -542,15 +758,15 @@ fn handle_stack_lockup_increase(
             total_locked,
         ) {
             Ok(new_balance) => {
-                if let Some(batch) = global_context.event_batches.last_mut() {
-                    batch.events.push(StacksTransactionEvent::STXEvent(
-                        STXEventType::STXLockEvent(STXLockEventData {
-                            locked_amount: new_balance.amount_locked(),
-                            unlock_height: new_balance.unlock_height(),
-                            locked_address: stacker,
-                        }),
-                    ));
-                }
+                let event = StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(
+                    STXLockEventData {
+                        locked_amount: new_balance.amount_locked(),
+                        unlock_height: new_balance.unlock_height(),
+                        locked_address: stacker,
+                    },
+                ));
+
+                return Ok(Some(event));
             }
             Err(ChainstateError::DefunctPoxContract) => {
                 return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
@@ -565,8 +781,9 @@ fn handle_stack_lockup_increase(
                 );
             }
         }
+    } else {
+        Ok(None)
     }
-    Ok(())
 }
 
 /// Handle special cases when calling into the PoX API contract
@@ -578,8 +795,8 @@ fn handle_pox_v2_api_contract_call(
     args: &[Value],
     value: &Value,
 ) -> Result<()> {
-    // First, generate a synthetic print event for all functions that alter stacking state
-    if let Value::Response(response) = value {
+    // Generate a synthetic print event for all functions that alter stacking state
+    let print_event_opt = if let Value::Response(_response) = value {
         let event_info_opt = synthesize_pox_2_event_info(
             global_context,
             contract_id,
@@ -588,29 +805,39 @@ fn handle_pox_v2_api_contract_call(
             args,
         );
         if let Some(event_info) = event_info_opt {
-            test_debug!(
-                "Synthesized event-info for '{}': {:?}",
-                function_name,
-                &event_info
-            );
             let event_response =
                 Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
             let tx_event =
                 Environment::construct_print_transaction_event(contract_id, &event_response);
-            if let Some(batch) = global_context.event_batches.last_mut() {
-                batch.events.push(tx_event);
-            }
+            Some(tx_event)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Execute function specific logic to complete the lock-up
+    let lock_event_opt = if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
+        handle_stack_lockup(global_context, function_name, value)?
+    } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
+        handle_stack_lockup_extension(global_context, function_name, value)?
+    } else if function_name == "stack-increase" || function_name == "delegate-stack-increase" {
+        handle_stack_lockup_increase(global_context, function_name, value)?
+    } else {
+        None
+    };
+
+    // append the lockup event, so it looks as if the print event happened before the lock-up
+    if let Some(batch) = global_context.event_batches.last_mut() {
+        if let Some(print_event) = print_event_opt {
+            batch.events.push(print_event);
+        }
+        if let Some(lock_event) = lock_event_opt {
+            batch.events.push(lock_event);
         }
     }
 
-    // Execute function specific logic
-    if function_name == "stack-stx" || function_name == "delegate-stack-stx" {
-        handle_stack_lockup(global_context, function_name, value)?;
-    } else if function_name == "stack-extend" || function_name == "delegate-stack-extend" {
-        handle_stack_lockup_extension(global_context, function_name, value)?;
-    } else if function_name == "stack-increase" || function_name == "delegate-stack-increase" {
-        handle_stack_lockup_increase(global_context, function_name, value)?;
-    }
     Ok(())
 }
 
