@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::PoxConstants;
+use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -17,6 +17,7 @@ use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochExtension;
 use stacks::core::StacksEpochId;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -398,14 +399,52 @@ lazy_static! {
 }
 
 impl Config {
-    /// This method applies any of this Config's configured PoX constants to the supplied
-    /// `PoxConstants` struct.
-    pub fn update_pox_constants(&self, pox_consts: &mut PoxConstants) {
-        if self.is_mainnet() {
-            return;
-        }
-        if let Some(pox_2_activation_height) = self.burnchain.pox_2_activation {
-            pox_consts.v1_unlock_height = pox_2_activation_height;
+    /// Assert that a burnchain's PoX constants are consistent with the list of epoch start and end
+    /// heights.  Panics if this is not the case.
+    pub fn assert_valid_epoch_settings(burnchain: &Burnchain, epochs: &[StacksEpoch]) {
+        // sanity check: epochs must be contiguous and ordered
+        // (this panics if it's not the case)
+        let _ = StacksEpoch::validate_epochs(epochs);
+
+        // sanity check: v1_unlock_height must happen after pox-2 instantiation
+        let epoch21_index = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch21)
+            .expect("FATAL: no epoch 2.1 defined");
+
+        let epoch21 = &epochs[epoch21_index];
+        let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
+
+        assert!(
+            v1_unlock_height > epoch21.start_height,
+            "FATAL: v1 unlock height occurs at or before pox-2 activation"
+        );
+
+        let epoch21_rc = burnchain
+            .block_height_to_reward_cycle(epoch21.start_height)
+            .expect("FATAL: epoch 21 starts before the first burnchain block");
+        let v1_unlock_rc = burnchain
+            .block_height_to_reward_cycle(v1_unlock_height)
+            .expect("FATAL: v1 unlock height is before the first burnchain block");
+
+        if epoch21_rc + 1 == v1_unlock_rc {
+            // if v1_unlock_height is in the reward cycle after epoch_21, then it must not fall on
+            // the reward cycle boundary.
+            assert!(
+                !burnchain.is_reward_cycle_start(v1_unlock_height),
+                "FATAL: v1 unlock height is at a reward cycle boundary"
+            );
+        } else if epoch21_rc == v1_unlock_rc {
+            // if v1_unlock_height and epoch_21 are in the same reward cycle, then epoch_21 must be
+            // instantiated before the prepare phase.  This is because pox-2 must exist in the
+            // PoX anchor block for the subsequent reward cycle.
+            //
+            // Ideally, the epoch_21 start height would be at the very beginning of the reward
+            // cycle, but this is not a hard requirement.  However, it is highly recommended to
+            // de-risk the chance that the anchor block is picked before the block in which pox-2
+            // is instantiated.
+            assert!(!burnchain.is_in_prepare_phase(epoch21.start_height));
+            if !burnchain.is_reward_cycle_start(epoch21.start_height) {
+                warn!("DANGEROUS CONFIG: Epoch 2.1 starts at {}, which is _NOT_ the beginning of the reward cycle.", epoch21.start_height);
+            }
         }
     }
 
