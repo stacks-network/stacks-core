@@ -34,6 +34,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, NO_PARAMS};
 use sha2::{Digest, Sha512_256};
 
 use crate::burnchains::bitcoin::BitcoinNetworkType;
+use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Address, PublicKey, Txid};
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainRecipient, BurnchainStateTransition,
@@ -1997,30 +1998,20 @@ impl<'a> SortitionHandleConn<'a> {
         Ok(result)
     }
 
-    /// Return identifying information for a PoX anchor block for the reward cycle that
-    ///   begins the block after `prepare_end_bhh`.
-    /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
-    ///   selected, return `None`
-    /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
-    ///                 for the corresponding reward cycle
-    pub fn get_chosen_pox_anchor(
-        &self,
-        prepare_end_bhh: &BurnchainHeaderHash,
-        pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
-        match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
-            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
-            Ok(Err(_)) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn get_chosen_pox_anchor_check_position(
+    /// Helper method to get the burn block height of the end of a prepare phase block.
+    /// Returns Ok(Some((effective_height, absolute_height))) on success
+    /// Returns Ok(None) if the effective height of this block was 0, meaning that it's the first
+    /// block.
+    /// Returns Err(BurnchainError::MissingParentBlock) if we couldn't find the sortition for this
+    /// burnchain block hash
+    /// Returns Err(CoordiantorError::NotPrepareEndBlock) if this wasn't the last block in a
+    /// prepare phase.
+    fn get_heights_for_prepare_phase_end_block(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
         check_position: bool,
-    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
+    ) -> Result<Option<(u32, u32)>, CoordinatorError> {
         let prepare_end_sortid =
             self.get_sortition_id_for_bhh(prepare_end_bhh)?
                 .ok_or_else(|| {
@@ -2048,8 +2039,140 @@ impl<'a> SortitionHandleConn<'a> {
                 "effective_height = {}, reward cycle length == {}",
                 effective_height, pox_consts.reward_cycle_length
             );
-            return Ok(Err(0));
+            return Ok(None);
         }
+
+        Ok(Some((effective_height, block_height)))
+    }
+
+    /// Get the chosen PoX anchor block for a reward cycle, given the last block of its prepare
+    /// phase.
+    ///
+    /// In epochs 2.05 and earlier, this was the Stacks block that received F*w confirmations.
+    ///
+    /// In epoch 2.1 and later, this was the Stacks block whose block-commit received not only F*w
+    /// confirmations from subsequent block-commits in the prepare phase, but also the most BTC
+    /// burnt from all such candidates (and if there is still a tie, then the higher block-commit
+    /// is chosen).  In particular, the block-commit is not required to be the winning block-commit
+    /// or even a valid block-commit, unlike in 2.05.  However, this will be a winning block-commit
+    /// if at least 20% of the BTC was spent honestly.
+    ///
+    /// Here, instead of reasoning about which epoch we're in, the caller will instead supply an
+    /// optional handle to the burnchain database.  If it's `Some(..)`, then the epoch 2.1 rules
+    /// are used -- the PoX anchor block will be determined from block-commits.  If it's `None`,
+    /// then the epoch 2.05 rules are used -- the PoX anchor block will be determined from present
+    /// Stacks blocks.
+    pub fn get_chosen_pox_anchor(
+        &self,
+        burnchain_db_conn: Option<&DBConn>,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        match burnchain_db_conn {
+            Some(conn) => self.get_chosen_pox_anchor_v210(conn, prepare_end_bhh, pox_consts),
+            None => self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts),
+        }
+    }
+
+    /// Use the epoch 2.1 method for choosing a PoX anchor block.
+    /// The PoX anchor block corresponds to the block-commit that received F*w confirmations in its
+    /// prepare phase, and had the most BTC of all such candidates, and was the highest of all such
+    /// candidates.  This information is stored in the burnchain DB.
+    ///
+    /// Note that it does not matter if the anchor block-commit does not correspond to a valid
+    /// Stacks block, or even won sortition.  The result is the same for the honest network
+    /// participants: they mark the anchor block as absent in their affirmation maps, and this PoX
+    /// fork's quality is degraded as such.
+    pub fn get_chosen_pox_anchor_v210(
+        &self,
+        burnchain_db_conn: &DBConn,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        let rc = match self.get_heights_for_prepare_phase_end_block(
+            prepare_end_bhh,
+            pox_consts,
+            true,
+        )? {
+            Some((_, block_height)) => {
+                let rc = pox_consts
+                    .block_height_to_reward_cycle(
+                        self.context.first_block_height,
+                        block_height.into(),
+                    )
+                    .ok_or(CoordinatorError::NotPrepareEndBlock)?;
+                rc
+            }
+            None => {
+                // there can't be an anchor block
+                return Ok(None);
+            }
+        };
+        let (anchor_block_op, anchor_block_metadata) =
+            match BurnchainDB::get_anchor_block_commit(burnchain_db_conn, rc)? {
+                Some(x) => x,
+                None => {
+                    // no anchor block
+                    test_debug!("No anchor block for reward cycle {}", rc);
+                    return Ok(None);
+                }
+            };
+
+        // sanity check: we must have processed this burnchain block already
+        let anchor_sort_id = self.get_sortition_id_for_bhh(&anchor_block_metadata.burn_block_hash)?
+            .ok_or_else(|| {
+                warn!("Missing anchor block sortition"; "burn_header_hash" => %anchor_block_metadata.burn_block_hash, "sortition_tip" => %&self.context.chain_tip);
+                BurnchainError::MissingParentBlock
+            })?;
+
+        let anchor_sn = SortitionDB::get_block_snapshot(self, &anchor_sort_id)?
+            .ok_or(BurnchainError::MissingParentBlock)?;
+
+        // the sortition does not even need to have picked this anchor block; all that matters is
+        // that miners confirmed it.  If the winning block hash doesn't even correspond to a Stacks
+        // block, then the honest miners in the network will affirm that it's absent.
+        let ch = anchor_sn.consensus_hash;
+        Ok(Some((ch, anchor_block_op.block_header_hash)))
+    }
+
+    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
+    /// Return identifying information for a PoX anchor block for the reward cycle that
+    ///   begins the block after `prepare_end_bhh`.
+    /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
+    ///   selected, return `None`
+    /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
+    ///                 for the corresponding reward cycle
+    fn get_chosen_pox_anchor_v205(
+        &self,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash)>, CoordinatorError> {
+        match self.get_chosen_pox_anchor_check_position_v205(prepare_end_bhh, pox_consts, true) {
+            Ok(Ok((c_hash, bh_hash, _))) => Ok(Some((c_hash, bh_hash))),
+            Ok(Err(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
+    /// If no PoX anchor block is found, it returns Ok(Err(maximum confirmations of all candidates))
+    pub fn get_chosen_pox_anchor_check_position_v205(
+        &self,
+        prepare_end_bhh: &BurnchainHeaderHash,
+        pox_consts: &PoxConstants,
+        check_position: bool,
+    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, u32), u32>, CoordinatorError> {
+        let (effective_height, block_height) = match self.get_heights_for_prepare_phase_end_block(
+            prepare_end_bhh,
+            pox_consts,
+            check_position,
+        )? {
+            Some(x) => x,
+            None => {
+                // effective height was 0
+                return Ok(Err(0));
+            }
+        };
 
         let prepare_end = block_height;
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
@@ -3794,14 +3917,44 @@ impl SortitionDB {
         burnchain: &Burnchain,
         block: &BlockSnapshot,
     ) -> Result<bool, db_error> {
-        let reward_start_height = burnchain.reward_cycle_to_block_height(
+        let mut reward_start_height = burnchain.reward_cycle_to_block_height(
             burnchain
                 .block_height_to_reward_cycle(block.block_height)
-                .ok_or_else(|| db_error::NotFoundError)?,
+                .ok_or_else(|| {
+                    warn!(
+                        "block height {} does not have a reward cycle",
+                        block.block_height
+                    );
+                    db_error::NotFoundError
+                })?,
         );
+
+        // N.B. the reward cycle start height is 1 + (reward_cycle_number * reward_cycle_length),
+        // which can be bigger than block.block_height. If this is true, then we really meant the
+        // last reward cycle
+        if reward_start_height > block.block_height && block.block_height > 0 {
+            reward_start_height = burnchain.reward_cycle_to_block_height(
+                burnchain
+                    .block_height_to_reward_cycle(block.block_height - 1)
+                    .ok_or_else(|| {
+                        warn!(
+                            "block height {} does not have a reward cycle",
+                            block.block_height - 1
+                        );
+                        db_error::NotFoundError
+                    })?,
+            );
+        }
+
         let sort_id_of_start =
             get_ancestor_sort_id(&self.index_conn(), reward_start_height, &block.sortition_id)?
-                .ok_or_else(|| db_error::NotFoundError)?;
+                .ok_or_else(|| {
+                    warn!(
+                "reward start height {} (from block height {}) does not have a sortition from {}",
+                reward_start_height, block.block_height, &block.sortition_id
+            );
+                    db_error::NotFoundError
+                })?;
 
         let handle = self.index_handle(&sort_id_of_start);
         Ok(handle.get_reward_set_size_at(&sort_id_of_start)? > 0)
@@ -8670,6 +8823,7 @@ pub mod tests {
         assert_eq!(ancestors, vec![BurnchainHeaderHash([0xfe; 32])]);
     }
 
+    #[test]
     fn test_get_set_ast_rules() {
         let block_height = 123;
         let first_burn_hash = BurnchainHeaderHash::from_hex(
@@ -8717,5 +8871,112 @@ pub mod tests {
             SortitionDB::get_ast_rules(db.conn(), 2).unwrap(),
             ASTRules::PrecheckSize
         );
+    }
+
+    #[test]
+    fn test_get_chosen_pox_anchor() {
+        use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
+
+        let path_root = "/tmp/test_get_chosen_pox_anchor";
+        if fs::metadata(path_root).is_ok() {
+            fs::remove_dir_all(path_root).unwrap();
+        }
+
+        fs::create_dir_all(path_root).unwrap();
+
+        let pox_consts = PoxConstants::new(10, 3, 3, 25, 5, u64::MAX, u64::MAX, u32::MAX);
+
+        let mut burnchain = Burnchain::regtest(path_root);
+        burnchain.pox_constants = pox_consts.clone();
+
+        let mut burnchain_db =
+            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+        let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
+        let first_block_height = first_block_header.block_height;
+
+        let mut headers = vec![first_block_header.clone()];
+        let key_register = make_simple_key_register(&first_block_header.block_hash, 0, 1);
+
+        let (next_headers, commits) = make_reward_cycle(
+            &mut burnchain_db,
+            &burnchain,
+            &key_register,
+            &mut headers,
+            vec![None, None],
+        );
+
+        assert!(headers.len() > commits.len());
+
+        let mut db = SortitionDB::connect_test_with_epochs(
+            first_block_height,
+            &first_block_header.block_hash,
+            StacksEpoch::all(0, 0, 0),
+        )
+        .unwrap();
+
+        // make snapshot for each block-commit.
+        // make the first run of commits always win.
+        for (i, commit_set) in commits.iter().enumerate() {
+            let commit_ops: Vec<BlockstackOperationType> = commit_set
+                .iter()
+                .filter_map(|op| {
+                    op.as_ref()
+                        .map(|op| BlockstackOperationType::LeaderBlockCommit(op.clone()))
+                })
+                .collect();
+            let winner = if commit_set.len() > 0 {
+                commit_set[0].clone()
+            } else {
+                None
+            };
+            let burn_header_hash = headers[i + 1].block_hash.clone();
+            let burn_block_height = headers[i + 1].block_height;
+
+            Burnchain::process_affirmation_maps(
+                &burnchain,
+                &mut burnchain_db,
+                &headers,
+                burn_block_height,
+            )
+            .unwrap();
+            test_append_snapshot_with_winner(&mut db, burn_header_hash, &commit_ops, None, winner);
+        }
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+        {
+            let ic = db.index_handle(&tip.sortition_id);
+            let anchor_2_05 = ic
+                .get_chosen_pox_anchor(None, &tip.burn_header_hash, &pox_consts)
+                .unwrap()
+                .unwrap();
+            let anchor_2_1 = ic
+                .get_chosen_pox_anchor(
+                    Some(burnchain_db.conn()),
+                    &tip.burn_header_hash,
+                    &pox_consts,
+                )
+                .unwrap()
+                .unwrap();
+
+            let ic = db.index_conn();
+            let expected_anchor_ch = SortitionDB::get_ancestor_snapshot(&ic, 7, &tip.sortition_id)
+                .unwrap()
+                .unwrap()
+                .consensus_hash;
+            assert_eq!(
+                anchor_2_05,
+                (
+                    expected_anchor_ch.clone(),
+                    commits[6][0].as_ref().unwrap().block_header_hash.clone()
+                )
+            );
+            assert_eq!(
+                anchor_2_1,
+                (
+                    expected_anchor_ch,
+                    commits[6][1].as_ref().unwrap().block_header_hash.clone()
+                )
+            );
+        }
     }
 }
