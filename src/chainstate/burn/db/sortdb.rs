@@ -66,7 +66,7 @@ use crate::chainstate::ChainstateDB;
 use crate::core::AST_RULES_PRECHECK_SIZE;
 use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use crate::core::FIRST_STACKS_BLOCK_HASH;
-use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
+use crate::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, STACKS_EPOCH_MAX};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::tx_begin_immediate;
@@ -2555,44 +2555,6 @@ impl SortitionDB {
         Ok(db)
     }
 
-    /// Validate all Stacks Epochs. Since this is data that always comes from a static variable,
-    /// any invalid StacksEpoch structuring should result in a runtime panic.
-    fn validate_epochs(epochs_ref: &[StacksEpoch]) -> Vec<StacksEpoch> {
-        // sanity check -- epochs must all be contiguous, each epoch must be unique,
-        // and the range of epochs should span the whole non-negative i64 space.
-        let mut epochs = epochs_ref.to_vec();
-        let mut seen_epochs = HashSet::new();
-        epochs.sort();
-
-        let mut epoch_end_height = 0;
-        for epoch in epochs.iter() {
-            assert!(
-                epoch.start_height <= epoch.end_height,
-                "{} > {} for {:?}",
-                epoch.start_height,
-                epoch.end_height,
-                &epoch.epoch_id
-            );
-
-            if epoch_end_height == 0 {
-                // first ever epoch must be defined for all of the prior chain history
-                assert_eq!(epoch.start_height, 0);
-                epoch_end_height = epoch.end_height;
-            } else {
-                assert_eq!(epoch_end_height, epoch.start_height);
-                epoch_end_height = epoch.end_height;
-            }
-            if seen_epochs.contains(&epoch.epoch_id) {
-                panic!("BUG: duplicate epoch");
-            }
-
-            seen_epochs.insert(epoch.epoch_id);
-        }
-
-        assert_eq!(epoch_end_height, STACKS_EPOCH_MAX);
-        epochs
-    }
-
     fn instantiate(
         &mut self,
         first_block_height: u64,
@@ -2657,7 +2619,7 @@ impl SortitionDB {
         db_tx: &Transaction,
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
-        let epochs = SortitionDB::validate_epochs(epochs);
+        let epochs = StacksEpoch::validate_epochs(epochs);
         for epoch in epochs.into_iter() {
             let args: &[&dyn ToSql] = &[
                 &(epoch.epoch_id as u32),
