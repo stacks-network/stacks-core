@@ -248,6 +248,18 @@ impl<L> StacksEpoch<L> {
         }
         None
     }
+
+    /// Find an epoch by its ID
+    /// Returns Some(index) if the epoch is in the list
+    /// Returns None if not
+    pub fn find_epoch_by_id(epochs: &[StacksEpoch<L>], epoch_id: StacksEpochId) -> Option<usize> {
+        for (i, epoch) in epochs.iter().enumerate() {
+            if epoch.epoch_id == epoch_id {
+                return Some(i);
+            }
+        }
+        None
+    }
 }
 
 // StacksEpochs are ordered by start block height
