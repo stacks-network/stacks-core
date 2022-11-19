@@ -6028,7 +6028,8 @@ impl StacksChainState {
     /// Process some staging blocks, up to max_blocks.
     /// Return new chain tips, and optionally any poison microblock payloads for each chain tip
     /// found.  For each chain tip produced, return the header info, receipts, parent microblock
-    /// stream execution cost, and block execution cost
+    /// stream execution cost, and block execution cost.  A value of None will be returned for the
+    /// epoch receipt if the block was invalid.
     pub fn process_blocks<'a, T: BlockEventDispatcher>(
         &mut self,
         mut sort_tx: SortitionHandleTx,
@@ -6063,15 +6064,18 @@ impl StacksChainState {
                 },
                 Err(Error::InvalidStacksBlock(msg)) => {
                     warn!("Encountered invalid block: {}", &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(Error::InvalidStacksMicroblock(msg, hash)) => {
                     warn!("Encountered invalid microblock {}: {}", hash, &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(Error::NetError(net_error::DeserializeError(msg))) => {
                     // happens if we load a zero-sized block (i.e. an invalid block)
                     warn!("Encountered invalid block: {}", &msg);
+                    ret.push((None, None));
                     continue;
                 }
                 Err(e) => {

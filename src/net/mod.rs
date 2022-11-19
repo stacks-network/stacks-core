@@ -1401,6 +1401,7 @@ impl RPCNeighbor {
 /// Struct given back from a call to `/v2/neighbors`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighborsInfo {
+    pub bootstrap: Vec<RPCNeighbor>,
     pub sample: Vec<RPCNeighbor>,
     pub inbound: Vec<RPCNeighbor>,
     pub outbound: Vec<RPCNeighbor>,
