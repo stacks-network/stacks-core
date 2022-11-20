@@ -14,6 +14,8 @@ use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::PEER_VERSION_EPOCH_2_0;
+use stacks::core::PEER_VERSION_EPOCH_2_05;
+use stacks::core::PEER_VERSION_EPOCH_2_1;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, VRFSeed};
@@ -1877,21 +1879,68 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    conf.burnchain.epochs = Some(vec![StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 9223372036854775807,
-        block_limit: ExecutionCost {
-            write_length: 150000000,
-            write_count: 50000,
-            read_length: 1000000000,
-            read_count: 50000,
-            // use a shorter runtime limit. the current runtime limit
-            //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-            runtime: 1_000_000_000,
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
-        network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 2_665_574 * 3,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
