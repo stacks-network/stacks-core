@@ -22,8 +22,9 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205, CHAIN_ID_TESTNET,
-    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
+    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
@@ -4909,19 +4910,35 @@ fn microblock_limit_hit_integration_test() {
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
-    conf.burnchain.epochs = Some(vec![StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 9223372036854775807,
-        block_limit: ExecutionCost {
-            write_length: 150000000,
-            write_count: 50000,
-            read_length: 1000000000,
-            read_count: 5000, // make read_count smaller so we hit the read_count limit with a smaller tx.
-            runtime: 100_000_000_000,
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
-        network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 5000, // make read_count smaller so we hit the read_count limit with a smaller tx.
+                runtime: 100_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
 
     test_observer::spawn();
 
@@ -7954,9 +7971,16 @@ fn test_problematic_txs_are_not_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 2,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
 
@@ -8181,7 +8205,7 @@ fn test_problematic_blocks_are_not_mined() {
         amount: 1_000_000_000_000,
     });
 
-    // force mainnet limits in 2.05 for this test
+    // force mainnet limits in 2.1 for this test
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -8193,9 +8217,16 @@ fn test_problematic_blocks_are_not_mined() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 2,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
 
@@ -8534,7 +8565,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         amount: 1_000_000_000_000,
     });
 
-    // force mainnet limits in 2.05 for this test
+    // force mainnet limits in 2.1 for this test
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -8546,9 +8577,16 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 2,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
 
@@ -8917,7 +8955,7 @@ fn test_problematic_microblocks_are_not_mined() {
         amount: 1_000_000_000_000,
     });
 
-    // force mainnet limits in 2.05 for this test
+    // force mainnet limits in 2.1 for this test
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -8929,9 +8967,16 @@ fn test_problematic_microblocks_are_not_mined() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 2,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
 
@@ -9291,7 +9336,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         amount: 1_000_000_000_000,
     });
 
-    // force mainnet limits in 2.05 for this test
+    // force mainnet limits in 2.1 for this test
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -9303,9 +9348,16 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 2,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
 
