@@ -31,6 +31,8 @@ use crate::helium::RunLoop;
 use crate::tests::neon_integrations::get_chain_info;
 use crate::tests::neon_integrations::next_block_and_wait;
 use crate::BitcoinRegtestController;
+use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochExtension;
 use stacks::core::StacksEpochId;
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
@@ -258,6 +260,8 @@ pub fn new_test_conf() -> Config {
         "ST2VHM28V9E5QCRD6C73215KAPSBKQGPWTEE5CMQT".to_string(),
         10000,
     );
+
+    conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
 
     let rpc_port = u16::from_be_bytes(buf[0..2].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
     let p2p_port = u16::from_be_bytes(buf[2..4].try_into().unwrap()).saturating_add(1025) - 1; // use a non-privileged port between 1024 and 65534
