@@ -186,6 +186,15 @@ pub const BLOCK_LIMIT_MAINNET_205: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
+// Block limit in Stacks 2.1
+pub const BLOCK_LIMIT_MAINNET_21: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000,
+    write_count: 15_000,
+    read_length: 100_000_000,
+    read_count: 15_000,
+    runtime: 5_000_000_000,
+};
+
 // Block limit for the testnet in Stacks 2.0.
 pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 15_0_000_000,
@@ -270,7 +279,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch21,
             start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
     ];
