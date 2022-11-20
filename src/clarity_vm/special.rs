@@ -38,6 +38,7 @@ use clarity::vm::types::{
     TupleData, TypeSignature, Value,
 };
 
+use clarity::vm::clarity::Error as clarity_interpreter_error;
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::ClarityVersion;
 
@@ -536,8 +537,13 @@ fn synthesize_pox_2_event_info(
     sender_opt: Option<&PrincipalData>,
     function_name: &str,
     args: &[Value],
-) -> Option<Value> {
-    let sender = sender_opt?;
+) -> std::result::Result<Option<Value>, ChainstateError> {
+    let sender = match sender_opt {
+        Some(sender) => sender,
+        None => {
+            return Ok(None);
+        }
+    };
     let code_snippet_template_opt = match function_name {
         "stack-stx"
         | "delegate-stack-stx"
@@ -578,7 +584,13 @@ fn synthesize_pox_2_event_info(
                             &code_snippet,
                             ASTRules::PrecheckSize,
                         )
-                        .expect("FATAL: failed to run event-info code-snippet");
+                        .map_err(|e| {
+                            error!(
+                                "Failed to run event-info code snippet for '{}': {:?}",
+                                function_name, &e
+                            );
+                            ChainstateError::ClarityError(clarity_interpreter_error::Interpreter(e))
+                        })?;
 
                     let data_event_info = env
                         .eval_read_only_with_rules(
@@ -586,18 +598,30 @@ fn synthesize_pox_2_event_info(
                             &data_snippet,
                             ASTRules::PrecheckSize,
                         )
-                        .expect("FATAL: failed to run data-info code-snippet");
+                        .map_err(|e| {
+                            error!(
+                                "Failed to run data-info code snippet for '{}': {:?}",
+                                function_name, &e
+                            );
+                            ChainstateError::ClarityError(clarity_interpreter_error::Interpreter(e))
+                        })?;
 
                     // merge them
                     let base_event_tuple = base_event_info.expect_tuple();
                     let data_tuple = data_event_info.expect_tuple();
                     let event_tuple = TupleData::shallow_merge(base_event_tuple, data_tuple)
-                        .expect("FATAL: failed to merge data-info into event-info");
-                    let res: Result<Value> = Ok(Value::Tuple(event_tuple));
-                    res
+                        .map_err(|e| {
+                            error!("Failed to merge data-info and event-info: {:?}", &e);
+                            ChainstateError::ClarityError(clarity_interpreter_error::Interpreter(e))
+                        })?;
+
+                    Ok(Value::Tuple(event_tuple))
                 },
             )
-            .expect("FATAL: failed to synthesize PoX-2 event");
+            .map_err(|e: ChainstateError| {
+                error!("Failed to synthesize PoX-2 event: {:?}", &e);
+                e
+            })?;
 
         test_debug!(
             "Synthesized PoX-2 event info for '{}''s call to '{}': {:?}",
@@ -605,9 +629,9 @@ fn synthesize_pox_2_event_info(
             function_name,
             &event_info
         );
-        Some(event_info)
+        Ok(Some(event_info))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -798,14 +822,24 @@ fn handle_pox_v2_api_contract_call(
     // Generate a synthetic print event for all functions that alter stacking state
     let print_event_opt = if let Value::Response(response) = value {
         if response.committed {
-            // method succeeded
-            let event_info_opt = synthesize_pox_2_event_info(
+            // method succeeded.  Synthesize event info, but default to no event report if we fail
+            // for some reason.
+            // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the whole
+            // network!  Event capture is not consensus-critical.
+            let event_info_opt = match synthesize_pox_2_event_info(
                 global_context,
                 contract_id,
                 sender_opt,
                 function_name,
                 args,
-            );
+            ) {
+                Ok(Some(event_info)) => Some(event_info),
+                Ok(None) => None,
+                Err(e) => {
+                    error!("Failed to synthesize PoX-2 event info: {:?}", &e);
+                    None
+                }
+            };
             if let Some(event_info) = event_info_opt {
                 let event_response =
                     Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
