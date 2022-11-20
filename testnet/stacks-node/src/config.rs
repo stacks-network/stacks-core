@@ -404,6 +404,7 @@ impl Config {
     pub fn assert_valid_epoch_settings(burnchain: &Burnchain, epochs: &[StacksEpoch]) {
         // sanity check: epochs must be contiguous and ordered
         // (this panics if it's not the case)
+        test_debug!("Validate epochs: {:#?}", epochs);
         let _ = StacksEpoch::validate_epochs(epochs);
 
         // sanity check: v1_unlock_height must happen after pox-2 instantiation
