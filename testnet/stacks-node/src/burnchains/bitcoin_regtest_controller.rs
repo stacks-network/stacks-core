@@ -356,19 +356,9 @@ impl BitcoinRegtestController {
 
     /// Get the default Burnchain instance from our config
     fn default_burnchain(&self) -> Burnchain {
-        let (network_name, _network_type) = self.config.burnchain.get_bitcoin_network();
         let burnchain = match &self.burnchain_config {
             Some(burnchain) => burnchain.clone(),
-            None => {
-                let working_dir = self.config.get_burn_db_path();
-                match Burnchain::new(&working_dir, &self.config.burnchain.chain, &network_name) {
-                    Ok(burnchain) => burnchain,
-                    Err(e) => {
-                        error!("Failed to instantiate burnchain: {}", e);
-                        panic!()
-                    }
-                }
-            }
+            None => self.config.get_burnchain(),
         };
         burnchain
     }
@@ -2015,9 +2005,14 @@ pub enum RPCError {
 type RPCResult<T> = Result<T, RPCError>;
 
 impl BitcoinRPCRequest {
-    fn build_rpc_request(config: &Config) -> Request {
+    fn build_rpc_request(config: &Config, payload: &BitcoinRPCRequest) -> Request {
         let url = {
-            let url = config.burnchain.get_rpc_url();
+            // some methods require a wallet ID
+            let wallet_id = match payload.method.as_str() {
+                "importaddress" | "listunspent" => Some("".to_string()),
+                _ => None,
+            };
+            let url = config.burnchain.get_rpc_url(wallet_id);
             Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
         };
         debug!(
@@ -2299,7 +2294,7 @@ impl BitcoinRPCRequest {
     }
 
     fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
-        let mut request = BitcoinRPCRequest::build_rpc_request(&config);
+        let mut request = BitcoinRPCRequest::build_rpc_request(&config, &payload);
 
         let body = match serde_json::to_vec(&json!(payload)) {
             Ok(body) => body,
