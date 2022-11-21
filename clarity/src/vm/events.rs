@@ -181,6 +181,7 @@ pub struct STXLockEventData {
     pub locked_amount: u128,
     pub unlock_height: u64,
     pub locked_address: PrincipalData,
+    pub contract_identifier: QualifiedContractIdentifier,
 }
 
 impl STXLockEventData {
@@ -189,6 +190,7 @@ impl STXLockEventData {
             "locked_amount": format!("{}",self.locked_amount),
             "unlock_height": format!("{}", self.unlock_height),
             "locked_address": format!("{}", self.locked_address),
+            "contract_identifier": self.contract_identifier.to_string(),
         })
     }
 }

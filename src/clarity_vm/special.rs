@@ -217,6 +217,10 @@ fn handle_pox_v1_api_contract_call(
                                     locked_amount,
                                     unlock_height,
                                     locked_address: stacker,
+                                    contract_identifier: boot_code_id(
+                                        "pox",
+                                        global_context.mainnet,
+                                    ),
                                 }),
                             ));
                         }
@@ -668,6 +672,7 @@ fn handle_stack_lockup(
                             locked_amount,
                             unlock_height,
                             locked_address: stacker,
+                            contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                         },
                     ));
                     return Ok(Some(event));
@@ -726,6 +731,7 @@ fn handle_stack_lockup_extension(
                         locked_amount,
                         unlock_height,
                         locked_address: stacker,
+                        contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                     },
                 ));
                 return Ok(Some(event));
@@ -787,6 +793,7 @@ fn handle_stack_lockup_increase(
                         locked_amount: new_balance.amount_locked(),
                         unlock_height: new_balance.unlock_height(),
                         locked_address: stacker,
+                        contract_identifier: boot_code_id("pox-2", global_context.mainnet),
                     },
                 ));
 
