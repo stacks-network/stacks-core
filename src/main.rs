@@ -91,7 +91,10 @@ use blockstack_lib::{
     util::{hash::Hash160, vrf::VRFProof},
     util_lib::db::sqlite_open,
 };
+use serde_json::Value;
 use std::collections::HashSet;
+use std::fs::{File, OpenOptions};
+use std::io::BufReader;
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();
@@ -818,6 +821,10 @@ simulating a miner.
         process::exit(0);
     }
 
+    if argv[1] == "tip-mine" {
+        tip_mine();
+    }
+
     if argv[1] == "decode-microblocks" {
         if argv.len() < 3 {
             eprintln!(
@@ -1333,4 +1340,215 @@ simulating a miner.
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
     }
+}
+
+fn tip_mine() {
+    let mut argv: Vec<String> = env::args().collect();
+    if argv.len() < 6 {
+        eprintln!(
+            "Usage: {} tip-mine <working-dir> <event-log> <mine-tip-height> <max-txns>
+
+Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block
+assembly, but does not attempt to broadcast a block commit. This is useful for determining
+what transactions a given chain state would include in an anchor block, or otherwise
+simulating a miner.
+",
+            argv[0]
+        );
+        process::exit(1);
+    }
+
+    let sort_db_path = format!("{}/mainnet/burnchain/sortition", &argv[2]);
+    let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
+
+    let events_file = &argv[3];
+    let mut mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
+    let mut mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
+
+    let sort_db = SortitionDB::open(&sort_db_path, false)
+        .expect(&format!("Failed to open {}", &sort_db_path));
+    let chain_id = CHAIN_ID_MAINNET;
+    let mut chain_state = StacksChainState::open(true, chain_id, &chain_state_path, None)
+        .expect("Failed to open stacks chain state")
+        .0;
+    let chain_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+        .expect("Failed to get sortition chain tip");
+
+    let estimator = Box::new(UnitEstimator);
+    let metric = Box::new(UnitMetric);
+
+    let mut mempool_db = MemPoolDB::open(true, chain_id, &chain_state_path, estimator, metric)
+        .expect("Failed to open mempool db");
+
+    {
+        info!("Clearing mempool");
+        let mut tx = mempool_db.tx_begin().unwrap();
+        let min_height = u32::MAX as u64;
+        MemPoolDB::garbage_collect(&mut tx, min_height, None).unwrap();
+        tx.commit().unwrap();
+    }
+
+    let mut stacks_chain_tip = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+
+    // Find ancestor block
+    let mut stacks_block = stacks_chain_tip.to_owned();
+    loop {
+        let stacks_parent_block = chain_state
+            .get_stacks_block_parent(&sort_db, &stacks_block)
+            .unwrap()
+            .unwrap();
+        if stacks_parent_block.height < mine_tip_height {
+            break;
+        }
+        stacks_block = stacks_parent_block;
+    }
+    info!(
+        "Found stacks_chain_tip with height {}",
+        stacks_chain_tip.height
+    );
+    info!(
+        "Mining off parent block with height {}",
+        stacks_block.height
+    );
+
+    info!(
+        "Submitting up to {} transactions to the mempool",
+        mine_max_txns
+    );
+    let mut found_block_height = false;
+    let mut parsed_tx_count = 0;
+    let mut submit_tx_count = 0;
+    let events_file = File::open(events_file).expect("Unable to open file");
+    let mut events_reader = BufReader::new(events_file);
+    'outer: for line in events_reader.lines() {
+        let line_json: Value = serde_json::from_str(&line.unwrap()).unwrap();
+        let path = line_json["path"].as_str().unwrap();
+        let payload = &line_json["payload"];
+        match path {
+            "new_block" => {
+                let payload = payload.as_object().unwrap();
+                let block_height = payload["block_height"].as_u64().unwrap();
+                if !found_block_height && block_height >= mine_tip_height {
+                    found_block_height = true;
+                    info!("Found target block height {}", block_height);
+                }
+                info!(
+                    "Found new_block height {} parsed_tx_count {} submit_tx_count {}",
+                    block_height, parsed_tx_count, submit_tx_count
+                );
+            }
+            "new_mempool_tx" => {
+                let payload = payload.as_array().unwrap();
+                for item in payload {
+                    let raw_tx_hex = item.as_str().unwrap();
+                    let raw_tx_bytes = hex_bytes(&raw_tx_hex[2..]).unwrap();
+                    let mut cursor = io::Cursor::new(&raw_tx_bytes);
+                    let raw_tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
+                    if found_block_height {
+                        if submit_tx_count >= mine_max_txns {
+                            info!("Reached mine_max_txns {}", submit_tx_count);
+                            break 'outer;
+                        }
+                        let result = mempool_db.submit(
+                            &mut chain_state,
+                            &stacks_block.consensus_hash,
+                            &stacks_block.anchored_block_hash,
+                            &raw_tx,
+                            None,
+                            &ExecutionCost::max_value(),
+                            &StacksEpochId::Epoch20,
+                        );
+                        parsed_tx_count += 1;
+                        if result.is_ok() {
+                            submit_tx_count += 1;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        };
+    }
+    info!("Parsed {} transactions", parsed_tx_count);
+    info!(
+        "Submitted {} transactions into the mempool",
+        submit_tx_count
+    );
+
+    info!("Mining a block");
+
+    let start = get_epoch_time_ms();
+
+    let parent_header = StacksChainState::get_anchored_block_header_info(
+        chain_state.db(),
+        &stacks_block.consensus_hash,
+        &stacks_block.anchored_block_hash,
+    )
+    .expect("Failed to load chain tip header info")
+    .expect("Failed to load chain tip header info");
+
+    let sk = StacksPrivateKey::new();
+    let mut tx_auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+    tx_auth.set_origin_nonce(0);
+
+    let mut coinbase_tx = StacksTransaction::new(
+        TransactionVersion::Mainnet,
+        tx_auth,
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+    );
+
+    coinbase_tx.chain_id = chain_id;
+    coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    let mut tx_signer = StacksTransactionSigner::new(&coinbase_tx);
+    tx_signer.sign_origin(&sk).unwrap();
+    let coinbase_tx = tx_signer.get_tx().unwrap();
+
+    let mut settings = BlockBuilderSettings::max_value();
+
+    let result = StacksBlockBuilder::build_anchored_block(
+        &chain_state,
+        &sort_db.index_conn(),
+        &mut mempool_db,
+        &parent_header,
+        chain_tip.total_burn,
+        VRFProof::empty(),
+        Hash160([0; 20]),
+        &coinbase_tx,
+        settings,
+        None,
+    );
+
+    let stop = get_epoch_time_ms();
+
+    println!(
+        "{} mined block @ height = {} off of {} ({}/{}) in {}ms.",
+        if result.is_ok() {
+            "Successfully"
+        } else {
+            "Failed to"
+        },
+        parent_header.stacks_block_height + 1,
+        StacksBlockHeader::make_index_block_hash(
+            &parent_header.consensus_hash,
+            &parent_header.anchored_header.block_hash()
+        ),
+        &parent_header.consensus_hash,
+        &parent_header.anchored_header.block_hash(),
+        stop.saturating_sub(start),
+    );
+
+    if let Ok((block, execution_cost, size)) = result {
+        let mut total_fees = 0;
+        for tx in block.txs.iter() {
+            total_fees += tx.get_tx_fee();
+        }
+        println!(
+            "Block {}: {} uSTX, {} bytes, cost {:?}",
+            block.block_hash(),
+            total_fees,
+            size,
+            &execution_cost
+        );
+    }
+
+    process::exit(0);
 }

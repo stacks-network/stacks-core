@@ -114,6 +114,8 @@ stacks_common = { package = "stacks-common", features = ["default", "testing"], 
 
 [features]
 default = ["developer-mode"]
+profile-sqlite = []
+disable-costs = []
 developer-mode = []
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks_common/slog_json", "clarity/slog_json"]

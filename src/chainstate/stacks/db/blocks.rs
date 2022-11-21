@@ -6129,6 +6129,20 @@ impl StacksChainState {
         query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
+    /// Get the parent block of `staging_block`.
+    pub fn get_stacks_block_parent(
+        &self,
+        sortdb: &SortitionDB,
+        staging_block: &StagingBlock,
+    ) -> Result<Option<StagingBlock>, Error> {
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[
+            &staging_block.parent_consensus_hash,
+            &staging_block.parent_anchored_block_hash,
+        ];
+        query_row(&self.db(), sql, args).map_err(Error::DBError)
+    }
+
     /// Get the height of a staging block
     pub fn get_stacks_block_height(
         &self,
