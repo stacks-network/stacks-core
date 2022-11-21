@@ -47,9 +47,11 @@ pub use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, STACKS_EPOCH
 // peer version (big-endian)
 // first byte == major network protocol version (currently 0x18)
 // second and third bytes are unused
-// fourth byte == highest epoch supported by this node (0x05 for 2.05)
-pub const PEER_VERSION_MAINNET: u32 = 0x18000005;
-pub const PEER_VERSION_TESTNET: u32 = 0xfacade05;
+// fourth byte == highest epoch supported by this node
+// - 0x05 for 2.05
+// - 0x06 for 2.1
+pub const PEER_VERSION_MAINNET: u32 = 0x18000006;
+pub const PEER_VERSION_TESTNET: u32 = 0xfacade06;
 
 pub const PEER_VERSION_EPOCH_1_0: u8 = 0x00;
 pub const PEER_VERSION_EPOCH_2_0: u8 = 0x00;
