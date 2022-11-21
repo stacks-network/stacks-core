@@ -199,9 +199,14 @@ impl DBConfig {
         match epoch_id {
             StacksEpochId::Epoch10 => true,
             StacksEpochId::Epoch20 => {
-                self.version == "1" || self.version == "2" || self.version == "3"
+                self.version == "1"
+                    || self.version == "2"
+                    || self.version == "3"
+                    || self.version == "4"
             }
-            StacksEpochId::Epoch2_05 => self.version == "2" || self.version == "3",
+            StacksEpochId::Epoch2_05 => {
+                self.version == "2" || self.version == "3" || self.version == "4"
+            }
             StacksEpochId::Epoch21 => self.version == "3" || self.version == "4",
         }
     }
