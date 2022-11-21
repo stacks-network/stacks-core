@@ -454,7 +454,7 @@ impl Node {
     pub fn spawn_peer_server(&mut self, attachments_rx: Receiver<HashSet<AttachmentInstance>>) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
-        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let burnchain = self.config.get_burnchain();
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
@@ -589,7 +589,7 @@ impl Node {
             .rotate_vrf_keypair(burnchain_tip.block_snapshot.block_height);
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
 
-        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let burnchain = self.config.get_burnchain();
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
@@ -791,7 +791,7 @@ impl Node {
                 VRFSeed::from_proof(&vrf_proof),
             );
 
-            let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+            let burnchain = self.config.get_burnchain();
             let sortdb = SortitionDB::open(
                 &self.config.get_burn_db_file_path(),
                 true,
@@ -1050,7 +1050,7 @@ impl Node {
             ),
         };
 
-        let burnchain = Burnchain::regtest(&self.config.get_burn_db_path());
+        let burnchain = self.config.get_burnchain();
         let commit_outs = if burnchain_tip.block_snapshot.block_height + 1
             < burnchain.pox_constants.sunset_end
             && !burnchain.is_in_prepare_phase(burnchain_tip.block_snapshot.block_height + 1)
