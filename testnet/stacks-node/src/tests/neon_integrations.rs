@@ -102,8 +102,13 @@ use std::convert::TryFrom;
 
 use crate::stacks_common::types::PrivateKey;
 
+use crate::stacks::core::StacksEpochExtension;
+
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
+
+    // tests can override this, but these tests run with epoch 2.05 by default
+    conf.burnchain.epochs = Some(StacksEpoch::all(0, 1, 10_000));
     let seed = seed.unwrap_or(conf.node.seed.clone());
     conf.node.seed = seed;
 
