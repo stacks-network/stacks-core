@@ -428,6 +428,7 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
+        _pox_constants: &PoxConstants,
     ) {
         assert!(
             false,

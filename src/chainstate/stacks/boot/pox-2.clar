@@ -172,6 +172,20 @@
     { stacked-amount: uint }
 )
 
+;; This is identical to partial-stacked-by-cycle, but its data is never deleted.
+;; It is used to preserve data for downstream clients to observe aggregate
+;; commits.  Each key/value pair in this map is simply the last value of
+;; partial-stacked-by-cycle right after it was deleted (so, subsequent calls
+;; to the `stack-aggregation-*` functions will overwrite this).
+(define-map logged-partial-stacked-by-cycle
+    { 
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+        reward-cycle: uint,
+        sender: principal
+    }
+    { stacked-amount: uint }
+)
+
 ;; Amount of uSTX that reject PoX, by reward cycle
 (define-map stacking-rejection
     { reward-cycle: uint }
@@ -700,8 +714,9 @@
         ;;  because it _already has_ this stacker's state
         ;; don't lock the STX, because the STX is already locked
         ;;
-        ;; clear the partial-stacked state
+        ;; clear the partial-stacked state, and log it
         (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+        (map-set logged-partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle } partial-stacked)
         (ok pox-addr-index)))))
 
 ;; Legacy interface for stack-aggregation-commit.
@@ -789,8 +804,9 @@
           ;;  because it _already has_ this stacker's state
           ;; don't lock the STX, because the STX is already locked
           ;;
-          ;; clear the partial-stacked state
+          ;; clear the partial-stacked state, and log it
           (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+          (map-set logged-partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle } partial-stacked)
           (ok true))))
 
 ;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
