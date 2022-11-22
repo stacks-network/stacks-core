@@ -1524,12 +1524,20 @@ impl BurnchainDB {
         );
         for rc in start_rc..last_reward_cycle {
             if let Some((commit, metadata)) = BurnchainDB::get_anchor_block_commit(conn, rc)? {
+                let bhh = commit.block_header_hash.clone();
+                let txid = metadata.txid.clone();
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
-                    debug!("Assume present anchor block at reward cycle {}", rc);
+                    debug!(
+                        "Assume present anchor block {} txid {} at reward cycle {}",
+                        &bhh, &txid, rc
+                    );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
-                    debug!("Assume absent anchor block at reward cycle {}", rc);
+                    debug!(
+                        "Assume absent anchor block {} txid {} at reward cycle {}",
+                        &bhh, &txid, rc
+                    );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
                 }
             } else {
