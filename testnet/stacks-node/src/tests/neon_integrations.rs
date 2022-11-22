@@ -1133,12 +1133,7 @@ fn bad_microblock_pubkey() {
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf.clone(),
-        None,
-        Some(burnchain_config.clone()),
-        None,
-    );
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain_test(conf.clone(), burnchain_config.clone());
 
     btc_regtest_controller.bootstrap_chain(201);
 
