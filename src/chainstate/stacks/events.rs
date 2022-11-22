@@ -3,6 +3,7 @@ use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::chainstate::stacks::StacksTransaction;
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::StacksAddress;
+use clarity::util::hash::to_hex;
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{
@@ -30,10 +31,12 @@ impl TransactionOrigin {
             TransactionOrigin::Stacks(tx) => tx.txid(),
         }
     }
-    pub fn serialize_to_vec(&self) -> Vec<u8> {
+    /// Serialize this origin type to a string that can be stored in
+    ///  a database
+    pub fn serialize_to_dbstring(&self) -> String {
         match self {
-            TransactionOrigin::Burn(txid) => txid.as_bytes().to_vec(),
-            TransactionOrigin::Stacks(tx) => tx.txid().as_bytes().to_vec(),
+            TransactionOrigin::Burn(txid) => format!("BTC({})", txid),
+            TransactionOrigin::Stacks(tx) => to_hex(&tx.serialize_to_vec()),
         }
     }
 }

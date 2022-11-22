@@ -2135,6 +2135,7 @@ pub mod test {
     use crate::util_lib::boot::boot_code_test_addr;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::chainstate::TrieHash;
+    use stacks_common::types::StacksEpochId;
 
     use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
 
@@ -2375,6 +2376,7 @@ pub mod test {
             parent_burn_block_timestamp: u64,
             _anchor_block_cost: &ExecutionCost,
             _confirmed_mblock_cost: &ExecutionCost,
+            pox_constants: &PoxConstants,
         ) {
             self.blocks.lock().unwrap().push(TestEventObserverBlock {
                 block: block.clone(),

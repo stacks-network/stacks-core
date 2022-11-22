@@ -148,6 +148,7 @@ pub trait BlockEventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        pox_constants: &PoxConstants,
     );
 
     /// called whenever a burn block is about to be

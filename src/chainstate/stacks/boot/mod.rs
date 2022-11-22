@@ -51,6 +51,7 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use clarity::vm::Environment;
 use stacks_common::address::AddressHashMode;
 use stacks_common::util::hash::Hash160;
 
@@ -65,6 +66,7 @@ use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::ClarityVersion;
 
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use crate::core::CHAIN_ID_MAINNET;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -214,6 +216,110 @@ impl StacksChainState {
         db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
     }
 
+    /// Get the stacking state for a user, before deleting it as part of an unlock
+    fn get_user_stacking_state(
+        clarity: &mut ClarityTransactionConnection,
+        principal: &PrincipalData,
+    ) -> TupleData {
+        // query the stacking state for this user before deleting it
+        let is_mainnet = clarity.is_mainnet();
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
+        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+        let user_stacking_state = clarity
+            .with_readonly_clarity_env(
+                is_mainnet,
+                // chain id doesn't matter since it won't be used
+                CHAIN_ID_MAINNET,
+                ClarityVersion::Clarity2,
+                sender_addr,
+                None,
+                LimitedCostTracker::new_free(),
+                |vm_env| {
+                    vm_env.eval_read_only_with_rules(
+                        &pox_contract,
+                        &format!(r#"
+                            (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
+                            "#,
+                            unlocked_principal = Value::Principal(principal.clone())
+                        ),
+                        ASTRules::PrecheckSize
+                    )
+                })
+                .expect("FATAL: failed to query unlocked principal");
+
+        user_stacking_state.expect_tuple()
+    }
+
+    /// Synthesize the handle-unlock print event.  This is done here, instead of pox-2, so we can
+    /// change it later without breaking consensus.
+    /// The resulting Value will be an `(ok ...)`
+    /// `user_data` is the user's stacking data, before the handle-unlock function gets called.
+    fn synthesize_unlock_event_data(
+        clarity: &mut ClarityTransactionConnection,
+        principal: &PrincipalData,
+        cycle_number: u64,
+        user_data: TupleData,
+    ) -> Value {
+        let is_mainnet = clarity.is_mainnet();
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(clarity.is_mainnet()));
+        let pox_contract = boot::boot_code_id(POX_2_NAME, clarity.is_mainnet());
+
+        let user_first_cycle_locked = user_data
+            .get("first-reward-cycle")
+            .expect("FATAL: missing stacker info")
+            .to_owned();
+        let user_pox_addr = user_data
+            .get("pox-addr")
+            .expect("FATAL: missing stacker info")
+            .to_owned();
+
+        let result = clarity
+            .with_readonly_clarity_env(
+                is_mainnet,
+                // chain id doesn't matter since it won't be used
+                CHAIN_ID_MAINNET,
+                ClarityVersion::Clarity2,
+                sender_addr.clone(),
+                None,
+                LimitedCostTracker::new_free(),
+                |vm_env| {
+                    vm_env.eval_read_only_with_rules(
+                        &pox_contract,
+                        &format!(
+                            r#"
+                            (let (
+                                (stacker-info (stx-account '{unlocked_principal}))
+                                (total-balance (stx-get-balance '{unlocked_principal}))
+                            )
+                            (ok {{
+                                ;; These fields are expected by downstream event observers.
+                                ;; So, we have to supply them even if they don't make much sense.
+                                name: "handle-unlock",
+                                stacker: '{unlocked_principal},
+                                balance: total-balance,
+                                locked: (get locked stacker-info),
+                                burnchain-unlock-height: (get unlock-height stacker-info),
+                                data: {{
+                                    first-cycle-locked: {first_cycle_locked},
+                                    first-unlocked-cycle: {cycle_to_unlock},
+                                    pox-addr: {pox_addr}
+                                }}
+                            }}))
+                            "#,
+                            unlocked_principal = Value::Principal(principal.clone()),
+                            first_cycle_locked = user_first_cycle_locked,
+                            cycle_to_unlock = Value::UInt(cycle_number.into()),
+                            pox_addr = user_pox_addr
+                        ),
+                        ASTRules::PrecheckSize,
+                    )
+                },
+            )
+            .expect("FATAL: failed to evaluate post-unlock state");
+
+        result
+    }
+
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     pub fn handle_pox_cycle_start(
@@ -255,7 +361,11 @@ impl StacksChainState {
                 Ok(())
             }).expect("FATAL: failed to accelerate PoX unlock");
 
-            let (result, _, events, _) = clarity
+            // query the stacking state for this user before deleting it
+            let user_data = Self::get_user_stacking_state(clarity, principal);
+
+            // perform the unlock
+            let (result, _, mut events, _) = clarity
                 .with_abort_callback(
                     |vm_env| {
                         vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
@@ -277,8 +387,17 @@ impl StacksChainState {
                 )
                 .expect("FATAL: failed to handle PoX unlock");
 
+            // this must be infallible
             result.expect_result_ok();
 
+            // extract metadata about the unlock
+            let event_info =
+                Self::synthesize_unlock_event_data(clarity, principal, cycle_number, user_data);
+
+            // Add synthetic print event for `handle-unlock`, since it alters stacking state
+            let tx_event =
+                Environment::construct_print_transaction_event(&pox_contract, &event_info);
+            events.push(tx_event);
             total_events.extend(events.into_iter());
         }
 
