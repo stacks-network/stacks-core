@@ -249,7 +249,7 @@ lazy_static! {
             start_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_1
         },
     ];
 }
@@ -282,7 +282,7 @@ lazy_static! {
             start_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_1
         },
     ];
 }
@@ -315,7 +315,7 @@ lazy_static! {
             start_height: 2000,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
+            network_epoch: PEER_VERSION_EPOCH_2_1
         },
     ];
 }
