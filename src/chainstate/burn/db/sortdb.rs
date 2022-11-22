@@ -1148,7 +1148,6 @@ impl<'a> SortitionHandleTx<'a> {
     pub fn set_stacks_block_accepted(
         &mut self,
         consensus_hash: &ConsensusHash,
-        parent_stacks_block_hash: &BlockHeaderHash,
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
@@ -1163,7 +1162,6 @@ impl<'a> SortitionHandleTx<'a> {
         self.set_stacks_block_accepted_at_tip(
             &chain_tip,
             consensus_hash,
-            parent_stacks_block_hash,
             stacks_block_hash,
             stacks_block_height,
         )?;
@@ -1386,7 +1384,6 @@ impl<'a> SortitionHandleTx<'a> {
         &mut self,
         burn_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
-        parent_stacks_block_hash: &BlockHeaderHash,
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
@@ -4312,6 +4309,55 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(root_hash)
     }
 
+    /// Resolve ties between blocks at the same height.
+    /// Returns the index into `tied`
+    fn break_canonical_stacks_tip_tie(
+        tip: &BlockSnapshot,
+        best_height: u64,
+        new_block_arrivals: &[(ConsensusHash, BlockHeaderHash, u64)],
+    ) -> Option<usize> {
+        // if there's a tie, then randomly and deterministically pick one
+        let mut tied = vec![];
+        for (i, (consensus_hash, block_bhh, height)) in new_block_arrivals.iter().enumerate() {
+            if best_height == *height {
+                tied.push((StacksBlockId::new(consensus_hash, block_bhh), i));
+            }
+        }
+
+        if tied.len() == 0 {
+            return None;
+        }
+        if tied.len() == 1 {
+            return Some(tied[0].1);
+        }
+
+        // break ties by hashing the index block hash with the snapshot's sortition hash, and
+        // picking the lexicographically smallest one
+        let mut hash_tied = vec![];
+        let mut mapping = HashMap::new();
+        for (block_id, arrival_idx) in tied.into_iter() {
+            let mut buff = [0u8; 64];
+            buff[0..32].copy_from_slice(&block_id.0);
+            buff[32..64].copy_from_slice(&tip.sortition_hash.0);
+
+            let hashed = Sha512Trunc256Sum::from_data(&buff);
+            hash_tied.push(hashed.clone());
+            mapping.insert(hashed, arrival_idx);
+        }
+
+        hash_tied.sort();
+        let winner = hash_tied
+            .first()
+            .as_ref()
+            .expect("FATAL: zero-length list of tied block IDs")
+            .clone();
+        let winner_index = *mapping
+            .get(&winner)
+            .expect("FATAL: winning block ID not mapped");
+
+        Some(winner_index)
+    }
+
     /// Find the new Stacks block arrivals as of the given tip `parent_tip`, and returns
     /// the highest Stacks chain tip and maximum arrival index.
     /// Used for both discovering the new arrivals and processing them with new snapshots.
@@ -4389,12 +4435,12 @@ impl<'a> SortitionHandleTx<'a> {
         let mut best_tip_height = parent_tip.canonical_stacks_tip_height;
         let mut ret = vec![];
 
-        for (consensus_hash, block_bhh, height) in new_block_arrivals.into_iter() {
-            ret.push((block_bhh.clone(), height));
+        for (consensus_hash, block_bhh, height) in new_block_arrivals.iter() {
+            ret.push((block_bhh.clone(), *height));
 
             // genesis blocks are incomparable -- it doesn't matter which one was "first."
             // everyone else must be higher than the highest known tip to supersede it.
-            if height > best_tip_height || (height == 0 && best_tip_height == 0) {
+            if *height > best_tip_height || (*height == 0 && best_tip_height == 0) {
                 debug!(
                     "At tip {}: {}/{} (height {}) is superceded by {}/{} (height {})",
                     &parent_tip.burn_header_hash,
@@ -4403,13 +4449,24 @@ impl<'a> SortitionHandleTx<'a> {
                     best_tip_height,
                     consensus_hash,
                     block_bhh,
-                    height
+                    *height
                 );
 
-                best_tip_block_bhh = block_bhh;
-                best_tip_consensus_hash = consensus_hash;
-                best_tip_height = height;
+                best_tip_block_bhh = block_bhh.clone();
+                best_tip_consensus_hash = consensus_hash.clone();
+                best_tip_height = *height;
             }
+        }
+
+        // if there's a tie, then randomly and deterministically pick one
+        let winning_index_opt = SortitionHandleTx::break_canonical_stacks_tip_tie(
+            parent_tip,
+            best_tip_height,
+            &new_block_arrivals,
+        );
+        if let Some(winning_index) = winning_index_opt {
+            best_tip_consensus_hash = new_block_arrivals[winning_index].0;
+            best_tip_block_bhh = new_block_arrivals[winning_index].1;
         }
 
         debug!(
@@ -6856,11 +6913,6 @@ pub mod tests {
         // set some blocks as processed
         for i in 0..5 {
             let consensus_hash = ConsensusHash([(i + 1) as u8; 20]);
-            let parent_stacks_block_hash = if i == 0 {
-                FIRST_STACKS_BLOCK_HASH.clone()
-            } else {
-                BlockHeaderHash([(i - 1) as u8; 32])
-            };
 
             let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
             let height = i;
@@ -6872,13 +6924,8 @@ pub mod tests {
                     "test: set_stacks_block_accepted {}/{} height {}",
                     &consensus_hash, &stacks_block_hash, height
                 );
-                tx.set_stacks_block_accepted(
-                    &consensus_hash,
-                    &parent_stacks_block_hash,
-                    &stacks_block_hash,
-                    height,
-                )
-                .unwrap();
+                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, height)
+                    .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -6951,20 +6998,14 @@ pub mod tests {
         // accept blocks 5 and 7 in one fork, and 6, 8, 9 in another.
         // Stacks fork 1,2,3,4,5,7 will be the longest fork.
         // Stacks fork 1,2,3,4 will overtake it when blocks 6,8,9 are processed.
-        let mut parent_stacks_block_hash = BlockHeaderHash([0x04; 32]);
         for (i, height) in [7].iter().zip([6].iter()) {
             let consensus_hash = ConsensusHash([((i + 1) | 0x80) as u8; 20]);
             let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(
-                    &consensus_hash,
-                    &parent_stacks_block_hash,
-                    &stacks_block_hash,
-                    *height,
-                )
-                .unwrap();
+                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
+                    .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -6973,8 +7014,6 @@ pub mod tests {
                 SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
             assert_eq!(block_consensus_hash, consensus_hash);
             assert_eq!(block_bhh, stacks_block_hash);
-
-            parent_stacks_block_hash = stacks_block_hash;
         }
 
         // chain tip is _still_ memoized to the last materialized chain tip (i.e. stacks block 7)
@@ -6997,20 +7036,14 @@ pub mod tests {
         // block 7.  The two stacks forks will be:
         // * 1,2,3,4,5,7
         // * 1,2,3,4,6,8
-        parent_stacks_block_hash = BlockHeaderHash([4u8; 32]);
         for (i, height) in [6, 8].iter().zip([5, 6].iter()) {
             let consensus_hash = ConsensusHash([((i + 1) | 0x80) as u8; 20]);
             let stacks_block_hash = BlockHeaderHash([(i | 0x80) as u8; 32]);
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(
-                    &consensus_hash,
-                    &parent_stacks_block_hash,
-                    &stacks_block_hash,
-                    *height,
-                )
-                .unwrap();
+                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
+                    .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -7022,8 +7055,6 @@ pub mod tests {
                 last_snapshot.canonical_stacks_tip_consensus_hash
             );
             assert_eq!(block_bhh, last_snapshot.canonical_stacks_tip_hash);
-
-            parent_stacks_block_hash = stacks_block_hash;
         }
 
         // when the block for burn block 9 arrives, the canonical stacks fork will be
@@ -7034,13 +7065,8 @@ pub mod tests {
 
             {
                 let mut tx = db.tx_begin_at_tip();
-                tx.set_stacks_block_accepted(
-                    &consensus_hash,
-                    &parent_stacks_block_hash,
-                    &stacks_block_hash,
-                    *height,
-                )
-                .unwrap();
+                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, *height)
+                    .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -7102,7 +7128,6 @@ pub mod tests {
             let mut tx = db.tx_begin_at_tip();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x4c; 20]),
-                &BlockHeaderHash([0x04; 32]),
                 &BlockHeaderHash([0x4b; 32]),
                 5,
             )
@@ -7179,14 +7204,12 @@ pub mod tests {
             let mut tx = db.tx_handle_begin(&SortitionId([0x2a; 32])).unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x2a; 20]),
-                &BlockHeaderHash([0x04; 32]),
                 &BlockHeaderHash([0x29; 32]),
                 5,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x2b; 20]),
-                &BlockHeaderHash([0x29; 32]),
                 &BlockHeaderHash([0x2a; 32]),
                 6,
             )
@@ -7246,28 +7269,24 @@ pub mod tests {
             let mut tx = db.tx_begin_at_tip();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x46; 20]),
-                &BlockHeaderHash([0x04; 32]),
                 &BlockHeaderHash([0x45; 32]),
                 5,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x47; 20]),
-                &BlockHeaderHash([0x45; 32]),
                 &BlockHeaderHash([0x46; 32]),
                 6,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x48; 20]),
-                &BlockHeaderHash([0x46; 32]),
                 &BlockHeaderHash([0x47; 32]),
                 7,
             )
             .unwrap();
             tx.set_stacks_block_accepted(
                 &ConsensusHash([0x49; 20]),
-                &BlockHeaderHash([0x47; 32]),
                 &BlockHeaderHash([0x48; 32]),
                 8,
             )
@@ -7375,12 +7394,6 @@ pub mod tests {
         // set some blocks as processed
         for i in (0..5).rev() {
             let consensus_hash = ConsensusHash([(i + 1) as u8; 20]);
-            let parent_stacks_block_hash = if i == 0 {
-                FIRST_STACKS_BLOCK_HASH.clone()
-            } else {
-                BlockHeaderHash([(i - 1) as u8; 32])
-            };
-
             let stacks_block_hash = BlockHeaderHash([i as u8; 32]);
             let height = i;
 
@@ -7391,13 +7404,8 @@ pub mod tests {
                     "test: set_stacks_block_accepted {}/{} height {}",
                     &consensus_hash, &stacks_block_hash, height
                 );
-                tx.set_stacks_block_accepted(
-                    &consensus_hash,
-                    &parent_stacks_block_hash,
-                    &stacks_block_hash,
-                    height,
-                )
-                .unwrap();
+                tx.set_stacks_block_accepted(&consensus_hash, &stacks_block_hash, height)
+                    .unwrap();
                 tx.commit().unwrap();
             }
 
@@ -7421,6 +7429,56 @@ pub mod tests {
         assert_eq!(
             last_snapshot.canonical_stacks_tip_hash,
             BlockHeaderHash([0x04; 32])
+        );
+    }
+
+    #[test]
+    fn test_stacks_tip_tiebreaker() {
+        let snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
+            pox_valid: true,
+            block_height: 123,
+            burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+            sortition_id: SortitionId([0x02; 32]),
+            parent_sortition_id: SortitionId([0x01; 32]),
+            parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
+            consensus_hash: ConsensusHash([0x03; 20]),
+            ops_hash: OpsHash([0x04; 32]),
+            total_burn: 0,
+            sortition: true,
+            sortition_hash: SortitionHash([0x05; 32]),
+            winning_block_txid: Txid([0x06; 32]),
+            winning_stacks_block_hash: BlockHeaderHash([0x07; 32]),
+            index_root: TrieHash([0x08; 32]),
+            num_sortitions: 3,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: 0,
+            canonical_stacks_tip_hash: BlockHeaderHash([0x09; 32]),
+            canonical_stacks_tip_consensus_hash: ConsensusHash([0x0a; 20]),
+        };
+
+        let best_height = 123;
+        let new_block_arrivals = vec![
+            (ConsensusHash([0x01; 20]), BlockHeaderHash([0x02; 32]), 123),
+            (ConsensusHash([0x03; 20]), BlockHeaderHash([0x04; 32]), 123),
+            (ConsensusHash([0x07; 20]), BlockHeaderHash([0x08; 32]), 122),
+            (ConsensusHash([0x05; 20]), BlockHeaderHash([0x06; 32]), 123),
+        ];
+
+        assert_eq!(
+            SortitionHandleTx::break_canonical_stacks_tip_tie(&snapshot, 121, &new_block_arrivals),
+            None
+        );
+        assert_eq!(
+            SortitionHandleTx::break_canonical_stacks_tip_tie(&snapshot, 122, &new_block_arrivals),
+            Some(2)
+        );
+        assert_eq!(
+            SortitionHandleTx::break_canonical_stacks_tip_tie(&snapshot, 123, &new_block_arrivals),
+            Some(0)
         );
     }
 

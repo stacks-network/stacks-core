@@ -1394,7 +1394,7 @@ simulating a miner.
     let mut stacks_block = stacks_chain_tip.to_owned();
     loop {
         let stacks_parent_block = chain_state
-            .get_stacks_block_parent(&sort_db, &stacks_block)
+            .get_stacks_block_parent(&stacks_block)
             .unwrap()
             .unwrap();
         if stacks_parent_block.height < mine_tip_height {

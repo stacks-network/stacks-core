@@ -2613,7 +2613,6 @@ impl StacksChainState {
                 Some(ref mut sort_tx) => {
                     sort_tx.set_stacks_block_accepted(
                         consensus_hash,
-                        &block.parent_anchored_block_hash,
                         &block.anchored_block_hash,
                         block.height,
                     )?;
@@ -6132,7 +6131,6 @@ impl StacksChainState {
     /// Get the parent block of `staging_block`.
     pub fn get_stacks_block_parent(
         &self,
-        sortdb: &SortitionDB,
         staging_block: &StagingBlock,
     ) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
