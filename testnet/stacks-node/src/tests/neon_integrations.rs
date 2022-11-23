@@ -23,8 +23,8 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
-    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-    PEER_VERSION_EPOCH_2_1,
+    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
@@ -108,7 +108,37 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
     let mut conf = super::new_test_conf();
 
     // tests can override this, but these tests run with epoch 2.05 by default
-    conf.burnchain.epochs = Some(StacksEpoch::all(0, 1, 10_000));
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1000,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1000,
+            end_height: 1000000 - 1,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 1000000 - 1,
+            end_height: 9223372036854775807,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
+
     let seed = seed.unwrap_or(conf.node.seed.clone());
     conf.node.seed = seed;
 
