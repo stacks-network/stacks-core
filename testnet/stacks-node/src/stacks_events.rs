@@ -1,16 +1,11 @@
-use chrono::{DateTime, Local, SecondsFormat, Utc};
+use chrono::{SecondsFormat, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::{json, Value};
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::util::hash::hex_bytes;
-use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::TcpListener;
 use std::net::TcpStream;
-use std::time::SystemTime;
-use std::{env, io};
 
 const DEFAULT_ADDR: &str = "127.0.0.1:3700";
 
@@ -41,7 +36,7 @@ fn serve_for_events(addr: &String) {
     let listener = TcpListener::bind(addr).unwrap();
     eprintln!("Listening on {}", addr);
     for stream in listener.incoming() {
-        let mut stream = stream.unwrap();
+        let stream = stream.unwrap();
         handle_connection(stream);
     }
 }
@@ -57,7 +52,7 @@ fn handle_connection(mut stream: TcpStream) {
 
     let mut path = None;
     let mut content_length = None;
-    let mut payload = None;
+    let payload;
 
     loop {
         buf.clear();
