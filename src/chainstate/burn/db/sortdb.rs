@@ -7047,14 +7047,35 @@ pub mod tests {
                 tx.commit().unwrap();
             }
 
-            // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork
+            // chain tip is memoized to the current burn chain tip, since it's the longest stacks fork.
+            // BUT! the tie-breaking logic will cause the canonical fork to *flip*
             let (block_consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(db.conn()).unwrap();
-            assert_eq!(
-                block_consensus_hash,
-                last_snapshot.canonical_stacks_tip_consensus_hash
-            );
-            assert_eq!(block_bhh, last_snapshot.canonical_stacks_tip_hash);
+
+            if *i != 8 {
+                assert_eq!(
+                    block_consensus_hash,
+                    last_snapshot.canonical_stacks_tip_consensus_hash
+                );
+                assert_eq!(block_bhh, last_snapshot.canonical_stacks_tip_hash);
+            } else {
+                // flip!
+                let new_last_snapshot =
+                    SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
+                assert_eq!(
+                    block_consensus_hash,
+                    new_last_snapshot.canonical_stacks_tip_consensus_hash
+                );
+                assert_eq!(block_bhh, new_last_snapshot.canonical_stacks_tip_hash);
+                assert_ne!(
+                    new_last_snapshot.canonical_stacks_tip_consensus_hash,
+                    last_snapshot.canonical_stacks_tip_consensus_hash
+                );
+                assert_ne!(
+                    new_last_snapshot.canonical_stacks_tip_hash,
+                    last_snapshot.canonical_stacks_tip_hash
+                );
+            }
         }
 
         // when the block for burn block 9 arrives, the canonical stacks fork will be
