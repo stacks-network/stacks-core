@@ -2520,7 +2520,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &BitwiseOr, name),
         BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNot, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
-        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name)
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name),
         NoOp => make_for_simple_native(&STX_BURN, &StxBurn, name),
         ContractCallBench => make_for_simple_native(&STX_BURN, &StxBurn, name),
     }
