@@ -182,7 +182,7 @@ impl DefinedFunction {
                     );
                 }
                 _ => {
-                    if !type_sig.admits(value) {
+                    if !type_sig.admits(value)? {
                         return Err(
                             CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
                         );
@@ -225,7 +225,7 @@ impl DefinedFunction {
                 ))?;
 
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
-        if !expected_sig.check_args_trait_compliance(args) {
+        if !expected_sig.check_args_trait_compliance(args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
             );

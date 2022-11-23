@@ -30,11 +30,11 @@ jobs:
         run: |
           rm .dockerignore
           docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
-      - uses: codecov/codecov-action@v2
-        with:
-          files: ./coverage-output/lcov.info
-          name: large_genesis
-          fail_ci_if_error: true
+      # - uses: codecov/codecov-action@v2
+      #   with:
+      #     files: ./coverage-output/lcov.info
+      #     name: large_genesis
+      #     fail_ci_if_error: true
 
   # Run unit tests with code coverage
   unit-tests:
@@ -48,11 +48,11 @@ jobs:
         run: |
           rm .dockerignore
           docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-      - uses: codecov/codecov-action@v2
-        with:
-          files: ./coverage-output/lcov.info
-          name: unit_tests
-          fail_ci_if_error: true
+      # - uses: codecov/codecov-action@v2
+      #   with:
+      #     files: ./coverage-output/lcov.info
+      #     name: unit_tests
+      #     fail_ci_if_error: true
 
   open-api-validation:
     runs-on: ubuntu-latest
@@ -89,11 +89,11 @@ jobs:
         uses: docker://hirosystems/clarinet:latest
         with:
           args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
-      - name: "Export code coverage"
-        uses: codecov/codecov-action@v1
-        with:
-          files: ./coverage.lcov
-          verbose: true
+      # - name: "Export code coverage"
+      #   uses: codecov/codecov-action@v1
+      #   with:
+      #     files: ./coverage.lcov
+      #     verbose: true
 
   # rustfmt checking
   rustfmt:

@@ -666,7 +666,7 @@ fn test_list_tuple_admission() {
 
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);
-    assert!(result_type.admits(&testing_value));
+    assert!(result_type.admits(&testing_value).unwrap());
 }
 
 #[test]
