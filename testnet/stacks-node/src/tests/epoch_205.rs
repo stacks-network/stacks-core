@@ -14,7 +14,9 @@ use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
-use stacks::core::{PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+use stacks::core::{
+    PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+};
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
@@ -711,6 +713,19 @@ fn test_cost_limit_switch_version205() {
     // Create a schedule where we lower the read_count on Epoch2_05.
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 150,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 215,
@@ -726,7 +741,7 @@ fn test_cost_limit_switch_version205() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 215,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: ExecutionCost {
                 write_length: 100000000,
                 write_count: 1000,
@@ -736,7 +751,21 @@ fn test_cost_limit_switch_version205() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 50,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     conf.initial_balances.push(InitialBalance {
         address: alice_pd.clone(),
