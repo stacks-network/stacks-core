@@ -1012,6 +1012,19 @@ fn bigger_microblock_streams_in_2_05() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 206,
+            end_height: 10_002,
+            block_limit: ExecutionCost {
+                write_length: 15000000,
+                write_count: 7750 * 2,
+                read_length: 100000000,
+                read_count: 7750 * 2,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
             end_height: 9223372036854775807,
             block_limit: ExecutionCost {
                 write_length: 15000000,
@@ -1023,6 +1036,7 @@ fn bigger_microblock_streams_in_2_05() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
