@@ -673,7 +673,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
-    let mut db = Connection::open_with_flags(path, flags)?;
+    let db = Connection::open_with_flags(path, flags)?;
     #[cfg(feature = "profile-sqlite")]
     db.profile(Some(trace_profile));
     db.busy_handler(Some(tx_busy_handler))?;

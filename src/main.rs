@@ -1343,7 +1343,7 @@ simulating a miner.
 }
 
 fn tip_mine() {
-    let mut argv: Vec<String> = env::args().collect();
+    let argv: Vec<String> = env::args().collect();
     if argv.len() < 6 {
         eprintln!(
             "Usage: {} tip-mine <working-dir> <event-log> <mine-tip-height> <max-txns>
@@ -1362,8 +1362,8 @@ simulating a miner.
     let chain_state_path = format!("{}/mainnet/chainstate/", &argv[2]);
 
     let events_file = &argv[3];
-    let mut mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
-    let mut mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
+    let mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
+    let mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
 
     let sort_db = SortitionDB::open(&sort_db_path, false)
         .expect(&format!("Failed to open {}", &sort_db_path));
@@ -1388,13 +1388,13 @@ simulating a miner.
         tx.commit().unwrap();
     }
 
-    let mut stacks_chain_tip = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
+    let stacks_chain_tip = chain_state.get_stacks_chain_tip(&sort_db).unwrap().unwrap();
 
     // Find ancestor block
     let mut stacks_block = stacks_chain_tip.to_owned();
     loop {
         let stacks_parent_block = chain_state
-            .get_stacks_block_parent(&sort_db, &stacks_block)
+            .get_stacks_block_parent(&stacks_block)
             .unwrap()
             .unwrap();
         if stacks_parent_block.height < mine_tip_height {
@@ -1419,7 +1419,7 @@ simulating a miner.
     let mut parsed_tx_count = 0;
     let mut submit_tx_count = 0;
     let events_file = File::open(events_file).expect("Unable to open file");
-    let mut events_reader = BufReader::new(events_file);
+    let events_reader = BufReader::new(events_file);
     'outer: for line in events_reader.lines() {
         let line_json: Value = serde_json::from_str(&line.unwrap()).unwrap();
         let path = line_json["path"].as_str().unwrap();
@@ -1502,7 +1502,7 @@ simulating a miner.
     tx_signer.sign_origin(&sk).unwrap();
     let coinbase_tx = tx_signer.get_tx().unwrap();
 
-    let mut settings = BlockBuilderSettings::max_value();
+    let settings = BlockBuilderSettings::max_value();
 
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
