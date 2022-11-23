@@ -2865,7 +2865,7 @@ impl PeerNetwork {
         );
 
         // go from latest to earliest reward cycle
-        for reward_cycle in (reward_cycle_finish..reward_cycle_start+1).rev() {
+        for reward_cycle in (reward_cycle_finish..reward_cycle_start + 1).rev() {
             let local_blocks_inv = match self.get_local_blocks_inv(sortdb, chainstate, reward_cycle)
             {
                 Ok(inv) => inv,
