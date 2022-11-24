@@ -4310,7 +4310,7 @@ impl<'a> SortitionHandleTx<'a> {
     }
 
     /// Resolve ties between blocks at the same height.
-    /// Hashes the given snapshot's sortition hash with the index block hash for each block 
+    /// Hashes the given snapshot's sortition hash with the index block hash for each block
     /// (calculated from `new_block_arrivals`' consensus hash and block header hash), and chooses
     /// the block in `new_block_arrivals` whose resulting hash is lexographically the smallest.
     /// Returns the index into `new_block_arrivals` for the block whose hash is the smallest.
