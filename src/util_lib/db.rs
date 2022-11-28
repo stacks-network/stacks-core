@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::stacks::index::storage::TrieStorageConnection;
 use std::convert::TryInto;
 use std::error;
 use std::fmt;
@@ -25,23 +24,12 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::sleep_ms;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-
-use clarity::vm::types::QualifiedContractIdentifier;
-
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use rusqlite::types::{
-    FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, Value as RusqliteValue,
-    ValueRef as RusqliteValueRef,
-};
+use rand::thread_rng;
+use rand::Rng;
+use rand::RngCore;
+use rusqlite::types::{FromSql, ToSql};
 use rusqlite::Connection;
 use rusqlite::Error as sqlite_error;
 use rusqlite::OpenFlags;
@@ -50,21 +38,23 @@ use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
 use rusqlite::NO_PARAMS;
+use serde_json::Error as serde_error;
+
+use clarity::vm::types::QualifiedContractIdentifier;
+use stacks_common::types::chainstate::SortitionId;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::marf::MarfTransaction;
 use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::storage::TrieStorageTransaction;
 use crate::chainstate::stacks::index::Error as MARFError;
 use crate::chainstate::stacks::index::MARFValue;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::types::chainstate::TrieHash;
-
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
-
-use serde_json::Error as serde_error;
 
 pub type DBConn = rusqlite::Connection;
 pub type DBTx<'a> = rusqlite::Transaction<'a>;
@@ -668,6 +658,15 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
     Ok(tx)
 }
 
+#[cfg(feature = "profile-sqlite")]
+fn trace_profile(query: &str, duration: Duration) {
+    let obj = json!({"millis":duration.as_millis(), "query":query});
+    debug!(
+        "sqlite trace profile {}",
+        serde_json::to_string(&obj).unwrap()
+    );
+}
+
 /// Open a database connection and set some typically-used pragmas
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
@@ -675,6 +674,8 @@ pub fn sqlite_open<P: AsRef<Path>>(
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
     let db = Connection::open_with_flags(path, flags)?;
+    #[cfg(feature = "profile-sqlite")]
+    db.profile(Some(trace_profile));
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
@@ -915,8 +916,9 @@ impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     #[test]
     fn test_pragma() {

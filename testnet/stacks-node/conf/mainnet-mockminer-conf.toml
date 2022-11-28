@@ -1,5 +1,5 @@
 [node]
-working_dir = "/dir/to/save/chainstate"
+# working_dir = "/dir/to/save/chainstate"
 rpc_bind = "0.0.0.0:20443"
 p2p_bind = "0.0.0.0:20444"
 miner = true
@@ -14,9 +14,4 @@ username = "blockstack"
 password = "blockstacksystem"
 rpc_port = 8332
 peer_port = 8333
-
-# Used for sending events to a local stacks-blockchain-api service
-# [[events_observer]]
-# endpoint = "localhost:3700"
-# retry_count = 255
-# events_keys = ["*"]
+burn_fee_cap = 1
