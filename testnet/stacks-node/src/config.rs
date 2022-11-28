@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::convert::TryInto;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
@@ -491,39 +490,39 @@ impl ConfigLoader {
 
 #[derive(Clone, Debug)]
 pub struct ConfigLoaderHandle {
-    handle: std::sync::Arc<std::sync::Mutex<RefCell<ConfigLoader>>>,
+    handle: std::sync::Arc<std::sync::Mutex<ConfigLoader>>,
 }
 
 impl ConfigLoaderHandle {
     pub fn new(config_loader: ConfigLoader) -> ConfigLoaderHandle {
         ConfigLoaderHandle {
-            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config_loader))),
+            handle: std::sync::Arc::new(std::sync::Mutex::new(config_loader)),
         }
     }
 
     pub fn get(&self) -> ConfigLoader {
-        self.handle.lock().unwrap().borrow().clone()
+        self.handle.lock().unwrap().clone()
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct ConfigHandle {
-    handle: std::sync::Arc<std::sync::Mutex<RefCell<Config>>>,
+    handle: std::sync::Arc<std::sync::Mutex<Config>>,
 }
 
 impl ConfigHandle {
     pub fn new(config: Config) -> ConfigHandle {
         ConfigHandle {
-            handle: std::sync::Arc::new(std::sync::Mutex::new(RefCell::new(config))),
+            handle: std::sync::Arc::new(std::sync::Mutex::new(config)),
         }
     }
 
     pub fn replace(&self, config: &Config) {
-        self.handle.lock().unwrap().replace(config.clone());
+        *self.handle.lock().unwrap() = config.clone();
     }
 
     pub fn get(&self) -> Config {
-        self.handle.lock().unwrap().borrow().clone()
+        self.handle.lock().unwrap().clone()
     }
 }
 
