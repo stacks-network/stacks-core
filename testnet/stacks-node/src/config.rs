@@ -406,7 +406,7 @@ impl Config {
         }
 
         if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
-            info!(
+            debug!(
                 "Override v1_unlock_height from {} to {}",
                 burnchain.pox_constants.v1_unlock_height, v1_unlock_height
             );
@@ -414,7 +414,7 @@ impl Config {
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
-            info!(
+            debug!(
                 "Override sunset_start from {} to {}",
                 burnchain.pox_constants.sunset_start, sunset_start
             );
@@ -422,7 +422,7 @@ impl Config {
         }
 
         if let Some(sunset_end) = self.burnchain.sunset_end {
-            info!(
+            debug!(
                 "Override sunset_end from {} to {}",
                 burnchain.pox_constants.sunset_end, sunset_end
             );
