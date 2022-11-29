@@ -178,6 +178,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub applied_epoch_transition: bool,
     pub burn_stack_stx_ops: Vec<StackStxOp>,
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
+    pub auto_unlock_events: Vec<StacksTransactionEvent>,
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
 }
 
@@ -198,6 +199,7 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
         _confirmed_mblock_cost: &ExecutionCost,
+        _pox_constants: &PoxConstants,
     ) {
         assert!(
             false,
@@ -5489,7 +5491,6 @@ impl StacksChainState {
             &MINER_BLOCK_HEADER_HASH,
         );
 
-        let evaluated_epoch = clarity_tx.get_epoch();
         clarity_tx.reset_cost(parent_block_cost.clone());
 
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
@@ -5566,8 +5567,13 @@ impl StacksChainState {
         // epoch defined by this miner.
         clarity_tx.reset_cost(ExecutionCost::zero());
 
-        debug!("Evaluating block with epoch = {}", evaluated_epoch);
-        if evaluated_epoch >= StacksEpochId::Epoch21 {
+        // is this stacks block the first of a new epoch?
+        let (applied_epoch_transition, mut tx_receipts) =
+            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+
+        let evaluated_epoch = clarity_tx.get_epoch();
+
+        let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
             Self::check_and_handle_reward_start(
                 burn_tip_height.into(),
                 burn_dbconn,
@@ -5575,12 +5581,10 @@ impl StacksChainState {
                 &mut clarity_tx,
                 chain_tip,
                 &parent_sortition_id,
-            )?;
-        }
-
-        // is this stacks block the first of a new epoch?
-        let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(&mut clarity_tx, burn_tip_height)?;
+            )?
+        } else {
+            vec![]
+        };
 
         let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height as u64);
 
@@ -5617,6 +5621,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops: stacking_burn_ops,
             burn_transfer_stx_ops: transfer_burn_ops,
+            auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
         })
     }
@@ -5810,6 +5815,7 @@ impl StacksChainState {
             applied_epoch_transition,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            mut auto_unlock_events,
             burn_delegate_stx_ops,
         } = StacksChainState::setup_block(
             chainstate_tx,
@@ -5984,6 +5990,18 @@ impl StacksChainState {
                     warn!("Unable to attach lockups events, block's first transaction is not a coinbase transaction")
                 }
             }
+            // if any, append auto unlock events to the coinbase receipt
+            if auto_unlock_events.len() > 0 {
+                // Receipts are appended in order, so the first receipt should be
+                // the one of the coinbase transaction
+                if let Some(receipt) = tx_receipts.get_mut(0) {
+                    if receipt.is_coinbase_tx() {
+                        receipt.events.append(&mut auto_unlock_events);
+                    }
+                } else {
+                    warn!("Unable to attach auto unlock events, block's first transaction is not a coinbase transaction")
+                }
+            }
 
             let root_hash = clarity_tx.seal();
             if root_hash != block.header.state_index_root {
@@ -6102,6 +6120,7 @@ impl StacksChainState {
             parent_burn_block_height,
             parent_burn_block_timestamp,
             evaluated_epoch,
+            epoch_transition: applied_epoch_transition,
         };
 
         Ok((epoch_receipt, clarity_commit))
@@ -6541,6 +6560,7 @@ impl StacksChainState {
                 epoch_receipt.parent_burn_block_timestamp,
                 &epoch_receipt.anchored_block_cost,
                 &epoch_receipt.parent_microblocks_cost,
+                &pox_constants,
             );
         }
 

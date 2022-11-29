@@ -11,7 +11,7 @@ use async_std::net::TcpStream;
 use http_types::{Method, Request, Url};
 use serde_json::json;
 
-use stacks::burnchains::Txid;
+use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
@@ -87,7 +87,7 @@ pub struct MinedMicroblockEvent {
 }
 
 impl EventObserver {
-    fn send_payload(&self, payload: &serde_json::Value, path: &str) {
+    pub fn send_payload(&self, payload: &serde_json::Value, path: &str) {
         let body = match serde_json::to_vec(&payload) {
             Ok(body) => body,
             Err(err) => {
@@ -336,7 +336,7 @@ impl EventObserver {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
 
-    fn send(
+    fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
         block: &StacksBlock,
@@ -351,7 +351,8 @@ impl EventObserver {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
-    ) {
+        pox_constants: &PoxConstants,
+    ) -> serde_json::Value {
         // Serialize events to JSON
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
@@ -370,7 +371,7 @@ impl EventObserver {
         }
 
         // Wrap events
-        let payload = json!({
+        json!({
             "block_hash": format!("0x{}", block.block_hash()),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
@@ -390,10 +391,8 @@ impl EventObserver {
             "parent_burn_block_timestamp": parent_burn_block_timestamp,
             "anchored_cost": anchored_consumed,
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
-        });
-
-        // Send payload
-        self.send_payload(&payload, PATH_BLOCK_PROCESSED);
+            "pox_v1_unlock_height": pox_constants.v1_unlock_height,
+        })
     }
 }
 
@@ -469,6 +468,7 @@ impl BlockEventDispatcher for EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        pox_constants: &PoxConstants,
     ) {
         self.process_chain_tip(
             block,
@@ -483,6 +483,7 @@ impl BlockEventDispatcher for EventDispatcher {
             parent_burn_block_timestamp,
             anchored_consumed,
             mblock_confirmed_consumed,
+            pox_constants,
         )
     }
 
@@ -728,6 +729,7 @@ impl EventDispatcher {
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
         mblock_confirmed_consumed: &ExecutionCost,
+        pox_constants: &PoxConstants,
     ) {
         let boot_receipts = if metadata.stacks_block_height == 1 {
             let mut boot_receipts_result = self
@@ -780,21 +782,26 @@ impl EventDispatcher {
                     .map(|event_id| (*event_id, &events[*event_id]))
                     .collect();
 
-                self.registered_observers[observer_id].send(
-                    filtered_events,
-                    block,
-                    metadata,
-                    receipts,
-                    parent_index_hash,
-                    &boot_receipts,
-                    &winner_txid,
-                    &mature_rewards,
-                    parent_burn_block_hash,
-                    parent_burn_block_height,
-                    parent_burn_block_timestamp,
-                    anchored_consumed,
-                    mblock_confirmed_consumed,
-                );
+                let payload = self.registered_observers[observer_id]
+                    .make_new_block_processed_payload(
+                        filtered_events,
+                        block,
+                        metadata,
+                        receipts,
+                        parent_index_hash,
+                        &boot_receipts,
+                        &winner_txid,
+                        &mature_rewards,
+                        parent_burn_block_hash,
+                        parent_burn_block_height,
+                        parent_burn_block_timestamp,
+                        anchored_consumed,
+                        mblock_confirmed_consumed,
+                        pox_constants,
+                    );
+
+                // Send payload
+                self.registered_observers[observer_id].send_payload(&payload, PATH_BLOCK_PROCESSED);
             }
         }
     }
@@ -1078,5 +1085,62 @@ impl EventDispatcher {
         }
 
         self.registered_observers.push(event_observer);
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::event_dispatcher::EventObserver;
+    use clarity::vm::costs::ExecutionCost;
+    use stacks::burnchains::{PoxConstants, Txid};
+    use stacks::chainstate::stacks::db::StacksHeaderInfo;
+    use stacks::chainstate::stacks::StacksBlock;
+    use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+
+    #[test]
+    fn build_block_processed_event() {
+        let observer = EventObserver {
+            endpoint: "nowhere".to_string(),
+        };
+
+        let filtered_events = vec![];
+        let block = StacksBlock::genesis_block();
+        let metadata = StacksHeaderInfo::regtest_genesis();
+        let receipts = vec![];
+        let parent_index_hash = StacksBlockId([0; 32]);
+        let boot_receipts = vec![];
+        let winner_txid = Txid([0; 32]);
+        let mature_rewards = serde_json::Value::Array(vec![]);
+        let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
+        let parent_burn_block_height = 0;
+        let parent_burn_block_timestamp = 0;
+        let anchored_consumed = ExecutionCost::zero();
+        let mblock_confirmed_consumed = ExecutionCost::zero();
+        let pox_constants = PoxConstants::testnet_default();
+
+        let payload = observer.make_new_block_processed_payload(
+            filtered_events,
+            &block,
+            &metadata,
+            &receipts,
+            &parent_index_hash,
+            &boot_receipts,
+            &winner_txid,
+            &mature_rewards,
+            parent_burn_block_hash,
+            parent_burn_block_height,
+            parent_burn_block_timestamp,
+            &anchored_consumed,
+            &mblock_confirmed_consumed,
+            &pox_constants,
+        );
+        assert_eq!(
+            payload
+                .get("pox_v1_unlock_height")
+                .unwrap()
+                .as_u64()
+                .unwrap(),
+            pox_constants.v1_unlock_height as u64
+        );
     }
 }

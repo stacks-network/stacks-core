@@ -1180,7 +1180,15 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             match res {
                 Ok(value) => {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-                        handler(&mut self.global_context, self.sender.as_ref(), self.sponsor.as_ref(), contract_identifier, tx_name, &value)?;
+                        handler(
+                            &mut self.global_context,
+                            self.sender.as_ref(),
+                            self.sponsor.as_ref(),
+                            contract_identifier,
+                            tx_name,
+                            &args,
+                            &value
+                        )?;
                     }
                     Ok(value)
                 },
@@ -1396,20 +1404,31 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
     }
 
-    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+    pub fn push_to_event_batch(&mut self, event: StacksTransactionEvent) {
+        if let Some(batch) = self.global_context.event_batches.last_mut() {
+            batch.events.push(event);
+        }
+    }
+
+    pub fn construct_print_transaction_event(
+        contract_id: &QualifiedContractIdentifier,
+        value: &Value,
+    ) -> StacksTransactionEvent {
         let print_event = SmartContractEventData {
-            key: (
-                self.contract_context.contract_identifier.clone(),
-                "print".to_string(),
-            ),
-            value,
+            key: (contract_id.clone(), "print".to_string()),
+            value: value.clone(),
         };
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch
-                .events
-                .push(StacksTransactionEvent::SmartContractEvent(print_event));
-        }
+        StacksTransactionEvent::SmartContractEvent(print_event)
+    }
+
+    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+        let event = Self::construct_print_transaction_event(
+            &self.contract_context.contract_identifier,
+            &value,
+        );
+
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1426,23 +1445,17 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             amount,
             memo,
         };
+        let event = StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::STXEvent(
-                STXEventType::STXTransferEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
     pub fn register_stx_burn_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
         let event_data = STXBurnEventData { sender, amount };
+        let event = StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::STXEvent(
-                STXEventType::STXBurnEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1459,12 +1472,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             value,
         };
+        let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTTransferEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::NFTEvent(
-                NFTEventType::NFTTransferEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1563,12 +1573,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             value,
         };
+        let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::NFTEvent(
-                NFTEventType::NFTMintEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1583,12 +1590,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             value,
         };
+        let event = StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::NFTEvent(
-                NFTEventType::NFTBurnEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1605,12 +1609,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             amount,
         };
+        let event = StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch.events.push(StacksTransactionEvent::FTEvent(
-                FTEventType::FTTransferEvent(event_data),
-            ));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1625,14 +1626,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             amount,
         };
+        let event = StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch
-                .events
-                .push(StacksTransactionEvent::FTEvent(FTEventType::FTMintEvent(
-                    event_data,
-                )));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 
@@ -1647,14 +1643,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             asset_identifier,
             amount,
         };
+        let event = StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(event_data));
 
-        if let Some(batch) = self.global_context.event_batches.last_mut() {
-            batch
-                .events
-                .push(StacksTransactionEvent::FTEvent(FTEventType::FTBurnEvent(
-                    event_data,
-                )));
-        }
+        self.push_to_event_batch(event);
         Ok(())
     }
 }
@@ -1740,6 +1731,44 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         })?;
         self.commit()?;
         Ok(result)
+    }
+
+    /// Run a snippet of Clarity code in the given contract context
+    /// Only use within special-case contract-call handlers.
+    /// DO NOT CALL FROM ANYWHERE ELSE!
+    pub fn special_cc_handler_execute_read_only<F, A, E>(
+        &mut self,
+        sender: PrincipalData,
+        sponsor: Option<PrincipalData>,
+        contract_context: ContractContext,
+        f: F,
+    ) -> std::result::Result<A, E>
+    where
+        E: From<crate::vm::errors::Error>,
+        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+    {
+        self.begin();
+
+        let result = {
+            // this right here is why it's dangerous to call this anywhere else.
+            // the call stack gets reset to empyt each time!
+            let mut callstack = CallStack::new();
+            let mut exec_env = Environment::new(
+                self,
+                &contract_context,
+                &mut callstack,
+                Some(sender.clone()),
+                Some(sender),
+                sponsor,
+            );
+            f(&mut exec_env)
+        };
+        self.roll_back();
+
+        match result {
+            Ok(return_value) => Ok(return_value),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn is_read_only(&self) -> bool {
