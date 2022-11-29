@@ -2958,6 +2958,109 @@ fn miner_submit_twice() {
 
 #[test]
 #[ignore]
+fn miner_update_config() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_start_balance = 65536;
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr: PrincipalData = to_addr(&spender_sk).into();
+    let recipient = StacksAddress::from_string(ADDR_4).unwrap();
+    let tx_fee_1 = 1000;
+    let tx_amount_1 = 10000;
+    let tx_bytes_1 = make_stacks_transfer(&spender_sk, 0, tx_fee_1, &recipient.into(), tx_amount_1);
+    let tx_1 = StacksTransaction::consensus_deserialize(&mut &tx_bytes_1[..]).unwrap();
+
+    eprintln!("tx_1 {:?}", &tx_1);
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.initial_balances.push(InitialBalance {
+        address: spender_addr.clone(),
+        amount: spender_start_balance,
+    });
+
+    // all transactions have high-enough fees...
+    conf.miner.min_tx_fee = 1;
+    conf.node.mine_microblocks = false;
+    // one should be mined in first attempt, and two should be in second attempt
+    conf.miner.first_attempt_time_ms = 2_000;
+    conf.miner.subsequent_attempt_time_ms = 2_000;
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    eprintln!("Spawning runloop...");
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    eprintln!("Spawned runloop, blocks {:?}", &blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!("after run loop wakeup blocks {:?}", &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!("after VRF reg blocks {:?}", &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!(
+        "after first mined stacks block blocks {:?}",
+        &blocks_processed
+    );
+
+    thread::sleep(Duration::from_secs(1));
+
+    let tip_anchor_block = get_tip_anchored_block(&conf);
+    eprintln!("tip anchor block {:?}", &tip_anchor_block);
+
+    submit_tx(&http_origin, &tx_bytes_1);
+    //submit_tx(&http_origin, &tx_2);
+
+    // mine a couple more blocks
+    // waiting enough time between them that a second attempt could be made.
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!("before sleep blocks {:?}", &blocks_processed);
+    let tip_anchor_block = get_tip_anchored_block(&conf);
+    eprintln!("tip anchor block {:?}", &tip_anchor_block);
+
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    eprintln!("after sleep blocks {:?}", &blocks_processed);
+    let tip_anchor_block = get_tip_anchored_block(&conf);
+    eprintln!("tip anchor block {:?}", &tip_anchor_block);
+
+    // 1 transaction mined
+    let account = get_account(&http_origin, &spender_addr);
+    eprintln!("account {:?}", &account);
+    assert_eq!(
+        account.balance,
+        (spender_start_balance - tx_fee_1 - tx_amount_1) as u128
+    );
+
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
 fn size_check_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
