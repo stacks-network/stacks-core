@@ -78,8 +78,18 @@ impl SugarExpander {
                     let expression = self.transform(drain, contract_ast)?;
                     let mut pairs = expression
                         .chunks(2)
-                        .map(|pair| pair.to_vec().into_boxed_slice())
-                        .map(SymbolicExpression::list)
+                        .map(|pair| {
+                            let mut l = SymbolicExpression::list(pair.to_vec().into_boxed_slice());
+                            if let (Some(first), Some(last)) = (pair.first(), pair.last()) {
+                                l.set_span(
+                                    first.span.start_line,
+                                    first.span.start_column,
+                                    last.span.end_line,
+                                    last.span.end_column,
+                                )
+                            }
+                            l
+                        })
                         .collect::<Vec<_>>();
                     pairs.insert(
                         0,
