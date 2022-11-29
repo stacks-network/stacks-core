@@ -228,6 +228,10 @@ fn handle_pox_v1_api_contract_call(
                     Err(ChainstateError::DefunctPoxContract) => {
                         return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None))
                     }
+                    Err(ChainstateError::PoxAlreadyLocked) => {
+                        // the caller tried to lock tokens into both pox-1 and pox-2
+                        return Err(Error::Runtime(RuntimeErrorType::PoxAlreadyLocked, None));
+                    }
                     Err(e) => {
                         panic!(
                             "FATAL: failed to lock {} from {} until {}: '{:?}'",
@@ -679,6 +683,10 @@ fn handle_stack_lockup(
                 }
                 Err(ChainstateError::DefunctPoxContract) => {
                     return Err(Error::Runtime(RuntimeErrorType::DefunctPoxContract, None));
+                }
+                Err(ChainstateError::PoxAlreadyLocked) => {
+                    // the caller tried to lock tokens into both pox-1 and pox-2
+                    return Err(Error::Runtime(RuntimeErrorType::PoxAlreadyLocked, None));
                 }
                 Err(e) => {
                     panic!(
