@@ -78,6 +78,7 @@ jobs:
           - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
           - tests::neon_integrations::test_problematic_microblocks_are_not_mined
           - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          - tests::neon_integrations::bad_microblock_pubkey
     steps:
       - uses: actions/checkout@v2
       - name: Download docker image
