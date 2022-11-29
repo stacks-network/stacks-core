@@ -194,6 +194,16 @@ impl StacksChainState {
         Ok(())
     }
 
+    pub fn find_blocks_by_hash(
+        conn: &DBConn,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<Vec<StacksHeaderInfo>, Error> {
+        let qry = "SELECT * FROM block_headers WHERE block_hash = ?";
+        let args: &[&dyn ToSql] = &[block_hash];
+        let headers = query_rows::<StacksHeaderInfo, _>(conn, qry, args).map_err(Error::DBError)?;
+        Ok(headers)
+    }
+
     pub fn get_stacks_block_anchored_cost(
         conn: &DBConn,
         block: &StacksBlockId,
