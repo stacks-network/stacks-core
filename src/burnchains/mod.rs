@@ -406,7 +406,7 @@ impl PoxConstants {
     pub fn regtest_default() -> PoxConstants {
         PoxConstants::new(
             10,
-            5,
+            4,
             3,
             25,
             5,
