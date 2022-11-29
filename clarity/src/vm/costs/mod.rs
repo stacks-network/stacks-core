@@ -45,6 +45,7 @@ pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 // TODO: factor out into a boot lib?
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
+pub const COSTS_3_NAME: &'static str = "costs-3";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
@@ -695,7 +696,7 @@ impl LimitedCostTracker {
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
-            StacksEpochId::Epoch21 => COSTS_2_NAME.to_string(),
+            StacksEpochId::Epoch21 => COSTS_3_NAME.to_string(),
         }
     }
 }
@@ -944,8 +945,7 @@ impl CostTracker for LimitedCostTracker {
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
-                    info!("Used unimplemented cost function");
-                    return Ok(ExecutionCost::zero());
+                    panic!("Used unimplemented cost function");
                 }
                 let cost_function_ref = data
                     .cost_function_references

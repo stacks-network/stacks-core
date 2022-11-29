@@ -156,7 +156,7 @@ impl LeaderBlockCommitOp {
         }
     }
 
-    fn burn_block_mined_at(&self) -> u64 {
+    pub fn burn_block_mined_at(&self) -> u64 {
         self.burn_parent_modulus as u64 % BURN_BLOCK_MINED_AT_MODULUS
     }
 
@@ -493,6 +493,27 @@ impl MissedBlockCommit {
 }
 
 impl RewardSetInfo {
+    /// Create a RewardSetInfo struct for a missed block commit
+    fn from_missed_commit(
+        tx: &mut SortitionHandleTx,
+        intended_sortition: &SortitionId,
+    ) -> Result<Option<RewardSetInfo>, op_error> {
+        // did this block-commit pay to the correct PoX addresses?
+        let intended_recipients = tx
+            .get_reward_set_payouts_at(&intended_sortition)
+            .map_err(|_e| op_error::BlockCommitBadOutputs)?
+            .0;
+
+        Ok(tx.get_last_anchor_block_hash()?.map(|bhh| RewardSetInfo {
+            anchor_block: bhh,
+            recipients: intended_recipients
+                .into_iter()
+                .enumerate()
+                .map(|(i, addr)| (addr, i as u16))
+                .collect(),
+        }))
+    }
+
     /// Takes an Option<RewardSetInfo> and produces the commit_outs
     ///   for a corresponding LeaderBlockCommitOp. If RewardSetInfo is none,
     ///   the LeaderBlockCommitOp will use burn addresses.
@@ -516,6 +537,11 @@ impl RewardSetInfo {
 }
 
 impl LeaderBlockCommitOp {
+    /// Perform PoX checks on this block-commit, given the reward set info (which may be None if
+    /// PoX is not active).
+    /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
+    /// indexes are *ignored* (and *must be* ignored, since this method gets called by
+    /// `check_intneded_sortition()`, which does not have this information).
     fn check_pox(
         &self,
         epoch_id: StacksEpochId,
@@ -662,11 +688,11 @@ impl LeaderBlockCommitOp {
 
     fn check_single_burn_output(&self) -> Result<(), op_error> {
         if self.commit_outs.len() != 1 {
-            warn!("Invalid post-sunset block commit, should have 1 commit out");
+            warn!("Invalid prepare-phase block commit, should have 1 commit out");
             return Err(op_error::BlockCommitBadOutputs);
         }
         if !self.commit_outs[0].is_burn() {
-            warn!("Invalid post-sunset block commit, should have burn address output");
+            warn!("Invalid prepare-phase block commit, should have burn address output");
             return Err(op_error::BlockCommitBadOutputs);
         }
         Ok(())
@@ -730,107 +756,88 @@ impl LeaderBlockCommitOp {
         }
     }
 
-    pub fn check(
+    /// Verify that a missed block-commit would have been valid if it was not missed.
+    /// This contains epoch-specific checks.
+    fn check_intended_sortition(
         &self,
+        epoch_id: StacksEpochId,
         burnchain: &Burnchain,
         tx: &mut SortitionHandleTx,
-        reward_set_info: Option<&RewardSetInfo>,
+        miss_distance: u64,
+    ) -> Result<SortitionId, op_error> {
+        let tx_tip = tx.context.chain_tip.clone();
+        let intended_sortition = match epoch_id {
+            StacksEpochId::Epoch21 => {
+                // correct behavior -- uses *sortition height* to find the intended sortition ID
+                let sortition_height = self
+                    .block_height
+                    .checked_sub(burnchain.first_block_height)
+                    .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
+
+                if miss_distance > sortition_height {
+                    return Err(op_error::BlockCommitBadModulus);
+                }
+
+                if miss_distance > 1 {
+                    // can't miss by more than 1 block; otherwise a miner can just bunch up all
+                    // their block-commits into a single burnchain block and mine when they want
+                    // without the 6-block warm-up period.
+                    return Err(op_error::BlockCommitMissDistanceTooBig);
+                }
+
+                let intended_sortition = tx
+                    .get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
+                    .ok_or_else(|| op_error::BlockCommitNoParent)?;
+
+                let intended_sn = SortitionDB::get_block_snapshot(tx, &intended_sortition)?
+                    .expect("FATAL: no snapshot for known sortition");
+                debug!("Block commit for {} missed, meant to land in burnchain block {} (sortition {})", &self.block_header_hash, intended_sn.block_height, &intended_sortition);
+
+                // NOTE: we're not doing the checks in check_common() because it doesn't matter if
+                // the late block-commit does not meet them -- it will never be a sortition winner
+                // anyway.
+                //
+                // But, we must disincentivize deliberately sending late block-commits (e.g. to
+                // improve the miner's median sortition spend), so it's necessary to require the
+                // miner to pay burnchain tokens to the intended sortition's reward addresses.  Then,
+                // doing this on purpose is at least as costly as mining honestly.
+                let reward_set_info_opt =
+                    RewardSetInfo::from_missed_commit(tx, &intended_sortition)?;
+                self.check_pox(epoch_id, burnchain, tx, reward_set_info_opt.as_ref())?;
+
+                intended_sortition
+            }
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                // buggy behavior that must be preserved for compatibility :(
+                // bug: uses self.block_height to find the intended sortition ID (which won't work)
+                if miss_distance > self.block_height {
+                    return Err(op_error::BlockCommitBadModulus);
+                }
+                tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
+                    .ok_or_else(|| op_error::BlockCommitNoParent)?
+
+                // also buggy behavior -- the block-commit can pay to any PoX output it wants, so
+                // sending them deliberately is "free" because the sender can just pay themselves.
+            }
+            StacksEpochId::Epoch10 => {
+                panic!("Block commits are not supported in epoch 1.0");
+            }
+        };
+        Ok(intended_sortition)
+    }
+
+    /// Perform the block-commit checks that are the same in both PoX and PoB, and common to both
+    /// on-time and late block-commits
+    fn check_common(
+        &self,
+        epoch_id: StacksEpochId,
+        tx: &mut SortitionHandleTx,
     ) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
         let parent_block_height = self.parent_block_ptr as u64;
 
         let tx_tip = tx.context.chain_tip.clone();
-
-        /////////////////////////////////////////////////////////////////////////////////////
-        // There must be a burn
-        /////////////////////////////////////////////////////////////////////////////////////
-
         let apparent_sender_repr = format!("{}", &self.apparent_sender);
-
-        if self.burn_fee == 0 {
-            warn!("Invalid block commit: no burn amount";
-                  "apparent_sender" => %apparent_sender_repr
-            );
-            return Err(op_error::BlockCommitBadInput);
-        }
-        let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
-            "FATAL: impossible block height: no epoch defined for {}",
-            self.block_height
-        ));
-
-        let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
-        let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
-        if actual_modulus != intended_modulus {
-            warn!("Invalid block commit: missed target block";
-                  "intended_modulus" => intended_modulus,
-                  "actual_modulus" => actual_modulus,
-                  "block_height" => self.block_height,
-                  "apparent_sender" => %apparent_sender_repr
-            );
-            // This transaction "missed" its target burn block, the transaction
-            //  is not valid, but we should allow this UTXO to "chain" to valid
-            //  UTXOs to allow the miner windowing to work in the face of missed
-            //  blocks.
-            let miss_distance = if actual_modulus > intended_modulus {
-                actual_modulus - intended_modulus
-            } else {
-                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
-            };
-            let intended_sortition = match epoch.epoch_id {
-                StacksEpochId::Epoch21 => {
-                    // correct behavior
-                    let sortition_height = self
-                        .block_height
-                        .checked_sub(burnchain.first_block_height)
-                        .ok_or_else(|| op_error::BlockCommitPredatesGenesis)?;
-
-                    if miss_distance > sortition_height {
-                        return Err(op_error::BlockCommitBadModulus);
-                    }
-
-                    tx.get_ancestor_block_hash(sortition_height - miss_distance, &tx_tip)?
-                        .ok_or_else(|| op_error::BlockCommitNoParent)?
-                }
-                StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                    // buggy behavior that must be preserved for compatibility :(
-                    if miss_distance > self.block_height {
-                        return Err(op_error::BlockCommitBadModulus);
-                    }
-                    tx.get_ancestor_block_hash(self.block_height - miss_distance, &tx_tip)?
-                        .ok_or_else(|| op_error::BlockCommitNoParent)?
-                }
-                StacksEpochId::Epoch10 => {
-                    panic!("Block commits are not supported in epoch 1.0");
-                }
-            };
-            let missed_data = MissedBlockCommit {
-                input: self.input.clone(),
-                txid: self.txid.clone(),
-                intended_sortition,
-            };
-
-            return Err(op_error::MissedBlockCommit(missed_data));
-        }
-
-        if burnchain
-            .pox_constants
-            .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
-        {
-            // sunset has finished and we're not in epoch 2.1 or later, so apply sunset check
-            self.check_after_pox_sunset().map_err(|e| {
-                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
-                          "apparent_sender" => %apparent_sender_repr);
-                e
-            })?;
-        } else {
-            // either in epoch 2.1, or the PoX sunset hasn't completed yet
-            self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
-                .map_err(|e| {
-                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
-                          "apparent_sender" => %apparent_sender_repr);
-                    e
-                })?;
-        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
@@ -925,12 +932,84 @@ impl LeaderBlockCommitOp {
         // epoch marker field -- for example, to signal support for a new epoch or to be
         // forwards-compatible with it -- but cannot put a lesser number in.
         /////////////////////////////////////////////////////////////////////////////////////
+        self.check_epoch_commit(epoch_id)?;
+        Ok(())
+    }
+
+    pub fn check(
+        &self,
+        burnchain: &Burnchain,
+        tx: &mut SortitionHandleTx,
+        reward_set_info: Option<&RewardSetInfo>,
+    ) -> Result<(), op_error> {
+        /////////////////////////////////////////////////////////////////////////////////////
+        // There must be a burn
+        /////////////////////////////////////////////////////////////////////////////////////
+
+        let apparent_sender_repr = format!("{}", &self.apparent_sender);
+
+        if self.burn_fee == 0 {
+            warn!("Invalid block commit: no burn amount";
+                  "apparent_sender" => %apparent_sender_repr
+            );
+            return Err(op_error::BlockCommitBadInput);
+        }
         let epoch = SortitionDB::get_stacks_epoch(tx, self.block_height)?.expect(&format!(
             "FATAL: impossible block height: no epoch defined for {}",
             self.block_height
         ));
 
-        self.check_epoch_commit(epoch.epoch_id)?;
+        let intended_modulus = (self.burn_block_mined_at() + 1) % BURN_BLOCK_MINED_AT_MODULUS;
+        let actual_modulus = self.block_height % BURN_BLOCK_MINED_AT_MODULUS;
+        if actual_modulus != intended_modulus {
+            // This transaction "missed" its target burn block, the transaction
+            //  is not valid, but we should allow this UTXO to "chain" to valid
+            //  UTXOs to allow the miner windowing to work in the face of missed
+            //  blocks.
+            let miss_distance = if actual_modulus > intended_modulus {
+                actual_modulus - intended_modulus
+            } else {
+                BURN_BLOCK_MINED_AT_MODULUS + actual_modulus - intended_modulus
+            };
+            warn!("Invalid block commit: missed target block";
+                  "intended_modulus" => intended_modulus,
+                  "actual_modulus" => actual_modulus,
+                  "miss_distance" => miss_distance,
+                  "block_height" => self.block_height,
+                  "apparent_sender" => %apparent_sender_repr
+            );
+            let intended_sortition =
+                self.check_intended_sortition(epoch.epoch_id, burnchain, tx, miss_distance)?;
+            let missed_data = MissedBlockCommit {
+                input: self.input.clone(),
+                txid: self.txid.clone(),
+                intended_sortition,
+            };
+
+            return Err(op_error::MissedBlockCommit(missed_data));
+        }
+
+        if burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(self.block_height, epoch.epoch_id)
+        {
+            // sunset has begun and we're not in epoch 2.1 or later, so apply sunset check
+            self.check_after_pox_sunset().map_err(|e| {
+                warn!("Invalid block-commit: bad PoX after sunset: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_repr);
+                e
+            })?;
+        } else {
+            // either in epoch 2.1, or the PoX sunset hasn't completed yet
+            self.check_pox(epoch.epoch_id, burnchain, tx, reward_set_info)
+                .map_err(|e| {
+                    warn!("Invalid block-commit: bad PoX: {:?}", &e;
+                          "apparent_sender" => %apparent_sender_repr);
+                    e
+                })?;
+        }
+
+        self.check_common(epoch.epoch_id, tx)?;
 
         // good to go!
         Ok(())
@@ -2156,19 +2235,9 @@ mod tests {
                     burn_parent_modulus: (125 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: block_126_hash.clone(),
                 },
-                res: Err(op_error::MissedBlockCommit(MissedBlockCommit {
-                    input: (Txid([0; 32]), 0),
-                    txid: Txid::from_bytes_be(
-                        &hex_bytes(
-                            "3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf",
-                        )
-                        .unwrap(),
-                    )
-                    .unwrap(),
-                    // miss distance from height 124 was 3, which corresponds to the hash at height
-                    // 121 (intended modulus = (((125 % 5) + 1) % 5) = 1, actual modulus = 124 % 5 = 4
-                    intended_sortition: SortitionId(first_burn_hash.0.clone()),
-                })),
+                // miss distance from height 124 was 3, which corresponds to the hash at height
+                // 121 (intended modulus = (((125 % 5) + 1) % 5) = 1, actual modulus = 124 % 5 = 4
+                res: Err(op_error::BlockCommitMissDistanceTooBig),
             },
         ];
 
@@ -2409,6 +2478,7 @@ mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();

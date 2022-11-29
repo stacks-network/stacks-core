@@ -343,7 +343,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     }
 }
 
-/// Executes the Clarity2 function `slice`.
+/// Executes the Clarity2 function `slice?`.
 pub fn special_slice(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -351,36 +351,46 @@ pub fn special_slice(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    // todo: update the ClarityCostFunction once the Clarity2 related cost functions are implemented.
-    // Set the input to runtime_cost to 0, since slicing is an O(1) operation.
-    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
-
     let seq = eval(&args[0], env, context)?;
     let left_position = eval(&args[1], env, context)?;
     let right_position = eval(&args[2], env, context)?;
 
-    let sliced_seq = match (seq, left_position, right_position) {
-        (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
-            let (left_position, right_position) =
-                match (u32::try_from(left_position), u32::try_from(right_position)) {
-                    (Ok(left_position), Ok(right_position)) => (left_position, right_position),
-                    _ => return Ok(Value::none()),
-                };
+    let sliced_seq_res = (|| {
+        match (seq, left_position, right_position) {
+            (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
+                let (left_position, right_position) =
+                    match (u32::try_from(left_position), u32::try_from(right_position)) {
+                        (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                        _ => return Ok(Value::none()),
+                    };
 
-            // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
-            if left_position as usize >= seq.len() || right_position as usize > seq.len() {
-                return Ok(Value::none());
-            }
-            if right_position < left_position {
-                return Ok(Value::none());
-            }
+                // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+                if left_position as usize >= seq.len() || right_position as usize > seq.len() {
+                    return Ok(Value::none());
+                }
+                if right_position < left_position {
+                    return Ok(Value::none());
+                }
 
-            let seq_value = seq.slice(left_position as usize, right_position as usize)?;
-            Value::some(seq_value)
+                runtime_cost(
+                    ClarityCostFunction::Slice,
+                    env,
+                    (right_position - left_position) * seq.element_size(),
+                )?;
+                let seq_value = seq.slice(left_position as usize, right_position as usize)?;
+                Value::some(seq_value)
+            }
+            _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
         }
-        _ => return Err(RuntimeErrorType::BadTypeConstruction.into()),
-    }?;
-    Ok(sliced_seq)
+    })();
+
+    match sliced_seq_res {
+        Ok(sliced_seq) => Ok(sliced_seq),
+        Err(e) => {
+            runtime_cost(ClarityCostFunction::Slice, env, 0)?;
+            Err(e)
+        }
+    }
 }
 
 pub fn special_replace_at(
@@ -390,11 +400,12 @@ pub fn special_replace_at(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    // Set the input to runtime_cost to 0, since replacing an element at an index is an O(1) operation.
-    runtime_cost(ClarityCostFunction::Unimplemented, env, 0)?;
-
     let seq = eval(&args[0], env, context)?;
     let seq_type = TypeSignature::type_of(&seq);
+
+    // runtime is the cost to copy over one element into its place
+    runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size())?;
+
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
         seq_subtype.unit_type()
     } else {

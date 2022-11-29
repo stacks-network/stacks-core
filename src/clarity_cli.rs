@@ -66,7 +66,13 @@ use crate::burnchains::PoxConstants;
 use crate::burnchains::Txid;
 use stacks_common::types::chainstate::*;
 
-use crate::chainstate::stacks::boot::{STACKS_BOOT_CODE_MAINNET, STACKS_BOOT_CODE_TESTNET};
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
+    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
+    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+};
+
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 use crate::burnchains::Address;
@@ -95,6 +101,31 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::VRFSeed;
 use std::str::FromStr;
+
+lazy_static! {
+    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
+        ("pox", &BOOT_CODE_POX_MAINNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", BOOT_CODE_COST_VOTING_MAINNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+        ("costs-2", BOOT_CODE_COSTS_2),
+        ("pox-2", &POX_2_MAINNET_CODE),
+        ("costs-3", BOOT_CODE_COSTS_3),
+    ];
+    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 9] = [
+        ("pox", &BOOT_CODE_POX_TESTNET),
+        ("lockup", BOOT_CODE_LOCKUP),
+        ("costs", BOOT_CODE_COSTS),
+        ("cost-voting", &BOOT_CODE_COST_VOTING_TESTNET),
+        ("bns", &BOOT_CODE_BNS),
+        ("genesis", &BOOT_CODE_GENESIS),
+        ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
+        ("pox-2", &POX_2_TESTNET_CODE),
+        ("costs-3", BOOT_CODE_COSTS_3),
+    ];
+}
 
 #[cfg(test)]
 macro_rules! panic_test {
@@ -823,10 +854,30 @@ fn consume_arg(
 fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
-        *STACKS_BOOT_CODE_MAINNET
+        *STACKS_BOOT_CODE_MAINNET_2_1
     } else {
-        *STACKS_BOOT_CODE_TESTNET
+        *STACKS_BOOT_CODE_TESTNET_2_1
     };
+
+    {
+        let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
+        let mut vm_env =
+            OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
+        vm_env
+            .execute_in_env(
+                QualifiedContractIdentifier::transient().issuer.into(),
+                None,
+                None,
+                |env| {
+                    let res: InterpreterResult<_> = Ok(env
+                        .global_context
+                        .database
+                        .set_clarity_epoch_version(DEFAULT_CLI_EPOCH));
+                    res
+                },
+            )
+            .unwrap();
+    }
 
     for (boot_code_name, boot_code_contract) in boot_code.iter() {
         let contract_identifier = QualifiedContractIdentifier::new(

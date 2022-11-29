@@ -19,9 +19,12 @@ use crate::vm::analysis::type_checker::TypedNativeFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::types::{FixedFunction, FunctionType, Value};
+use crate::vm::types::signatures::ASCII_40;
+use crate::vm::types::{FixedFunction, FunctionType, SequenceSubtype, StringSubtype, Value};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
+
+use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 
 pub mod contracts;
 
@@ -319,8 +322,8 @@ Note: This function is only available starting with Stacks 2.1.",
 
 const principal_destruct_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "principal-destruct ${1:principal-address}",
-    signature: "(principal-destruct principal-address)",
+    snippet: "principal-destruct? ${1:principal-address}",
+    signature: "(principal-destruct? principal-address)",
     description:  "A principal value represents either a set of keys, or a smart contract.
 The former, called a _standard principal_,
 is encoded as a `(buff 1)` *version byte*, indicating the type of account
@@ -329,7 +332,7 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 The latter, a _contract principal_, is encoded as a standard principal concatenated with
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
-`principal-destruct` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
+`principal-destruct?` will decompose a principal into its component parts: either`{version-byte, hash-bytes}`
 for standard principals, or `{version-byte, hash-bytes, name}` for contract principals.
 
 This method returns a `Response` that wraps this data as a tuple.
@@ -346,17 +349,17 @@ field will only be `(some ..)` if the principal is a contract principal.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
-(principal-destruct 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
-(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
-(principal-destruct 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
+(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name none) (version 0x1a)))
+(principal-destruct? 'STB44HYPYAT2BB2QE513NSP81HTMYWBJP02HPGK6.foo) ;; Returns (ok (tuple (hash-bytes 0x164247d6f2b425ac5771423ae6c80c754f7172b0) (name (some "foo")) (version 0x1a)))
+(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
+(principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
 "#,
 };
 
 const PRINCIPAL_CONSTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "principal-construct ${1:version} ${2:pub-key-hash}",
-    signature: "(principal-construct (buff 1) (buff 20) [(string-ascii 40)])",
+    snippet: "principal-construct? ${1:version} ${2:pub-key-hash}",
+    signature: "(principal-construct? (buff 1) (buff 20) [(string-ascii 40)])",
     description: "A principal value represents either a set of keys, or a smart contract.
 The former, called a _standard principal_,
 is encoded as a `(buff 1)` *version byte*, indicating the type of account
@@ -365,12 +368,12 @@ and a `(buff 20)` *public key hash*, characterizing the principal's unique ident
 The latter, a _contract principal_, is encoded as a standard principal concatenated with
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
-The `principal-construct` function allows users to create either standard or contract principals,
+The `principal-construct?` function allows users to create either standard or contract principals,
 depending on which form is used.  To create a standard principal, 
-`principal-construct` would be called with two arguments: it
+`principal-construct?` would be called with two arguments: it
 takes as input a `(buff 1)` which encodes the principal address's
 `version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
-To create a contract principal, `principal-construct` would be called with
+To create a contract principal, `principal-construct?` would be called with
 three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
 that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
 On success, this function returns either a standard principal or contract principal, 
@@ -393,38 +396,38 @@ that are not allowed in contract names, then `error_code` will be `u2`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
-(principal-construct 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
-(principal-construct 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK)
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (ok ST3X6QWWETNBZWGBK6DRGTR1KX50S74D3425Q1TPK.foo)
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY))))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo") ;; Returns (err (tuple (error_code u0) (value (some SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo))))
+(principal-construct? 0x   0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x16 0xfa6bf38ed557fe417333710d6033e9419391a3)   ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x20 0xfa6bf38ed557fe417333710d6033e9419391a320) ;; Returns (err (tuple (error_code u1) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
+(principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
 "#,
 };
 
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "string-to-int ${1:string}",
-    signature: "(string-to-int (string-ascii|string-utf8))",
+    snippet: "string-to-int? ${1:string}",
+    signature: "(string-to-int? (string-ascii|string-utf8))",
     description: "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped signed integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
 an integer wrapped in `some`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(string-to-int "1") ;; Returns (some 1)
-(string-to-int u"-1") ;; Returns (some -1)
-(string-to-int "a") ;; Returns none
+(string-to-int? "1") ;; Returns (some 1)
+(string-to-int? u"-1") ;; Returns (some -1)
+(string-to-int? "a") ;; Returns none
 "#,
 };
 
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "string-to-uint ${1:string}",
-    signature: "(string-to-uint (string-ascii|string-utf8))",
+    snippet: "string-to-uint? ${1:string}",
+    signature: "(string-to-uint? (string-ascii|string-utf8))",
     description:
         "Converts a string, either `string-ascii` or `string-utf8`, to an optional-wrapped unsigned integer.
 If the input string does not represent a valid integer, then the function returns `none`. Otherwise it returns
@@ -432,9 +435,9 @@ an unsigned integer wrapped in `some`.
 
 Note: This function is only available starting with Stacks 2.1.",
     example: r#"
-(string-to-uint "1") ;; Returns (some u1)
-(string-to-uint u"1") ;; Returns (some u1)
-(string-to-uint "a") ;; Returns none
+(string-to-uint? "1") ;; Returns (some u1)
+(string-to-uint? u"1") ;; Returns (some u1)
+(string-to-uint? "a") ;; Returns none
 "#,
 };
 
@@ -538,24 +541,30 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "sqrti ${1:expr-1}",
     signature: "(sqrti n)",
-    description: "Returns the largest integer that is less than or equal to the square root of `n`.  Fails on a negative numbers.",
+    description:
+        "Returns the largest integer that is less than or equal to the square root of `n`.  
+Fails on a negative numbers.
+",
     example: "(sqrti u11) ;; Returns u3
 (sqrti 1000000) ;; Returns 1000
 (sqrti u1) ;; Returns u1
 (sqrti 0) ;; Returns 0
-"
+",
 };
 
 const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
-    description: "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded down to the nearest integer. Fails on a negative numbers.",
+    description:
+        "Returns the power to which the number 2 must be raised to to obtain the value `n`, rounded 
+down to the nearest integer. Fails on a negative numbers.
+",
     example: "(log2 u8) ;; Returns u3
 (log2 8) ;; Returns 3
 (log2 u1) ;; Returns u0
 (log2 1000) ;; Returns 9
-"
+",
 };
 
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -568,11 +577,110 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 ",
 };
 
+const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Xor"),
+    snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-xor i1 i2...)",
+    description:
+        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    example: "(bit-xor 1 2) ;; Returns 3
+(bit-xor 120 280) ;; Returns 352
+(bit-xor -128 64) ;; Returns -64
+(bit-xor u24 u4) ;; Returns u28
+(bit-xor 1 2 4 -1) ;; Returns -8
+",
+};
+
+const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise And"),
+    snippet: "bit-and ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-and i1 i2...)",
+    description: "Returns the result of bitwise and'ing a variable number of integer inputs.",
+    example: "(bit-and 24 16) ;; Returns 16
+(bit-and 28 24 -1) ;; Returns 24
+(bit-and u24 u16) ;; Returns u16
+(bit-and -128 -64) ;; Returns -128
+(bit-and 28 24 -1) ;; Returns 24
+",
+};
+
+const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Or"),
+    snippet: "bit-or ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-or i1 i2...)",
+    description:
+        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    example: "(bit-or 4 8) ;; Returns 12
+(bit-or 1 2 4) ;; Returns 7
+(bit-or 64 -32 -16) ;; Returns -16
+(bit-or u2 u4 u32) ;; Returns u38
+",
+};
+
+const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Not"),
+    snippet: "bit-not ${1:expr-1}",
+    signature: "(bit-not i1)",
+    description: "Returns the one's compliement (sometimes also called the bitwise compliment or not operator) of `i1`, effectively reversing the bits in `i1`.
+In other words, every bit that is `1` in ì1` will be `0` in the result.  Conversely, every bit that is `0` in `i1` will be `1` in the result.
+",
+    example: "(bit-not 3) ;; Returns -4
+(bit-not u128) ;; Returns u340282366920938463463374607431768211327
+(bit-not 128) ;; Returns -129
+(bit-not -128) ;; Returns 127
+"
+};
+
+const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Left Shift"),
+    snippet: "bit-shift-left ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-left i1 shamt)",
+    description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation.  In use cases where overflow should be detected, developers
+should use `*`, `/`, and `pow` instead of the shift operators.
+",
+    example: "(bit-shift-left 2 u1) ;; Returns 4
+(bit-shift-left 16 u2) ;; Returns 64
+(bit-shift-left -64 u1) ;; Returns -128
+(bit-shift-left u4 u2) ;; Returns u16
+(bit-shift-left 123 u9999999999) ;; Returns -170141183460469231731687303715884105728
+(bit-shift-left u123 u9999999999) ;; Returns u170141183460469231731687303715884105728
+(bit-shift-left -1 u7) ;; Returns -128
+(bit-shift-left -1 u128) ;; Returns -1
+"
+};
+
+const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: Some("Bitwise Right Shift"),
+    snippet: "bit-shift-right ${1:expr-1} ${2:expr-2}",
+    signature: "(bit-shift-right i1 shamt)",
+    description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+When `i1` is a `uint` (unsigned), new bits are filled with zeros. When `i1` is an `int` (signed), the sign is preserved, meaning that new bits are filled with the value of the previous sign-bit.
+
+Note that there is a deliberate choice made to ignore arithmetic overflow for this operation. In use cases where overflow should be detected, developers should use `*`, `/`, and `pow` instead of the shift operators.
+",
+    example: "(bit-shift-right 2 u1) ;; Returns 1
+(bit-shift-right 128 u2) ;; Returns 32
+(bit-shift-right -64 u1) ;; Returns -32
+(bit-shift-right u128 u2) ;; Returns u32
+(bit-shift-right 123 u9999999999) ;; Returns 0
+(bit-shift-right u123 u9999999999) ;; Returns u0
+(bit-shift-right -128 u7) ;; Returns -1
+(bit-shift-right -256 u1) ;; Returns -128
+(bit-shift-right 5 u2) ;; Returns 1
+(bit-shift-right -5 u2) ;; Returns -2
+"
+};
+
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "and ${1:expr-1} ${2:expr-2}",
     signature: "(and b1 b2 ...)",
-    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function 
+short-circuits, and no subsequent arguments are evaluated.
+",
     example: "(and true false) ;; Returns false
 (and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
 (and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
@@ -583,7 +691,9 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "or ${1:expr-1} ${2:expr-2}",
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function short-circuits, and no subsequent arguments are evaluated.",
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are 
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function 
+short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
@@ -683,6 +793,38 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
         FunctionType::ArithmeticUnary => "int | uint".to_string(),
         FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => {
             "int, int | uint, uint | string-ascii, string-ascii | string-utf8, string-utf8 | buff, buff".to_string()
+        },
+        FunctionType::Binary(ref left_sig, ref right_sig, _) => {
+            let mut in_types: Vec<String> = Vec::new();
+            match left_sig {
+                FunctionArgSignature::Single(left) => {
+                    match right_sig {
+                        FunctionArgSignature::Single(right) => {
+                            in_types.push(format!("{}, {}", left, right));
+                        },
+                        FunctionArgSignature::Union(right_types) => {
+                            for right in right_types.iter() {
+                                in_types.push(format!("{}, {}", left, right));
+                            }
+                        }
+                    }
+                },
+                FunctionArgSignature::Union(left_types) => {
+                    for left in left_types.iter() {
+                        match right_sig {
+                            FunctionArgSignature::Single(right) => {
+                                in_types.push(format!("{}, {}", left, right));
+                            },
+                            FunctionArgSignature::Union(right_types) => {
+                                for right in right_types.iter() {
+                                    in_types.push(format!("{}, {}", left, right));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            in_types.join(" | ")
         }
     }
 }
@@ -696,6 +838,25 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
         | FunctionType::ArithmeticUnary
         | FunctionType::ArithmeticBinary => "int | uint".to_string(),
         FunctionType::ArithmeticComparison => "bool".to_string(),
+        FunctionType::Binary(left, right, ref out_sig) => match out_sig {
+            FunctionReturnsSignature::Fixed(out_type) => format!("{}", out_type),
+            FunctionReturnsSignature::TypeOfArgAtPosition(pos) => {
+                let arg_sig: &FunctionArgSignature;
+                match pos {
+                        0 => arg_sig = left,
+                        1 => arg_sig = right,
+                        _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                    }
+                match arg_sig {
+                    FunctionArgSignature::Single(arg_type) => format!("{}", arg_type),
+                    FunctionArgSignature::Union(arg_types) => {
+                        let out_types: Vec<String> =
+                            arg_types.iter().map(|x| format!("{}", x)).collect();
+                        out_types.join(" | ")
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -861,7 +1022,7 @@ The `func` argument must be a literal function name.
 
 const FOLD_API: SpecialAPI = SpecialAPI {
     input_type: "Function(A, B) -> B, sequence_A, B",
-    snippet: "fold ${1:func} ${2:sequence} ${2:initial-value}",
+    snippet: "fold ${1:func} ${2:sequence} ${3:initial-value}",
     output_type: "B",
     signature: "(fold func sequence_A initial_B)",
     description: "The `fold` function condenses `sequence_A` into a value of type
@@ -954,19 +1115,20 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint",
-    snippet: "element-at ${1:sequence} ${2:index}",
+    snippet: "element-at? ${1:sequence} ${2:index}",
     output_type: "(optional A)",
-    signature: "(element-at sequence index)",
-    description: "The `element-at` function returns the element at `index` in the provided sequence.
+    signature: "(element-at? sequence index)",
+    description: "The `element-at?` function returns the element at `index` in the provided sequence.
 Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf8`,
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
+In Clarity1, `element-at` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
-(element-at "blockstack" u5) ;; Returns (some "s")
-(element-at (list 1 2 3 4 5) u5) ;; Returns none
-(element-at (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
-(element-at "abcd" u1) ;; Returns (some "b")
-(element-at 0xfb01 u1) ;; Returns (some 0x01)
+(element-at? "blockstack" u5) ;; Returns (some "s")
+(element-at? (list 1 2 3 4 5) u5) ;; Returns none
+(element-at? (list 1 2 3 4 5) (+ u1 u2)) ;; Returns (some 4)
+(element-at? "abcd" u1) ;; Returns (some "b")
+(element-at? 0xfb01 u1) ;; Returns (some 0x01)
 "#,
 };
 
@@ -981,6 +1143,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 for which the corresponding element types are, respectively, `A`, `(buff 1)`, `(string-ascii 1)` and `(string-utf8 1)`.
 If the target item is not found in the sequence (or if an empty string or buffer is
 supplied), this function returns `none`.
+In Clarity1, `index-of` must be used (without the `?`). The `?` is added in Clarity2 for consistency -- built-ins that return responses or optionals end in `?`. The Clarity1 spelling is left as an alias in Clarity2 for backwards compatibility.
 ",
     example: r#"
 (index-of "blockstack" "b") ;; Returns (some u0)
@@ -993,21 +1156,21 @@ supplied), this function returns `none`.
 
 const SLICE_API: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, uint",
-    snippet: "slice ${1:sequence} ${2:left-pos} ${3:right-pos}",
+    snippet: "slice? ${1:sequence} ${2:left-pos} ${3:right-pos}",
     output_type: "(optional sequence_A)",
-    signature: "(slice sequence left-position right-position)",
+    signature: "(slice? sequence left-position right-position)",
     description:
-        "The `slice` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
+        "The `slice?` function attempts to return a sub-sequence of that starts at `left-position` (inclusive), and
 ends at `right-position` (non-inclusive).
 If `left_position`==`right_position`, the function returns an empty sequence.
 If either `left_position` or `right_position` are out of bounds OR if `right_position` is less than
 `left_position`, the function returns `none`.",
-    example: "(slice \"blockstack\" u5 u10) ;; Returns (some \"stack\")
-(slice (list 1 2 3 4 5) u5 u9) ;; Returns none
-(slice (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
-(slice \"abcd\" u1 u3) ;; Returns (some \"bc\")
-(slice \"abcd\" u2 u2) ;; Returns (some \"\")
-(slice \"abcd\" u3 u1) ;; Returns none
+    example: "(slice? \"blockstack\" u5 u10) ;; Returns (some \"stack\")
+(slice? (list 1 2 3 4 5) u5 u9) ;; Returns none
+(slice? (list 1 2 3 4 5) u3 u4) ;; Returns (some (4))
+(slice? \"abcd\" u1 u3) ;; Returns (some \"bc\")
+(slice? \"abcd\" u2 u2) ;; Returns (some \"\")
+(slice? \"abcd\" u3 u1) ;; Returns none
 ",
 };
 
@@ -1829,10 +1992,23 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
     output_type: "Not Applicable",
     signature: "(define-trait trait-name ((func1-name (arg1-type arg2-type ...) (return-type))))",
     description: "`define-trait` is used to define a new trait definition for use in a smart contract. Other contracts
-can implement a given trait and then have their contract identifier being passed as function arguments in order to be called
+can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions defined with a name, a list of argument types, and return type.
+Traits are defined with a name, and a list functions, defined with a name, a list of argument types, and return type.
+
+In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
+be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
+may be passed as a trait parameter if the specified contract implements all of the functions specified by the trait.
+A trait value (originating from a parameter with trait type) may also be passed as a trait parameter if the types are the same.
+
+Beginning in Clarity 2, a trait can be used in all of the same ways that a built-in type can be used,
+except that it cannot be stored in a data var or map, since this would inhibit static analysis.
+This means that a trait type can be embedded in a compound type (e.g. `(optional <my-trait>)` or `(list 4 <my-trait>)`)
+and a trait value can be bound to a variable in a `let` or `match` expression. In addition to the principal literal
+and trait value with matching type allowed in Clarity 1, Clarity 2 also supports implicit casting from a
+compatible trait, meaning that a value of type `trait-a` may be passed to a parameter with type `trait-b` if `trait-a`
+includes all of the requirements of `trait-b` (and optionally additional functions).
 
 Like other kinds of definition statements, `define-trait` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
@@ -1868,7 +2044,7 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 
 const IMPL_TRAIT_API: DefineAPI = DefineAPI {
     input_type: "TraitIdentifier",
-    snippet: "impl-trait ${2:trait-identifier}",
+    snippet: "impl-trait ${1:trait-identifier}",
     output_type: "Not Applicable",
     signature: "(impl-trait trait-identifier)",
     description: "`impl-trait` can be use for asserting that a contract is fully implementing a given trait.
@@ -2068,7 +2244,7 @@ returns one of the following error codes:
 
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
-    snippet: "stx-get-balance ${2:owner}",
+    snippet: "stx-get-balance ${1:owner}",
     signature: "(stx-get-balance owner)",
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
@@ -2164,10 +2340,10 @@ one of the following error codes:
 
 const TO_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
     input_type: "any",
-    snippet: "to-consensus-buff ${1:value}",
+    snippet: "to-consensus-buff? ${1:value}",
     output_type: "(optional buff)",
-    signature: "(to-consensus-buff value)",
-    description: "`to-consensus-buff` is a special function that will serialize any
+    signature: "(to-consensus-buff? value)",
+    description: "`to-consensus-buff?` is a special function that will serialize any
 Clarity value into a buffer, using the SIP-005 serialization of the
 Clarity value. Not all values can be serialized: some value's
 consensus serialization is too large to fit in a Clarity buffer (this
@@ -2180,58 +2356,58 @@ analyzed type of the result of this method will be the maximum possible
 consensus buffer length based on the inferred type of the supplied value.
 ",
     example: r#"
-(to-consensus-buff 1) ;; Returns (some 0x0000000000000000000000000000000001)
-(to-consensus-buff u1) ;; Returns (some 0x0100000000000000000000000000000001)
-(to-consensus-buff true) ;; Returns (some 0x03)
-(to-consensus-buff false) ;; Returns (some 0x04)
-(to-consensus-buff none) ;; Returns (some 0x09)
-(to-consensus-buff 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
-(to-consensus-buff { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
+(to-consensus-buff? 1) ;; Returns (some 0x0000000000000000000000000000000001)
+(to-consensus-buff? u1) ;; Returns (some 0x0100000000000000000000000000000001)
+(to-consensus-buff? true) ;; Returns (some 0x03)
+(to-consensus-buff? false) ;; Returns (some 0x04)
+(to-consensus-buff? none) ;; Returns (some 0x09)
+(to-consensus-buff? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
+(to-consensus-buff? { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
 "#,
 };
 
 const FROM_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
     input_type: "type-signature(t), buff",
-    snippet: "from-consensus-buff ${1:type-signature} ${2:buffer}",
+    snippet: "from-consensus-buff? ${1:type-signature} ${2:buffer}",
     output_type: "(optional t)",
-    signature: "(from-consensus-buff type-signature buffer)",
-    description: "`from-consensus-buff` is a special function that will deserialize a
+    signature: "(from-consensus-buff? type-signature buffer)",
+    description: "`from-consensus-buff?` is a special function that will deserialize a
 buffer into a Clarity value, using the SIP-005 serialization of the
-Clarity value. The type that `from-consensus-buff` tries to deserialize
+Clarity value. The type that `from-consensus-buff?` tries to deserialize
 into is provided by the first parameter to the function. If it fails
 to deserialize the type, the method returns `none`.
 ",
     example: r#"
-(from-consensus-buff int 0x0000000000000000000000000000000001) ;; Returns (some 1)
-(from-consensus-buff uint 0x0000000000000000000000000000000001) ;; Returns none
-(from-consensus-buff uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
-(from-consensus-buff bool 0x0000000000000000000000000000000001) ;; Returns none
-(from-consensus-buff bool 0x03) ;; Returns (some true)
-(from-consensus-buff bool 0x04) ;; Returns (some false)
-(from-consensus-buff principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(from-consensus-buff { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
+(from-consensus-buff? int 0x0000000000000000000000000000000001) ;; Returns (some 1)
+(from-consensus-buff? uint 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff? uint 0x0100000000000000000000000000000001) ;; Returns (some u1)
+(from-consensus-buff? bool 0x0000000000000000000000000000000001) ;; Returns none
+(from-consensus-buff? bool 0x03) ;; Returns (some true)
+(from-consensus-buff? bool 0x04) ;; Returns (some false)
+(from-consensus-buff? principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(from-consensus-buff? { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
 "#,
 };
 
 const REPLACE_AT: SpecialAPI = SpecialAPI {
     input_type: "sequence_A, uint, A",
     output_type: "(optional sequence_A)",
-    snippet: "replace-at ${1:sequence} ${2:index} ${3:element}",
-    signature: "(replace-at sequence index element)",
-    description: "The `replace-at` function takes in a sequence, an index, and an element, 
+    snippet: "replace-at? ${1:sequence} ${2:index} ${3:element}",
+    signature: "(replace-at? sequence index element)",
+    description: "The `replace-at?` function takes in a sequence, an index, and an element,
 and returns a new sequence with the data at the index position replaced with the given element. 
 The given element's type must match the type of the sequence, and must correspond to a single 
-index of the input sequence. The return type on success is the same type as the input sequence. 
+index of the input sequence. The return type on success is the same type as the input sequence.
 
 If the provided index is out of bounds, this functions returns `none`.
 ",
     example: r#"
-(replace-at u"ab" u1 u"c") ;; Returns (some u"ac")
-(replace-at 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
-(replace-at "abcd" u3 "e") ;; Returns (some "abce")
-(replace-at (list 1) u0 10) ;; Returns (some (10))
-(replace-at (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
-(replace-at (list 1 2) u3 4) ;; Returns none
+(replace-at? u"ab" u1 u"c") ;; Returns (some u"ac")
+(replace-at? 0x00112233 u2 0x44) ;; Returns (some 0x00114433)
+(replace-at? "abcd" u3 "e") ;; Returns (some "abce")
+(replace-at? (list 1) u0 10) ;; Returns (some (10))
+(replace-at? (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
+(replace-at? (list 1 2) u3 4) ;; Returns none
 "#,
 };
 
@@ -2264,7 +2440,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Power => make_for_simple_native(&POW_API, &Power, name),
         Sqrti => make_for_simple_native(&SQRTI_API, &Sqrti, name),
         Log2 => make_for_simple_native(&LOG2_API, &Log2, name),
-        BitwiseXOR => make_for_simple_native(&XOR_API, &BitwiseXOR, name),
+        BitwiseXor => make_for_simple_native(&XOR_API, &BitwiseXor, name),
         And => make_for_simple_native(&AND_API, &And, name),
         Or => make_for_simple_native(&OR_API, &Or, name),
         Not => make_for_simple_native(&NOT_API, &Not, name),
@@ -2280,8 +2456,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Concat => make_for_special(&CONCAT_API, function),
         AsMaxLen => make_for_special(&ASSERTS_MAX_LEN_API, function),
         Len => make_for_special(&LEN_API, function),
-        ElementAt => make_for_special(&ELEMENT_AT_API, function),
-        IndexOf => make_for_special(&INDEX_OF_API, function),
+        ElementAt | ElementAtAlias => make_for_special(&ELEMENT_AT_API, function),
+        IndexOf | IndexOfAlias => make_for_special(&INDEX_OF_API, function),
         Slice => make_for_special(&SLICE_API, function),
         ListCons => make_for_special(&LIST_API, function),
         FetchEntry => make_for_special(&FETCH_ENTRY_API, function),
@@ -2339,6 +2515,12 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ToConsensusBuff => make_for_special(&TO_CONSENSUS_BUFF, function),
         FromConsensusBuff => make_for_special(&FROM_CONSENSUS_BUFF, function),
         ReplaceAt => make_for_special(&REPLACE_AT, function),
+        BitwiseXor2 => make_for_simple_native(&BITWISE_XOR_API, &BitwiseXor2, name),
+        BitwiseAnd => make_for_simple_native(&BITWISE_AND_API, &BitwiseAnd, name),
+        BitwiseOr => make_for_simple_native(&BITWISE_OR_API, &BitwiseOr, name),
+        BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, &BitwiseNot, name),
+        BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, &BitwiseLShift, name),
+        BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, &BitwiseRShift, name),
     }
 }
 
@@ -2450,16 +2632,21 @@ mod test {
         ast,
         contexts::OwnedEnvironment,
         database::{BurnStateDB, HeadersDB, STXBalance},
+        docs::get_output_type_string,
         eval_all, execute,
-        types::PrincipalData,
+        types::{
+            signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40},
+            BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype,
+            TypeSignature,
+        },
         ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
         QualifiedContractIdentifier, Value,
     };
     use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
     use stacks_common::util::hash::hex_bytes;
 
-    use super::make_all_api_reference;
     use super::make_json_api_reference;
+    use super::{get_input_type_string, make_all_api_reference};
     use crate::address::AddressHashMode;
     use crate::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
     use crate::types::Address;
@@ -2896,5 +3083,207 @@ mod test {
                 execute(expect_err).unwrap_err();
             }
         }
+    }
+
+    #[test]
+    fn test_get_input_type_string_binary() {
+        let mut result: String;
+        let ret = FunctionReturnsSignature::Fixed(TypeSignature::IntType);
+
+        let mut function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, int | uint, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Union(vec![TypeSignature::UIntType, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int | uint, uint | uint, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![TypeSignature::UIntType, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![ASCII_40, TypeSignature::IntType]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, (string-ascii 40) | int, int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, uint | int, int | int, principal");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::PrincipalType,
+                TypeSignature::IntType,
+            ]),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ]),
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
+    }
+
+    #[test]
+    fn test_get_input_type_string_unionargs() {
+        let mut result: String;
+        let ret = TypeSignature::BoolType;
+
+        let mut function_type = FunctionType::UnionArgs(vec![TypeSignature::UIntType], ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::UnionArgs(
+            vec![TypeSignature::UIntType, TypeSignature::IntType],
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint | int");
+
+        function_type = FunctionType::UnionArgs(
+            vec![
+                TypeSignature::UIntType,
+                TypeSignature::IntType,
+                TypeSignature::PrincipalType,
+            ],
+            ret.clone(),
+        );
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "uint | int | principal");
+    }
+
+    #[test]
+    fn test_get_input_type_string_variadic() {
+        let mut result: String;
+        let ret = TypeSignature::BoolType;
+
+        let mut function_type = FunctionType::Variadic(TypeSignature::IntType, ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "int, ...");
+
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        result = get_input_type_string(&function_type);
+        assert_eq!(result, "principal, ...");
+    }
+
+    #[test]
+    fn test_get_output_type_string_binary() {
+        let mut result: String;
+        let mut function_type: FunctionType;
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::Fixed(TypeSignature::PrincipalType),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "principal");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(0),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![TypeSignature::IntType, TypeSignature::UIntType]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint");
+
+        function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::IntType,
+                TypeSignature::UIntType,
+                TypeSignature::PrincipalType,
+                ASCII_40,
+            ]),
+            FunctionReturnsSignature::TypeOfArgAtPosition(1),
+        );
+        result = get_output_type_string(&function_type);
+        assert_eq!(result, "int | uint | principal | (string-ascii 40)");
+    }
+
+    #[test]
+    #[should_panic(expected = "Index out of range")]
+    fn test_get_output_type_string_binary_arg_at_pos_out_of_range_panics() {
+        let function_type = FunctionType::Binary(
+            FunctionArgSignature::Single(TypeSignature::IntType),
+            FunctionArgSignature::Single(TypeSignature::UIntType),
+            FunctionReturnsSignature::TypeOfArgAtPosition(2),
+        );
+        get_output_type_string(&function_type);
     }
 }

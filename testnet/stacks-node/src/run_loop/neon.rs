@@ -22,8 +22,8 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, CoordinatorCommunication,
-    Error as coord_error,
+    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, ChainsCoordinatorConfig,
+    CoordinatorCommunication, Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
@@ -35,6 +35,7 @@ use super::RunLoopCallbacks;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::Globals;
 use crate::neon_node::StacksNode;
+use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
 use crate::neon_node::RELAYER_MAX_BUFFER;
 use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
@@ -495,11 +496,17 @@ impl RunLoop {
                 "chains-coordinator-{}",
                 &moved_config.node.rpc_bind
             ))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
                 let mut cost_estimator = moved_config.make_cost_estimator();
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
+                let coord_config = ChainsCoordinatorConfig {
+                    always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
+                    ..ChainsCoordinatorConfig::new()
+                };
                 ChainsCoordinator::run(
+                    coord_config,
                     chain_state_db,
                     moved_burnchain_config,
                     attachments_tx,

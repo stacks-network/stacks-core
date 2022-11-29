@@ -108,14 +108,15 @@ pub fn build_ast_with_rules<T: CostTracker>(
     ruleset: ASTRules,
 ) -> ParseResult<ContractAST> {
     match ruleset {
-        ASTRules::Typical => build_ast_typical(
+        // After epoch 2.1, prechecking the size is required
+        ASTRules::Typical if epoch < StacksEpochId::Epoch21 => build_ast_typical(
             contract_identifier,
             source_code,
             cost_track,
             clarity_version,
             epoch,
         ),
-        ASTRules::PrecheckSize => build_ast_precheck_size(
+        _ => build_ast_precheck_size(
             contract_identifier,
             source_code,
             cost_track,

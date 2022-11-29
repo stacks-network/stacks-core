@@ -81,4 +81,9 @@ pub trait BurnchainIndexer {
 
     fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;
     fn parser(&self) -> Self::P;
+
+    /// Make an instance of the indexer to be consumed by a burnchain indexer thread, for reading
+    /// local state (but not downloading or parsing it).
+    /// This is different from `clone()` in that not all state needs to be copied.
+    fn reader(&self) -> Self;
 }

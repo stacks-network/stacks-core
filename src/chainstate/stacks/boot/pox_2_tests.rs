@@ -19,6 +19,8 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::util_lib::db::{DBConn, FromRow};
+use crate::vm::events::StacksTransactionEvent;
+use clarity::types::Address;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
@@ -35,6 +37,7 @@ use clarity::vm::types::{
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
     Value, NONE,
 };
+use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 
@@ -142,6 +145,117 @@ pub fn check_all_stacker_link_invariants(
     info!("Invoked check all"; "tip" => %tip, "first" => first_cycle_number, "last" => max_cycle_number);
     for cycle in first_cycle_number..(max_cycle_number + 1) {
         check_stacker_link_invariants(peer, tip, cycle);
+    }
+}
+
+#[cfg(test)]
+pub fn generate_pox_clarity_value(str_hash: &str) -> Value {
+    let byte_vec = hex_bytes(str_hash).unwrap();
+    let pox_addr_tuple = TupleData::from_data(vec![
+        ("hashbytes".into(), Value::buff_from(byte_vec).unwrap()),
+        ("version".into(), Value::buff_from_byte(0)),
+    ])
+    .unwrap();
+
+    Value::Tuple(pox_addr_tuple)
+}
+
+#[cfg(test)]
+struct PoxPrintFields {
+    op_name: String,
+    stacker: Value,
+    balance: Value,
+    locked: Value,
+    burnchain_unlock_height: Value,
+}
+
+#[cfg(test)]
+// This function takes in a StacksTransactionEvent for a print statement from a pox function that modifies
+// a stacker's state. It verifies that the values in the print statement are as expected.
+fn check_pox_print_event(
+    event: &StacksTransactionEvent,
+    common_data: PoxPrintFields,
+    op_data: HashMap<&str, Value>,
+) {
+    if let StacksTransactionEvent::SmartContractEvent(data) = event {
+        test_debug!(
+            "Decode event, expecting for {}: {:?}",
+            common_data.op_name,
+            data
+        );
+        assert_eq!(data.key.1, "print");
+        let outer_tuple = data.value.clone().expect_result().unwrap().expect_tuple();
+        test_debug!(
+            "Check name: {:?} =?= {:?}",
+            &outer_tuple
+                .data_map
+                .get("name")
+                .unwrap()
+                .clone()
+                .expect_ascii(),
+            common_data.op_name
+        );
+        assert_eq!(
+            outer_tuple
+                .data_map
+                .get("name")
+                .unwrap()
+                .clone()
+                .expect_ascii(),
+            common_data.op_name
+        );
+        assert_eq!(
+            outer_tuple.data_map.get("stacker"),
+            Some(&common_data.stacker)
+        );
+        assert_eq!(
+            outer_tuple.data_map.get("balance"),
+            Some(&common_data.balance)
+        );
+        assert_eq!(
+            outer_tuple.data_map.get("locked"),
+            Some(&common_data.locked)
+        );
+        assert_eq!(
+            outer_tuple.data_map.get("burnchain-unlock-height"),
+            Some(&common_data.burnchain_unlock_height)
+        );
+
+        let args = outer_tuple
+            .data_map
+            .get("data")
+            .expect("The event tuple should have a field named `data`");
+        let inner_tuple = args.clone().expect_tuple();
+
+        test_debug!("Check for ops {:?}", &op_data);
+        test_debug!("Inner tuple is {:?}", &inner_tuple);
+        let mut missing = vec![];
+        let mut wrong = vec![];
+        for (inner_key, inner_val) in op_data {
+            match inner_tuple.data_map.get(inner_key) {
+                Some(v) => {
+                    if v != &inner_val {
+                        wrong.push((
+                            format!("{}", &inner_key),
+                            format!("{}", v),
+                            format!("{}", &inner_val),
+                        ));
+                    }
+                }
+                None => {
+                    missing.push(format!("{}", &inner_key));
+                }
+            }
+            // assert_eq!(inner_tuple.data_map.get(inner_key), Some(&inner_val));
+        }
+        if missing.len() > 0 || wrong.len() > 0 {
+            eprintln!("missing:\n{:#?}", &missing);
+            eprintln!("wrong:\n{:#?}", &wrong);
+            assert!(false);
+        }
+    } else {
+        error!("unexpected event type: {:?}", event);
+        panic!("Unexpected transaction event type.")
     }
 }
 
@@ -291,6 +405,17 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
     let reward_set_entries = get_reward_set_entries_index_order_at(peer, tip, cycle_start);
     let mut checked_total = 0;
     for (actual_index, entry) in reward_set_entries.iter().enumerate() {
+        debug!(
+            "Cycle {}: Check {:?} (stacked={}, stacker={})",
+            cycle_number,
+            &entry.reward_address,
+            entry.amount_stacked,
+            &entry
+                .stacker
+                .as_ref()
+                .map(|s| format!("{}", &s))
+                .unwrap_or("(none)".to_string())
+        );
         checked_total += entry.amount_stacked;
         if let Some(stacker) = &entry.stacker {
             if tip_cycle > cycle_start {
@@ -315,7 +440,7 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
     assert_eq!(
         u128::try_from(checked_total).unwrap(),
         expected_total,
-        "Invariant violated: total reward cycle amount does not equal sum of reward set"
+        "{}", format!("Invariant violated at cycle {}: total reward cycle amount does not equal sum of reward set", cycle_number)
     );
 }
 
@@ -418,7 +543,10 @@ fn test_simple_pox_lockup_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -876,7 +1004,10 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1062,26 +1193,35 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     let mut alice_txs = HashMap::new();
     let mut bob_txs = HashMap::new();
     let mut charlie_txs = HashMap::new();
+    // let mut network_protocol_txs = vec![];
+    let mut coinbase_txs = vec![];
 
     eprintln!("Alice addr: {}", alice_address);
     eprintln!("Bob addr: {}", bob_address);
 
     for b in blocks.into_iter() {
-        for r in b.receipts.into_iter() {
-            if let TransactionOrigin::Stacks(ref t) = r.transaction {
-                let addr = t.auth.origin().address_testnet();
-                eprintln!("TX addr: {}", addr);
-                if addr == alice_address {
-                    alice_txs.insert(t.auth.get_origin_nonce(), r);
-                } else if addr == bob_address {
-                    bob_txs.insert(t.auth.get_origin_nonce(), r);
-                } else if addr == charlie_address {
-                    assert!(
-                        r.execution_cost != ExecutionCost::zero(),
-                        "Execution cost is not zero!"
-                    );
-                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
+        for (i, r) in b.receipts.into_iter().enumerate() {
+            if i == 0 {
+                coinbase_txs.push(r);
+                continue;
+            }
+            match r.transaction {
+                TransactionOrigin::Stacks(ref t) => {
+                    let addr = t.auth.origin().address_testnet();
+                    eprintln!("TX addr: {}", addr);
+                    if addr == alice_address {
+                        alice_txs.insert(t.auth.get_origin_nonce(), r);
+                    } else if addr == bob_address {
+                        bob_txs.insert(t.auth.get_origin_nonce(), r);
+                    } else if addr == charlie_address {
+                        assert!(
+                            r.execution_cost != ExecutionCost::zero(),
+                            "Execution cost is not zero!"
+                        );
+                        charlie_txs.insert(t.auth.get_origin_nonce(), r);
+                    }
                 }
+                _ => {}
             }
         }
     }
@@ -1099,6 +1239,30 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         },
         "Bob tx0 should have committed okay"
     );
+
+    assert_eq!(coinbase_txs.len(), 17);
+
+    // Check that the event produced by "handle-unlock" has a well-formed print event
+    // and that this event is included as part of the coinbase tx
+    let auto_unlock_tx = coinbase_txs[16].events[0].clone();
+    let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
+    let auto_unlock_op_data = HashMap::from([
+        ("first-cycle-locked", Value::UInt(8)),
+        ("first-unlocked-cycle", Value::UInt(8)),
+        ("pox-addr", pox_addr_val),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "handle-unlock".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(10230000000000),
+        locked: Value::UInt(10000000000),
+        burnchain_unlock_height: Value::UInt(42),
+    };
+    check_pox_print_event(&auto_unlock_tx, common_data, auto_unlock_op_data);
 }
 
 /// In this test case, Alice delegates to Bob.
@@ -1115,7 +1279,10 @@ fn delegate_stack_increase() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1386,6 +1553,35 @@ fn delegate_stack_increase() {
         &bob_txs[&fail_invalid_amount].result.to_string(),
         "(err 18)"
     );
+
+    // Check that the call to `delegate-stack-increase` has a well-formed print event.
+    let delegate_stack_increase_tx = &bob_txs.get(&4).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
+    let delegate_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val),
+        ("increase-by", Value::UInt(5110000000000)),
+        ("total-locked", Value::UInt(10230000000000)),
+        (
+            "delegator",
+            Value::Principal(
+                StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                    .unwrap()
+                    .to_account_principal(),
+            ),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-increase".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(70),
+    };
+    check_pox_print_event(delegate_stack_increase_tx, common_data, delegate_op_data);
 }
 
 /// In this test case, Alice stacks and interacts with the
@@ -1404,7 +1600,10 @@ fn stack_increase() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1528,6 +1727,7 @@ fn stack_increase() {
     alice_nonce += 1;
 
     // this stack-increase tx should work
+    let success_increase = alice_nonce;
     txs_to_submit.push(make_pox_2_increase(&alice, alice_nonce, increase_amt));
     alice_nonce += 1;
 
@@ -1601,7 +1801,7 @@ fn stack_increase() {
     assert_eq!(alice_txs.len() as u64, alice_nonce);
 
     // transaction should fail because lock isn't applied
-    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 26)");
+    assert_eq!(&alice_txs[&fail_no_lock_tx].result.to_string(), "(err 27)");
 
     // transaction should fail because Alice doesn't have enough funds
     assert_eq!(
@@ -1611,6 +1811,27 @@ fn stack_increase() {
 
     // transaction should fail because the amount supplied is invalid (i.e., 0)
     assert_eq!(&alice_txs[&fail_bad_amount].result.to_string(), "(err 18)");
+
+    // Check that the call to `stack-increase` has a well-formed print event.
+    let stack_increase_tx = &alice_txs.get(&success_increase).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("ae1593226f85e49a7eaff5b633ff687695438cc9");
+    let stack_op_data = HashMap::from([
+        ("increase-by", Value::UInt(5120000000000)),
+        ("total-locked", Value::UInt(10240000000000)),
+        ("pox-addr", pox_addr_val),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-increase".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(70),
+    };
+    check_pox_print_event(stack_increase_tx, common_data, stack_op_data);
 }
 
 #[test]
@@ -1623,7 +1844,10 @@ fn test_lock_period_invariant_extend_transition() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -1783,7 +2007,10 @@ fn test_pox_extend_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -2155,6 +2382,49 @@ fn test_pox_extend_transition_pox_2() {
         },
         "Bob tx1 should have committed okay"
     );
+
+    // Check that the call to `stack-stx` has a well-formed print event.
+    let stack_tx = &bob_txs.get(&0).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("60c59ab11f7063ef44c16d3dc856f76bbb915eba");
+    let stack_op_data = HashMap::from([
+        ("lock-amount", Value::UInt(5_120_000_000_000)),
+        ("unlock-burn-height", Value::UInt(55)),
+        ("start-burn-height", Value::UInt(35)),
+        ("pox-addr", pox_addr_val.clone()),
+        ("lock-period", Value::UInt(3)),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-stx".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(stack_tx, common_data, stack_op_data);
+
+    // Check that the call to `stack-extend` has a well-formed print event.
+    let stack_extend_tx = &bob_txs.get(&1).unwrap().clone().events[0];
+    let stack_ext_op_data = HashMap::from([
+        ("extend-count", Value::UInt(1)),
+        ("pox-addr", pox_addr_val),
+        ("unlock-burn-height", Value::UInt(60)),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-extend".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(5120000000000),
+        locked: Value::UInt(5120000000000),
+        burnchain_unlock_height: Value::UInt(55),
+    };
+    check_pox_print_event(stack_extend_tx, common_data, stack_ext_op_data);
 }
 
 /// In this test case, two Stackers, Alice and Bob delegate stack and interact with the
@@ -2181,7 +2451,10 @@ fn test_delegate_extend_transition_pox_2() {
     //  tenures start being tracked.
     let EMPTY_SORTITIONS = 25;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -2795,6 +3068,85 @@ fn test_delegate_extend_transition_pox_2() {
         "Bob tx0 should have committed okay"
     );
 
+    // Check that the call to `delegate-stack-stx` has a well-formed print event.
+    let delegate_stack_tx = &charlie_txs.get(&5).unwrap().clone().events[0];
+    let pox_addr_val = generate_pox_clarity_value("12d93ae7b61e5b7d905c85828d4320e7c221f433");
+    let delegate_op_data = HashMap::from([
+        ("lock-amount", Value::UInt(10240000000000)),
+        ("unlock-burn-height", Value::UInt(55)),
+        ("start-burn-height", Value::UInt(35)),
+        ("pox-addr", pox_addr_val.clone()),
+        ("lock-period", Value::UInt(3)),
+        (
+            "delegator",
+            Value::Principal(
+                StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+                    .unwrap()
+                    .to_account_principal(),
+            ),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-stx".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST1GCB6NH3XR67VT4R5PKVJ2PYXNVQ4AYQATXNP4P")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(delegate_stack_tx, common_data, delegate_op_data);
+
+    // Check that the call to `delegate-stack-extend` has a well-formed print event.
+    let delegate_stack_extend_tx = &charlie_txs.get(&6).unwrap().clone().events[0];
+    let delegate_ext_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val.clone()),
+        ("unlock-burn-height", Value::UInt(70)),
+        ("extend-count", Value::UInt(6)),
+        (
+            "delegator",
+            Value::Principal(
+                StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+                    .unwrap()
+                    .to_account_principal(),
+            ),
+        ),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "delegate-stack-extend".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST2Q1B4S2DY2Y96KYNZTVCCZZD1V9AGWCS5MFXM4C")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(0),
+        locked: Value::UInt(10240000000000),
+        burnchain_unlock_height: Value::UInt(37),
+    };
+    check_pox_print_event(delegate_stack_extend_tx, common_data, delegate_ext_op_data);
+
+    // Check that the call to `stack-aggregation-commit` has a well-formed print event.
+    let stack_agg_commit_tx = &charlie_txs.get(&8).unwrap().clone().events[0];
+    let stack_agg_commit_op_data = HashMap::from([
+        ("pox-addr", pox_addr_val),
+        ("reward-cycle", Value::UInt(9)),
+        ("amount-ustx", Value::UInt(20480000000000)),
+    ]);
+    let common_data = PoxPrintFields {
+        op_name: "stack-aggregation-commit".to_string(),
+        stacker: Value::Principal(
+            StacksAddress::from_string("ST9DJEQ7PRF5PZCGBJ2R53A343KW48FM6DJS5VNY")
+                .unwrap()
+                .to_account_principal(),
+        ),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(stack_agg_commit_tx, common_data, stack_agg_commit_op_data);
+
     for (_nonce, tx) in charlie_txs.iter() {
         assert!(
             match tx.result {
@@ -2817,7 +3169,10 @@ fn test_pox_2_getters() {
     let EMPTY_SORTITIONS = 25;
     let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3098,7 +3453,10 @@ fn test_pox_2_getters() {
 
 #[test]
 fn test_get_pox_addrs() {
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3364,7 +3722,10 @@ fn test_get_pox_addrs() {
 
 #[test]
 fn test_stack_with_segwit() {
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 4; // 4 reward slots
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3680,7 +4041,10 @@ fn test_pox_2_delegate_stx_addr_validation() {
     let EMPTY_SORTITIONS = 25;
     let LOCKUP_AMT = 1024 * POX_THRESHOLD_STEPS_USTX;
 
-    let mut burnchain = Burnchain::default_unittest(0, &BurnchainHeaderHash::zero());
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
     burnchain.pox_constants.reward_cycle_length = 5;
     burnchain.pox_constants.prepare_length = 2;
     burnchain.pox_constants.anchor_threshold = 1;
@@ -3836,5 +4200,457 @@ fn test_pox_2_delegate_stx_addr_validation() {
     assert_eq!(
         alice_pox_addr,
         make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
+    );
+}
+
+/// In this test case, Alice delegates to Bob.
+///  Bob stacks Alice's funds via PoX v2 for 6 cycles. In the third cycle,
+///  Bob increases Alice's stacking amount by less than the stacking min.
+///  Bob is able to increase the pool's aggregate amount anyway.
+///
+#[test]
+fn stack_aggregation_increase() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HEIGHT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.pox_participation_threshold_pct = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("pox_2_stack_aggregation_increase"),
+        6102,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let num_blocks = 35;
+
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+    let charlie = keys.pop().unwrap();
+    let charlie_address = key_to_stacks_addr(&charlie);
+    let charlie_pox_addr = make_pox_addr(
+        AddressHashMode::SerializeP2PKH,
+        charlie_address.bytes.clone(),
+    );
+    let dan = keys.pop().unwrap();
+    let dan_address = key_to_stacks_addr(&dan);
+    let dan_principal = PrincipalData::from(dan_address.clone());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone());
+    let alice_nonce = 0;
+    let mut bob_nonce = 0;
+    let mut charlie_nonce = 0;
+    let mut dan_nonce = 0;
+
+    let alice_first_lock_amount = 512 * POX_THRESHOLD_STEPS_USTX;
+    let alice_delegation_amount = alice_first_lock_amount + 1;
+    let dan_delegation_amount = alice_first_lock_amount + 1;
+    let dan_stack_amount = 511 * POX_THRESHOLD_STEPS_USTX;
+
+    let mut coinbase_nonce = 0;
+
+    // produce blocks until the epoch switch
+    for _i in 0..10 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // submit delegation tx for alice
+    let alice_delegation_1 = make_pox_2_contract_call(
+        &alice,
+        alice_nonce,
+        "delegate-stx",
+        vec![
+            Value::UInt(alice_delegation_amount),
+            bob_principal.clone().into(),
+            Value::none(),
+            Value::none(),
+        ],
+    );
+
+    // bob locks some of alice's tokens
+    let delegate_stack_tx_bob = make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "delegate-stack-stx",
+        vec![
+            alice_principal.clone().into(),
+            Value::UInt(alice_first_lock_amount),
+            bob_pox_addr.clone(),
+            Value::UInt(tip.block_height as u128),
+            Value::UInt(6),
+        ],
+    );
+    bob_nonce += 1;
+
+    // dan stacks some tokens
+    let stack_tx_dan = make_pox_2_lockup(
+        &dan,
+        dan_nonce,
+        dan_stack_amount,
+        PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, dan_address.bytes.clone()),
+        12,
+        tip.block_height,
+    );
+    dan_nonce += 1;
+
+    // our "tenure counter" is now at 10
+    assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
+
+    let mut latest_block = peer.tenure_with_txs(
+        &[alice_delegation_1, delegate_stack_tx_bob, stack_tx_dan],
+        &mut coinbase_nonce,
+    );
+
+    // check that the partial stacking state contains entries for bob
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let partial_stacked = get_partial_stacked(
+            &mut peer,
+            &latest_block,
+            &bob_pox_addr,
+            cycle_number,
+            &bob_principal,
+        );
+        assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
+    }
+
+    // we'll produce blocks until the 3rd reward cycle gets through the "handled start" code
+    //  this is one block after the reward cycle starts
+    let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
+
+    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let alice_bal = get_stx_account_at(&mut peer, &latest_block, &alice_principal);
+    assert_eq!(alice_bal.amount_locked(), alice_first_lock_amount);
+
+    let dan_bal = get_stx_account_at(&mut peer, &latest_block, &dan_principal);
+    assert_eq!(dan_bal.amount_locked(), dan_stack_amount);
+
+    // check that the partial stacking state still contains entries for bob
+    for cycle_number in EXPECTED_FIRST_V2_CYCLE..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        let partial_stacked = get_partial_stacked(
+            &mut peer,
+            &latest_block,
+            &bob_pox_addr,
+            cycle_number,
+            &bob_principal,
+        );
+        assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
+    }
+
+    let tip = get_tip(peer.sortdb.as_ref());
+    let cur_reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    let mut txs_to_submit = vec![];
+
+    // bob locks in alice's tokens to a PoX address,
+    // which clears the partially-stacked state
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-commit-indexed",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 1) as u128),
+        ],
+    ));
+    let bob_stack_aggregation_commit_indexed = bob_nonce;
+    bob_nonce += 1;
+
+    // bob tries to lock tokens in a reward cycle that's already committed (should fail with
+    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 1) as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let bob_err_stacking_no_such_principal = bob_nonce;
+    bob_nonce += 1;
+
+    // bob locks up 1 more of alice's tokens
+    // takes effect in the _next_ reward cycle
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "delegate-stack-increase",
+        vec![
+            alice_principal.clone().into(),
+            bob_pox_addr.clone(),
+            Value::UInt(1),
+        ],
+    ));
+    bob_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
+    let tip = get_tip(peer.sortdb.as_ref());
+    let cur_reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    // locked up more tokens
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        alice_delegation_amount,
+    );
+
+    // only 1 uSTX to lock in this next cycle for Alice
+    let partial_stacked = get_partial_stacked(
+        &mut peer,
+        &latest_block,
+        &bob_pox_addr,
+        cur_reward_cycle + 1,
+        &bob_principal,
+    );
+    assert_eq!(partial_stacked, 1);
+
+    for cycle_number in (cur_reward_cycle + 2)..(EXPECTED_FIRST_V2_CYCLE + 6) {
+        // alice has 512 * POX_THRESHOLD_STEPS_USTX partially-stacked STX in all cycles after
+        let partial_stacked = get_partial_stacked(
+            &mut peer,
+            &latest_block,
+            &bob_pox_addr,
+            cycle_number,
+            &bob_principal,
+        );
+        assert_eq!(partial_stacked, alice_delegation_amount);
+    }
+
+    let mut txs_to_submit = vec![];
+
+    // charlie tries to lock alice's additional tokens to his own PoX address (should fail with
+    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &charlie,
+        charlie_nonce,
+        "stack-aggregation-increase",
+        vec![
+            charlie_pox_addr.clone(),
+            Value::UInt(cur_reward_cycle as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let charlie_err_stacking_no_principal = charlie_nonce;
+    charlie_nonce += 1;
+
+    // charlie tries to lock alice's additional tokens to bob's PoX address (should fail with
+    // ERR_STACKING_NO_SUCH_PRINCIPAL)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &charlie,
+        charlie_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt(cur_reward_cycle as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let charlie_err_stacking_no_principal_2 = charlie_nonce;
+    charlie_nonce += 1;
+
+    // bob tries to retcon a reward cycle lockup (should fail with ERR_STACKING_INVALID_LOCK_PERIOD)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt(cur_reward_cycle as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let bob_err_stacking_invalid_lock_period = bob_nonce;
+    bob_nonce += 1;
+
+    // bob tries to lock tokens in a reward cycle that has no tokens stacked in it yet (should
+    // fail with ERR_DELEGATION_NO_REWARD_CYCLE)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 13) as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let bob_err_delegation_no_reward_cycle = bob_nonce;
+    bob_nonce += 1;
+
+    // bob tries to lock tokens to a non-existant PoX reward address (should fail with
+    // ERR_DELEGATION_NO_REWARD_SLOT)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 1) as u128),
+            Value::UInt(2),
+        ],
+    ));
+    let bob_err_delegation_no_reward_slot = bob_nonce;
+    bob_nonce += 1;
+
+    // bob tries to lock tokens to the wrong PoX address (should fail with ERR_DELEGATION_WRONG_REWARD_SLOT).
+    // slot 0 belongs to dan.
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 1) as u128),
+            Value::UInt(0),
+        ],
+    ));
+    let bob_err_delegation_wrong_reward_slot = bob_nonce;
+    bob_nonce += 1;
+
+    // bob locks tokens for Alice (bob's previous stack-aggregation-commit put his PoX address in
+    // slot 1 for this reward cycle)
+    txs_to_submit.push(make_pox_2_contract_call(
+        &bob,
+        bob_nonce,
+        "stack-aggregation-increase",
+        vec![
+            bob_pox_addr.clone(),
+            Value::UInt((cur_reward_cycle + 1) as u128),
+            Value::UInt(1),
+        ],
+    ));
+    bob_nonce += 1;
+
+    latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
+
+    assert_eq!(
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal).amount_locked(),
+        alice_delegation_amount
+    );
+
+    // now let's check some tx receipts
+
+    let alice_address = key_to_stacks_addr(&alice);
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+    let mut charlie_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == charlie_address {
+                    charlie_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    assert_eq!(alice_txs.len(), 1);
+    assert_eq!(bob_txs.len(), 9);
+    assert_eq!(charlie_txs.len(), 2);
+
+    // bob's stack-aggregation-commit-indexed succeeded and returned the right index
+    assert_eq!(
+        &bob_txs[&bob_stack_aggregation_commit_indexed]
+            .result
+            .to_string(),
+        "(ok u1)"
+    );
+
+    // check bob's errors
+    assert_eq!(
+        &bob_txs[&bob_err_stacking_no_such_principal]
+            .result
+            .to_string(),
+        "(err 4)"
+    );
+    assert_eq!(
+        &bob_txs[&bob_err_stacking_invalid_lock_period]
+            .result
+            .to_string(),
+        "(err 2)"
+    );
+    assert_eq!(
+        &bob_txs[&bob_err_delegation_no_reward_cycle]
+            .result
+            .to_string(),
+        "(err 4)"
+    );
+    assert_eq!(
+        &bob_txs[&bob_err_delegation_no_reward_slot]
+            .result
+            .to_string(),
+        "(err 28)"
+    );
+    assert_eq!(
+        &bob_txs[&bob_err_delegation_wrong_reward_slot]
+            .result
+            .to_string(),
+        "(err 29)"
+    );
+
+    // check charlie's errors
+    assert_eq!(
+        &charlie_txs[&charlie_err_stacking_no_principal]
+            .result
+            .to_string(),
+        "(err 4)"
+    );
+    assert_eq!(
+        &charlie_txs[&charlie_err_stacking_no_principal_2]
+            .result
+            .to_string(),
+        "(err 4)"
     );
 }

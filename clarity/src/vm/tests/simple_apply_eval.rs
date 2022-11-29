@@ -274,14 +274,14 @@ fn test_to_consensus_buff_too_big() {
 
     // this program prints the length of the
     // constructed 1048570 buffer and then executes
-    // to-consensus-buff on it. if the buffer wasn't the
+    // to-consensus-buff? on it. if the buffer wasn't the
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048570 = format!(
         "{}
      (let ((a (make-buff-1048570)))
         (if (is-eq (len a) u1048570)
-            (to-consensus-buff a)
+            (to-consensus-buff? a)
             (some 0x00)))
     ",
         buff_setup
@@ -295,14 +295,14 @@ fn test_to_consensus_buff_too_big() {
 
     // this program prints the length of the
     // constructed 1048567 buffer and then executes
-    // to-consensus-buff on it. if the buffer wasn't the
+    // to-consensus-buff? on it. if the buffer wasn't the
     // expect length, just return (some buffer), which will
     // cause the test assertion to fail.
     let program_check_1048567 = format!(
         "{}
      (let ((a (make-buff-1048567)))
         (if (is-eq (len a) u1048567)
-            (to-consensus-buff a)
+            (to-consensus-buff? a)
             (some 0x00)))
     ",
         buff_setup
@@ -319,15 +319,15 @@ fn test_to_consensus_buff_too_big() {
 fn test_from_consensus_buff_type_checks() {
     let vectors = [
         (
-            "(from-consensus-buff uint 0x10 0x00)",
+            "(from-consensus-buff? uint 0x10 0x00)",
             "Unchecked(IncorrectArgumentCount(2, 3))",
         ),
         (
-            "(from-consensus-buff uint 1)",
+            "(from-consensus-buff? uint 1)",
             "Unchecked(TypeValueError(SequenceType(BufferType(BufferLength(1048576))), Int(1)))",
         ),
         (
-            "(from-consensus-buff 2 0x10)",
+            "(from-consensus-buff? 2 0x10)",
             "Unchecked(InvalidTypeDescription)",
         ),
     ];
@@ -362,15 +362,15 @@ fn test_from_consensus_buff_missed_expectations() {
     ];
 
     for (buff_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
         eprintln!("{}", program);
         let result_val = vm_execute_v2(&program)
-            .expect("from-consensus-buff should succeed")
-            .expect("from-consensus-buff should return")
+            .expect("from-consensus-buff? should succeed")
+            .expect("from-consensus-buff? should return")
             .expect_optional();
         assert!(
             result_val.is_none(),
-            "from-consensus-buff should return none"
+            "from-consensus-buff? should return none"
         );
     }
 }
@@ -395,27 +395,27 @@ fn test_to_from_consensus_buff_vectors() {
         ("0x0c000000020362617a0906666f6f62617203", "{ baz: none, foobar: true }", "{ baz: (optional int), foobar: bool }"),
     ];
 
-    // do `from-consensus-buff` tests
+    // do `from-consensus-buff?` tests
     for (buff_repr, value_repr, type_repr) in vectors.iter() {
-        let program = format!("(from-consensus-buff {} {})", type_repr, buff_repr);
+        let program = format!("(from-consensus-buff? {} {})", type_repr, buff_repr);
         eprintln!("{}", program);
         let result_val = vm_execute_v2(&program)
-            .expect("from-consensus-buff should succeed")
-            .expect("from-consensus-buff should return")
+            .expect("from-consensus-buff? should succeed")
+            .expect("from-consensus-buff? should return")
             .expect_optional()
-            .expect("from-consensus-buff should return (some value)");
+            .expect("from-consensus-buff? should return (some value)");
         let expected_val = execute(&value_repr);
         assert_eq!(result_val, expected_val);
     }
 
-    // do `to-consensus-buff` tests
+    // do `to-consensus-buff?` tests
     for (buff_repr, value_repr, _) in vectors.iter() {
-        let program = format!("(to-consensus-buff {})", value_repr);
+        let program = format!("(to-consensus-buff? {})", value_repr);
         let result_buffer = vm_execute_v2(&program)
-            .expect("to-consensus-buff should succeed")
-            .expect("to-consensus-buff should return")
+            .expect("to-consensus-buff? should succeed")
+            .expect("to-consensus-buff? should return")
             .expect_optional()
-            .expect("to-consensus-buff should return (some buff)");
+            .expect("to-consensus-buff? should return (some buff)");
         let expected_buff = execute(&buff_repr);
         assert_eq!(result_buffer, expected_buff);
     }
@@ -1271,6 +1271,98 @@ fn test_stx_ops_errors() {
             )
             .unwrap_err()
         );
+    }
+}
+
+#[test]
+fn test_bitwise() {
+    // NOTE: Type safety checks (e.g. that the 2nd argument to bit-shift-left and bit-shift-right must be uint) are not included in this test.
+    // Tests for the type checker are included in analysis/type_checker/tests/mod.rs instead.
+
+    let tests = [
+        "(bit-and 24 16)",                                                     // 16
+        "(bit-and u24 u16)",                                                   // u16
+        "(bit-xor 24 4)",                                                      // 28
+        "(bit-xor u24 u4)",                                                    // u28
+        "(bit-or 128 16)",                                                     // 144
+        "(bit-or u128 u16)",                                                   // u144
+        "(bit-not 128)",                                                       // -129
+        "(bit-not u128)", // u340282366920938463463374607431768211327
+        "(bit-not u340282366920938463463374607431768211327)", // u128
+        "(bit-shift-right u128 u2)", // u32
+        "(bit-shift-left u4 u2)", // u16
+        "(bit-and -128 -64)", // -128
+        "(bit-or -64 -32)", // -32
+        "(bit-xor -128 64)", // -64
+        "(bit-not -128)", // 127
+        "(bit-shift-right -64 u1)", // -32
+        "(bit-shift-left -64 u1)", // -128
+        "(bit-shift-right 32 u2)", // 8
+        "(bit-shift-left 4 u4)", // 64
+        "(bit-or 1 2 4)", // 7
+        "(bit-or 64 -32 -16)", // -16
+        "(bit-or u2 u4 u32)", // u38
+        "(bit-and 28 24 -1)", // 24
+        "(bit-xor 1 2 4 -1)", // -8
+        "(bit-shift-right u123 u9999999999)", // u0
+        "(bit-shift-left u123 u9999999999)", // u170141183460469231731687303715884105728
+        "(bit-shift-right u240282366920938463463374607431768211327 u2402823)", // u1877205991569831745807614120560689150
+        "(bit-shift-left u240282366920938463463374607431768211327 u2402823)", // u130729942995661611608235082407192018816
+        "(bit-shift-left u340282366920938463463374607431768211455 u1)", // u340282366920938463463374607431768211454
+        "(bit-shift-left -1 u7)",                                       // -128
+        "(bit-shift-left -1 u128)",                                     // -1
+        "(bit-shift-right -128 u7)",                                    // -1
+        "(bit-shift-right -256 u1)",                                    // -128
+        "(bit-shift-right 5 u2)",                                       // 1
+        "(bit-shift-right -5 u2)",                                      // -2
+        "(bit-shift-left 123 u9999999999)", // -170141183460469231731687303715884105728
+        "(bit-shift-right 123 u9999999999)", // 0
+        "(bit-shift-left -64 u121)",        // -170141183460469231731687303715884105728
+    ];
+
+    let expectations: &[Result<Value, Error>] = &[
+        Ok(Value::Int(16)),                                       // (bit-and 24 16)
+        Ok(Value::UInt(16)),                                      // (bit-and u24 u16)
+        Ok(Value::Int(28)),                                       // (bit-xor 24 4)y
+        Ok(Value::UInt(28)),                                      // (bit-xor u24 u4)
+        Ok(Value::Int(144)),                                      // (bit-or 128 16)
+        Ok(Value::UInt(144)),                                     // (bit-or u128 u16)
+        Ok(Value::Int(-129)),                                     // (bit-not 128)
+        Ok(Value::UInt(340282366920938463463374607431768211327)), // (bit-not u128)
+        Ok(Value::UInt(128)), // (bit-not u340282366920938463463374607431768211327)
+        Ok(Value::UInt(32)),  // (bit-shift-right u128 u2)
+        Ok(Value::UInt(16)),  // (bit-shift-left u4 u2)
+        Ok(Value::Int(-128)), // (bit-and -128 -64)
+        Ok(Value::Int(-32)),  // (bit-or -64 -32)
+        Ok(Value::Int(-64)),  // (bit-xor -128 64)
+        Ok(Value::Int(127)),  // (bit-not -128)
+        Ok(Value::Int(-32)),  // (bit-shift-right -64 u1)
+        Ok(Value::Int(-128)), // (bit-shift-left -64 u1)
+        Ok(Value::Int(8)),    // (bit-shift-right 32 u2)
+        Ok(Value::Int(64)),   // (bit-shift-left 4 u4)
+        Ok(Value::Int(7)),    // (bit-or 1 2 4)
+        Ok(Value::Int(-16)),  // (bit-or 64 -32 -16)
+        Ok(Value::UInt(38)),  // (bit-or u2 u4 u32)
+        Ok(Value::Int(24)),   // (bit-and 28 24 -1)
+        Ok(Value::Int(-8)),   // (bit-xor 1 2 4 -1)
+        Ok(Value::UInt(0)),   // (bit-shift-right u123 u9999999999)
+        Ok(Value::UInt(u128::try_from(i128::MAX).unwrap() + 1)), // (bit-shift-left u123 u9999999999)
+        Ok(Value::UInt(1877205991569831745807614120560689150)),
+        Ok(Value::UInt(130729942995661611608235082407192018816)),
+        Ok(Value::UInt(u128::MAX - 1)), // (bit-shift-left u340282366920938463463374607431768211455 u1)
+        Ok(Value::Int(-128)),           // (bit-shift-left -1 7)
+        Ok(Value::Int(-1)),             // (bit-shift-left -1 128)
+        Ok(Value::Int(-1)),             // (bit-shift-right -128 u7)
+        Ok(Value::Int(-128)),           // (bit-shift-right -256 64)
+        Ok(Value::Int(1)),              // (bit-shift-right 5 u2)
+        Ok(Value::Int(-2)),             // (bit-shift-right -5 u2)
+        Ok(Value::Int(i128::MIN)),      // (bit-shift-left 123 u9999999999)
+        Ok(Value::Int(0)),              // (bit-shift-right 123 u9999999999)
+        Ok(Value::Int(i128::MIN)),      // (bit-shift-left -64 u121)
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute_v2(program).map(|x| x.unwrap()));
     }
 }
 

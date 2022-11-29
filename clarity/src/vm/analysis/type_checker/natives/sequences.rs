@@ -397,7 +397,7 @@ pub fn check_special_index_of(
     TypeSignature::new_option(TypeSignature::UIntType).map_err(|e| e.into())
 }
 
-/// This function type checks the Clarity2 function `slice`.
+/// This function type checks the Clarity2 function `slice?`.
 pub fn check_special_slice(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -423,7 +423,7 @@ pub fn check_special_slice(
     Ok(seq)
 }
 
-/// This function type checks the Clarity2 function `replace-at`.
+/// This function type checks the Clarity2 function `replace-at?`.
 pub fn check_special_replace_at(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],

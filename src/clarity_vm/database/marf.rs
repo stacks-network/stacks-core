@@ -123,6 +123,13 @@ impl MarfedKV {
         let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
         path.push(to_hex(&random_bytes));
 
+        debug!(
+            "Temporary MARF path at {}",
+            &path
+                .to_str()
+                .expect("FATAL: non-UTF-8 character in filename")
+        );
+
         let marf = MarfedKV::setup_db(
             path.to_str()
                 .expect("Inexplicably non-UTF-8 character in filename"),
@@ -239,10 +246,6 @@ impl MarfedKV {
         &self.chain_tip
     }
 
-    pub fn set_chain_tip(&mut self, bhh: &StacksBlockId) {
-        self.chain_tip = bhh.clone();
-    }
-
     pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
         &mut self.marf
     }
@@ -300,6 +303,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
         Some(&handle_contract_call_special_cases)
     }
 
+    /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)

@@ -1488,6 +1488,11 @@ impl StacksBlockBuilder {
         return true;
     }
 
+    /// Set the block miner's private key
+    pub fn set_microblock_privkey(&mut self, privk: StacksPrivateKey) {
+        self.miner_privkey = privk;
+    }
+
     /// Reset measured costs and fees
     pub fn reset_costs(&mut self) -> () {
         self.total_anchored_fees = 0;
@@ -2086,6 +2091,7 @@ impl StacksBlockBuilder {
             burn_dbconn,
             burn_dbconn,
             burn_dbconn.conn(),
+            &burn_dbconn.context.pox_constants,
             &self.chain_tip,
             info.burn_tip,
             info.burn_tip_height,
@@ -2125,16 +2131,35 @@ impl StacksBlockBuilder {
 
         consumed
     }
-
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
     #[cfg(test)]
     pub fn make_anchored_block_from_txs(
+        builder: StacksBlockBuilder,
+        chainstate_handle: &StacksChainState,
+        burn_dbconn: &SortitionDBConn,
+        txs: Vec<StacksTransaction>,
+    ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+        Self::make_anchored_block_and_microblock_from_txs(
+            builder,
+            chainstate_handle,
+            burn_dbconn,
+            txs,
+            vec![],
+        )
+        .map(|(stacks_block, size, cost, _)| (stacks_block, size, cost))
+    }
+
+    /// Unconditionally build an anchored block from a list of transactions.
+    ///  Used in test cases
+    #[cfg(test)]
+    pub fn make_anchored_block_and_microblock_from_txs(
         mut builder: StacksBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionDBConn,
         mut txs: Vec<StacksTransaction>,
-    ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+        mut mblock_txs: Vec<StacksTransaction>,
+    ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn)?;
@@ -2172,8 +2197,17 @@ impl StacksBlockBuilder {
         }
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
+
+        let mblock_opt = if mblock_txs.len() > 0 {
+            builder.micro_txs.append(&mut mblock_txs);
+            let mblock = builder.mine_next_microblock()?;
+            Some(mblock)
+        } else {
+            None
+        };
+
         let cost = builder.epoch_finish(epoch_tx);
-        Ok((block, size, cost))
+        Ok((block, size, cost, mblock_opt))
     }
 
     /// Create a block builder for mining

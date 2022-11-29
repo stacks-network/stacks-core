@@ -554,12 +554,15 @@ impl Relayer {
         );
 
         // find the snapshot of the parent of this block
-        let db_handle = SortitionHandleConn::open_reader_consensus(sort_ic, consensus_hash)?;
-        let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(
-            &db_handle,
-            consensus_hash,
-            &block.block_hash(),
-        )?;
+        let parent_block_snapshot = match sort_ic
+            .find_parent_snapshot_for_stacks_block(consensus_hash, &block.block_hash())?
+        {
+            Some(sn) => sn,
+            None => {
+                // doesn't correspond to a PoX-valid sortition
+                return Ok(false);
+            }
+        };
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its
         // txs problematic).
@@ -2217,7 +2220,7 @@ pub mod test {
     use std::cell::RefCell;
     use std::collections::HashMap;
 
-    use crate::burnchains::test::TestMiner;
+    use crate::burnchains::tests::TestMiner;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE;
     use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
     use crate::chainstate::stacks::Error as ChainstateError;

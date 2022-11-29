@@ -1386,13 +1386,13 @@ mod tests {
             LexerError::InvalidCharPrincipal('O')
         );
 
-        lexer = Lexer::new("~", false).unwrap();
+        lexer = Lexer::new("@", false).unwrap();
         assert_eq!(
             lexer.read_token().unwrap().token,
-            Token::Placeholder("~".to_string())
+            Token::Placeholder("@".to_string())
         );
         assert_eq!(lexer.diagnostics.len(), 1);
-        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('~'));
+        assert_eq!(lexer.diagnostics[0].e, LexerError::UnknownSymbol('@'));
 
         lexer = Lexer::new("okay;; comment", false).unwrap();
         assert_eq!(
@@ -2093,7 +2093,7 @@ mod tests {
             }
         );
 
-        lexer = Lexer::new("123 ~ abc", false).unwrap();
+        lexer = Lexer::new("123 @ abc", false).unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();
         lexer.read_token().unwrap();

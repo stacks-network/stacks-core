@@ -180,7 +180,8 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | IndexOf | Map | Filter | Fold | Slice | ReplaceAt => {
+            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
+            | Fold | Slice | ReplaceAt => {
                 return Err(Error::FunctionNotPermitted(function));
             }
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
@@ -197,10 +198,11 @@ impl<'a> ArithmeticOnlyChecker<'a> {
                 return Err(Error::FunctionNotPermitted(function));
             }
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
-            | Modulo | Power | Sqrti | Log2 | BitwiseXOR | And | Or | Not | Equals | If
+            | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay
             | IsNone | Asserts | Unwrap | UnwrapErr | IsErr | IsSome | TryRet | ToUInt | ToInt
-            | Len | Begin | TupleMerge => {
+            | Len | Begin | TupleMerge | BitwiseOr | BitwiseAnd | BitwiseXor2 | BitwiseNot
+            | BitwiseLShift | BitwiseRShift => {
                 // Check all arguments.
                 self.check_all(args)
             }

@@ -676,7 +676,7 @@ check if the associated microblocks can be downloaded
             let pox_consts = PoxConstants::mainnet_default();
 
             let result = sort_conn
-                .get_chosen_pox_anchor_check_position(
+                .get_chosen_pox_anchor_check_position_v205(
                     &eval_tip.burn_header_hash,
                     &pox_consts,
                     false,
@@ -1001,8 +1001,8 @@ simulating a miner.
         let path = &argv[2];
         let sort_path = &argv[3];
         let (mut chainstate, _) = StacksChainState::open(false, 0x80000000, path, None).unwrap();
-        let mut sortition_db =
-            SortitionDB::open(sort_path, true, PoxConstants::mainnet_default()).unwrap();
+        let pox_constants = PoxConstants::mainnet_default();
+        let mut sortition_db = SortitionDB::open(sort_path, true, pox_constants.clone()).unwrap();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn())
             .unwrap()
             .sortition_id;
@@ -1077,14 +1077,8 @@ simulating a miner.
             )
             .unwrap();
 
-        let old_burnchaindb = BurnchainDB::connect(
-            &old_burnchaindb_path,
-            first_burnchain_block_height,
-            &first_burnchain_block_hash,
-            BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
-            true,
-        )
-        .unwrap();
+        let old_burnchaindb =
+            BurnchainDB::connect(&old_burnchaindb_path, &burnchain, true).unwrap();
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
@@ -1192,9 +1186,11 @@ simulating a miner.
             let BurnchainBlockData {
                 header: burn_block_header,
                 ops: blockstack_txs,
-            } = old_burnchaindb
-                .get_burnchain_block(&old_snapshot.burn_header_hash)
-                .unwrap();
+            } = BurnchainDB::get_burnchain_block(
+                &old_burnchaindb.conn(),
+                &old_snapshot.burn_header_hash,
+            )
+            .unwrap();
             if old_snapshot.parent_burn_header_hash == BurnchainHeaderHash::sentinel() {
                 // skip initial snapshot -- it's a placeholder
                 continue;

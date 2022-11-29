@@ -250,6 +250,13 @@ impl FromColumn<QualifiedContractIdentifier> for QualifiedContractIdentifier {
     }
 }
 
+impl FromRow<bool> for bool {
+    fn from_row<'a>(row: &'a Row) -> Result<bool, Error> {
+        let x: bool = row.get_unwrap(0);
+        Ok(x)
+    }
+}
+
 /// Make public keys loadable from a sqlite database
 impl FromColumn<Secp256k1PublicKey> for Secp256k1PublicKey {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Secp256k1PublicKey, Error> {
@@ -274,6 +281,18 @@ pub fn u64_to_sql(x: u64) -> Result<i64, Error> {
         return Err(Error::ParseError);
     }
     Ok(x as i64)
+}
+
+pub fn opt_u64_to_sql(x: Option<u64>) -> Result<Option<i64>, Error> {
+    match x {
+        Some(num) => {
+            if num > (i64::MAX as u64) {
+                return Err(Error::ParseError);
+            }
+            Ok(Some(num as i64))
+        }
+        None => Ok(None),
+    }
 }
 
 macro_rules! impl_byte_array_from_column_only {

@@ -466,11 +466,11 @@ fn test_simple_map_append() {
 #[test]
 fn test_slice_list() {
     let tests = [
-        "(slice (list 2 3 4 5 6 7 8) u0 u3)",
-        "(slice (list u0 u1 u2 u3 u4) u3 u2)",
-        "(slice (list 2 3 4 5 6 7 8) u0 u0)",
-        "(slice (list u2 u3 u4 u5 u6 u7 u8) u3 u5)",
-        "(slice (list u2 u3 u4 u5 u6 u7 u8) u1 u11)",
+        "(slice? (list 2 3 4 5 6 7 8) u0 u3)",
+        "(slice? (list u0 u1 u2 u3 u4) u3 u2)",
+        "(slice? (list 2 3 4 5 6 7 8) u0 u0)",
+        "(slice? (list u2 u3 u4 u5 u6 u7 u8) u3 u5)",
+        "(slice? (list u2 u3 u4 u5 u6 u7 u8) u1 u11)",
     ];
 
     let expected = [
@@ -490,12 +490,12 @@ fn test_slice_list() {
 #[test]
 fn test_slice_buff() {
     let tests = [
-        "(slice 0x000102030405 u0 u3)",
-        "(slice 0x000102030405 u3 u3)",
-        "(slice 0x000102030405 u3 u6)",
-        "(slice 0x000102030405 u3 u10)",
-        "(slice 0x000102030405 u10 u3)",
-        "(slice 0x u2 u3)",
+        "(slice? 0x000102030405 u0 u3)",
+        "(slice? 0x000102030405 u3 u3)",
+        "(slice? 0x000102030405 u3 u6)",
+        "(slice? 0x000102030405 u3 u10)",
+        "(slice? 0x000102030405 u10 u3)",
+        "(slice? 0x u2 u3)",
     ];
 
     let expected = [
@@ -515,12 +515,12 @@ fn test_slice_buff() {
 #[test]
 fn test_slice_ascii() {
     let tests = [
-        "(slice \"blockstack\" u0 u5)",
-        "(slice \"blockstack\" u5 u10)",
-        "(slice \"blockstack\" u5 u5)",
-        "(slice \"blockstack\" u5 u0)",
-        "(slice \"blockstack\" u11 u3)",
-        "(slice \"\" u0 u3)",
+        "(slice? \"blockstack\" u0 u5)",
+        "(slice? \"blockstack\" u5 u10)",
+        "(slice? \"blockstack\" u5 u5)",
+        "(slice? \"blockstack\" u5 u0)",
+        "(slice? \"blockstack\" u11 u3)",
+        "(slice? \"\" u0 u3)",
     ];
 
     let expected = [
@@ -540,11 +540,11 @@ fn test_slice_ascii() {
 #[test]
 fn test_slice_utf8() {
     let tests = [
-        "(slice u\"hello \\u{1F98A}\" u0 u5)",
-        "(slice u\"hello \\u{1F98A}\" u6 u7)",
-        "(slice u\"hello \\u{1F98A}\" u6 u6)",
-        "(slice u\"hello \\u{1F98A}\" u11 u4)",
-        "(slice u\"\" u0 u3)",
+        "(slice? u\"hello \\u{1F98A}\" u0 u5)",
+        "(slice? u\"hello \\u{1F98A}\" u6 u7)",
+        "(slice? u\"hello \\u{1F98A}\" u6 u6)",
+        "(slice? u\"hello \\u{1F98A}\" u11 u4)",
+        "(slice? u\"\" u0 u3)",
     ];
 
     let expected = [
@@ -643,13 +643,13 @@ fn test_simple_buff_concat() {
 #[test]
 fn test_simple_list_replace_at() {
     let tests = [
-        "(replace-at (list 1 2) u1 4)",
-        "(replace-at (list 1) u0 10)",
-        "(replace-at (list 1 9 0 5) u3 6)",
-        "(replace-at (list 4 5 6 7 8) u2 11)",
-        "(replace-at (list (list 1) (list 2)) u0 (list 33))",
-        "(replace-at (list (list 1 2) (list 3 4)) u0 (list 0))",
-        "(replace-at (list (list 1 2 3)) u0 (list 0))",
+        "(replace-at? (list 1 2) u1 4)",
+        "(replace-at? (list 1) u0 10)",
+        "(replace-at? (list 1 9 0 5) u3 6)",
+        "(replace-at? (list 4 5 6 7 8) u2 11)",
+        "(replace-at? (list (list 1) (list 2)) u0 (list 33))",
+        "(replace-at? (list (list 1 2) (list 3 4)) u0 (list 0))",
+        "(replace-at? (list (list 1 2 3)) u0 (list 0))",
     ];
 
     let expected = [
@@ -704,9 +704,9 @@ fn test_simple_list_replace_at() {
 
     let bad_tests = [
         // index is out of bounds
-        "(replace-at (list 1 2) u3 4)",
+        "(replace-at? (list 1 2) u3 4)",
         // the sequence is length 0, so the index is out of bounds
-        "(replace-at (list) u0 6)",
+        "(replace-at? (list) u0 6)",
     ];
 
     let bad_expected = [Value::none(), Value::none()];
@@ -717,25 +717,25 @@ fn test_simple_list_replace_at() {
 
     // The sequence input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at 0 u0 (list 0))").unwrap_err(),
+        execute_v2("(replace-at? 0 u0 (list 0))").unwrap_err(),
         CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
-        execute_v2("(replace-at (list 1) 0 0)").unwrap_err(),
+        execute_v2("(replace-at? (list 1) 0 0)").unwrap_err(),
         CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at (list 2 3) u0 true)").unwrap_err(),
+        execute_v2("(replace-at? (list 2 3) u0 true)").unwrap_err(),
         CheckErrors::TypeValueError(IntType, Value::Bool(true)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at (list 2 3) u0 0x00)").unwrap_err(),
+        execute_v2("(replace-at? (list 2 3) u0 0x00)").unwrap_err(),
         CheckErrors::TypeValueError(IntType, Value::buff_from_byte(0)).into()
     );
 }
@@ -743,10 +743,10 @@ fn test_simple_list_replace_at() {
 #[test]
 fn test_simple_buff_replace_at() {
     let tests = [
-        "(replace-at 0x3031 u1 0x44)",
-        "(replace-at 0x00 u0 0x11)",
-        "(replace-at 0x00112233 u3 0x44)",
-        "(replace-at 0x00112233 u1 0x44)",
+        "(replace-at? 0x3031 u1 0x44)",
+        "(replace-at? 0x00 u0 0x11)",
+        "(replace-at? 0x00112233 u3 0x44)",
+        "(replace-at? 0x00112233 u1 0x44)",
     ];
 
     let expected = [
@@ -762,9 +762,9 @@ fn test_simple_buff_replace_at() {
 
     let bad_tests = [
         // index is out of bounds
-        "(replace-at 0x0022 u3 0x44)",
+        "(replace-at? 0x0022 u3 0x44)",
         // the sequence is length 0, so the index is out of bounds
-        "(replace-at 0x u0 0x11)",
+        "(replace-at? 0x u0 0x11)",
     ];
 
     let bad_expected = [Value::none(), Value::none()];
@@ -775,27 +775,27 @@ fn test_simple_buff_replace_at() {
 
     // The sequence input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at 33 u0 0x00)").unwrap_err(),
+        execute_v2("(replace-at? 33 u0 0x00)").unwrap_err(),
         CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
-        execute_v2("(replace-at 0x002244 0 0x99)").unwrap_err(),
+        execute_v2("(replace-at? 0x002244 0 0x99)").unwrap_err(),
         CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
-        execute_v2("(replace-at 0x445522 u0 55)").unwrap_err(),
+        execute_v2("(replace-at? 0x445522 u0 55)").unwrap_err(),
         CheckErrors::TypeValueError(SequenceType(BufferType(buff_len.clone())), Value::Int(55))
             .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at 0x445522 u0 (list 5))").unwrap_err(),
+        execute_v2("(replace-at? 0x445522 u0 (list 5))").unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(buff_len.clone())),
             Value::list_from(vec![Value::Int(5)]).unwrap()
@@ -805,7 +805,7 @@ fn test_simple_buff_replace_at() {
 
     // The element input has the wrong type (not length 1)
     assert_eq!(
-        execute_v2("(replace-at 0x445522 u0 0x0044)").unwrap_err(),
+        execute_v2("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(BufferType(buff_len.clone())),
             Value::buff_from(vec![0, 68]).unwrap()
@@ -817,10 +817,10 @@ fn test_simple_buff_replace_at() {
 #[test]
 fn test_simple_string_ascii_replace_at() {
     let tests = [
-        "(replace-at \"ab\" u1 \"c\")",
-        "(replace-at \"a\" u0 \"c\")",
-        "(replace-at \"abcd\" u3 \"e\")",
-        "(replace-at \"abcd\" u1 \"e\")",
+        "(replace-at? \"ab\" u1 \"c\")",
+        "(replace-at? \"a\" u0 \"c\")",
+        "(replace-at? \"abcd\" u3 \"e\")",
+        "(replace-at? \"abcd\" u1 \"e\")",
     ];
 
     let expected = [
@@ -836,9 +836,9 @@ fn test_simple_string_ascii_replace_at() {
 
     let bad_tests = [
         // index is out of bounds
-        "(replace-at \"ab\" u3 \"c\")",
+        "(replace-at? \"ab\" u3 \"c\")",
         // the sequence is length 0, so the index is out of bounds
-        "(replace-at \"\" u0 \"a\")",
+        "(replace-at? \"\" u0 \"a\")",
     ];
 
     let bad_expected = [Value::none(), Value::none()];
@@ -849,20 +849,20 @@ fn test_simple_string_ascii_replace_at() {
 
     // The sequence input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at 33 u0 \"c\")").unwrap_err(),
+        execute_v2("(replace-at? 33 u0 \"c\")").unwrap_err(),
         CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
-        execute_v2("(replace-at \"abc\" 0 \"c\")").unwrap_err(),
+        execute_v2("(replace-at? \"abc\" 0 \"c\")").unwrap_err(),
         CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
-        execute_v2("(replace-at \"abc\" u0 55)").unwrap_err(),
+        execute_v2("(replace-at? \"abc\" u0 55)").unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             Value::Int(55)
@@ -872,7 +872,7 @@ fn test_simple_string_ascii_replace_at() {
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at \"abc\" u0 0x00)").unwrap_err(),
+        execute_v2("(replace-at? \"abc\" u0 0x00)").unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             Value::buff_from_byte(0)
@@ -882,7 +882,7 @@ fn test_simple_string_ascii_replace_at() {
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at \"abc\" u0 \"de\")").unwrap_err(),
+        execute_v2("(replace-at? \"abc\" u0 \"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             Value::string_ascii_from_bytes("de".into()).unwrap()
@@ -894,12 +894,12 @@ fn test_simple_string_ascii_replace_at() {
 #[test]
 fn test_simple_string_utf8_replace_at() {
     let tests = [
-        "(replace-at u\"ab\" u1 u\"c\")",
-        "(replace-at u\"a\" u0 u\"c\")",
-        "(replace-at u\"abcd\" u3 u\"e\")",
-        "(replace-at u\"abcd\" u1 u\"e\")",
-        "(replace-at u\"hello\\u{1F98A}\" u5 u\"e\")",
-        "(replace-at u\"hello\\u{1F98A}\" u2 u\"e\")",
+        "(replace-at? u\"ab\" u1 u\"c\")",
+        "(replace-at? u\"a\" u0 u\"c\")",
+        "(replace-at? u\"abcd\" u3 u\"e\")",
+        "(replace-at? u\"abcd\" u1 u\"e\")",
+        "(replace-at? u\"hello\\u{1F98A}\" u5 u\"e\")",
+        "(replace-at? u\"hello\\u{1F98A}\" u2 u\"e\")",
     ];
 
     let expected = [
@@ -917,9 +917,9 @@ fn test_simple_string_utf8_replace_at() {
 
     let bad_tests = [
         // index is out of bounds
-        "(replace-at u\"ab\" u3 u\"c\")",
+        "(replace-at? u\"ab\" u3 u\"c\")",
         // the sequence is length 0, so the index is out of bounds
-        "(replace-at u\"\" u0 u\"a\")",
+        "(replace-at? u\"\" u0 u\"a\")",
     ];
 
     let bad_expected = [Value::none(), Value::none()];
@@ -930,20 +930,20 @@ fn test_simple_string_utf8_replace_at() {
 
     // The sequence input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at 33 u0 u\"c\")").unwrap_err(),
+        execute_v2("(replace-at? 33 u0 u\"c\")").unwrap_err(),
         CheckErrors::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
-        execute_v2("(replace-at u\"abc\" 0 u\"c\")").unwrap_err(),
+        execute_v2("(replace-at? u\"abc\" 0 u\"c\")").unwrap_err(),
         CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let str_len = StringUTF8Length::try_from(1u32).unwrap();
     assert_eq!(
-        execute_v2("(replace-at u\"abc\" u0 55)").unwrap_err(),
+        execute_v2("(replace-at? u\"abc\" u0 55)").unwrap_err(),
         CheckErrors::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
             Value::Int(55)
@@ -953,7 +953,7 @@ fn test_simple_string_utf8_replace_at() {
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at u\"abc\" u0 0x00)").unwrap_err(),
+        execute_v2("(replace-at? u\"abc\" u0 0x00)").unwrap_err(),
         CheckErrors::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
             Value::buff_from_byte(0)
@@ -963,7 +963,7 @@ fn test_simple_string_utf8_replace_at() {
 
     // The element input has the wrong type
     assert_eq!(
-        execute_v2("(replace-at u\"abc\" u0 u\"de\")").unwrap_err(),
+        execute_v2("(replace-at? u\"abc\" u0 u\"de\")").unwrap_err(),
         CheckErrors::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
             Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap()

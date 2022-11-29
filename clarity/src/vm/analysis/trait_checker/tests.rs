@@ -20,8 +20,8 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::type_check;
-
+use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{type_check, CheckError};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
@@ -1078,11 +1078,11 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
             )
         })
         .unwrap_err();
+
     match err.err {
-        CheckErrors::TypeError(
-            TypeSignature::TraitReferenceType(_),
-            TypeSignature::TraitReferenceType(_),
-        ) => {}
+        CheckErrors::TypeError(TypeSignature::CallableType(_), TypeSignature::CallableType(_))
+            if version < ClarityVersion::Clarity2 => {}
+        CheckErrors::TraitReferenceUnknown(name) => assert_eq!(name.as_str(), "trait-a"),
         _ => panic!("{:?}", err),
     }
 }
@@ -1201,9 +1201,8 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let impl_contract = "(impl-trait .defun.trait-1)
         (define-public (get-1 (x uint)) (ok u1))";
     let caller_contract = // Should error.
-        "(define-constant contract .implem)
-         (define-public (foo-bar)
-           (contract-call? .dispatch wrapped-get-1 contract))";
+        "(define-public (foo-bar (p principal))
+           (contract-call? .dispatch wrapped-get-1 p))";
     let def_contract_id = QualifiedContractIdentifier::local("defun").unwrap();
     let disp_contract_id = QualifiedContractIdentifier::local("dispatch").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("implem").unwrap();
@@ -1400,34 +1399,38 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db
-        .execute(|db| {
-            type_check(
-                &contract_defining_trait_id,
-                &mut contract_defining_trait,
-                db,
-                true,
-                &version,
-            )?;
-            type_check(
-                &target_contract_id,
-                &mut target_contract,
-                db,
-                true,
-                &version,
-            )?;
-            type_check(
-                &dispatching_contract_id,
-                &mut dispatching_contract,
-                db,
-                true,
-                &version,
-            )
-        })
-        .unwrap_err();
-    match err.err {
-        CheckErrors::TypeError(_, _) => {}
-        _ => panic!("{:?}", err),
+    let result = db.execute(|db| {
+        type_check(
+            &contract_defining_trait_id,
+            &mut contract_defining_trait,
+            db,
+            true,
+            &version,
+        )?;
+        type_check(
+            &target_contract_id,
+            &mut target_contract,
+            db,
+            true,
+            &version,
+        )?;
+        type_check(
+            &dispatching_contract_id,
+            &mut dispatching_contract,
+            db,
+            true,
+            &version,
+        )
+    });
+    match result {
+        Err(err) if version == ClarityVersion::Clarity1 => {
+            match err.err {
+                CheckErrors::TypeError(_, _) => {}
+                _ => panic!("{:?}", err),
+            };
+        }
+        Ok(_) if version == ClarityVersion::Clarity2 => (),
+        _ => panic!("got {:?}", result),
     }
 }
 
@@ -1741,14 +1744,18 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    let err = db
-        .execute(|db| {
-            type_check(&impl_contract_id, &mut impl_contract, db, true, &version)?;
-            type_check(&trait_contract_id, &mut trait_contract, db, true, &version)
-        })
-        .unwrap_err();
-    match err.err {
-        CheckErrors::NoSuchContract(contract) => assert!(contract.ends_with(".trait-contract")),
-        _ => panic!("{:?}", err),
+    // Referring to a trait from the current contract is supported in Clarity2,
+    // but not in Clarity1.
+    match db.execute(|db| {
+        type_check(&impl_contract_id, &mut impl_contract, db, true, &version)?;
+        type_check(&trait_contract_id, &mut trait_contract, db, true, &version)
+    }) {
+        Err(CheckError {
+            err: CheckErrors::NoSuchContract(contract),
+            expressions: _,
+            diagnostic: _,
+        }) if version < ClarityVersion::Clarity2 => assert!(contract.ends_with(".trait-contract")),
+        Ok(_) if version >= ClarityVersion::Clarity2 => (),
+        res => panic!("{}: {:?}", version, res),
     }
 }

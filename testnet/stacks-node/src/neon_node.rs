@@ -204,10 +204,11 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
+#[cfg(test)]
+use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
+
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
-use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
-use crate::operations::BurnchainOpSigner;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -227,74 +228,6 @@ pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
 
 pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
-
-/// Inject a fault into the system: delay sending a transaction by one block, and send all
-/// transactions that were previosuly delayed to the given burnchain block.  Return `true` if the
-/// burnchain transaction should be sent; `false` if not.
-#[cfg(test)]
-fn fault_injection_delay_transactions(
-    epoch_id: StacksEpochId,
-    bitcoin_controller: &mut BitcoinRegtestController,
-    globals: &Globals,
-    cur_burn_chain_height: u64,
-    stacks_block_burn_height: u64,
-    op: &BlockstackOperationType,
-    op_signer: &mut BurnchainOpSigner,
-    attempt: u64,
-) -> bool {
-    // fault injection for testing: force the use of a bad burn modulus
-    let mut do_fault = false;
-    let mut send_tx = true;
-    if let Ok(bad_height_str) = std::env::var("STX_TEST_LATE_BLOCK_COMMIT") {
-        if let Ok(bad_height) = bad_height_str.parse::<u64>() {
-            if bad_height == cur_burn_chain_height {
-                do_fault = true;
-            }
-        }
-    }
-    if do_fault {
-        test_debug!(
-            "Fault injection: don't send the block-commit right away; hold onto it for one block"
-        );
-        bitcoin_controller.set_allow_rbf(false);
-        let tx = bitcoin_controller
-            .make_operation_tx(epoch_id, op.clone(), op_signer, attempt)
-            .unwrap();
-        globals.store_delayed_tx(tx, stacks_block_burn_height + 1);
-
-        // don't actually send it yet
-        send_tx = false;
-    }
-
-    // send all delayed txs for this block height
-    let delayed_txs = globals.get_delayed_txs(stacks_block_burn_height);
-    for tx in delayed_txs.into_iter() {
-        test_debug!("Fault injection: submit delayed tx {}", &to_hex(&tx.bytes));
-        let res = bitcoin_controller.send_transaction(tx.clone());
-        if res.is_none() {
-            test_debug!(
-                "Fault injection: failed to send delayed tx {}",
-                &to_hex(&tx.bytes)
-            );
-        }
-    }
-
-    send_tx
-}
-
-#[cfg(not(test))]
-fn fault_injection_delay_transactions(
-    _epoch_id: StacksEpochId,
-    _bitcoin_controller: &mut BitcoinRegtestController,
-    _globals: &Globals,
-    _cur_burn_chain_height: u64,
-    _stacks_block_burn_height: u64,
-    _op: &BlockstackOperationType,
-    _op_signer: &mut BurnchainOpSigner,
-    _attempt: u64,
-) -> bool {
-    true
-}
 
 type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
@@ -369,9 +302,6 @@ pub struct Globals {
     pub should_keep_running: Arc<AtomicBool>,
     /// Status of our VRF key registration state (shared between the main thread and the relayer)
     leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
-    /// testing: simulate delayed block-commits
-    #[cfg(test)]
-    delayed_txs: Arc<Mutex<HashMap<u64, Vec<SerializedTx>>>>,
 }
 
 /// Miner chain tip, on top of which to build microblocks
@@ -428,8 +358,6 @@ impl Globals {
             leader_key_registration_state: Arc::new(Mutex::new(
                 LeaderKeyRegistrationState::Inactive,
             )),
-            #[cfg(test)]
-            delayed_txs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -603,35 +531,6 @@ impl Globals {
             }
         }
         activated
-    }
-
-    /// Store a delayed TX so it can be replayed later.
-    /// Simulates late Bitcoin transactions
-    #[cfg(test)]
-    fn store_delayed_tx(&self, tx: SerializedTx, send_height: u64) {
-        match self.delayed_txs.lock() {
-            Ok(ref mut tx_map) => {
-                if let Some(tx_list) = tx_map.get_mut(&send_height) {
-                    tx_list.push(tx);
-                } else {
-                    tx_map.insert(send_height, vec![tx]);
-                }
-            }
-            Err(_) => {
-                panic!("Poisoned DELAYED_TXS mutex");
-            }
-        }
-    }
-
-    /// Get a delayed transaction that should be relayed at this block height
-    #[cfg(test)]
-    fn get_delayed_txs(&self, height: u64) -> Vec<SerializedTx> {
-        match self.delayed_txs.lock() {
-            Ok(tx_map) => tx_map.get(&height).cloned().unwrap_or(vec![]),
-            Err(_) => {
-                panic!("Poisoned DELAYED_TXS mutex");
-            }
-        }
     }
 }
 
@@ -1768,6 +1667,7 @@ impl BlockMinerThread {
             burn_db,
             &self.burnchain,
             &OnChainRewardSetProvider(),
+            self.config.node.always_use_affirmation_maps,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2058,26 +1958,13 @@ impl BlockMinerThread {
             "attempt" => attempt
         );
 
-        let send_tx = fault_injection_delay_transactions(
-            target_epoch_id,
-            &mut bitcoin_controller,
-            &self.globals,
-            cur_burn_chain_tip.block_height,
-            self.burn_block.block_height,
-            &op,
-            &mut op_signer,
-            attempt,
-        );
-        if send_tx {
-            let res =
-                bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
-            if res.is_none() {
-                if !self.config.node.mock_mining {
-                    warn!("Relayer: Failed to submit Bitcoin transaction");
-                    return None;
-                } else {
-                    debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
-                }
+        let res = bitcoin_controller.submit_operation(target_epoch_id, op, &mut op_signer, attempt);
+        if res.is_none() {
+            if !self.config.node.mock_mining {
+                warn!("Relayer: Failed to submit Bitcoin transaction");
+                return None;
+            } else {
+                debug!("Relayer: Mock-mining enabled; not sending Bitcoin transaction");
             }
         }
 

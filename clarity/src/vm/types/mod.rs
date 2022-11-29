@@ -153,6 +153,12 @@ pub struct ResponseData {
     pub data: Box<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallableData {
+    pub contract_identifier: QualifiedContractIdentifier,
+    pub trait_identifier: Option<TraitIdentifier>,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct TraitIdentifier {
     pub name: ClarityName,
@@ -231,6 +237,7 @@ pub enum Value {
     Tuple(TupleData),
     Optional(OptionalData),
     Response(ResponseData),
+    CallableContract(CallableData),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -247,6 +254,15 @@ impl SequenceData {
             SequenceData::List(ref mut data) => data.atom_values(),
             SequenceData::String(CharType::ASCII(ref mut data)) => data.atom_values(),
             SequenceData::String(CharType::UTF8(ref mut data)) => data.atom_values(),
+        }
+    }
+
+    pub fn element_size(&self) -> u32 {
+        match self {
+            SequenceData::Buffer(..) => TypeSignature::min_buffer().size(),
+            SequenceData::List(ref data) => data.type_signature.get_list_item_type().size(),
+            SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii().size(),
+            SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8().size(),
         }
     }
 
@@ -1090,6 +1106,15 @@ impl Value {
         }
     }
 
+    pub fn expect_callable(self) -> CallableData {
+        if let Value::CallableContract(t) = self {
+            t
+        } else {
+            error!("Value '{:?}' is not a callable contract", &self);
+            panic!();
+        }
+    }
+
     pub fn expect_result(self) -> std::result::Result<Value, Value> {
         if let Value::Response(res_data) = self {
             if res_data.committed {
@@ -1241,6 +1266,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            Value::CallableContract(callable_data) => write!(f, "{}", callable_data),
         }
     }
 }
@@ -1319,6 +1345,20 @@ impl fmt::Display for PrincipalData {
                 contract_identifier.issuer,
                 contract_identifier.name.to_string()
             ),
+        }
+    }
+}
+
+impl fmt::Display for CallableData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(trait_identifier) = &self.trait_identifier {
+            write!(
+                f,
+                "({} as <{}>)",
+                self.contract_identifier, trait_identifier,
+            )
+        } else {
+            write!(f, "{}", self.contract_identifier,)
         }
     }
 }

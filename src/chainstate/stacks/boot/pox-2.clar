@@ -23,6 +23,8 @@
 (define-constant ERR_NOT_CURRENT_STACKER 25)
 (define-constant ERR_STACK_EXTEND_NOT_LOCKED 26)
 (define-constant ERR_STACK_INCREASE_NOT_LOCKED 27)
+(define-constant ERR_DELEGATION_NO_REWARD_SLOT 28)
+(define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -118,7 +120,7 @@
 ;; Delegation relationships
 (define-map delegation-state
     { stacker: principal }
-    { 
+    {
         amount-ustx: uint,              ;; how many uSTX delegated?
         delegated-to: principal,        ;; who are we delegating?
         until-burn-ht: (optional uint), ;; how long does the delegation last?
@@ -162,6 +164,20 @@
 ;; this map allows stackers to stack amounts < minimum
 ;;   by paying the cost of aggregation during the commit
 (define-map partial-stacked-by-cycle
+    {
+        pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+        reward-cycle: uint,
+        sender: principal
+    }
+    { stacked-amount: uint }
+)
+
+;; This is identical to partial-stacked-by-cycle, but its data is never deleted.
+;; It is used to preserve data for downstream clients to observe aggregate
+;; commits.  Each key/value pair in this map is simply the last value of
+;; partial-stacked-by-cycle right after it was deleted (so, subsequent calls
+;; to the `stack-aggregation-*` functions will overwrite this).
+(define-map logged-partial-stacked-by-cycle
     { 
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         reward-cycle: uint,
@@ -189,19 +205,19 @@
 ;; Has PoX been rejected in the given reward cycle?
 (define-read-only (is-pox-active (reward-cycle uint))
     (let (
-        (reject-votes 
+        (reject-votes
             (default-to
                 u0
                 (get amount (map-get? stacking-rejection { reward-cycle: reward-cycle }))))
     )
-    ;; (100 * reject-votes) / stx-liquid-supply < pox-rejection-fraction    
-    (< (* u100 reject-votes) 
+    ;; (100 * reject-votes) / stx-liquid-supply < pox-rejection-fraction
+    (< (* u100 reject-votes)
        (* (var-get pox-rejection-fraction) stx-liquid-supply)))
 )
 
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
-(define-read-only (burn-height-to-reward-cycle (height uint)) 
+(define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (var-get first-burnchain-block-height)) (var-get pox-reward-cycle-length)))
 
 ;; What's the block height at the start of a given reward cycle?
@@ -229,7 +245,7 @@
 
 (define-read-only (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
-        (let ((caller-allowed 
+        (let ((caller-allowed
                  ;; if not in the caller map, return false
                  (unwrap! (map-get? allowance-contract-callers
                                     { sender: tx-sender, contract-caller: contract-caller })
@@ -326,8 +342,8 @@
                            ;; calculate the index into the reward-set-indexes that `cycle` is at
                            (moved-cycle-index (- cycle (get first-reward-cycle moved-state)))
                            (moved-reward-list (get reward-set-indexes moved-state))
-                           ;; reward-set-indexes[moved-cycle-index] = set-index via slice, append, concat.
-                           (update-list (unwrap-panic (replace-at moved-reward-list moved-cycle-index set-index))))
+                           ;; reward-set-indexes[moved-cycle-index] = set-index via slice?, append, concat.
+                           (update-list (unwrap-panic (replace-at? moved-reward-list moved-cycle-index set-index))))
                           (map-set stacking-state { stacker: moved-stacker }
                                    (merge moved-state { reward-set-indexes: update-list })))
                      ;; otherwise, we dont need to update stacking-state after move
@@ -361,8 +377,10 @@
 ;; Used by add-pox-addr-to-reward-cycles.
 ;; No checking is done.
 ;; The returned tuple is the same as inputted `params`, but the `i` field is incremented if
-;;  the pox-addr was added to the given cycle. 
-(define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple 
+;;  the pox-addr was added to the given cycle.  Also, `reward-set-indexes` grows to include all
+;;  of the `reward-cycle-index` key parts of the `reward-cycle-pox-address-list` which get added by this function.
+;;  This way, the caller knows which items in a given reward cycle's PoX address list got updated.
+(define-private (add-pox-addr-to-ith-reward-cycle (cycle-index uint) (params (tuple
                                                             (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                             (reward-set-indexes (list 12 uint))
                                                             (first-reward-cycle uint)
@@ -396,7 +414,7 @@
         num-cycles: num-cycles,
         amount-ustx: (get amount-ustx params),
         stacker: (get stacker params),
-        reward-set-indexes: (match 
+        reward-set-indexes: (match
             reward-set-index new (unwrap-panic (as-max-len? (append (get reward-set-indexes params) new) u12))
             (get reward-set-indexes params)),
         i: next-i
@@ -411,8 +429,8 @@
                                                (amount-ustx uint)
                                                (stacker principal))
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
-        (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes 
-                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles, 
+        (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes
+                         { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles,
                            reward-set-indexes: (list), amount-ustx: amount-ustx, i: u0, stacker: (some stacker) }))
         (reward-set-indexes (get reward-set-indexes results)))
     ;; For safety, add up the number of times (add-principal-to-ith-reward-cycle) returns 1.
@@ -456,7 +474,7 @@
                                          (num-cycles uint)
                                          (amount-ustx uint))
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11)))
-    (fold add-pox-partial-stacked-to-ith-cycle cycle-indexes 
+    (fold add-pox-partial-stacked-to-ith-cycle cycle-indexes
           { pox-addr: pox-addr, reward-cycle: first-reward-cycle, num-cycles: num-cycles, amount-ustx: amount-ustx })
     true))
 
@@ -478,12 +496,12 @@
             false)))
 
 ;; Is the given lock period valid?
-(define-read-only (check-pox-lock-period (lock-period uint)) 
-    (and (>= lock-period MIN_POX_REWARD_CYCLES) 
+(define-read-only (check-pox-lock-period (lock-period uint))
+    (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
-;; This method is designed as a read-only method so that it can be used as 
+;; This method is designed as a read-only method so that it can be used as
 ;; a set of guard conditions and also as a read-only RPC call that can be
 ;; performed beforehand.
 (define-read-only (can-stack-stx (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
@@ -498,10 +516,10 @@
     (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle num-cycles)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
-;; This method is designed as a read-only method so that it can be used as 
+;; This method is designed as a read-only method so that it can be used as
 ;; a set of guard conditions and also as a read-only RPC call that can be
 ;; performed beforehand.
-(define-read-only (minimal-can-stack-stx 
+(define-read-only (minimal-can-stack-stx
                    (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                    (amount-ustx uint)
                    (first-reward-cycle uint)
@@ -531,7 +549,7 @@
 
 ;; Revoke contract-caller authorization to call stacking methods
 (define-public (disallow-contract-caller (caller principal))
-  (begin 
+  (begin
     (asserts! (is-eq tx-sender contract-caller)
               (err ERR_STACKING_PERMISSION_DENIED))
     (ok (map-delete allowance-contract-callers { sender: tx-sender, contract-caller: caller }))))
@@ -603,7 +621,7 @@
              first-reward-cycle: first-reward-cycle,
              lock-period: lock-period })
 
-          ;; return the lock-up information, so the node can actually carry out the lock. 
+          ;; return the lock-up information, so the node can actually carry out the lock.
           (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
 
 (define-public (revoke-delegate-stx)
@@ -654,14 +672,20 @@
 
       (ok true)))
 
-;; Commit partially stacked STX.
+;; Commit partially stacked STX and allocate a new PoX reward address slot.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,
 ;;   so long as: 1. The pox-addr is the same.
 ;;               2. This "commit" transaction is called _before_ the PoX anchor block.
 ;;   This ensures that each entry in the reward set returned to the stacks-node is greater than the threshold,
 ;;   but does not require it be all locked up within a single transaction
-(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-                                         (reward-cycle uint))
+;;
+;; Returns (ok uint) on success, where the given uint is the reward address's index in the list of reward
+;; addresses allocated in this reward cycle.  This index can then be passed to `stack-aggregation-increase`
+;; to later increment the STX this PoX address represents, in amounts less than the stacking minimum.
+;;
+;; *New in Stacks 2.1.*
+(define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                (reward-cycle uint))
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
@@ -671,23 +695,119 @@
               (err ERR_STACKING_PERMISSION_DENIED))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
-      ;; add the pox addr to the reward cycle
-      (add-pox-addr-to-ith-reward-cycle
-       u0
-       { pox-addr: pox-addr,
-         first-reward-cycle: reward-cycle,
-         num-cycles: u1,
-         reward-set-indexes: (list),
-         stacker: none,
-         amount-ustx: amount-ustx,
-         i: u0 })
-      ;; don't update the stacking-state map,
-      ;;  because it _already has_ this stacker's state
-      ;; don't lock the STX, because the STX is already locked
-      ;;
-      ;; clear the partial-stacked state
-      (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
-      (ok true))))
+      ;; Add the pox addr to the reward cycle, and extract the index of the PoX address
+      ;; so the delegator can later use it to call stack-aggregation-increase.
+      (let ((add-pox-addr-info
+                (add-pox-addr-to-ith-reward-cycle
+                   u0
+                   { pox-addr: pox-addr,
+                     first-reward-cycle: reward-cycle,
+                     num-cycles: u1,
+                     reward-set-indexes: (list),
+                     stacker: none,
+                     amount-ustx: amount-ustx,
+                     i: u0 }))
+           (pox-addr-index (unwrap-panic
+                (element-at (get reward-set-indexes add-pox-addr-info) u0))))
+
+        ;; don't update the stacking-state map,
+        ;;  because it _already has_ this stacker's state
+        ;; don't lock the STX, because the STX is already locked
+        ;;
+        ;; clear the partial-stacked state, and log it
+        (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+        (map-set logged-partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle } partial-stacked)
+        (ok pox-addr-index)))))
+
+;; Legacy interface for stack-aggregation-commit.
+;; Wraps inner-stack-aggregation-commit.  See its docstring for details.
+;; Returns (ok true) on success
+;; Returns (err ...) on failure.
+(define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                         (reward-cycle uint))
+    (match (inner-stack-aggregation-commit pox-addr reward-cycle)
+        pox-addr-index (ok true)
+        commit-err (err commit-err)))
+
+;; Public interface to `inner-stack-aggregation-commit`.  See its documentation for details.
+;; *New in Stacks 2.1.*
+(define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                                 (reward-cycle uint))
+    (inner-stack-aggregation-commit pox-addr reward-cycle))
+
+;; Commit partially stacked STX to a PoX address which has already received some STX (more than the Stacking min).
+;; This allows a delegator to lock up marginally more STX from new delegates, even if they collectively do not
+;; exceed the Stacking minimum, so long as the target PoX address already represents at least as many STX as the
+;; Stacking minimum.
+;;
+;; The `reward-cycle-index` is emitted as a contract event from `stack-aggregation-commit` when the initial STX are
+;; locked up by this delegator.  It must be passed here to add more STX behind this PoX address.  If the delegator
+;; called `stack-aggregation-commit` multiple times for the same PoX address, then any such `reward-cycle-index` will
+;; work here.
+;;
+;; *New in Stacks 2.1*
+;;
+(define-public (stack-aggregation-increase (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                                           (reward-cycle uint)
+                                           (reward-cycle-index uint))
+  (let ((partial-stacked
+         ;; fetch the partial commitments
+         (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+                  (err ERR_STACKING_NO_SUCH_PRINCIPAL))))
+
+    ;; must be called directly by the tx-sender or by an allowed contract-caller
+    (asserts! (check-caller-allowed)
+              (err ERR_STACKING_PERMISSION_DENIED))
+
+    ;; reward-cycle must be in the future
+    (asserts! (> reward-cycle (current-pox-reward-cycle))
+              (err ERR_STACKING_INVALID_LOCK_PERIOD))
+
+    (let ((amount-ustx (get stacked-amount partial-stacked))
+          ;; reward-cycle must point to an existing record in reward-cycle-total-stacked
+          ;; infallable; getting something from partial-stacked-by-cycle succeeded so this must succeed
+          (existing-total (unwrap-panic (map-get? reward-cycle-total-stacked { reward-cycle: reward-cycle })))
+          ;; reward-cycle and reward-cycle-index must point to an existing record in reward-cycle-pox-address-list
+          (existing-entry (unwrap! (map-get? reward-cycle-pox-address-list { reward-cycle: reward-cycle, index: reward-cycle-index })
+                          (err ERR_DELEGATION_NO_REWARD_SLOT)))
+          (increased-ustx (+ (get total-ustx existing-entry) amount-ustx))
+          (total-ustx (+ (get total-ustx existing-total) amount-ustx)))
+
+          ;; must be stackable
+          (try! (minimal-can-stack-stx pox-addr total-ustx reward-cycle u1))
+
+          ;; new total must exceed the stacking minimum
+          (asserts! (<= (get-stacking-minimum) total-ustx)
+                    (err ERR_STACKING_THRESHOLD_NOT_MET))
+
+          ;; there must *not* be a stacker entry (since this is a delegator)
+          (asserts! (is-none (get stacker existing-entry))
+                    (err ERR_DELEGATION_WRONG_REWARD_SLOT))
+
+          ;; the given PoX address must match the one on record
+          (asserts! (is-eq pox-addr (get pox-addr existing-entry))
+                    (err ERR_DELEGATION_WRONG_REWARD_SLOT))
+
+          ;; update the pox-address list -- bump the total-ustx
+          (map-set reward-cycle-pox-address-list
+                   { reward-cycle: reward-cycle, index: reward-cycle-index }
+                   { pox-addr: pox-addr,
+                     total-ustx: increased-ustx,
+                     stacker: none })
+
+          ;; update the total ustx in this cycle
+          (map-set reward-cycle-total-stacked
+                   { reward-cycle: reward-cycle }
+                   { total-ustx: total-ustx })
+
+          ;; don't update the stacking-state map,
+          ;;  because it _already has_ this stacker's state
+          ;; don't lock the STX, because the STX is already locked
+          ;;
+          ;; clear the partial-stacked state, and log it
+          (map-delete partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
+          (map-set logged-partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle } partial-stacked)
+          (ok true))))
 
 ;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
 ;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
@@ -752,7 +872,7 @@
           reward-set-indexes: (list),
           lock-period: lock-period })
 
-      ;; return the lock-up information, so the node can actually carry out the lock. 
+      ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
             lock-amount: amount-ustx,
             unlock-burn-height: unlock-burn-height })))
@@ -804,7 +924,11 @@
     })
 )
 
-(define-private (increase-reward-cycle-entry 
+;; Update the number of stacked STX in a given reward cycle entry.
+;; `reward-cycle-index` is the index into the `reward-cycle-pox-address-list` map for a given reward cycle number.
+;; `updates`, if `(some ..)`, encodes which PoX reward cycle entry (if any) gets updated.  In particular, it must have
+;; `(some stacker)` as the listed stacker, and must be an upcoming reward cycle.
+(define-private (increase-reward-cycle-entry
                   (reward-cycle-index uint)
                   (updates (optional { first-cycle: uint, reward-cycle: uint, stacker: principal, add-amount: uint })))
     (let ((data (try! updates))
@@ -825,7 +949,7 @@
                        total-ustx: total-ustx,
                        stacker: (some (get stacker data)) })
             ;; update the total
-            (map-set reward-cycle-total-stacked 
+            (map-set reward-cycle-total-stacked
                      { reward-cycle: reward-cycle }
                      { total-ustx: total-ustx })
             (some { first-cycle: first-cycle,
@@ -833,6 +957,10 @@
                     stacker: (get stacker data),
                     add-amount: (get add-amount data) })))))
 
+;; Increase the number of STX locked.
+;; *New in Stacks 2.1*
+;; This method locks up an additional amount of STX from `tx-sender`'s, indicated
+;; by `increase-by`.  The `tx-sender` must already be Stacking.
 (define-public (stack-increase (increase-by uint))
    (let ((stacker-info (stx-account tx-sender))
          (amount-stacked (get locked stacker-info))
@@ -841,22 +969,26 @@
          (unlock-in-cycle (burn-height-to-reward-cycle unlock-height))
          (cur-cycle (current-pox-reward-cycle))
          (first-increased-cycle (+ cur-cycle u1))
-         (stacker-state (unwrap! (map-get? stacking-state 
+         (stacker-state (unwrap! (map-get? stacking-state
                                           { stacker: tx-sender })
-                                          (err ERR_STACK_EXTEND_NOT_LOCKED))))
+                                          (err ERR_STACK_INCREASE_NOT_LOCKED))))
+      ;; tx-sender must be currently locked
       (asserts! (> amount-stacked u0)
-                (err ERR_STACK_EXTEND_NOT_LOCKED))
+                (err ERR_STACK_INCREASE_NOT_LOCKED))
+      ;; must be called with positive `increase-by`
       (asserts! (>= increase-by u1)
                 (err ERR_STACKING_INVALID_AMOUNT))
+      ;; stacker must have enough stx to lock
       (asserts! (>= amount-unlocked increase-by)
                 (err ERR_STACKING_INSUFFICIENT_FUNDS))
+      ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
                 (err ERR_STACKING_PERMISSION_DENIED))
       ;; stacker must be directly stacking
       (asserts! (> (len (get reward-set-indexes stacker-state)) u0)
                 (err ERR_STACKING_ALREADY_DELEGATED))
       ;; update reward cycle amounts
-      (asserts! (is-some (fold increase-reward-cycle-entry 
+      (asserts! (is-some (fold increase-reward-cycle-entry
             (get reward-set-indexes stacker-state)
             (some { first-cycle: first-increased-cycle,
                     reward-cycle: (get first-reward-cycle stacker-state),
@@ -866,7 +998,7 @@
       ;; NOTE: stacking-state map is unchanged: it no longer tracks amount-stacked in PoX-2
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
-;; Extend an active stacking lock.
+;; Extend an active Stacking lock.
 ;; *New in Stacks 2.1*
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards
@@ -929,7 +1061,7 @@
                                                        (old-indexes (get reward-set-indexes old-state))
                                                        ;; build index list by taking the old-indexes starting from cur cycle
                                                        ;;  and adding the new indexes to it. this way, the index is valid starting from the current cycle
-                                                       (new-list (concat (default-to (list) (slice old-indexes cur-cycle-index (len old-indexes)))
+                                                       (new-list (concat (default-to (list) (slice? old-indexes cur-cycle-index (len old-indexes)))
                                                                                    extended-reward-set-indexes)))
                                             (unwrap-panic (as-max-len? new-list u12)))
                                        extended-reward-set-indexes)))
@@ -944,7 +1076,7 @@
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
 
-;; As a delegator, increase an active stacking lock, issuing a "partial commitment" for the
+;; As a delegator, increase an active Stacking lock, issuing a "partial commitment" for the
 ;;   increased cycles.
 ;; *New in Stacks 2.1*
 ;; This method increases `stacker`'s current lockup and partially commits the additional
@@ -970,7 +1102,7 @@
                                   (ok (+ u1 (- last-increase-cycle first-increase-cycle)))
                                   (err ERR_STACKING_INVALID_LOCK_PERIOD))))
            (new-total-locked (+ increase-by existing-lock))
-           (stacker-state 
+           (stacker-state
                 (unwrap! (map-get? stacking-state { stacker: stacker })
                  (err ERR_STACK_INCREASE_NOT_LOCKED))))
 
@@ -1019,7 +1151,7 @@
 
       ;; stacking-state is unchanged, so no need to update
 
-      ;; return the lock-up information, so the node can actually carry out the lock. 
+      ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker, total-locked: new-total-locked}))))
 
 ;; As a delegator, extend an active stacking lock, issuing a "partial commitment" for the
@@ -1111,7 +1243,7 @@
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period })
 
-      ;; return the lock-up information, so the node can actually carry out the lock. 
+      ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
 
@@ -1156,4 +1288,3 @@
         u0
     )
 )
-

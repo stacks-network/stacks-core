@@ -35,7 +35,7 @@ use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
-use crate::chainstate::burn::operations::{StackStxOp, TransferStxOp};
+use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
@@ -184,6 +184,7 @@ pub struct StacksEpochReceipt {
     /// which is the Stacks epoch that this block's parent was elected
     /// in.
     pub evaluated_epoch: StacksEpochId,
+    pub epoch_transition: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -470,7 +471,7 @@ impl<'a> ChainstateTx<'a> {
                 "INSERT INTO transactions (txid, index_block_hash, tx_hex, result) VALUES (?, ?, ?, ?)";
             for tx_event in events.iter() {
                 let txid = tx_event.transaction.txid();
-                let tx_hex = to_hex(&tx_event.transaction.serialize_to_vec());
+                let tx_hex = tx_event.transaction.serialize_to_dbstring();
                 let result = tx_event.result.to_string();
                 let params: &[&dyn ToSql] = &[&txid, block_id, &tx_hex, &result];
                 if let Err(e) = self.tx.tx().execute(insert, params) {
@@ -2105,6 +2106,114 @@ impl StacksChainState {
         }
     }
 
+    /// Create a Clarity VM transaction connection for testing in 2.1
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_1<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block_2_1(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
+    /// Create a Clarity VM transaction connection for testing in 2.05
+    #[cfg(test)]
+    pub fn test_genesis_block_begin_2_05<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        let db = &self.state_index;
+        let clarity_instance = &mut self.clarity_state;
+
+        // mix burn header hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the burn header hash _is_).
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing test genesis Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_test_genesis_block(
+            &parent_index_block,
+            &new_index_block,
+            db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
@@ -2199,6 +2308,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
     ) -> Result<(), Error> {
         let mut txids: Vec<_> = burn_stack_stx_ops
             .into_iter()
@@ -2215,6 +2325,15 @@ impl StacksChainState {
             });
 
         txids.append(&mut xfer_txids);
+
+        let mut delegate_txids = burn_delegate_stx_ops
+            .into_iter()
+            .fold(vec![], |mut txids, op| {
+                txids.push(op.txid);
+                txids
+            });
+
+        txids.append(&mut delegate_txids);
 
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
@@ -2244,6 +2363,7 @@ impl StacksChainState {
         applied_epoch_transition: bool,
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
+        burn_delegate_stx_ops: Vec<DelegateStxOp>,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2308,6 +2428,7 @@ impl StacksChainState {
             &index_block_hash,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
+            burn_delegate_stx_ops,
         )?;
 
         if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts

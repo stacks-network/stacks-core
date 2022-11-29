@@ -26,6 +26,7 @@ use crate::vm::database::{
 use crate::vm::errors::{
     CheckErrors, InterpreterResult as Result, InterpreterResult, RuntimeErrorType,
 };
+use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::QualifiedContractIdentifier;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
@@ -47,6 +48,8 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &QualifiedContractIdentifier,
     // the invoked function name
     &str,
+    // the function parameters
+    &Vec<Value>,
     // the result of the function call
     &Value,
 ) -> Result<()>;
