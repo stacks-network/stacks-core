@@ -1474,11 +1474,10 @@ simulating a miner.
     }
 
     if argv[1] == "dump-txs" {
-        use serde::Serialize;
-        use serde::Deserialize;
         use blockstack_lib::chainstate::burn::operations::StackStxOp;
         use blockstack_lib::chainstate::burn::operations::TransferStxOp;
-
+        use serde::Deserialize;
+        use serde::Serialize;
 
         #[derive(Debug, Serialize, Deserialize)]
         struct TxsAtBurnBlock {
@@ -1487,9 +1486,9 @@ simulating a miner.
             block_txs: Vec<StacksTransaction>,
             microblock_txs: Vec<Vec<StacksTransaction>>,
             burn_header_hash: BurnchainHeaderHash,
-            consensus_hash: ConsensusHash, 
+            consensus_hash: ConsensusHash,
             block_header_hash: BlockHeaderHash,
-            index_block_hash: StacksBlockId
+            index_block_hash: StacksBlockId,
         }
 
         let chainstate_root = argv[2].clone();
@@ -1509,55 +1508,97 @@ simulating a miner.
         let chainstate_path = format!("{}/chainstate/", &chainstate_root);
         let sortition_db_path = format!("{}/burnchain/sortition", &chainstate_root);
         let burnchain_db_path = format!("{}/burnchain", &chainstate_root);
-        
+
         let (chainstate, _) =
             StacksChainState::open(mainnet, chain_id, &chainstate_path, None).unwrap();
 
         let sortition_db = SortitionDB::open(&sortition_db_path, true).unwrap();
         let burnchain = Burnchain::new(&burnchain_db_path, "bitcoin", burnchain_mode).unwrap();
-        
+
         let start_burn_block_height = burnchain.reward_cycle_to_block_height(rc);
-        let end_burn_block_height = burnchain.reward_cycle_to_block_height(rc+1);
+        let end_burn_block_height = burnchain.reward_cycle_to_block_height(rc + 1);
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap();
         let ic = sortition_db.index_conn();
         let mut txs = vec![];
         for burn_height in start_burn_block_height..end_burn_block_height {
-            let ancestor_sn = SortitionDB::get_ancestor_snapshot(&ic, burn_height, &tip.sortition_id).unwrap().unwrap();
-            let block_id = StacksBlockId::new(&ancestor_sn.consensus_hash, &ancestor_sn.winning_stacks_block_hash);
+            let ancestor_sn =
+                SortitionDB::get_ancestor_snapshot(&ic, burn_height, &tip.sortition_id)
+                    .unwrap()
+                    .unwrap();
+            let block_id = StacksBlockId::new(
+                &ancestor_sn.consensus_hash,
+                &ancestor_sn.winning_stacks_block_hash,
+            );
 
             // find burnchain-hosted txs for this snapshot
-            let stack_stx_ops = SortitionDB::get_stack_stx_ops(&ic, &ancestor_sn.burn_header_hash).unwrap();
-            let transfer_stx_ops = SortitionDB::get_transfer_stx_ops(&ic, &ancestor_sn.burn_header_hash).unwrap();
+            let stack_stx_ops =
+                SortitionDB::get_stack_stx_ops(&ic, &ancestor_sn.burn_header_hash).unwrap();
+            let transfer_stx_ops =
+                SortitionDB::get_transfer_stx_ops(&ic, &ancestor_sn.burn_header_hash).unwrap();
+
+            debug!("Consider block {} (burn height {}) with {} stack-stx and {} transfer-stx burnchain ops", &block_id, &ancestor_sn.block_height, stack_stx_ops.len(), transfer_stx_ops.len());
 
             let mut block_txs = vec![];
             let mut microblock_txs = vec![];
 
             // find the block itself
             if ancestor_sn.sortition {
-                let status_opt = StacksChainState::get_staging_block_status(chainstate.db(), &ancestor_sn.consensus_hash, &ancestor_sn.winning_stacks_block_hash).unwrap();
+                let status_opt = StacksChainState::get_staging_block_status(
+                    chainstate.db(),
+                    &ancestor_sn.consensus_hash,
+                    &ancestor_sn.winning_stacks_block_hash,
+                )
+                .unwrap();
                 if let Some(status) = status_opt {
                     if status {
-                        let block_opt = StacksChainState::load_block(&chainstate.blocks_path, &ancestor_sn.consensus_hash, &ancestor_sn.winning_stacks_block_hash).unwrap();
+                        let block_opt = StacksChainState::load_block(
+                            &chainstate.blocks_path,
+                            &ancestor_sn.consensus_hash,
+                            &ancestor_sn.winning_stacks_block_hash,
+                        )
+                        .unwrap();
                         if let Some(block) = block_opt {
                             block_txs = block.txs.clone();
-                            let (parent_ch, parent_bhh) = StacksChainState::get_parent_block_header_hashes(chainstate.db(), &block_id).unwrap().unwrap();
-                            
+                            debug!("Block {} has {} txs", &block_id, &block_txs.len());
+
+                            let (parent_ch, parent_bhh) =
+                                StacksChainState::get_parent_block_header_hashes(
+                                    chainstate.db(),
+                                    &block_id,
+                                )
+                                .unwrap()
+                                .unwrap();
+
                             // find parent microblocks, if we have any
                             microblock_txs =
                                 if block.header.parent_microblock != EMPTY_MICROBLOCK_PARENT_HASH {
-                                    if let Some(microblocks) = StacksChainState::load_processed_microblock_stream_fork(chainstate.db(), &parent_ch, &parent_bhh, &block.header.parent_microblock).unwrap() {
+                                    if let Some(microblocks) =
+                                        StacksChainState::load_processed_microblock_stream_fork(
+                                            chainstate.db(),
+                                            &parent_ch,
+                                            &parent_bhh,
+                                            &block.header.parent_microblock,
+                                        )
+                                        .unwrap()
+                                    {
                                         let mut mblock_txs = vec![];
+                                        let mut total_txs = 0;
                                         for microblock in microblocks.into_iter() {
+                                            total_txs += microblock.txs.len();
                                             mblock_txs.push(microblock.txs);
                                         }
+                                        debug!(
+                                            "Block {} has {} microblocks with {} txs total",
+                                            &block_id,
+                                            &mblock_txs.len(),
+                                            total_txs
+                                        );
                                         mblock_txs
-                                    }
-                                    else {
+                                    } else {
                                         vec![]
                                     }
-                                }
-                                else {
+                                } else {
                                     vec![]
                                 };
                         }
@@ -1573,7 +1614,7 @@ simulating a miner.
                 burn_header_hash: ancestor_sn.burn_header_hash,
                 consensus_hash: ancestor_sn.consensus_hash,
                 block_header_hash: ancestor_sn.winning_stacks_block_hash,
-                index_block_hash: block_id
+                index_block_hash: block_id,
             });
         }
 
