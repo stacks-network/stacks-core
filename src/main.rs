@@ -1359,7 +1359,7 @@ simulating a miner.
         let (mut chainstate, _) =
             StacksChainState::open(true, 0x00000001, &chainstate_path, None).unwrap();
 
-        let mut sortition_db = SortitionDB::open(&sortition_db_path, false).unwrap();
+        let mut sortition_db = SortitionDB::open(&sortition_db_path, true).unwrap();
         let burnchain = Burnchain::new(&burnchain_db_path, "bitcoin", "mainnet").unwrap();
 
         let burn_block_height = burnchain.reward_cycle_to_block_height(rc);
@@ -1404,6 +1404,72 @@ simulating a miner.
             .unwrap();
 
         println!("{}", &serde_json::to_string(&reward_set).unwrap());
+        return;
+    }
+
+    if argv[1] == "get-reward-addresses" {
+        if argv.len() < 4 {
+            eprintln!(
+                "Usage: {} get-reward-addresses CHAINSTATE_ROOT REWARD_CYCLE",
+                &argv[0]
+            );
+            process::exit(1);
+        }
+
+        let chainstate_root = argv[2].clone();
+        let rc: u64 = argv[3]
+            .parse()
+            .expect("FATAL: bad `rc` argument -- expected u64");
+        let chainstate_path = format!("{}/chainstate/", &chainstate_root);
+        let sortition_db_path = format!("{}/burnchain/sortition", &chainstate_root);
+        let burnchain_db_path = format!("{}/burnchain", &chainstate_root);
+
+        let (mut chainstate, _) =
+            StacksChainState::open(true, 0x00000001, &chainstate_path, None).unwrap();
+
+        let mut sortition_db = SortitionDB::open(&sortition_db_path, true).unwrap();
+        let burnchain = Burnchain::new(&burnchain_db_path, "bitcoin", "mainnet").unwrap();
+
+        let burn_block_height = burnchain.reward_cycle_to_block_height(rc);
+
+        let rc_begin_snapshot = {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortition_db.conn()).unwrap();
+            let ic = sortition_db.index_conn();
+            SortitionDB::get_ancestor_snapshot(&ic, burn_block_height, &tip.sortition_id)
+                .unwrap()
+                .unwrap()
+        };
+
+        let anchor_block_id = {
+            let mut sort_tx = sortition_db
+                .tx_handle_begin(&rc_begin_snapshot.sortition_id)
+                .unwrap();
+            let anchor_block_hash = sort_tx.get_last_anchor_block_hash().unwrap().unwrap();
+            let anchor_block_header_infos =
+                StacksChainState::find_blocks_by_hash(chainstate.db(), &anchor_block_hash).unwrap();
+            if anchor_block_header_infos.len() == 0 {
+                panic!("No anchor block found");
+            }
+            if anchor_block_header_infos.len() > 1 {
+                // this is solvable but I'm too lazy right now
+                panic!("Anchor block shows up in multiple PoX forks");
+            }
+            StacksBlockId::new(
+                &anchor_block_header_infos[0].consensus_hash,
+                &anchor_block_header_infos[0].anchored_header.block_hash(),
+            )
+        };
+
+        let reward_addresses = chainstate
+            .get_reward_addresses(
+                &burnchain,
+                &sortition_db,
+                burn_block_height,
+                &anchor_block_id,
+            )
+            .unwrap();
+
+        println!("{}", &serde_json::to_string(&reward_addresses).unwrap());
         return;
     }
 
