@@ -22,7 +22,6 @@ use crate::core::{
 };
 use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
-use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;

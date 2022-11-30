@@ -29,8 +29,8 @@ use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, BUFF_1,
-    BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
+    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName};
 use stacks_common::types::StacksEpochId;

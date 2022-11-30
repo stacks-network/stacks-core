@@ -231,7 +231,7 @@ impl BurnStateDB for UnitTestBurnStateDB {
         None
     }
     fn get_ast_rules(&self, _height: u32) -> ASTRules {
-        self.ast_rules
+        self.ast_rules.clone()
     }
     fn get_pox_payout_addrs(
         &self,
