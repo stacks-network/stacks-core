@@ -668,6 +668,10 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    enable_puppet_mode: node
+                        .enable_puppet_mode
+                        .unwrap_or(default_node_config.enable_puppet_mode),
+                    puppet_bind: node.puppet_bind.unwrap_or(default_node_config.puppet_bind),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1456,6 +1460,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    pub enable_puppet_mode: bool,
+    pub puppet_bind: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1699,6 +1705,7 @@ impl NodeConfig {
 
         let rpc_port = 20443;
         let p2p_port = 20444;
+        let puppet_port = 20445;
 
         let mut local_peer_seed = [0u8; 32];
         rng.fill_bytes(&mut local_peer_seed);
@@ -1734,6 +1741,8 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            enable_puppet_mode: false,
+            puppet_bind: format!("0.0.0.0:{}", puppet_port),
         }
     }
 
@@ -1938,6 +1947,8 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    pub enable_puppet_mode: Option<bool>,
+    pub puppet_bind: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
