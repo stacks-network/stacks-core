@@ -25,6 +25,8 @@ libc = "0.2"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 clarity = { package = "clarity", path = "../../clarity/." }
 stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
+chrono = "0.4.19"
+regex = "1"
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -42,6 +44,10 @@ features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 [[bin]]
 name = "stacks-node"
 path = "src/main.rs"
+
+[[bin]]
+name = "stacks-events"
+path = "src/stacks_events.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]

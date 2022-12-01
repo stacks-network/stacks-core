@@ -301,7 +301,7 @@ fn check_special_set_var(
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
 
-    if !expected_value_type.admits_type(&value_type) {
+    if !expected_value_type.admits_type(&value_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_value_type.clone(),
             value_type,

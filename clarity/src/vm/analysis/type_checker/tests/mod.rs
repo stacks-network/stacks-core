@@ -654,6 +654,9 @@ fn test_index_of() {
         "(index-of 0xfedb \"a\")",
         "(index-of u\"a\" \"a\")",
         "(index-of \"a\" u\"a\")",
+        "(index-of (list) none)",    // cannot determine type of list element
+        "(index-of (list) (ok u1))", // cannot determine complete type of list element
+        "(index-of (list) (err none))", // cannot determine complete type of list element
     ];
 
     let bad_expected = [
@@ -671,6 +674,9 @@ fn test_index_of() {
             TypeSignature::min_string_ascii(),
             TypeSignature::min_string_utf8(),
         ),
+        CheckErrors::CouldNotDetermineType,
+        CheckErrors::CouldNotDetermineType,
+        CheckErrors::CouldNotDetermineType,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -961,6 +967,20 @@ fn test_native_as_max_len() {
             expected,
             &format!("{}", type_check_helper(&good_test).unwrap())
         );
+    }
+
+    let bad = [
+        "(as-max-len? \"\" u1048577)",
+        "(as-max-len? u\"\" u1048577)",
+        "(as-max-len? 0x01 u1048577)",
+    ];
+    let bad_expected = [
+        CheckErrors::ValueTooLarge,
+        CheckErrors::ValueTooLarge,
+        CheckErrors::ValueTooLarge,
+    ];
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
 
