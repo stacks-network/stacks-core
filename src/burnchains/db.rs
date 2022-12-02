@@ -1063,6 +1063,16 @@ impl BurnchainDB {
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
+    pub fn has_burnchain_block_at_height(
+        conn: &DBConn,
+        height: u64,
+    ) -> Result<bool, BurnchainError> {
+        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_height = ?1";
+        let args = &[&u64_to_sql(height)?];
+        let res: Option<i64> = query_row(conn, qry, args)?;
+        Ok(res.is_some())
+    }
+
     pub fn get_burnchain_block(
         conn: &DBConn,
         block: &BurnchainHeaderHash,
