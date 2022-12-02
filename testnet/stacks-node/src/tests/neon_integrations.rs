@@ -102,8 +102,6 @@ use std::convert::TryFrom;
 
 use crate::stacks_common::types::PrivateKey;
 
-use crate::stacks::core::StacksEpochExtension;
-
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
 
@@ -9763,6 +9761,54 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     follower_channel.stop_chains_coordinator();
 }
 
+/// Verify that we push all boot receipts even before bootstrapping
+#[test]
+#[ignore]
+fn push_boot_receipts() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    test_observer::spawn();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let _chainstate = run_loop.boot_chainstate(&burnchain_config);
+
+    // verify that the event observer got its boot receipts
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 1);
+
+    let events = blocks[0]
+        .as_object()
+        .expect("Expected JSON object for mined block event")
+        .get("events")
+        .expect("Expected events key in mined block event")
+        .as_array()
+        .expect("Expected events key to be an array in mined block event");
+
+    assert_eq!(events.len(), 26);
+}
+
 /// Make a contract that takes a parameterized amount of runtime
 /// `num_index_of` is the number of times to call `index-of`
 fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &str) -> String {
@@ -9775,7 +9821,7 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
     let full_iters_code = full_iters_code_parts.join("\n      ");
 
     let iters_mod_code_parts: Vec<String> =
-        (0..iters_mod).map(|cnt| format!("0x{}", cnt)).collect();
+        (0..iters_mod).map(|cnt| format!("0x{:02x}", cnt)).collect();
 
     let iters_mod_code = format!("(list {})", iters_mod_code_parts.join(" "));
 
@@ -9833,7 +9879,7 @@ enum TxChainStrategy {
     Random,
 }
 
-fn make_expensive_tx_chain(
+pub fn make_expensive_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
     mblock_only: bool,
@@ -9867,7 +9913,7 @@ fn make_expensive_tx_chain(
     chain
 }
 
-fn make_random_tx_chain(
+pub fn make_random_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
     mblock_only: bool,
