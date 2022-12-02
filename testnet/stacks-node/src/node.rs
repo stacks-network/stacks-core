@@ -44,13 +44,14 @@ use stacks::{
     },
 };
 use stacks::{
-    burnchains::{Burnchain, Txid},
+    burnchains::Txid,
     chainstate::stacks::db::{
         ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
         ChainstateBNSNamespace,
     },
 };
 
+use crate::run_loop;
 use crate::{genesis_data::USE_TEST_GENESIS_CHAINSTATE, run_loop::RegisteredKey};
 
 use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
@@ -364,7 +365,13 @@ impl Node {
             event_dispatcher.register_observer(observer);
         }
 
-        event_dispatcher.process_boot_receipts(receipts);
+        let burnchain_config = config.get_burnchain();
+        run_loop::announce_boot_receipts(
+            &mut event_dispatcher,
+            &chain_state,
+            &burnchain_config.pox_constants,
+            &receipts,
+        );
 
         Self {
             active_registered_key: None,
