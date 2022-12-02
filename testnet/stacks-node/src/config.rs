@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::{Burnchain, PoxConstants};
+use stacks::burnchains::Burnchain;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
