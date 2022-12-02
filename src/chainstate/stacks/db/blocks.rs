@@ -220,13 +220,6 @@ impl BlockEventDispatcher for DummyEventDispatcher {
             "We should never try to announce to the dummy dispatcher"
         );
     }
-
-    fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {
-        assert!(
-            false,
-            "We should never try to dispatch boot receipts to the dummy dispatcher"
-        );
-    }
 }
 
 impl MemPoolRejection {
@@ -2297,7 +2290,30 @@ impl StacksChainState {
                             if hdr.parent_microblock != EMPTY_MICROBLOCK_PARENT_HASH {
                                 parent_microblock_hash = Some(hdr.parent_microblock.clone());
                             }
-                            block_bits.push(true);
+
+                            let mut status = true;
+
+                            if cfg!(test) {
+                                // fault injection -- possibly hide this block
+                                if let Ok(heights_str) =
+                                    std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT")
+                                {
+                                    if let Ok(serde_json::Value::Array(height_list_value)) =
+                                        serde_json::from_str(&heights_str)
+                                    {
+                                        for height_value in height_list_value {
+                                            if let Some(fault_height) = height_value.as_u64() {
+                                                if fault_height == hdr.total_work.work {
+                                                    debug!("Fault injection: hide anchored block at height {}", fault_height);
+                                                    status = false;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            block_bits.push(status);
                         }
                         _ => {
                             test_debug!("Do not have anchored block {}", &index_block_hash);
