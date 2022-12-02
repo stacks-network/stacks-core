@@ -912,6 +912,8 @@ impl TypeSignature {
                 l1.insert(y.clone());
                 Ok(ListUnionType(l1))
             }
+            (PrincipalType, CallableType(CallableSubtype::Principal(_))) => Ok(PrincipalType),
+            (CallableType(CallableSubtype::Principal(_)), PrincipalType) => Ok(PrincipalType),
             (CallableType(x), ListUnionType(l)) => {
                 let mut l1 = l.clone();
                 l1.insert(x.clone());
