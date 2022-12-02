@@ -7402,7 +7402,7 @@ pub mod test {
 
     #[test]
     fn test_build_anchored_blocks_empty() {
-        let peer_config = TestPeerConfig::new("test_build_anchored_blocks_empty", 2000, 2001);
+        let peer_config = TestPeerConfig::new(stdext::function_name!(), 2000, 2001);
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
@@ -7502,11 +7502,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_stx_transfers_single",
-            2002,
-            2003,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2002, 2003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -7643,11 +7639,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_empty_with_builder_timeout",
-            2022,
-            2023,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2022, 2023);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -7786,8 +7778,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config =
-            TestPeerConfig::new("test_build_anchored_blocks_stx_transfers_multi", 2004, 2005);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2004, 2005);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -7952,11 +7943,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_connected_by_microblocks_across_epoch",
-            2016,
-            2017,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2016, 2017);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let epochs = vec![
@@ -8193,11 +8180,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid",
-            2018,
-            2019,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2018, 2019);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let epochs = vec![
@@ -8524,7 +8507,7 @@ pub mod test {
             .map(|addr| (addr.to_account_principal(), 100000000000))
             .collect();
 
-        let mut peer_config = TestPeerConfig::new("build_anchored_incrementing_nonces", 2030, 2031);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2030, 2031);
         peer_config.initial_balances = initial_balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -8692,8 +8675,7 @@ pub mod test {
         initial_balances.push((addr.to_account_principal(), 100000000000));
         initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-        let mut peer_config =
-            TestPeerConfig::new("test_build_anchored_blocks_skip_too_expensive", 2006, 2007);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2006, 2007);
         peer_config.initial_balances = initial_balances;
         peer_config.epochs = Some(vec![StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
@@ -8905,8 +8887,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config =
-            TestPeerConfig::new("test_build_anchored_blocks_multiple_chaintips", 2008, 2009);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2008, 2009);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -9058,8 +9039,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config =
-            TestPeerConfig::new("test_build_anchored_blocks_empty_chaintips", 2010, 2011);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2010, 2011);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -9202,11 +9182,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_too_expensive_transactions",
-            2013,
-            2014,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2013, 2014);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -9360,7 +9336,7 @@ pub mod test {
 
     #[test]
     fn test_build_anchored_blocks_invalid() {
-        let peer_config = TestPeerConfig::new("test_build_anchored_blocks_invalid", 2014, 2015);
+        let peer_config = TestPeerConfig::new(stdext::function_name!(), 2014, 2015);
         let mut peer = TestPeer::new(peer_config);
 
         let chainstate_path = peer.chainstate_path.clone();
@@ -9574,11 +9550,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), 100000000));
         }
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_too_expensive_transactions",
-            2012,
-            2013,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2012, 2013);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -9847,7 +9819,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), initial_balance));
         }
 
-        let mut peer_config = TestPeerConfig::new("test_build_microblock_stream_forks", 2014, 2015);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2014, 2015);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -10147,11 +10119,7 @@ pub mod test {
             balances.push((addr.to_account_principal(), initial_balance));
         }
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_microblock_stream_forks_with_descendants",
-            2014,
-            2015,
-        );
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2014, 2015);
         peer_config.initial_balances = balances;
 
         let mut peer = TestPeer::new(peer_config);
@@ -10672,7 +10640,7 @@ pub mod test {
         initial_balances.push((addr.to_account_principal(), 100000000000));
         initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-        let mut peer_config = TestPeerConfig::new("test_is_tx_problematic", 2018, 2019);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2018, 2019);
         peer_config.initial_balances = initial_balances;
         peer_config.epochs = Some(vec![
             StacksEpoch {
@@ -11137,8 +11105,7 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config =
-            TestPeerConfig::new("test_fee_order_mismatch_nonce_order", 2002, 2003);
+        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2002, 2003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let mut peer = TestPeer::new(peer_config);
