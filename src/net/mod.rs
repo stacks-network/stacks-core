@@ -2399,10 +2399,6 @@ pub mod test {
         ) {
             // pass
         }
-
-        fn dispatch_boot_receipts(&mut self, _receipts: Vec<events::StacksTransactionReceipt>) {
-            // pass
-        }
     }
 
     // describes a peer's initial configuration
