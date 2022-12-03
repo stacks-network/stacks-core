@@ -539,6 +539,9 @@ impl TypeSignature {
                     true
                 } else if let CallableType(CallableSubtype::Principal(_)) = other {
                     true
+                } else if let ListUnionType(_) = other {
+                    let concretized_type = other.concretize().unwrap();
+                    self.admits_type(&concretized_type)
                 } else {
                     false
                 }
