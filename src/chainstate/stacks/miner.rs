@@ -11137,11 +11137,8 @@ pub mod test {
         )
         .unwrap();
 
-        let mut peer_config = TestPeerConfig::new(
-            "test_build_anchored_blocks_stx_transfers_single",
-            2002,
-            2003,
-        );
+        let mut peer_config =
+            TestPeerConfig::new("test_fee_order_mismatch_nonce_order", 2002, 2003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
 
         let mut peer = TestPeer::new(peer_config);
