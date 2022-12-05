@@ -782,7 +782,7 @@ impl Relayer {
     }
 
     #[cfg(not(any(test, feature = "testing")))]
-    pub fn fault_injection_is_block_hidden(block: &StacksBlockHeader) -> bool {
+    pub fn fault_injection_is_block_hidden(_block: &StacksBlockHeader) -> bool {
         false
     }
 
