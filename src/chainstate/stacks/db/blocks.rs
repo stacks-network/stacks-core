@@ -3588,6 +3588,15 @@ impl StacksChainState {
         Ok(res)
     }
 
+    /// Get the metadata of the highest unprocessed block.
+    /// The block data will not be returned
+    pub fn get_highest_unprocessed_block(conn: &DBConn) -> Result<Option<StagingBlock>, Error> {
+        let sql =
+            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 ORDER BY height DESC LIMIT 1";
+        let res = query_row(conn, sql, NO_PARAMS)?;
+        Ok(res)
+    }
+
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
         microblocks: &Vec<StacksMicroblock>,
@@ -4730,7 +4739,7 @@ impl StacksChainState {
                         }
                         StacksEpochId::Epoch21 => {
                             receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                             applied = true;
                         }
                         _ => {
@@ -4743,7 +4752,7 @@ impl StacksChainState {
                             StacksEpochId::Epoch21,
                             "Should only transition from Epoch2_05 to Epoch21"
                         );
-                        receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                         applied = true;
                     }
                     StacksEpochId::Epoch21 => {
