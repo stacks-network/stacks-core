@@ -143,4 +143,5 @@ members = [
     "build-utils",
     "clarity",
     "stx-genesis",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "testnet/stacks-signer"]
