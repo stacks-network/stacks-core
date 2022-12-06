@@ -907,15 +907,31 @@ impl TypeSignature {
                     Ok(ListUnionType(HashSet::from([x.clone(), y.clone()])))
                 }
             }
-            (ListUnionType(l), CallableType(y)) => {
+            (ListUnionType(l), CallableType(c)) | (CallableType(c), ListUnionType(l)) => {
                 let mut l1 = l.clone();
-                l1.insert(y.clone());
+                l1.insert(c.clone());
                 Ok(ListUnionType(l1))
             }
-            (CallableType(x), ListUnionType(l)) => {
-                let mut l1 = l.clone();
-                l1.insert(x.clone());
-                Ok(ListUnionType(l1))
+            (PrincipalType, CallableType(CallableSubtype::Principal(_)))
+            | (CallableType(CallableSubtype::Principal(_)), PrincipalType) => Ok(PrincipalType),
+            (PrincipalType, ListUnionType(l)) | (ListUnionType(l), PrincipalType) => {
+                let mut all_principals = true;
+                for ty in l {
+                    match ty {
+                        CallableSubtype::Trait(_) => {
+                            all_principals = false;
+                        }
+                        _ => (),
+                    }
+                }
+                if all_principals {
+                    Ok(PrincipalType)
+                } else {
+                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                }
+            }
+            (ListUnionType(l1), ListUnionType(l2)) => {
+                Ok(ListUnionType(l1.union(&l2).cloned().collect()))
             }
             (x, y) => {
                 if x == y {
@@ -1635,6 +1651,518 @@ mod test {
 
         for desc in okay_types.iter() {
             let _ = TypeSignature::from_string(*desc, version, epoch); // panics on failed types.
+        }
+    }
+
+    #[test]
+    fn test_least_supertype() {
+        let callables = [
+            CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
+            CallableSubtype::Trait(TraitIdentifier {
+                name: "foo".into(),
+                contract_identifier: QualifiedContractIdentifier::transient(),
+            }),
+        ];
+        let list_union = ListUnionType(callables.clone().into());
+        let callables2 = [
+            CallableSubtype::Principal(QualifiedContractIdentifier::local("bar").unwrap()),
+            CallableSubtype::Trait(TraitIdentifier {
+                name: "bar".into(),
+                contract_identifier: QualifiedContractIdentifier::transient(),
+            }),
+        ];
+        let list_union2 = ListUnionType(callables2.clone().into());
+        let list_union_merged = ListUnionType(HashSet::from_iter(
+            [callables.clone(), callables2.clone()]
+                .concat()
+                .iter()
+                .cloned(),
+        ));
+        let callable_principals = [
+            CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
+            CallableSubtype::Principal(QualifiedContractIdentifier::local("bar").unwrap()),
+        ];
+        let list_union_principals = ListUnionType(callable_principals.into());
+
+        let notype_pairs = [
+            // NoType with X should result in X
+            (
+                (TypeSignature::NoType, TypeSignature::NoType),
+                TypeSignature::NoType,
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::IntType),
+                TypeSignature::IntType,
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::UIntType),
+                TypeSignature::UIntType,
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::BoolType),
+                TypeSignature::BoolType,
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::min_buffer()),
+                TypeSignature::min_buffer(),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+                ),
+                TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::bound_string_ascii_type(17),
+                ),
+                TypeSignature::bound_string_ascii_type(17),
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::max_string_utf8()),
+                TypeSignature::max_string_utf8(),
+            ),
+            (
+                (TypeSignature::NoType, TypeSignature::PrincipalType),
+                TypeSignature::PrincipalType,
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::TupleType(
+                        TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                            .unwrap(),
+                    ),
+                ),
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                        .unwrap(),
+                ),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+                ),
+                TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                        .unwrap(),
+                ),
+                TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                    .unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                ),
+                TypeSignature::CallableType(CallableSubtype::Principal(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+            (
+                (
+                    TypeSignature::NoType,
+                    TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                        name: "foo".into(),
+                        contract_identifier: QualifiedContractIdentifier::transient(),
+                    })),
+                ),
+                TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                    name: "foo".into(),
+                    contract_identifier: QualifiedContractIdentifier::transient(),
+                })),
+            ),
+            (
+                (TypeSignature::NoType, list_union.clone()),
+                list_union.clone(),
+            ),
+        ];
+
+        for (pair, expected) in notype_pairs {
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                expected
+            );
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                expected
+            );
+        }
+
+        let simple_pairs = [
+            ((IntType, IntType), IntType),
+            ((UIntType, UIntType), UIntType),
+            ((BoolType, BoolType), BoolType),
+            (
+                (TypeSignature::max_buffer(), TypeSignature::max_buffer()),
+                TypeSignature::max_buffer(),
+            ),
+            (
+                (
+                    TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+                    TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+                ),
+                TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::bound_string_ascii_type(17),
+                    TypeSignature::bound_string_ascii_type(17),
+                ),
+                TypeSignature::bound_string_ascii_type(17),
+            ),
+            (
+                (
+                    TypeSignature::max_string_utf8(),
+                    TypeSignature::max_string_utf8(),
+                ),
+                TypeSignature::max_string_utf8(),
+            ),
+            (
+                (TypeSignature::PrincipalType, TypeSignature::PrincipalType),
+                TypeSignature::PrincipalType,
+            ),
+            (
+                (
+                    TypeSignature::TupleType(
+                        TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                            .unwrap(),
+                    ),
+                    TypeSignature::TupleType(
+                        TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                            .unwrap(),
+                    ),
+                ),
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                        .unwrap(),
+                ),
+            ),
+            (
+                (
+                    TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+                    TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+                ),
+                TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                        .unwrap(),
+                    TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                        .unwrap(),
+                ),
+                TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                    .unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                ),
+                TypeSignature::CallableType(CallableSubtype::Principal(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+            (
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                        name: "foo".into(),
+                        contract_identifier: QualifiedContractIdentifier::transient(),
+                    })),
+                    TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                        name: "foo".into(),
+                        contract_identifier: QualifiedContractIdentifier::transient(),
+                    })),
+                ),
+                TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                    name: "foo".into(),
+                    contract_identifier: QualifiedContractIdentifier::transient(),
+                })),
+            ),
+            ((list_union.clone(), list_union.clone()), list_union.clone()),
+        ];
+
+        for (pair, expected) in simple_pairs {
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                expected
+            );
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                expected
+            );
+        }
+
+        let matched_pairs = [
+            (
+                (TypeSignature::max_buffer(), TypeSignature::min_buffer()),
+                TypeSignature::max_buffer(),
+            ),
+            (
+                (
+                    TypeSignature::list_of(TypeSignature::IntType, 17).unwrap(),
+                    TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+                ),
+                TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::min_string_ascii(),
+                    TypeSignature::bound_string_ascii_type(17),
+                ),
+                TypeSignature::bound_string_ascii_type(17),
+            ),
+            (
+                (
+                    TypeSignature::min_string_utf8(),
+                    TypeSignature::max_string_utf8(),
+                ),
+                TypeSignature::max_string_utf8(),
+            ),
+            (
+                (
+                    TypeSignature::PrincipalType,
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                ),
+                TypeSignature::PrincipalType,
+            ),
+            (
+                (TypeSignature::PrincipalType, list_union_principals.clone()),
+                TypeSignature::PrincipalType,
+            ),
+            (
+                (
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::local("foo").unwrap(),
+                    )),
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::local("bar").unwrap(),
+                    )),
+                ),
+                list_union_principals.clone(),
+            ),
+            (
+                (list_union.clone(), list_union2.clone()),
+                list_union_merged.clone(),
+            ),
+        ];
+
+        for (pair, expected) in matched_pairs {
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                expected
+            );
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                expected
+            );
+        }
+
+        let compound_pairs = [
+            (
+                (
+                    TypeSignature::list_of(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            16_u32.try_into().unwrap(),
+                        )),
+                        5,
+                    )
+                    .unwrap(),
+                    TypeSignature::list_of(TypeSignature::min_buffer(), 3).unwrap(),
+                ),
+                TypeSignature::list_of(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        16_u32.try_into().unwrap(),
+                    )),
+                    5,
+                )
+                .unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::TupleType(
+                        TupleTypeSignature::try_from(vec![(
+                            "b".into(),
+                            TypeSignature::min_string_ascii(),
+                        )])
+                        .unwrap(),
+                    ),
+                    TypeSignature::TupleType(
+                        TupleTypeSignature::try_from(vec![(
+                            "b".into(),
+                            TypeSignature::bound_string_ascii_type(17),
+                        )])
+                        .unwrap(),
+                    ),
+                ),
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![(
+                        "b".into(),
+                        TypeSignature::bound_string_ascii_type(17),
+                    )])
+                    .unwrap(),
+                ),
+            ),
+            (
+                (
+                    TypeSignature::new_option(TypeSignature::min_string_ascii()).unwrap(),
+                    TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
+                ),
+                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
+            ),
+            (
+                (
+                    TypeSignature::new_response(TypeSignature::PrincipalType, list_union.clone())
+                        .unwrap(),
+                    TypeSignature::new_response(
+                        TypeSignature::CallableType(CallableSubtype::Principal(
+                            QualifiedContractIdentifier::transient(),
+                        )),
+                        list_union2.clone(),
+                    )
+                    .unwrap(),
+                ),
+                TypeSignature::new_response(
+                    TypeSignature::PrincipalType,
+                    list_union_merged.clone(),
+                )
+                .unwrap(),
+            ),
+        ];
+
+        for (pair, expected) in compound_pairs {
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap(),
+                expected
+            );
+            assert_eq!(
+                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap(),
+                expected
+            );
+        }
+
+        let bad_pairs = [
+            (IntType, UIntType),
+            (BoolType, IntType),
+            (
+                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii(),
+            ),
+            (
+                TypeSignature::list_of(TypeSignature::UIntType, 42).unwrap(),
+                TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
+            ),
+            (
+                TypeSignature::min_string_utf8(),
+                TypeSignature::bound_string_ascii_type(17),
+            ),
+            (
+                TypeSignature::min_string_utf8(),
+                TypeSignature::min_buffer(),
+            ),
+            (
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)])
+                        .unwrap(),
+                ),
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::UIntType)])
+                        .unwrap(),
+                ),
+            ),
+            (
+                TypeSignature::new_option(TypeSignature::IntType).unwrap(),
+                TypeSignature::new_option(TypeSignature::min_string_utf8()).unwrap(),
+            ),
+            (
+                TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType)
+                    .unwrap(),
+                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType)
+                    .unwrap(),
+            ),
+            (
+                TypeSignature::CallableType(CallableSubtype::Principal(
+                    QualifiedContractIdentifier::transient(),
+                )),
+                TypeSignature::IntType,
+            ),
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(TraitIdentifier {
+                    name: "foo".into(),
+                    contract_identifier: QualifiedContractIdentifier::transient(),
+                })),
+                TypeSignature::PrincipalType,
+            ),
+            (list_union.clone(), TypeSignature::PrincipalType),
+            (
+                TypeSignature::min_string_ascii(),
+                list_union_principals.clone(),
+            ),
+            (
+                TypeSignature::list_of(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        16_u32.try_into().unwrap(),
+                    )),
+                    5,
+                )
+                .unwrap(),
+                TypeSignature::list_of(TypeSignature::min_string_ascii(), 3).unwrap(),
+            ),
+            (
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![(
+                        "b".into(),
+                        TypeSignature::min_string_ascii(),
+                    )])
+                    .unwrap(),
+                ),
+                TypeSignature::TupleType(
+                    TupleTypeSignature::try_from(vec![("b".into(), TypeSignature::UIntType)])
+                        .unwrap(),
+                ),
+            ),
+            (
+                TypeSignature::new_option(TypeSignature::min_string_ascii()).unwrap(),
+                TypeSignature::new_option(TypeSignature::min_string_utf8()).unwrap(),
+            ),
+            (
+                TypeSignature::new_response(TypeSignature::PrincipalType, list_union.clone())
+                    .unwrap(),
+                TypeSignature::new_response(
+                    list_union2.clone(),
+                    TypeSignature::CallableType(CallableSubtype::Principal(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                )
+                .unwrap(),
+            ),
+        ];
+
+        for pair in bad_pairs {
+            matches!(
+                TypeSignature::least_supertype(&pair.0, &pair.1).unwrap_err(),
+                CheckErrors::TypeError(..)
+            );
+            matches!(
+                TypeSignature::least_supertype(&pair.1, &pair.0).unwrap_err(),
+                CheckErrors::TypeError(..)
+            );
         }
     }
 }
