@@ -1,0 +1,11 @@
+[package]
+name = "stacks-signer"
+version = "0.0.1"
+license = "GPLv3"
+homepage = "https://github.com/blockstack/stacks-blockchain"
+repository = "https://github.com/blockstack/stacks-blockchain"
+edition = "2021"
+
+[[bin]]
+name = "stacks-signer"
+path = "src/main.rs"
