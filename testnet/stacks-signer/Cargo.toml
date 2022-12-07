@@ -13,9 +13,8 @@ path = "src/main.rs"
 [dependencies]
 sha3 = "0.10.6"
 serde = { version = "1.0", features = ["serde_derive"] }
-slog = "2.7.0"
-slog-async = "2.7.0"
-slog-term = "2.9.0"
 toml = "0.5.9"
 frost = { git = "https://github.com/trust-machines/frost" }
 rand_core = { version  = "0.5"}
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
