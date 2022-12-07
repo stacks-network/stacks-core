@@ -1,11 +1,9 @@
+use serde::Deserialize;
 use std::fs;
 use toml;
-use serde::Deserialize;
 
 #[derive(Clone, Deserialize, Default, Debug)]
-pub struct Config {
-
-}
+pub struct Config {}
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Config, String> {
@@ -13,8 +11,7 @@ impl Config {
         Self::from_str(&content)
     }
     pub fn from_str(content: &str) -> Result<Config, String> {
-        let config: Config =
-            toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
+        let config: Config = toml::from_str(content).map_err(|e| format!("Invalid toml: {}", e))?;
         Ok(config)
     }
 }
