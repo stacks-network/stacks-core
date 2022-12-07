@@ -18,3 +18,4 @@ slog-async = "2.7.0"
 slog-term = "2.9.0"
 toml = "0.5.9"
 frost = { git = "https://github.com/trust-machines/frost" }
+rand_core = { version  = "0.5"}

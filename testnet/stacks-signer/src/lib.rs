@@ -1,5 +1,7 @@
 pub mod config;
 pub mod logger;
+pub mod net;
+pub mod signer;
 
 // set via _compile-time_ envars
 const GIT_BRANCH: Option<&'static str> = option_env!("GIT_BRANCH");
