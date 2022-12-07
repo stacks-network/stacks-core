@@ -154,6 +154,7 @@ impl StacksMessageCodec for ContractName {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -168,6 +169,7 @@ pub enum PreSymbolicExpressionType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
     pub id: u64,
@@ -593,6 +595,7 @@ impl fmt::Display for SymbolicExpression {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,

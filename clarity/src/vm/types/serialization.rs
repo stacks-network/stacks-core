@@ -411,6 +411,7 @@ impl TypeSignature {
                 cmp::max(ok_type_max_size, err_type_max_size)
             }
             TypeSignature::CallableType(CallableSubtype::Trait(_))
+            | TypeSignature::TraitReferenceType(_)
             | TypeSignature::ListUnionType(_) => {
                 return Err(CheckErrors::CouldNotDetermineSerializationType)
             }

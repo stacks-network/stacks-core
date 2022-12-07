@@ -1,0 +1,40 @@
+[package]
+name = "clarity-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.clarity]
+path = ".."
+features = ["fuzzing", "testing"]
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_least_supertype"
+path = "fuzz_targets/fuzz_least_supertype.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "build_ast"
+path = "fuzz_targets/build_ast.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_admits_type"
+path = "fuzz_targets/fuzz_admits_type.rs"
+test = false
+doc = false

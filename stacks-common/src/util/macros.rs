@@ -146,6 +146,15 @@ macro_rules! guarded_string {
     ($Name:ident, $Label:literal, $Regex:expr, $ErrorType:ty, $ErrorVariant:path) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub struct $Name(String);
+
+        #[cfg(feature = "arbitrary")]
+        impl arbitrary::Arbitrary<'_> for $Name {
+            fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+                let s = String::arbitrary(u)?;
+                Self::try_from(s).map_err(|_| arbitrary::Error::IncorrectFormat)
+            }
+        }
+
         impl TryFrom<String> for $Name {
             type Error = $ErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
