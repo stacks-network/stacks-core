@@ -1,6 +1,7 @@
 use crate::net;
 use frost::frost;
 use rand_core::OsRng;
+use tracing::info;
 
 pub struct Signer {
     parties: Vec<frost::Party>,
@@ -27,6 +28,7 @@ impl Signer {
     }
 
     pub fn mainloop(&self, net: net::Net) {
+        info!("mainloop");
         loop {
             match net.next_message().r#type {
                 MessageTypes::Join => {

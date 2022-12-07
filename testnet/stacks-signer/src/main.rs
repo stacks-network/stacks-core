@@ -1,12 +1,12 @@
-use slog::info;
+use tracing::info;
 use stacks_signer::config::Config;
 use stacks_signer::{logger, signer, net};
 use std::thread;
 
 fn main() {
-    let log = logger::setup();
+    logger::setup();
     let _config = Config::from_file("conf/stacker.toml").unwrap();
-    info!(log, "{}", stacks_signer::version());
+    info!("{}", stacks_signer::version());
 
     let net = net::Net::new();
 
