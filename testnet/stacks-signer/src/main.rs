@@ -1,10 +1,21 @@
 use slog::info;
 use stacks_signer::config::Config;
-use stacks_signer::logger;
+use stacks_signer::{logger, signer, net};
+use std::thread;
 
 fn main() {
     let log = logger::setup();
-    let config = Config::from_file("conf/stacker.toml").unwrap();
+    let _config = Config::from_file("conf/stacker.toml").unwrap();
     info!(log, "{}", stacks_signer::version());
-    info!(log, "{:?}", config);
+
+    let net = net::Net::new();
+
+    // start p2p sync
+    let handle = thread::spawn(|| {
+        let signer = signer::Signer::new();
+        signer.mainloop(net)
+    });
+
+    // let thread finish
+    handle.join().unwrap();
 }
