@@ -1,4 +1,4 @@
-use slog::{Drain, o, Logger};
+use slog::{o, Drain, Logger};
 
 pub fn setup() -> Logger {
     let decorator = slog_term::PlainDecorator::new(std::io::stdout());
