@@ -921,7 +921,7 @@ impl TypeSignature {
                         CallableSubtype::Trait(_) => {
                             all_principals = false;
                         }
-                        _ => (),
+                        CallableSubtype::Principal(_) => (),
                     }
                 }
                 if all_principals {
