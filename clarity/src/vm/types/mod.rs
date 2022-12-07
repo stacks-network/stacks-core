@@ -55,6 +55,7 @@ pub const MAX_TYPE_DEPTH: u8 = 32;
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TupleData {
     // todo: remove type_signature
     pub type_signature: TupleTypeSignature,
@@ -62,11 +63,13 @@ pub struct TupleData {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct BuffData {
     pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ListData {
     pub data: Vec<Value>,
     // todo: remove type_signature
@@ -74,6 +77,7 @@ pub struct ListData {
 }
 
 #[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
@@ -86,6 +90,7 @@ impl StandardPrincipalData {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ContractName,
@@ -135,6 +140,7 @@ impl fmt::Display for QualifiedContractIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum PrincipalData {
     Standard(StandardPrincipalData),
     Contract(QualifiedContractIdentifier),
@@ -146,23 +152,27 @@ pub enum ContractIdentifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
     pub trait_identifier: Option<TraitIdentifier>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TraitIdentifier {
     pub name: ClarityName,
     pub contract_identifier: QualifiedContractIdentifier,
@@ -231,6 +241,7 @@ impl TraitIdentifier {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -244,6 +255,7 @@ pub enum Value {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SequenceData {
     Buffer(BuffData),
     List(ListData),
@@ -539,6 +551,7 @@ impl SequenceData {
 }
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum CharType {
     UTF8(UTF8Data),
     ASCII(ASCIIData),
@@ -560,6 +573,7 @@ impl fmt::Debug for CharType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ASCIIData {
     pub data: Vec<u8>,
 }
@@ -576,6 +590,7 @@ impl fmt::Display for ASCIIData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct UTF8Data {
     pub data: Vec<Vec<u8>>,
 }

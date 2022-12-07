@@ -72,6 +72,8 @@ pub enum CheckErrors {
     UncheckedIntermediaryResponses,
 
     CouldNotDetermineMatchTypes,
+    // Added for 2.05 vs. 2.1 testing; not used in 2.1
+    #[cfg(feature = "fuzzing")]
     CouldNotDetermineType,
 
     // Checker runtime failures
@@ -358,6 +360,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::CouldNotDetermineResponseOkType => format!("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
             CheckErrors::CouldNotDetermineMatchTypes => format!("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
+            #[cfg(feature = "fuzzing")]
             CheckErrors::CouldNotDetermineType => format!("type of expression cannot be determined"),
             CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),

@@ -74,11 +74,35 @@ pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for TupleTypeSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let type_map = BTreeMap::arbitrary(u)?;
+        Self::try_from(type_map).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BufferLength(u32);
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for BufferLength {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        BufferLength::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for StringUTF8Length {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let len = u32::arbitrary(u)?;
+        StringUTF8Length::try_from(len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -115,7 +139,35 @@ pub enum TypeSignature {
     TraitReferenceType(TraitIdentifier),
 }
 
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for TypeSignature {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        // Note this should be `0..=10` if we want to include ListUnionType
+        let choice = u.int_in_range(0..=10)?;
+        let type_signature = match choice {
+            1 => TypeSignature::IntType,
+            2 => TypeSignature::UIntType,
+            3 => TypeSignature::BoolType,
+            4 => TypeSignature::SequenceType(SequenceSubtype::arbitrary(u)?),
+            5 => TypeSignature::PrincipalType,
+            6 => TypeSignature::TupleType(TupleTypeSignature::arbitrary(u)?),
+            7 => TypeSignature::new_option(TypeSignature::arbitrary(u)?)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            8 => TypeSignature::new_response(
+                TypeSignature::arbitrary(u)?,
+                TypeSignature::arbitrary(u)?,
+            )
+            .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            9 => TypeSignature::CallableType(CallableSubtype::arbitrary(u)?),
+            10 => TypeSignature::ListUnionType(HashSet::arbitrary(u)?),
+            _ => TypeSignature::NoType,
+        };
+        Ok(type_signature)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SequenceSubtype {
     BufferType(BufferLength),
     ListType(ListTypeData),
@@ -143,12 +195,14 @@ impl SequenceSubtype {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum StringSubtype {
     ASCII(BufferLength),
     UTF8(StringUTF8Length),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
@@ -197,6 +251,15 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
+}
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for ListTypeData {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let max_len = u32::arbitrary(u)?;
+        let entry_type = TypeSignature::arbitrary(u)?;
+        ListTypeData::new_list(entry_type, max_len).map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -717,6 +780,94 @@ impl TypeSignature {
         }
     }
 
+    #[cfg(feature = "fuzzing")]
+    pub fn old_admits_type(&self, other: &TypeSignature) -> Result<bool> {
+        match self {
+            SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
+                if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
+                    if other_list_type.max_len == 0 {
+                        // if other is an empty list, a list type should always admit.
+                        Ok(true)
+                    } else if my_list_type.max_len >= other_list_type.max_len {
+                        my_list_type
+                            .entry_type
+                            .old_admits_type(&*other_list_type.entry_type)
+                    } else {
+                        Ok(false)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
+                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
+                    Ok(my_len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) =
+                    other
+                {
+                    Ok(len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
+                if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) =
+                    other
+                {
+                    Ok(len.0 >= other_len.0)
+                } else {
+                    Ok(false)
+                }
+            }
+            OptionalType(ref my_inner_type) => {
+                if let OptionalType(other_inner_type) = other {
+                    // Option types will always admit a "NoType" OptionalType -- which
+                    //   can only be a None
+                    if other_inner_type.is_no_type() {
+                        Ok(true)
+                    } else {
+                        my_inner_type.old_admits_type(other_inner_type)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            ResponseType(ref my_inner_type) => {
+                if let ResponseType(other_inner_type) = other {
+                    // ResponseTypes admit according to the following rule:
+                    //   if other.ErrType is NoType, and other.OkType admits => admit
+                    //   if other.OkType is NoType, and other.ErrType admits => admit
+                    //   if both OkType and ErrType admit => admit
+                    //   otherwise fail.
+                    if other_inner_type.0.is_no_type() {
+                        my_inner_type.1.old_admits_type(&other_inner_type.1)
+                    } else if other_inner_type.1.is_no_type() {
+                        my_inner_type.0.old_admits_type(&other_inner_type.0)
+                    } else {
+                        Ok(my_inner_type.1.old_admits_type(&other_inner_type.1)?
+                            && my_inner_type.0.old_admits_type(&other_inner_type.0)?)
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            TupleType(ref tuple_sig) => {
+                if let TupleType(ref other_tuple_sig) = other {
+                    tuple_sig.old_admits(other_tuple_sig)
+                } else {
+                    Ok(false)
+                }
+            }
+            NoType => Err(CheckErrors::CouldNotDetermineType),
+            _ => Ok(other == self),
+        }
+    }
+
     /// Canonicalize a type.
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
@@ -861,6 +1012,25 @@ impl TupleTypeSignature {
         for (name, my_type_sig) in self.type_map.iter() {
             if let Some(other_type_sig) = other.type_map.get(name) {
                 if !my_type_sig.admits_type(epoch, other_type_sig)? {
+                    return Ok(false);
+                }
+            } else {
+                return Ok(false);
+            }
+        }
+
+        return Ok(true);
+    }
+
+    #[cfg(feature = "fuzzing")]
+    pub fn old_admits(&self, other: &TupleTypeSignature) -> Result<bool> {
+        if self.type_map.len() != other.type_map.len() {
+            return Ok(false);
+        }
+
+        for (name, my_type_sig) in self.type_map.iter() {
+            if let Some(other_type_sig) = other.type_map.get(name) {
+                if !my_type_sig.old_admits_type(other_type_sig)? {
                     return Ok(false);
                 }
             } else {
@@ -1274,6 +1444,191 @@ impl TypeSignature {
             (ListUnionType(l1), ListUnionType(l2)) => {
                 Ok(ListUnionType(l1.union(&l2).cloned().collect()))
             }
+            (x, y) => {
+                if x == y {
+                    Ok(x.clone())
+                } else {
+                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                }
+            }
+        }
+    }
+
+    // This function can be used when comparing the old and new least_supertype
+    // implementations. It converts uses of the new types to the old types.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_type_to_old(ty: &TypeSignature) -> Result<TypeSignature> {
+        match ty {
+            TypeSignature::OptionalType(inner_type) => {
+                TypeSignature::new_option(Self::new_type_to_old(inner_type)?)
+            }
+            TypeSignature::ResponseType(inner_types) => TypeSignature::new_response(
+                Self::new_type_to_old(&inner_types.0)?,
+                Self::new_type_to_old(&inner_types.1)?,
+            ),
+            TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)) => Ok(SequenceType(
+                SequenceSubtype::ListType(ListTypeData::new_list(
+                    Self::new_type_to_old(&list_type.entry_type)?,
+                    list_type.max_len,
+                )?),
+            )),
+            TypeSignature::TupleType(tuple_type) => {
+                let mut type_map = BTreeMap::new();
+                for (name, field_type) in tuple_type.get_type_map() {
+                    type_map.insert(name.clone(), Self::new_type_to_old(field_type)?);
+                }
+                Ok(TypeSignature::TupleType(TupleTypeSignature::try_from(
+                    type_map,
+                )?))
+            }
+            ListUnionType(callables) => {
+                if callables.is_empty() {
+                    return Err(CheckErrors::InvalidTypeDescription);
+                }
+                for callable in callables {
+                    if let CallableSubtype::Trait(trait_id) = callable {
+                        return Ok(TypeSignature::TraitReferenceType(trait_id.clone()));
+                    }
+                }
+                Ok(PrincipalType)
+            }
+            CallableType(CallableSubtype::Principal(_)) => Ok(TypeSignature::PrincipalType),
+            CallableType(CallableSubtype::Trait(trait_id)) => {
+                Ok(TypeSignature::TraitReferenceType(trait_id.clone()))
+            }
+            _ => Ok(ty.clone()),
+        }
+    }
+
+    // This function checks recursively if NoType is anywhere in the type signature.
+    #[cfg(feature = "fuzzing")]
+    pub fn contains_invalid_notype(ty: &TypeSignature) -> bool {
+        match ty {
+            NoType => true,
+            OptionalType(inner_type) => {
+                match inner_type.as_ref() {
+                    NoType => true, // NoType is a valid inner type for OptionalType
+                    inner_type => Self::contains_invalid_notype(inner_type),
+                }
+            }
+            ResponseType(inner_types) => {
+                Self::contains_invalid_notype(&inner_types.0)
+                    // && Self::contains_invalid_notype(&inner_types.1)
+                    || Self::contains_invalid_notype(&inner_types.1)
+            }
+            SequenceType(SequenceSubtype::ListType(list_type)) => {
+                Self::contains_invalid_notype(&list_type.entry_type)
+            }
+            TupleType(tuple_type) => {
+                for (_, field_type) in tuple_type.get_type_map() {
+                    if Self::contains_invalid_notype(field_type) {
+                        return true;
+                    }
+                }
+                false
+            }
+            IntType
+            | UIntType
+            | BoolType
+            | ListUnionType(_)
+            | CallableType(_)
+            | PrincipalType
+            | SequenceType(_)
+            | TypeSignature::TraitReferenceType(_) => false,
+        }
+    }
+
+    // The old version of least_supertype, which is used for testing, to ensure 2.1
+    // matches 2.0 behavior.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn old_least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+        match (a, b) {
+            (
+                TupleType(TupleTypeSignature { type_map: types_a }),
+                TupleType(TupleTypeSignature { type_map: types_b }),
+            ) => {
+                let mut type_map_out = BTreeMap::new();
+                for (name, entry_a) in types_a.iter() {
+                    let entry_b = types_b
+                        .get(name)
+                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_out = Self::least_supertype(entry_a, entry_b)?;
+                    type_map_out.insert(name.clone(), entry_out);
+                }
+                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
+                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
+            }
+            (
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: len_a,
+                    entry_type: entry_a,
+                })),
+                SequenceType(SequenceSubtype::ListType(ListTypeData {
+                    max_len: len_b,
+                    entry_type: entry_b,
+                })),
+            ) => {
+                let entry_type = if *len_a == 0 {
+                    *(entry_b.clone())
+                } else if *len_b == 0 {
+                    *(entry_a.clone())
+                } else {
+                    Self::least_supertype(entry_a, entry_b)?
+                };
+                let max_len = cmp::max(len_a, len_b);
+                Ok(Self::list_of(entry_type, *max_len)
+                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
+            }
+            (ResponseType(resp_a), ResponseType(resp_b)) => {
+                let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
+                let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
+                Ok(Self::new_response(ok_type, err_type)?)
+            }
+            (OptionalType(some_a), OptionalType(some_b)) => {
+                let some_type = Self::factor_out_no_type(some_a, some_b)?;
+                Ok(Self::new_option(some_type)?)
+            }
+            (
+                SequenceType(SequenceSubtype::BufferType(buff_a)),
+                SequenceType(SequenceSubtype::BufferType(buff_b)),
+            ) => {
+                let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
+                    buff_a
+                } else {
+                    buff_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::BufferType(buff_len)))
+            }
+            (
+                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_a))),
+                SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(string_b))),
+            ) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::ASCII(str_len),
+                )))
+            }
+            (
+                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_a))),
+                SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(string_b))),
+            ) => {
+                let str_len = if u32::from(string_a) > u32::from(string_b) {
+                    string_a
+                } else {
+                    string_b
+                }
+                .clone();
+                Ok(SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::UTF8(str_len),
+                )))
+            }
+            (NoType, x) | (x, NoType) => Ok(x.clone()),
             (x, y) => {
                 if x == y {
                     Ok(x.clone())
