@@ -394,7 +394,7 @@ dependencies = [
  "regex",
  "ripemd",
  "rusqlite",
- "secp256k1",
+ "secp256k1 0.24.2",
  "serde",
  "serde_derive",
  "serde_json",
@@ -2298,7 +2298,17 @@ version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab7883017d5b21f011ef8040ea9c6c7ac90834c0df26a69e4c0b06276151f125"
 dependencies = [
- "secp256k1-sys",
+ "secp256k1-sys 0.4.2",
+ "serde",
+]
+
+[[package]]
+name = "secp256k1"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9512ffd81e3a3503ed401f79c33168b9148c75038956039166cd750eaa037c3"
+dependencies = [
+ "secp256k1-sys 0.6.1",
  "serde",
 ]
 
@@ -2307,6 +2317,15 @@ name = "secp256k1-sys"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "957da2573cde917463ece3570eab4a0b3f19de6f1646cde62e6fd3868f566036"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83080e2c2fc1006e625be82e5d1eb6a43b7fd9578b617fcc55814daf286bba4b"
 dependencies = [
  "cc",
 ]
@@ -2634,7 +2653,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rusqlite",
- "secp256k1",
+ "secp256k1 0.21.2",
  "serde",
  "serde_derive",
  "serde_json",
