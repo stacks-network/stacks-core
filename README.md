@@ -15,11 +15,6 @@ Stacks is a layer-1 blockchain that connects to Bitcoin for security and enables
 [![Build Status](https://github.com/stacks-network/stacks-blockchain/actions/workflows/ci.yml/badge.svg?branch=master&event=workflow_dispatch&style=flat)](https://github.com/stacks-network/stacks-blockchain/actions/workflows/ci.yml?query=event%3Aworkflow_dispatch+branch%3Amaster)
 [![Discord Chat](https://img.shields.io/discord/621759717756370964.svg)](https://stacks.chat)
 
-<!-- [![CircleCI](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master.svg?style=svg)](https://circleci.com/gh/stacks-network/stacks-blockchain/tree/master) -->
-<!-- [![codecov](https://codecov.io/gh/stacks-network/stacks-blockchain/branch/master/graph/badge.svg)](https://codecov.io/gh/stacks-network/stacks-blockchain) -->
-<!-- [![Open Issues](https://img.shields.io/github/issues/stacks-network/stacks-blockchain?style=flat)](https://github.com/stacks-network/stacks-blockchain/issues) -->
-<!-- [![Open PRs](https://img.shields.io/github/issues-pr/stacks-network/stacks-blockchain?style=flat)](https://github.com/stacks-network/stacks-blockchain/pulls) -->
-
 ## Building
 
 ### 1. Download and install Rust
