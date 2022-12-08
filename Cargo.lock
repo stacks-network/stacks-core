@@ -377,6 +377,7 @@ name = "blockstack-core"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "build-utils",
  "chrono",
  "clarity",
  "criterion",
@@ -433,6 +434,10 @@ dependencies = [
  "memchr",
  "safemem",
 ]
+
+[[package]]
+name = "build-utils"
+version = "0.1.0"
 
 [[package]]
 name = "bumpalo"
