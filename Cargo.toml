@@ -116,6 +116,9 @@ stx_genesis = { package = "stx-genesis", path = "./stx-genesis/."}
 clarity = { package = "clarity", features = ["default", "testing"], path = "./clarity/." }
 stacks_common = { package = "stacks-common", features = ["default", "testing"], path = "./stacks-common/." }
 
+[build-dependencies]
+build-utils = { path = "./build-utils" }
+
 [features]
 default = ["developer-mode"]
 profile-sqlite = []
@@ -137,6 +140,7 @@ sha2 = { version = "0.10" }
 [workspace]
 members = [
     ".",
+    "build-utils",
     "clarity",
     "stx-genesis",
     "testnet/stacks-node"]
