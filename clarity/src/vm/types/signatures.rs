@@ -136,6 +136,7 @@ pub enum TypeSignature {
     // the check -- see `concretize` method.
     ListUnionType(HashSet<CallableSubtype>),
     // This is used only below epoch 2.1. It has been replaced by CallableType.
+    #[cfg(feature = "fuzzing")]
     TraitReferenceType(TraitIdentifier),
 }
 
@@ -775,8 +776,27 @@ impl TypeSignature {
                     Ok(false)
                 }
             }
+            PrincipalType => {
+                if other == PrincipalType {
+                    Ok(true)
+                } else if let CallableType(CallableSubtype::Principal(_)) = other {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
             NoType => Err(CheckErrors::CouldNotDetermineType),
-            _ => Ok(&other == self),
+            CallableType(CallableSubtype::Principal(_)) => {
+                panic!("callable principal should never be asked to admit.")
+            }
+            ListUnionType(_) => panic!("ListUnionType should never be asked to admit."),
+            IntType | UIntType | BoolType | CallableType(CallableSubtype::Trait(_)) => {
+                Ok(&other == self)
+            }
+            #[cfg(feature = "fuzzing")]
+            TypeSignature::TraitReferenceType(_) => {
+                panic!("TraitReferenceType should only be used for testing 2.05.")
+            }
         }
     }
 
