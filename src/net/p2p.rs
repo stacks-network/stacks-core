@@ -5733,8 +5733,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
             // ones
-            let mut peer_1_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2210, 2211);
-            let mut peer_2_config = TestPeerConfig::new("test_mempool_sync_2_peers", 2212, 2213);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 2210, 2211);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 2212, 2213);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -5996,10 +5996,8 @@ mod test {
     fn test_mempool_sync_2_peers_paginated() {
         with_timeout(600, || {
             // peer 1 gets some transactions; verify peer 2 gets them all
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2214, 2215);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_paginated", 2216, 2217);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 2214, 2215);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 2216, 2217);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -6188,10 +6186,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; peer 2 blacklists some of them;
             // verify peer 2 gets only the non-blacklisted ones.
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2218, 2219);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_blacklisted", 2220, 2221);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 2218, 2219);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 2220, 2221);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -6401,10 +6397,8 @@ mod test {
         with_timeout(600, || {
             // peer 1 gets some transactions; peer 2 blacklists them all due to being invalid.
             // verify peer 2 stores nothing.
-            let mut peer_1_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_problematic", 2218, 2219);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_mempool_sync_2_peers_problematic", 2220, 2221);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 2218, 2219);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 2220, 2221);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
