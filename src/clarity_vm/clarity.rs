@@ -887,7 +887,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
-    pub fn initialize_epoch_2_1(&mut self) -> Result<StacksTransactionReceipt, Error> {
+    pub fn initialize_epoch_2_1(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
         using!(self.cost_track, "cost tracker", |old_cost_tracker| {
@@ -966,7 +966,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
             // features
             self.epoch = StacksEpochId::Epoch21;
-            let initialization_receipt = self.as_transaction(|tx_conn| {
+            let pox_2_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
@@ -1012,12 +1012,12 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 receipt
             });
 
-            if initialization_receipt.result != Value::okay_true()
-                || initialization_receipt.post_condition_aborted
+            if pox_2_initialization_receipt.result != Value::okay_true()
+                || pox_2_initialization_receipt.post_condition_aborted
             {
                 panic!(
                     "FATAL: Failure processing PoX 2 contract initialization: {:#?}",
-                    &initialization_receipt
+                    &pox_2_initialization_receipt
                 );
             }
 
@@ -1037,7 +1037,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let costs_3_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
-            let initialization_receipt = self.as_transaction(|tx_conn| {
+            let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
@@ -1062,17 +1062,23 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 receipt
             });
 
-            if initialization_receipt.result != Value::okay_true()
-                || initialization_receipt.post_condition_aborted
+            if costs_3_initialization_receipt.result != Value::okay_true()
+                || costs_3_initialization_receipt.post_condition_aborted
             {
                 panic!(
                     "FATAL: Failure processing Costs 3 contract initialization: {:#?}",
-                    &initialization_receipt
+                    &costs_3_initialization_receipt
                 );
             }
 
             debug!("Epoch 2.1 initialized");
-            (old_cost_tracker, Ok(initialization_receipt))
+            (
+                old_cost_tracker,
+                Ok(vec![
+                    pox_2_initialization_receipt,
+                    costs_3_initialization_receipt,
+                ]),
+            )
         })
     }
 

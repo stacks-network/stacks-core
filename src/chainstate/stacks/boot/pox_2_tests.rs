@@ -4690,7 +4690,7 @@ fn stack_in_both_pox1_and_pox2() {
 
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
-        &format!("pox_2_stack_aggregation_increase"),
+        &format!("stack_in_both_pox1_and_pox2"),
         6102,
         Some(epochs.clone()),
         Some(&observer),

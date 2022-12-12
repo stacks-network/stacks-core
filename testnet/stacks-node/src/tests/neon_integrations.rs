@@ -2510,7 +2510,7 @@ fn microblock_integration_test() {
         "Blocks observed {} should be >= 3",
         blocks_observed.len()
     );
-    assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
+    assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height + 1);
 
     let burn_blocks_observed = test_observer::get_burn_blocks();
     let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
@@ -3280,7 +3280,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     sleep_ms(30_000);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks.len(), 4); // genesis block + 3 blocks
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
@@ -3663,7 +3663,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks.len(), 4); // genesis block + 3 blocks
 
     let mut max_big_txs_per_microblock = 0;
     let mut total_big_txs_per_microblock = 0;
@@ -3942,7 +3942,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks.len(), 5); // genesis block + 4 blocks
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
@@ -4808,7 +4808,7 @@ fn block_limit_hit_integration_test() {
         .unwrap()
         .as_array()
         .unwrap();
-    assert_eq!(tx_third_block.len(), 3);
+    assert_eq!(tx_third_block.len(), 4); // genesis block + 3 blocks
     let txid_1_exp = tx_third_block[1].get("txid").unwrap().as_str().unwrap();
     let txid_4_exp = tx_third_block[2].get("txid").unwrap().as_str().unwrap();
     assert_eq!(format!("0x{}", txid_1), txid_1_exp);

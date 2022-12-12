@@ -55,6 +55,7 @@ use crate::core::mempool::MemPoolDB;
 use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use crate::core::*;
 use crate::cost_estimates::EstimatorError;
+use crate::net::relay::Relayer;
 use crate::net::BlocksInvData;
 use crate::net::Error as net_error;
 use crate::net::ExtendedStacksHeader;
@@ -2292,25 +2293,8 @@ impl StacksChainState {
                             }
 
                             let mut status = true;
-
-                            if cfg!(test) {
-                                // fault injection -- possibly hide this block
-                                if let Ok(heights_str) =
-                                    std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT")
-                                {
-                                    if let Ok(serde_json::Value::Array(height_list_value)) =
-                                        serde_json::from_str(&heights_str)
-                                    {
-                                        for height_value in height_list_value {
-                                            if let Some(fault_height) = height_value.as_u64() {
-                                                if fault_height == hdr.total_work.work {
-                                                    debug!("Fault injection: hide anchored block at height {}", fault_height);
-                                                    status = false;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                            if Relayer::fault_injection_is_block_hidden(&hdr) {
+                                status = false;
                             }
 
                             block_bits.push(status);
@@ -3604,6 +3588,15 @@ impl StacksChainState {
         Ok(res)
     }
 
+    /// Get the metadata of the highest unprocessed block.
+    /// The block data will not be returned
+    pub fn get_highest_unprocessed_block(conn: &DBConn) -> Result<Option<StagingBlock>, Error> {
+        let sql =
+            "SELECT * FROM staging_blocks WHERE orphaned = 0 AND processed = 0 ORDER BY height DESC LIMIT 1";
+        let res = query_row(conn, sql, NO_PARAMS)?;
+        Ok(res)
+    }
+
     fn extract_signed_microblocks(
         parent_anchored_block_header: &StacksBlockHeader,
         microblocks: &Vec<StacksMicroblock>,
@@ -4746,7 +4739,7 @@ impl StacksChainState {
                         }
                         StacksEpochId::Epoch21 => {
                             receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                             applied = true;
                         }
                         _ => {
@@ -4759,7 +4752,7 @@ impl StacksChainState {
                             StacksEpochId::Epoch21,
                             "Should only transition from Epoch2_05 to Epoch21"
                         );
-                        receipts.push(clarity_tx.block.initialize_epoch_2_1()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
                         applied = true;
                     }
                     StacksEpochId::Epoch21 => {

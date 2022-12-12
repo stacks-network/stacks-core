@@ -206,6 +206,10 @@ fn test_exact_block_costs() {
 
     for block in blocks {
         let burn_height = block.get("burn_block_height").unwrap().as_i64().unwrap();
+        if burn_height == 0 {
+            // no data for genesis block
+            continue;
+        }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         let anchor_cost = block
             .get("anchored_cost")
@@ -221,6 +225,7 @@ fn test_exact_block_costs() {
             .unwrap()
             .as_i64()
             .unwrap();
+
         let mined_event = mined_blocks_map.get(&(burn_height as u64)).unwrap();
 
         let mined_anchor_cost = mined_event.anchored_cost.runtime;

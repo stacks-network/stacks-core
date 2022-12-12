@@ -2480,28 +2480,10 @@ impl RelayerThread {
                 let bh = mined_block.block_hash();
                 let height = mined_block.header.total_work.work;
 
-                let mut broadcast = false;
-                if cfg!(test) {
-                    // fault injection -- possibly hide this block
-                    if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
-                        if let Ok(serde_json::Value::Array(height_list_value)) =
-                            serde_json::from_str(&heights_str)
-                        {
-                            for height_value in height_list_value {
-                                if let Some(fault_height) = height_value.as_u64() {
-                                    if fault_height == mined_block.header.total_work.work {
-                                        debug!(
-                                            "Fault injection: hide anchored block at height {}",
-                                            fault_height
-                                        );
-                                        broadcast = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                let mut broadcast = true;
+                if Relayer::fault_injection_is_block_hidden(&mined_block.header) {
+                    broadcast = false;
                 }
-
                 if broadcast {
                     if let Err(e) = self
                         .relayer
