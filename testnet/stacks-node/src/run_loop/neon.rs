@@ -22,8 +22,8 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, BlockEventDispatcher, ChainsCoordinator, ChainsCoordinatorConfig,
-    CoordinatorCommunication, Error as coord_error,
+    migrate_chainstate_dbs, ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
+    Error as coord_error,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::core::StacksEpochId;
@@ -41,7 +41,7 @@ use crate::node::use_test_genesis_chainstate;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     node::{get_account_balances, get_account_lockups, get_names, get_namespaces},
-    BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 
@@ -366,8 +366,13 @@ impl RunLoop {
             Some(self.should_keep_running.clone()),
         );
 
-        // Upgrade chainstate databases if they exist already
+        let burnchain = burnchain_controller.get_burnchain();
         let epochs = burnchain_controller.get_stacks_epochs();
+
+        // sanity check -- epoch data must be valid
+        Config::assert_valid_epoch_settings(&burnchain, &epochs);
+
+        // Upgrade chainstate databases if they exist already
         match migrate_chainstate_dbs(
             &epochs,
             &self.config.get_burn_db_file_path(),
@@ -426,15 +431,10 @@ impl RunLoop {
         burnchain_controller
     }
 
-    /// Instantiate the Stacks chain state and start the chains coordinator thread.
-    /// Returns the coordinator thread handle, and the receiving end of the coordinator's atlas
-    /// attachment channel.
-    fn spawn_chains_coordinator(
-        &mut self,
-        burnchain_config: &Burnchain,
-        coordinator_receivers: CoordinatorReceivers,
-        miner_status: Arc<Mutex<MinerStatus>>,
-    ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
+    /// Boot up the stacks chainstate.
+    /// Instantiate the chainstate and push out the boot receipts to observers
+    /// This is only public so we can test it.
+    pub fn boot_chainstate(&mut self, burnchain_config: &Burnchain) -> StacksChainState {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis balances
@@ -444,15 +444,6 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-
-        // load up genesis Atlas attachments
-        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
-        let genesis_attachments = GenesisData::new(use_test_genesis_data)
-            .read_name_zonefiles()
-            .into_iter()
-            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
-            .collect();
-        atlas_config.genesis_attachments = Some(genesis_attachments);
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
@@ -482,7 +473,36 @@ impl RunLoop {
             Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
-        self.event_dispatcher.dispatch_boot_receipts(receipts);
+        run_loop::announce_boot_receipts(
+            &mut self.event_dispatcher,
+            &chain_state_db,
+            &burnchain_config.pox_constants,
+            &receipts,
+        );
+        chain_state_db
+    }
+
+    /// Instantiate the Stacks chain state and start the chains coordinator thread.
+    /// Returns the coordinator thread handle, and the receiving end of the coordinator's atlas
+    /// attachment channel.
+    fn spawn_chains_coordinator(
+        &mut self,
+        burnchain_config: &Burnchain,
+        coordinator_receivers: CoordinatorReceivers,
+        miner_status: Arc<Mutex<MinerStatus>>,
+    ) -> (JoinHandle<()>, Receiver<HashSet<AttachmentInstance>>) {
+        let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
+
+        // load up genesis Atlas attachments
+        let mut atlas_config = AtlasConfig::default(self.config.is_mainnet());
+        let genesis_attachments = GenesisData::new(use_test_genesis_data)
+            .read_name_zonefiles()
+            .into_iter()
+            .map(|z| Attachment::new(z.zonefile_content.as_bytes().to_vec()))
+            .collect();
+        atlas_config.genesis_attachments = Some(genesis_attachments);
+
+        let chain_state_db = self.boot_chainstate(burnchain_config);
 
         // NOTE: re-instantiate AtlasConfig so we don't have to keep the genesis attachments around
         let moved_atlas_config = AtlasConfig::default(self.config.is_mainnet());

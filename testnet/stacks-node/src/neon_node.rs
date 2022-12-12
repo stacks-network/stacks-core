@@ -204,9 +204,6 @@ use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
 
-#[cfg(test)]
-use crate::burnchains::bitcoin_regtest_controller::SerializedTx;
-
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::run_loop::neon::Counters;
@@ -1684,8 +1681,10 @@ impl BlockMinerThread {
         );
         let rest_commit = burn_fee_cap - sunset_burn;
 
-        let commit_outs = if self.burn_block.block_height + 1
-            < self.burnchain.pox_constants.sunset_end
+        let commit_outs = if !self
+            .burnchain
+            .pox_constants
+            .is_after_pox_sunset_end(self.burn_block.block_height, target_epoch_id)
             && !self
                 .burnchain
                 .is_in_prepare_phase(self.burn_block.block_height + 1)
@@ -2481,11 +2480,35 @@ impl RelayerThread {
                 let bh = mined_block.block_hash();
                 let height = mined_block.header.total_work.work;
 
-                if let Err(e) = self
-                    .relayer
-                    .broadcast_block(snapshot.consensus_hash, mined_block)
-                {
-                    warn!("Failed to push new block: {}", e);
+                let mut broadcast = false;
+                if cfg!(test) {
+                    // fault injection -- possibly hide this block
+                    if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
+                        if let Ok(serde_json::Value::Array(height_list_value)) =
+                            serde_json::from_str(&heights_str)
+                        {
+                            for height_value in height_list_value {
+                                if let Some(fault_height) = height_value.as_u64() {
+                                    if fault_height == mined_block.header.total_work.work {
+                                        debug!(
+                                            "Fault injection: hide anchored block at height {}",
+                                            fault_height
+                                        );
+                                        broadcast = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if broadcast {
+                    if let Err(e) = self
+                        .relayer
+                        .broadcast_block(snapshot.consensus_hash, mined_block)
+                    {
+                        warn!("Failed to push new block: {}", e);
+                    }
                 }
 
                 // proceed to mine microblocks

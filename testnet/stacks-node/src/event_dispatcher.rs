@@ -1,10 +1,7 @@
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::thread::sleep;
 use std::time::Duration;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
-};
 
 use async_h1::client;
 use async_std::net::TcpStream;
@@ -343,7 +340,6 @@ impl EventObserver {
         metadata: &StacksHeaderInfo,
         receipts: &Vec<StacksTransactionReceipt>,
         parent_index_hash: &StacksBlockId,
-        boot_receipts: &Vec<StacksTransactionReceipt>,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
         parent_burn_block_hash: BurnchainHeaderHash,
@@ -363,8 +359,7 @@ impl EventObserver {
 
         let mut tx_index: u32 = 0;
         let mut serialized_txs = vec![];
-
-        for receipt in receipts.iter().chain(boot_receipts.iter()) {
+        for receipt in receipts.iter() {
             let payload = EventObserver::make_new_block_txs_payload(receipt, tx_index);
             serialized_txs.push(payload);
             tx_index += 1;
@@ -408,7 +403,6 @@ pub struct EventDispatcher {
     any_event_observers_lookup: HashSet<u16>,
     miner_observers_lookup: HashSet<u16>,
     mined_microblocks_observers_lookup: HashSet<u16>,
-    boot_receipts: Arc<Mutex<Option<Vec<StacksTransactionReceipt>>>>,
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
@@ -503,10 +497,6 @@ impl BlockEventDispatcher for EventDispatcher {
             recipient_info,
         )
     }
-
-    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.process_boot_receipts(receipts)
-    }
 }
 
 impl EventDispatcher {
@@ -520,7 +510,6 @@ impl EventDispatcher {
             burn_block_observers_lookup: HashSet::new(),
             mempool_observers_lookup: HashSet::new(),
             microblock_observers_lookup: HashSet::new(),
-            boot_receipts: Arc::new(Mutex::new(None)),
             miner_observers_lookup: HashSet::new(),
             mined_microblocks_observers_lookup: HashSet::new(),
         }
@@ -731,25 +720,7 @@ impl EventDispatcher {
         mblock_confirmed_consumed: &ExecutionCost,
         pox_constants: &PoxConstants,
     ) {
-        let boot_receipts = if metadata.stacks_block_height == 1 {
-            let mut boot_receipts_result = self
-                .boot_receipts
-                .lock()
-                .expect("Unexpected concurrent access to `boot_receipts` in the event dispatcher!");
-            if let Some(val) = boot_receipts_result.take() {
-                val
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-        let all_receipts = receipts
-            .iter()
-            .cloned()
-            .chain(boot_receipts.iter().cloned())
-            .collect();
-
+        let all_receipts = receipts.clone();
         let (dispatch_matrix, events) = self.create_dispatch_matrix_and_event_vector(&all_receipts);
 
         if dispatch_matrix.len() > 0 {
@@ -789,7 +760,6 @@ impl EventDispatcher {
                         metadata,
                         receipts,
                         parent_index_hash,
-                        &boot_receipts,
                         &winner_txid,
                         &mature_rewards,
                         parent_burn_block_hash,
@@ -1004,10 +974,6 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>) {
-        self.boot_receipts = Arc::new(Mutex::new(Some(receipts)));
-    }
-
     fn update_dispatch_matrix_if_observer_subscribed(
         &self,
         asset_identifier: &AssetIdentifier,
@@ -1108,7 +1074,6 @@ mod test {
         let metadata = StacksHeaderInfo::regtest_genesis();
         let receipts = vec![];
         let parent_index_hash = StacksBlockId([0; 32]);
-        let boot_receipts = vec![];
         let winner_txid = Txid([0; 32]);
         let mature_rewards = serde_json::Value::Array(vec![]);
         let parent_burn_block_hash = BurnchainHeaderHash([0; 32]);
@@ -1124,7 +1089,6 @@ mod test {
             &metadata,
             &receipts,
             &parent_index_hash,
-            &boot_receipts,
             &winner_txid,
             &mature_rewards,
             parent_burn_block_hash,

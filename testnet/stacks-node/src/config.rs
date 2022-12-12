@@ -9,7 +9,7 @@ use std::thread::sleep;
 use rand::RngCore;
 
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::PoxConstants;
+use stacks::burnchains::Burnchain;
 use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -18,6 +18,7 @@ use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::StacksEpoch;
+use stacks::core::StacksEpochExtension;
 use stacks::core::StacksEpochId;
 use stacks::core::{
     CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -399,14 +400,105 @@ lazy_static! {
 }
 
 impl Config {
-    /// This method applies any of this Config's configured PoX constants to the supplied
-    /// `PoxConstants` struct.
-    pub fn update_pox_constants(&self, pox_consts: &mut PoxConstants) {
-        if self.is_mainnet() {
+    /// Apply any test settings to this burnchain config struct
+    fn apply_test_settings(&self, burnchain: &mut Burnchain) {
+        if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {
             return;
         }
-        if let Some(pox_2_activation_height) = self.burnchain.pox_2_activation {
-            pox_consts.v1_unlock_height = pox_2_activation_height;
+
+        if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
+            debug!(
+                "Override v1_unlock_height from {} to {}",
+                burnchain.pox_constants.v1_unlock_height, v1_unlock_height
+            );
+            burnchain.pox_constants.v1_unlock_height = v1_unlock_height;
+        }
+
+        if let Some(sunset_start) = self.burnchain.sunset_start {
+            debug!(
+                "Override sunset_start from {} to {}",
+                burnchain.pox_constants.sunset_start, sunset_start
+            );
+            burnchain.pox_constants.sunset_start = sunset_start.into();
+        }
+
+        if let Some(sunset_end) = self.burnchain.sunset_end {
+            debug!(
+                "Override sunset_end from {} to {}",
+                burnchain.pox_constants.sunset_end, sunset_end
+            );
+            burnchain.pox_constants.sunset_end = sunset_end.into();
+        }
+    }
+
+    /// Load up a Burnchain and apply config settings to it.
+    /// Use this over the Burnchain constructors.
+    /// Panics if we are unable to instantiate a burnchain (e.g. becase we're using an unrecognized
+    /// chain ID or something).
+    pub fn get_burnchain(&self) -> Burnchain {
+        let (network_name, _) = self.burnchain.get_bitcoin_network();
+        let mut burnchain = {
+            let working_dir = self.get_burn_db_path();
+            match Burnchain::new(&working_dir, &self.burnchain.chain, &network_name) {
+                Ok(burnchain) => burnchain,
+                Err(e) => {
+                    error!("Failed to instantiate burnchain: {}", e);
+                    panic!()
+                }
+            }
+        };
+        self.apply_test_settings(&mut burnchain);
+        burnchain
+    }
+
+    /// Assert that a burnchain's PoX constants are consistent with the list of epoch start and end
+    /// heights.  Panics if this is not the case.
+    pub fn assert_valid_epoch_settings(burnchain: &Burnchain, epochs: &[StacksEpoch]) {
+        // sanity check: epochs must be contiguous and ordered
+        // (this panics if it's not the case)
+        test_debug!("Validate epochs: {:#?}", epochs);
+        let _ = StacksEpoch::validate_epochs(epochs);
+
+        // sanity check: v1_unlock_height must happen after pox-2 instantiation
+        let epoch21_index = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch21)
+            .expect("FATAL: no epoch 2.1 defined");
+
+        let epoch21 = &epochs[epoch21_index];
+        let v1_unlock_height = burnchain.pox_constants.v1_unlock_height as u64;
+
+        assert!(
+            v1_unlock_height > epoch21.start_height,
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {} <= {}\nburnchain: {:?}", v1_unlock_height, epoch21.start_height, burnchain
+        );
+
+        let epoch21_rc = burnchain
+            .block_height_to_reward_cycle(epoch21.start_height)
+            .expect("FATAL: epoch 21 starts before the first burnchain block");
+        let v1_unlock_rc = burnchain
+            .block_height_to_reward_cycle(v1_unlock_height)
+            .expect("FATAL: v1 unlock height is before the first burnchain block");
+
+        if epoch21_rc + 1 == v1_unlock_rc {
+            // if v1_unlock_height is in the reward cycle after epoch_21, then it must not fall on
+            // the reward cycle boundary.
+            assert!(
+                !burnchain.is_reward_cycle_start(v1_unlock_height),
+                "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {:?}",
+                burnchain
+            );
+        } else if epoch21_rc == v1_unlock_rc {
+            // if v1_unlock_height and epoch_21 are in the same reward cycle, then epoch_21 must be
+            // instantiated before the prepare phase.  This is because pox-2 must exist in the
+            // PoX anchor block for the subsequent reward cycle.
+            //
+            // Ideally, the epoch_21 start height would be at the very beginning of the reward
+            // cycle, but this is not a hard requirement.  However, it is highly recommended to
+            // de-risk the chance that the anchor block is picked before the block in which pox-2
+            // is instantiated.
+            assert!(!burnchain.is_in_prepare_phase(epoch21.start_height));
+            if !burnchain.is_reward_cycle_start(epoch21.start_height) {
+                warn!("DANGEROUS CONFIG: Epoch 2.1 starts at {}, which is _NOT_ the beginning of the reward cycle.", epoch21.start_height);
+            }
         }
     }
 
@@ -709,12 +801,22 @@ impl Config {
                     pox_2_activation: burnchain
                         .pox_2_activation
                         .or(default_burnchain_config.pox_2_activation),
+                    sunset_start: burnchain
+                        .sunset_start
+                        .or(default_burnchain_config.sunset_start),
+                    sunset_end: burnchain.sunset_end.or(default_burnchain_config.sunset_end),
+                    wallet_name: burnchain
+                        .wallet_name
+                        .unwrap_or(default_burnchain_config.wallet_name.clone()),
                 };
 
-                // check that pox_2_activation hasn't been set in mainnet
-                if result.pox_2_activation.is_some() {
-                    if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
-                        return Err("PoX-2 Activation height is not configurable in mainnet".into());
+                if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
+                    // check that pox_2_activation hasn't been set in mainnet
+                    if result.pox_2_activation.is_some()
+                        || result.sunset_start.is_some()
+                        || result.sunset_end.is_some()
+                    {
+                        return Err("PoX-2 parameters are not configurable in mainnet".into());
                     }
                 }
 
@@ -1200,6 +1302,9 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
+    pub sunset_start: Option<u32>,
+    pub sunset_end: Option<u32>,
+    pub wallet_name: String,
     pub ast_precheck_size_height: Option<u64>,
 }
 
@@ -1230,16 +1335,27 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
+            sunset_start: None,
+            sunset_end: None,
+            wallet_name: "".to_string(),
             ast_precheck_size_height: None,
         }
     }
 
-    pub fn get_rpc_url(&self) -> String {
+    pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
             false => "http://",
         };
-        format!("{}{}:{}", scheme, self.peer_host, self.rpc_port)
+        let wallet_path = if let Some(wallet_id) = wallet.as_ref() {
+            format!("/wallet/{}", wallet_id)
+        } else {
+            "".to_string()
+        };
+        format!(
+            "{}{}:{}{}",
+            scheme, self.peer_host, self.rpc_port, wallet_path
+        )
     }
 
     pub fn get_rpc_socket_addr(&self) -> SocketAddr {
@@ -1297,6 +1413,9 @@ pub struct BurnchainConfigFile {
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
     pub pox_2_activation: Option<u32>,
+    pub sunset_start: Option<u32>,
+    pub sunset_end: Option<u32>,
+    pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
 }
 

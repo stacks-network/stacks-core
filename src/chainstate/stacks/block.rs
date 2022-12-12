@@ -93,7 +93,7 @@ impl StacksBlockHeader {
 
     pub fn genesis_block_header() -> StacksBlockHeader {
         StacksBlockHeader {
-            version: STACKS_BLOCK_VERSION,
+            version: 0,
             total_work: StacksWorkScore::genesis(),
             proof: VRFProof::empty(),
             parent_block: BOOT_BLOCK_HASH.clone(),

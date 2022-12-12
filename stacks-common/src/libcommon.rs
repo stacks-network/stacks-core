@@ -68,4 +68,6 @@ pub mod consts {
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const MINER_REWARD_MATURITY: u64 = 100;
+
+    pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
 }

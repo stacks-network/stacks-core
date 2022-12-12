@@ -14,6 +14,8 @@ use stacks::clarity_vm::clarity::ClarityConnection;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
 use stacks::core::PEER_VERSION_EPOCH_2_0;
+use stacks::core::PEER_VERSION_EPOCH_2_05;
+use stacks::core::PEER_VERSION_EPOCH_2_1;
 use stacks::net::GetIsTraitImplementedResponse;
 use stacks::net::{AccountEntryResponse, CallReadOnlyRequestBody, ContractSrcResponse};
 use stacks::types::chainstate::{StacksAddress, VRFSeed};
@@ -223,7 +225,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
                 let publish_tx =
@@ -236,7 +238,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
                 let publish_tx =
@@ -249,7 +251,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -283,7 +285,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round >= 3 {
@@ -306,7 +308,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
@@ -327,7 +329,7 @@ fn integration_test_get_info() {
                         &header_hash,
                         tx_xfer,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
@@ -618,7 +620,7 @@ fn integration_test_get_info() {
                 eprintln!("Test: GET {}", path);
                 let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
 
-                let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity1, StacksEpochId::Epoch20).unwrap().1;
+                let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity2, StacksEpochId::Epoch21).unwrap().1;
                 let expected_interface = build_contract_interface(&contract_analysis);
 
                 eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());
@@ -1118,7 +1120,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1133,7 +1135,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1153,7 +1155,7 @@ fn contract_stx_transfer() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -1174,7 +1176,7 @@ fn contract_stx_transfer() {
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1199,7 +1201,7 @@ fn contract_stx_transfer() {
                             &xfer_to_contract,
                             None,
                             &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
+                            &StacksEpochId::Epoch21,
                         )
                         .unwrap();
                 }
@@ -1217,7 +1219,7 @@ fn contract_stx_transfer() {
                         &xfer_to_contract,
                         None,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap_err()
                 {
@@ -1434,7 +1436,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1448,7 +1450,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 3 {
@@ -1462,7 +1464,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 4 {
@@ -1476,7 +1478,7 @@ fn mine_transactions_out_of_order() {
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
@@ -1579,7 +1581,7 @@ fn mine_contract_twice() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -1675,7 +1677,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round == 2 {
@@ -1693,7 +1695,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -1707,7 +1709,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -1721,7 +1723,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
 
@@ -1735,7 +1737,7 @@ fn bad_contract_tx_rollback() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
@@ -1877,21 +1879,68 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 fn block_limit_runtime_test() {
     let mut conf = super::new_test_conf();
 
-    conf.burnchain.epochs = Some(vec![StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 9223372036854775807,
-        block_limit: ExecutionCost {
-            write_length: 150000000,
-            write_count: 50000,
-            read_length: 1000000000,
-            read_count: 50000,
-            // use a shorter runtime limit. the current runtime limit
-            //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
-            runtime: 1_000_000_000,
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
         },
-        network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 1_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 50000,
+                // use a shorter runtime limit. the current runtime limit
+                //    is _painfully_ slow in a opt-level=0 build (i.e., `cargo test`)
+                runtime: 2_665_574 * 3,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
     conf.burnchain.commit_anchor_block_within = 5000;
 
     let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
@@ -1939,7 +1988,7 @@ fn block_limit_runtime_test() {
                         block_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             } else if round > 1 {
@@ -1968,7 +2017,7 @@ fn block_limit_runtime_test() {
                             block_hash,
                             tx,
                             &ExecutionCost::max_value(),
-                            &StacksEpochId::Epoch20,
+                            &StacksEpochId::Epoch21,
                         )
                         .unwrap();
                 }
@@ -2054,7 +2103,7 @@ fn mempool_errors() {
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
-                        &StacksEpochId::Epoch20,
+                        &StacksEpochId::Epoch21,
                     )
                     .unwrap();
             }
