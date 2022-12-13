@@ -38,7 +38,7 @@ impl MocknetController {
 
     fn new(config: Config) -> Self {
         debug!("Opening Burnchain at {}", &config.get_burn_db_path());
-        let burnchain = Burnchain::regtest(&config.get_burn_db_path());
+        let burnchain = config.get_burnchain();
 
         Self {
             config: config,

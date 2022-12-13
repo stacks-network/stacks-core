@@ -552,6 +552,9 @@ impl Relayer {
             consensus_hash,
             &block.block_hash()
         );
+        if Self::fault_injection_is_block_hidden(&block.header) {
+            return Ok(false);
+        }
 
         // find the snapshot of the parent of this block
         let parent_block_snapshot = match sort_ic
@@ -707,6 +710,9 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
+            if Self::fault_injection_is_block_hidden(&block.header) {
+                continue;
+            }
             match Relayer::process_new_anchored_block(
                 sort_ic,
                 chainstate,
@@ -750,6 +756,36 @@ impl Relayer {
         new_blocks
     }
 
+    // fault injection -- don't accept this block if we are to deliberatly ignore
+    // it in a test
+    #[cfg(any(test, feature = "testing"))]
+    pub fn fault_injection_is_block_hidden(header: &StacksBlockHeader) -> bool {
+        if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
+            use serde_json;
+            if let Ok(serde_json::Value::Array(height_list_value)) =
+                serde_json::from_str(&heights_str)
+            {
+                for height_value in height_list_value {
+                    if let Some(fault_height) = height_value.as_u64() {
+                        if fault_height == header.total_work.work {
+                            debug!(
+                                "Fault injection: hide anchored block at height {}",
+                                fault_height
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn fault_injection_is_block_hidden(_block: &StacksBlockHeader) -> bool {
+        false
+    }
+
     /// Preprocess all pushed blocks
     /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
     /// list of peers that served us invalid data.
@@ -776,6 +812,9 @@ impl Relayer {
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
+                    if Self::fault_injection_is_block_hidden(&block.header) {
+                        continue;
+                    }
                     match SortitionDB::get_block_snapshot_consensus(
                         sort_ic.conn(),
                         &consensus_hash,

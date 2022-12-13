@@ -22,8 +22,9 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
 use stacks::core::{
-    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205, CHAIN_ID_TESTNET,
-    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
+    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
@@ -103,6 +104,39 @@ use crate::stacks_common::types::PrivateKey;
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
+
+    // tests can override this, but these tests run with epoch 2.05 by default
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1000,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1000,
+            end_height: 1000000 - 1,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 1000000 - 1,
+            end_height: 9223372036854775807,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
+
     let seed = seed.unwrap_or(conf.node.seed.clone());
     conf.node.seed = seed;
 
@@ -2474,7 +2508,7 @@ fn microblock_integration_test() {
         "Blocks observed {} should be >= 3",
         blocks_observed.len()
     );
-    assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height);
+    assert_eq!(blocks_observed.len() as u64, tip_info.stacks_tip_height + 1);
 
     let burn_blocks_observed = test_observer::get_burn_blocks();
     let burn_blocks_with_burns: Vec<_> = burn_blocks_observed
@@ -3243,7 +3277,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     sleep_ms(30_000);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks.len(), 4); // genesis block + 3 blocks
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
@@ -3624,7 +3658,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks.len(), 4); // genesis block + 3 blocks
 
     let mut max_big_txs_per_microblock = 0;
     let mut total_big_txs_per_microblock = 0;
@@ -3902,7 +3936,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let blocks = test_observer::get_blocks();
-    assert_eq!(blocks.len(), 4);
+    assert_eq!(blocks.len(), 5); // genesis block + 4 blocks
 
     let mut max_big_txs_per_block = 0;
     let mut max_big_txs_per_microblock = 0;
@@ -4572,7 +4606,7 @@ fn mining_events_integration_test() {
                     write_count: 2,
                     read_length: 1,
                     read_count: 1,
-                    runtime: 311000
+                    runtime: 300887
                 }
             )
         }
@@ -4764,7 +4798,7 @@ fn block_limit_hit_integration_test() {
         .unwrap()
         .as_array()
         .unwrap();
-    assert_eq!(tx_third_block.len(), 3);
+    assert_eq!(tx_third_block.len(), 4); // genesis block + 3 blocks
     let txid_1_exp = tx_third_block[1].get("txid").unwrap().as_str().unwrap();
     let txid_4_exp = tx_third_block[2].get("txid").unwrap().as_str().unwrap();
     assert_eq!(format!("0x{}", txid_1), txid_1_exp);
@@ -4909,19 +4943,43 @@ fn microblock_limit_hit_integration_test() {
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
-    conf.burnchain.epochs = Some(vec![StacksEpoch {
-        epoch_id: StacksEpochId::Epoch20,
-        start_height: 0,
-        end_height: 9223372036854775807,
-        block_limit: ExecutionCost {
-            write_length: 150000000,
-            write_count: 50000,
-            read_length: 1000000000,
-            read_count: 5000, // make read_count smaller so we hit the read_count limit with a smaller tx.
-            runtime: 100_000_000_000,
+    conf.burnchain.epochs = Some(vec![
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
         },
-        network_epoch: PEER_VERSION_EPOCH_2_0,
-    }]);
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 10_000,
+            block_limit: ExecutionCost {
+                write_length: 150000000,
+                write_count: 50000,
+                read_length: 1000000000,
+                read_count: 5000, // make read_count smaller so we hit the read_count limit with a smaller tx.
+                runtime: 100_000_000_000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 10_000,
+            end_height: 10_002,
+            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     test_observer::spawn();
 
@@ -7954,11 +8012,19 @@ fn test_problematic_txs_are_not_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     // take effect immediately
     conf.burnchain.ast_precheck_size_height = Some(0);
@@ -8193,11 +8259,19 @@ fn test_problematic_blocks_are_not_mined() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -8546,11 +8620,19 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -8929,11 +9011,19 @@ fn test_problematic_microblocks_are_not_mined() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9303,11 +9393,19 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     // AST precheck becomes default at burn height
     conf.burnchain.ast_precheck_size_height = Some(210);
@@ -9663,6 +9761,54 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
     follower_channel.stop_chains_coordinator();
 }
 
+/// Verify that we push all boot receipts even before bootstrapping
+#[test]
+#[ignore]
+fn push_boot_receipts() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _) = neon_integration_test_conf();
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    test_observer::spawn();
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let _chainstate = run_loop.boot_chainstate(&burnchain_config);
+
+    // verify that the event observer got its boot receipts
+    let blocks = test_observer::get_blocks();
+    assert_eq!(blocks.len(), 1);
+
+    let events = blocks[0]
+        .as_object()
+        .expect("Expected JSON object for mined block event")
+        .get("events")
+        .expect("Expected events key in mined block event")
+        .as_array()
+        .expect("Expected events key to be an array in mined block event");
+
+    assert_eq!(events.len(), 26);
+}
+
 /// Make a contract that takes a parameterized amount of runtime
 /// `num_index_of` is the number of times to call `index-of`
 fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &str) -> String {
@@ -9675,7 +9821,7 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
     let full_iters_code = full_iters_code_parts.join("\n      ");
 
     let iters_mod_code_parts: Vec<String> =
-        (0..iters_mod).map(|cnt| format!("0x{}", cnt)).collect();
+        (0..iters_mod).map(|cnt| format!("0x{:02x}", cnt)).collect();
 
     let iters_mod_code = format!("(list {})", iters_mod_code_parts.join(" "));
 
@@ -9733,7 +9879,7 @@ enum TxChainStrategy {
     Random,
 }
 
-fn make_expensive_tx_chain(
+pub fn make_expensive_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
     mblock_only: bool,
@@ -9767,7 +9913,7 @@ fn make_expensive_tx_chain(
     chain
 }
 
-fn make_random_tx_chain(
+pub fn make_random_tx_chain(
     privk: &StacksPrivateKey,
     fee_plus: u64,
     mblock_only: bool,

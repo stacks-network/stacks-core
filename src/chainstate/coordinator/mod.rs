@@ -163,8 +163,6 @@ pub trait BlockEventDispatcher {
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
     );
-
-    fn dispatch_boot_receipts(&mut self, receipts: Vec<StacksTransactionReceipt>);
 }
 
 pub struct ChainsCoordinatorConfig {
@@ -567,8 +565,12 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             }));
         }
 
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(burn_height)
+            .expect("FATAL: no reward cycle for burn height");
         debug!("Beginning reward cycle";
               "burn_height" => burn_height,
+              "reward_cycle" => reward_cycle,
               "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
               "prepare_phase_length" => burnchain.pox_constants.prepare_length);
 
@@ -587,7 +589,10 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
         }?;
         if let Some((consensus_hash, stacks_block_hash)) = reward_cycle_info {
             // it may have been elected, but we only process it if it's affirmed by the network!
-            info!("Anchor block selected: {}", stacks_block_hash);
+            info!(
+                "Anchor block selected for cycle {}: {}",
+                reward_cycle, stacks_block_hash
+            );
             let anchor_block_known = StacksChainState::is_stacks_block_processed(
                 &chain_state.db(),
                 &consensus_hash,
@@ -603,14 +608,14 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
                     &block_id,
                 )?;
                 debug!(
-                    "Stacks anchor block {}/{} is processed",
-                    &consensus_hash, &stacks_block_hash
+                    "Stacks anchor block {}/{} cycle {} is processed",
+                    &consensus_hash, &stacks_block_hash, reward_cycle
                 );
                 PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, reward_set)
             } else {
                 debug!(
-                    "Stacks anchor block {}/{} is NOT processed",
-                    &consensus_hash, &stacks_block_hash
+                    "Stacks anchor block {}/{} cycle {} is NOT processed",
+                    &consensus_hash, &stacks_block_hash, reward_cycle
                 );
                 PoxAnchorBlockStatus::SelectedAndUnknown(stacks_block_hash)
             };

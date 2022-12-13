@@ -4654,3 +4654,160 @@ fn stack_aggregation_increase() {
         "(err 4)"
     );
 }
+
+#[test]
+fn stack_in_both_pox1_and_pox2() {
+    // this is the number of blocks after the first sortition any V1
+    // PoX locks will automatically unlock at.
+    let AUTO_UNLOCK_HEIGHT = 12;
+    let EXPECTED_FIRST_V2_CYCLE = 8;
+    // the sim environment produces 25 empty sortitions before
+    //  tenures start being tracked.
+    let EMPTY_SORTITIONS = 25;
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants.reward_cycle_length = 5;
+    burnchain.pox_constants.prepare_length = 2;
+    burnchain.pox_constants.anchor_threshold = 1;
+    burnchain.pox_constants.pox_participation_threshold_pct = 1;
+    burnchain.pox_constants.v1_unlock_height = AUTO_UNLOCK_HEIGHT + EMPTY_SORTITIONS;
+
+    let first_v2_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+        .unwrap()
+        + 1;
+
+    assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
+
+    eprintln!("First v2 cycle = {}", first_v2_cycle);
+
+    let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        &format!("stack_in_both_pox1_and_pox2"),
+        6102,
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    peer.config.check_pox_invariants =
+        Some((EXPECTED_FIRST_V2_CYCLE, EXPECTED_FIRST_V2_CYCLE + 10));
+
+    let num_blocks = 35;
+
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_pox_addr =
+        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone());
+
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+
+    let mut alice_nonce = 0;
+    let mut bob_nonce = 0;
+
+    let alice_first_lock_amount = 512 * POX_THRESHOLD_STEPS_USTX;
+    let bob_first_lock_amount = 512 * POX_THRESHOLD_STEPS_USTX;
+
+    let mut coinbase_nonce = 0;
+
+    // produce blocks until the epoch switch
+    for _i in 0..10 {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // in the next tenure, PoX 2 should now exist.
+    let tip = get_tip(peer.sortdb.as_ref());
+
+    // our "tenure counter" is now at 10
+    assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
+
+    // alice stacks some of her STX in pox1
+    let alice_stx_1 = make_pox_lockup(
+        &alice,
+        alice_nonce,
+        alice_first_lock_amount,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&alice).bytes,
+        12,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    // alice stacks some of her STX in pox2
+    let alice_stx_2 = make_pox_2_lockup(
+        &alice,
+        alice_nonce,
+        alice_first_lock_amount,
+        PoxAddress::try_from_pox_tuple(false, &alice_pox_addr).unwrap(),
+        12,
+        tip.block_height,
+    );
+    alice_nonce += 1;
+
+    // bob stacks some of his STX in pox2
+    let bob_stx_2 = make_pox_2_lockup(
+        &bob,
+        bob_nonce,
+        bob_first_lock_amount,
+        PoxAddress::try_from_pox_tuple(false, &bob_pox_addr).unwrap(),
+        12,
+        tip.block_height,
+    );
+    bob_nonce += 1;
+
+    // bob stacks some of her STX in pox1
+    let bob_stx_1 = make_pox_lockup(
+        &bob,
+        bob_nonce,
+        bob_first_lock_amount,
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(&bob).bytes,
+        12,
+        tip.block_height,
+    );
+    bob_nonce += 1;
+
+    // mine it
+    peer.tenure_with_txs(
+        &[alice_stx_1, alice_stx_2, bob_stx_2, bob_stx_1],
+        &mut coinbase_nonce,
+    );
+
+    let blocks = observer.get_blocks();
+
+    let mut alice_txs = HashMap::new();
+    let mut bob_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                } else if addr == bob_address {
+                    bob_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+
+    // alice's and bob's second transactions both failed with runtime errors
+    alice_txs.get(&0).unwrap().result.clone().expect_result_ok();
+    alice_txs
+        .get(&1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err();
+
+    bob_txs.get(&0).unwrap().result.clone().expect_result_ok();
+    bob_txs.get(&1).unwrap().result.clone().expect_result_err();
+}

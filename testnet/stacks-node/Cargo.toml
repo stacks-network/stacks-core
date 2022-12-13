@@ -30,7 +30,7 @@ stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
 ring = "0.16.19"
 warp = "0.3"
 tokio = "1.15"
-reqwest = { version = "0.11", features = ["blocking", "json", "rustls"] }
+reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { package = "clarity", path = "../../clarity/.", features = ["default", "testing"]}
 stacks_common = { package = "stacks-common", path = "../../stacks-common/.", features = ["default", "testing"] }
 stacks = { package = "blockstack-core", path = "../../.", features = ["default", "testing"] }

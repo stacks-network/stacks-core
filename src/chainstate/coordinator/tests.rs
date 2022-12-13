@@ -445,8 +445,6 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _slot_holders: Vec<PoxAddress>,
     ) {
     }
-
-    fn dispatch_boot_receipts(&mut self, _receipts: Vec<StacksTransactionReceipt>) {}
 }
 
 pub fn make_coordinator<'a>(

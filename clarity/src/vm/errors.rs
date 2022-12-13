@@ -99,6 +99,7 @@ pub enum RuntimeErrorType {
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
     DefunctPoxContract,
+    PoxAlreadyLocked,
 }
 
 #[derive(Debug, PartialEq)]

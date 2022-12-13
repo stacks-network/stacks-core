@@ -1063,6 +1063,16 @@ impl BurnchainDB {
         opt.ok_or(BurnchainError::MissingParentBlock)
     }
 
+    pub fn has_burnchain_block_at_height(
+        conn: &DBConn,
+        height: u64,
+    ) -> Result<bool, BurnchainError> {
+        let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_height = ?1";
+        let args = &[&u64_to_sql(height)?];
+        let res: Option<i64> = query_row(conn, qry, args)?;
+        Ok(res.is_some())
+    }
+
     pub fn get_burnchain_block(
         conn: &DBConn,
         block: &BurnchainHeaderHash,
@@ -1524,12 +1534,20 @@ impl BurnchainDB {
         );
         for rc in start_rc..last_reward_cycle {
             if let Some((commit, metadata)) = BurnchainDB::get_anchor_block_commit(conn, rc)? {
+                let bhh = commit.block_header_hash.clone();
+                let txid = metadata.txid.clone();
                 let present = unconfirmed_oracle(commit, metadata);
                 if present {
-                    debug!("Assume present anchor block at reward cycle {}", rc);
+                    debug!(
+                        "Assume present anchor block {} txid {} at reward cycle {}",
+                        &bhh, &txid, rc
+                    );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
-                    debug!("Assume absent anchor block at reward cycle {}", rc);
+                    debug!(
+                        "Assume absent anchor block {} txid {} at reward cycle {}",
+                        &bhh, &txid, rc
+                    );
                     heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
                 }
             } else {

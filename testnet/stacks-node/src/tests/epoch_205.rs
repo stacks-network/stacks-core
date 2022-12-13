@@ -14,7 +14,9 @@ use stacks::chainstate::stacks::TransactionPayload;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::StacksEpoch;
 use stacks::core::StacksEpochId;
-use stacks::core::{PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
+use stacks::core::{
+    PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+};
 use stacks::types::chainstate::BlockHeaderHash;
 use stacks::types::chainstate::BurnchainHeaderHash;
 use stacks::types::chainstate::StacksAddress;
@@ -203,6 +205,10 @@ fn test_exact_block_costs() {
 
     for block in blocks {
         let burn_height = block.get("burn_block_height").unwrap().as_i64().unwrap();
+        if burn_height == 0 {
+            // no data for genesis block
+            continue;
+        }
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         let anchor_cost = block
             .get("anchored_cost")
@@ -218,6 +224,7 @@ fn test_exact_block_costs() {
             .unwrap()
             .as_i64()
             .unwrap();
+
         let mined_event = mined_blocks_map.get(&(burn_height as u64)).unwrap();
 
         let mined_anchor_cost = mined_event.anchored_cost.runtime;
@@ -711,6 +718,19 @@ fn test_cost_limit_switch_version205() {
     // Create a schedule where we lower the read_count on Epoch2_05.
     conf.burnchain.epochs = Some(vec![
         StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 150,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 215,
@@ -726,7 +746,7 @@ fn test_cost_limit_switch_version205() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 215,
-            end_height: 9223372036854775807,
+            end_height: 10_002,
             block_limit: ExecutionCost {
                 write_length: 100000000,
                 write_count: 1000,
@@ -736,7 +756,21 @@ fn test_cost_limit_switch_version205() {
             },
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
+            end_height: 9223372036854775807,
+            block_limit: ExecutionCost {
+                write_length: 100000000,
+                write_count: 1000,
+                read_length: 1000000000,
+                read_count: 50,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     conf.initial_balances.push(InitialBalance {
         address: alice_pd.clone(),
@@ -983,6 +1017,19 @@ fn bigger_microblock_streams_in_2_05() {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 206,
+            end_height: 10_002,
+            block_limit: ExecutionCost {
+                write_length: 15000000,
+                write_count: 7750 * 2,
+                read_length: 100000000,
+                read_count: 7750 * 2,
+                runtime: 5000000000,
+            },
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 10_002,
             end_height: 9223372036854775807,
             block_limit: ExecutionCost {
                 write_length: 15000000,
@@ -994,6 +1041,7 @@ fn bigger_microblock_streams_in_2_05() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
+    conf.burnchain.pox_2_activation = Some(10_003);
 
     test_observer::spawn();
     conf.events_observers.push(EventObserverConfig {
