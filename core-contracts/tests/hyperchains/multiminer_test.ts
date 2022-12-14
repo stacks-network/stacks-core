@@ -2,7 +2,7 @@ import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land
 import { assertEquals } from "https://deno.land/std@0.90.0/testing/asserts.ts";
 import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";
 import { decode as decHex, encode as encHex } from "https://deno.land/std@0.149.0/encoding/hex.ts";
-// import * as secp from "https://deno.land/x/secp256k1@1.6.3/mod.ts";
+import * as secp from "https://deno.land/x/secp256k1@1.6.3/mod.ts";
 
 const ERR_SIGNER_APPEARS_TWICE = 101;
 const ERR_NOT_ENOUGH_SIGNERS = 102;
@@ -27,32 +27,9 @@ function buffFromHex(input: string) {
 // Once Clarinet supports deno import maps, uncomment this and remove the other
 // sign function so that the tests do not need to hardcode a signature map.
 //
-// function sign(messageHash: string, signer: string) {
-//     const result = secp.signSync(messageHash, signer.slice(0, -2), { der: false, recovered: true });
-//     return `0x${toHex(result[0])}0${result[1]}`
-// }
-
-
 function sign(messageHash: string, signer: string) {
-    const signature_map = new Map<string, string>();
-    signature_map.set('(7acbdb54d0798e8b2930a0b2adeea24e46813edadd04f3497f020f328c77dbb2, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xea418d4ae220a5c4afdc0c8e21c28e26a338117fee39f878ebb1251c56f74ac3da64b20e66fca8b697a9751ba0599ba2a5210add0f7a43e5c2a230d3f4df051600');
-    signature_map.set('(63ba42b8727b1f01d78de3b7bfad61d6f3b146695350457e1dbb252861135461, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xb459af09a1d6200766e32f4513392da7ffd374b6ba925a41c26854c5e02c7623ec419b4f68eae501f36fccfd9a40c83489f232446ae6dc04c075efc17b5b6eaa00');
-    signature_map.set('(63ba42b8727b1f01d78de3b7bfad61d6f3b146695350457e1dbb252861135461, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x9874cae8caf04ac52bf0af74c79edd58f81164d78245e2e197d2832b60e0921b3dff0430720b725956df91672eab183b85402c164a6819eb7ac0a0850a1d21f801');
-    signature_map.set('(822caf4a720c0d1db92bb948521650dbeabe5fa94b5817f718d6e4a715d2b583, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x549f505da94df6f56df8da10eb2b5585a95ceca2ca3a6168176840215a330c5825ab16f6eb8b48474006f9eb2ce3fd61a5552ccb53755aaccdee1c0fbc6fcb8e01');
-    signature_map.set('(822caf4a720c0d1db92bb948521650dbeabe5fa94b5817f718d6e4a715d2b583, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xc223b412c0e2ae1dc28c981b23de7d8a601c94cc190e7e37227ecd47fe4be8a628394f826cb8a25c133a599ef2fc3796155c5ecc924cbc35fff4ab6a0cc685ff01');
-    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xc8ee11648c48ae85f1b8003c53690efc9aab20ce05526643fb0ccc3f2ac46cee174c51ba62f5e06cc5223cee0efccb7c1eec20e1fe22bb6654daab78e067f16a00');
-    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0xc8ee11648c48ae85f1b8003c53690efc9aab20ce05526643fb0ccc3f2ac46cee174c51ba62f5e06cc5223cee0efccb7c1eec20e1fe22bb6654daab78e067f16a00');    
-    signature_map.set('(cad85aa65df028d53b32303c7c1204b660102319720295cd3cc3fd71553fe217, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0x7090b64cc6c63fe675de25d0c890bbac58e5ca93e9bd2c9c40a05229ef464fae6232490c2d8c66565a22a97d2155aa2d12b6434e8ba75c081e11b9f9d9a4ef7500');
-    signature_map.set('(84b70510646b9b5967d637fca9fd9cf29d957848d52577348d09ca59432a867a, 7deca54bdb555e4d9aa2310cb9ed8829d59e2098cbc06f62238cdd8fcb08c08101)', '0x11796554ddafc42d3aae1738ee1ddf573988404d5c990c574cbdefb73d31b8995e54abcda499738aaeffb6432fe37f1c2bc749471a3815fea131eb4ba76da14c00');
-    signature_map.set('(84b70510646b9b5967d637fca9fd9cf29d957848d52577348d09ca59432a867a, 003f8c631e98bf52b8dfa36f02df0aaab85dfefc5d8bedb41bc5184afdc4a16001)', '0xf34be14d6411debab873c0a79033d4a4a6e39a8acb46eb214d2ac112148698011a62abf466cc3fbb2b5f7e144c631abd86547c3a0763675315bad32531e8084e01');
-
-    const key = `(${messageHash}, ${signer})`;
-    if (signature_map.has(key)) {
-        return signature_map.get(key)!;
-    } else {
-        console.log(`sign("${messageHash}", "${signer}")`);
-        throw "No known signature for request";
-    }
+    const result = secp.signSync(messageHash, signer.slice(0, -2), { der: false, recovered: true });
+    return `0x${toHex(result[0])}0${result[1]}`
 }
 
 Clarinet.test({
