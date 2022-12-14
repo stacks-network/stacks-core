@@ -170,7 +170,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           repository: hirosystems/clarinet
-          ref: hack/2.1
+          ref: main
           submodules: recursive
       - name: Build Clarinet with 2.1
         run: cargo build -p=clarinet-cli
