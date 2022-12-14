@@ -3642,3 +3642,65 @@ fn test_list_arg(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         );
     }
 }
+
+#[test]
+fn test_principal_admits() {
+    let good = ["(define-public (set-extensions (extension-list (list 200 {extension: principal, enabled: bool})))
+    (ok true)
+  )
+  (define-private (init)
+    (set-extensions (list
+      { extension: .fake-b, enabled: true }
+    ))
+  )",
+  "(define-public (set-extensions (extension-list (list 200 {extension: principal, enabled: bool})))
+    (ok true)
+  )
+  (define-private (init)
+    (set-extensions (list
+      { extension: .fake-b, enabled: true }
+      { extension: .fake-b, enabled: true }
+    ))
+  )",
+  "(define-public (set-extensions (extension-list (list 200 {extension: principal, enabled: bool})))
+    (ok true)
+  )
+  (define-private (init)
+    (set-extensions (list
+      { extension: .fake-b, enabled: true }
+      { extension: .fake-c, enabled: true }
+    ))
+  )"];
+
+    for good_test in good.iter() {
+        let res = mem_type_check(&good_test);
+        println!("{:?}", res);
+        assert!(res.is_ok());
+    }
+
+    let bad = ["(define-public (set-extensions (extension-list (list 200 {extension: principal, enabled: bool})))
+    (ok true)
+  )
+  (define-trait fake-trait ())
+  (define-private (init (fake <fake-trait>))
+    (set-extensions (list
+      { extension: fake, enabled: true }
+    ))
+  )",
+  "(define-public (set-extensions (extension-list (list 200 {extension: principal, enabled: bool})))
+    (ok true)
+  )
+  (define-trait fake-trait ())
+  (define-private (init (fake <fake-trait>))
+    (set-extensions (list
+      { extension: fake, enabled: true }
+      { extension: .fake-b, enabled: true }
+    ))
+  )"];
+
+    for bad_test in bad.iter() {
+        let res = mem_type_check(&bad_test);
+        println!("{:?}", res);
+        assert!(res.is_err());
+    }
+}
