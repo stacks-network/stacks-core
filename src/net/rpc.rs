@@ -519,6 +519,19 @@ impl RPCNeighborsInfo {
         chain_view: &BurnchainView,
         peerdb: &PeerDB,
     ) -> Result<RPCNeighborsInfo, net_error> {
+        let bootstrap_nodes =
+            PeerDB::get_bootstrap_peers(peerdb.conn(), network_id).map_err(net_error::DBError)?;
+        let bootstrap = bootstrap_nodes
+            .into_iter()
+            .map(|n| {
+                RPCNeighbor::from_neighbor_key_and_pubkh(
+                    n.addr.clone(),
+                    Hash160::from_node_public_key(&n.public_key),
+                    true,
+                )
+            })
+            .collect();
+
         let neighbor_sample = PeerDB::get_random_neighbors(
             peerdb.conn(),
             network_id,
@@ -561,9 +574,10 @@ impl RPCNeighborsInfo {
         }
 
         Ok(RPCNeighborsInfo {
-            sample: sample,
-            inbound: inbound,
-            outbound: outbound,
+            bootstrap,
+            sample,
+            inbound,
+            outbound,
         })
     }
 }
@@ -4394,6 +4408,11 @@ mod test {
                     HttpResponseType::Neighbors(response_md, neighbor_info) => {
                         assert_eq!(neighbor_info.sample.len(), 1);
                         assert_eq!(neighbor_info.sample[0].port, peer_client.config.server_port); // we see ourselves as the neighbor
+                        assert_eq!(neighbor_info.bootstrap.len(), 1);
+                        assert_eq!(
+                            neighbor_info.bootstrap[0].port,
+                            peer_client.config.server_port
+                        ); // we see ourselves as the bootstrap
                         true
                     }
                     _ => {

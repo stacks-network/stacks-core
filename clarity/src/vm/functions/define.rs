@@ -339,6 +339,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 }
             }
             DefineFunctions::FungibleToken => {
+                check_arguments_at_least(1, args)?;
                 let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
