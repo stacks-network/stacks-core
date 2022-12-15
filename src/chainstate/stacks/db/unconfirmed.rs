@@ -674,7 +674,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 7000, 7001);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7000, 7001);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -898,7 +898,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 7002, 7003);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7002, 7003);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
 
         let mut peer = TestPeer::new(peer_config);
@@ -1130,7 +1130,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 7004, 7005);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
         peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
         peer_config.epochs = Some(vec![StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
