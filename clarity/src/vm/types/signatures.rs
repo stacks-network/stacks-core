@@ -111,6 +111,8 @@ pub enum TypeSignature {
     // we reach the place where the coercion needs to happen, we can perform
     // the check -- see `concretize` method.
     ListUnionType(HashSet<CallableSubtype>),
+    // This is used only below epoch 2.1. It has been replaced by CallableType.
+    TraitReferenceType(TraitIdentifier),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,7 +156,7 @@ pub enum CallableSubtype {
 
 use self::TypeSignature::{
     BoolType, CallableType, IntType, ListUnionType, NoType, OptionalType, PrincipalType,
-    ResponseType, SequenceType, TupleType, UIntType,
+    ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
 lazy_static! {
@@ -1252,6 +1254,7 @@ impl TypeSignature {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             CallableType(_)
+            | TraitReferenceType(_)
             | ListUnionType(_)
             | NoType
             | IntType
@@ -1303,7 +1306,7 @@ impl TypeSignature {
                 cmp::max(t_size, s_size).checked_add(WRAPPER_VALUE_SIZE)
             }
             CallableType(CallableSubtype::Principal(_)) | ListUnionType(_) => Some(148), // 20+128
-            CallableType(CallableSubtype::Trait(_)) => Some(276), // 20+128+128
+            CallableType(CallableSubtype::Trait(_)) | TraitReferenceType(_) => Some(276), // 20+128+128
         }
     }
 
@@ -1332,7 +1335,7 @@ impl TypeSignature {
                     .checked_add(s.inner_type_size()?)?
                     .checked_add(1)
             }
-            CallableType(_) | ListUnionType(_) => Some(1),
+            CallableType(_) | TraitReferenceType(_) | ListUnionType(_) => Some(1),
         }
     }
 }
@@ -1521,7 +1524,9 @@ impl fmt::Display for TypeSignature {
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 write!(f, "(string-utf8 {})", len)
             }
-            CallableType(CallableSubtype::Trait(trait_id)) => write!(f, "<{}>", trait_id),
+            CallableType(CallableSubtype::Trait(trait_id)) | TraitReferenceType(trait_id) => {
+                write!(f, "<{}>", trait_id)
+            }
             CallableType(CallableSubtype::Principal(contract_id)) => {
                 write!(f, "(principal {})", contract_id)
             }

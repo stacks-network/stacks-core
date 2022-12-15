@@ -41,7 +41,8 @@ use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
-use self::type_checker::TypeChecker;
+use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
+use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::ast::build_ast_with_rules;
 use crate::vm::ast::ASTRules;
 
@@ -72,6 +73,7 @@ pub fn mem_type_check(
         &mut analysis_db,
         false,
         cost_tracker,
+        epoch,
         version,
     ) {
         Ok(x) => {
@@ -106,6 +108,7 @@ pub fn type_check(
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
         LimitedCostTracker::new_free(),
+        StacksEpochId::Epoch21,
         version.clone(),
     )
     .map_err(|(e, _cost_tracker)| e)
@@ -117,6 +120,7 @@ pub fn run_analysis(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
+    epoch: StacksEpochId,
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
     let mut contract_analysis = ContractAnalysis::new(
@@ -127,7 +131,13 @@ pub fn run_analysis(
     );
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
-        TypeChecker::run_pass(&mut contract_analysis, db)?;
+        match epoch {
+            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                TypeChecker2_05::run_pass(&mut contract_analysis, db)
+            }
+            StacksEpochId::Epoch21 => TypeChecker2_1::run_pass(&mut contract_analysis, db),
+            StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
+        }?;
         TraitChecker::run_pass(&mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 

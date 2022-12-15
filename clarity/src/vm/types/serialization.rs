@@ -355,7 +355,8 @@ impl TypeSignature {
                     .ok_or_else(|| CheckErrors::ValueTooLarge)?
             }
             TypeSignature::PrincipalType
-            | TypeSignature::CallableType(CallableSubtype::Principal(_)) => {
+            | TypeSignature::CallableType(CallableSubtype::Principal(_))
+            | TypeSignature::TraitReferenceType(_) => {
                 // version byte + 20 byte hash160
                 let maximum_issuer_size = 21;
                 let contract_name_length_encode = 1;

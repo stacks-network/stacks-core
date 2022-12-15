@@ -20,7 +20,7 @@ use crate::vm::types::{PrincipalData, TypeSignature, Value};
 use crate::vm::functions::tuples;
 
 use super::check_special_tuple_cons;
-use crate::vm::analysis::type_checker::{
+use crate::vm::analysis::type_checker::v2_05::{
     check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker, TypeResult,
     TypingContext,
 };

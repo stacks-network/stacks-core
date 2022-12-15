@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::analysis::type_checker::natives::SimpleNativeFunction;
-use crate::vm::analysis::type_checker::TypedNativeFunction;
+use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
+use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;

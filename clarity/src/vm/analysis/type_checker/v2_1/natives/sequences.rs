@@ -24,8 +24,8 @@ use std::convert::TryFrom;
 use std::convert::TryInto;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
-use crate::vm::analysis::type_checker::{
-    check_argument_count, check_arguments_at_least, no_type, CheckErrors, CheckResult, TypeChecker,
+use crate::vm::analysis::type_checker::v2_1::{
+    check_argument_count, check_arguments_at_least, CheckErrors, CheckResult, TypeChecker,
     TypeResult, TypingContext,
 };
 
@@ -105,7 +105,8 @@ pub fn check_special_map(
         func_args.push(entry_type);
     }
 
-    let mapped_type = function_type.check_args(checker, &func_args, checker.clarity_version)?;
+    let mapped_type =
+        function_type.check_args(checker, &func_args, context.epoch, context.clarity_version)?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
@@ -134,7 +135,7 @@ pub fn check_special_filter(
         }?;
 
         let filter_type =
-            function_type.check_args(checker, &[input_type], checker.clarity_version)?;
+            function_type.check_args(checker, &[input_type], context.epoch, context.clarity_version)?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
@@ -176,12 +177,17 @@ pub fn check_special_fold(
     let return_type = function_type.check_args(
         checker,
         &[input_type.clone(), initial_value_type],
-        checker.clarity_version,
+        context.epoch,
+        context.clarity_version,
     )?;
 
     // f must _also_ accepts its own return type!
-    let return_type =
-        function_type.check_args(checker, &[input_type, return_type], checker.clarity_version)?;
+    let return_type = function_type.check_args(
+        checker,
+        &[input_type, return_type],
+        context.epoch,
+        context.clarity_version,
+    )?;
 
     Ok(return_type)
 }

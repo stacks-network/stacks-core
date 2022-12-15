@@ -679,7 +679,8 @@ impl TypedNativeFunction {
                 function_type,
                 args,
                 context,
-                checker.clarity_version,
+                context.epoch,
+                context.clarity_version,
             ),
         }
     }

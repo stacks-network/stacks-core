@@ -254,6 +254,7 @@ fn run_analysis_free<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         LimitedCostTracker::new_free(),
+        DEFAULT_CLI_EPOCH,
         clarity_version,
     )
 }
@@ -285,6 +286,7 @@ fn run_analysis<C: ClarityStorage>(
         &mut marf_kv.get_analysis_db(),
         save_contract,
         cost_track,
+        DEFAULT_CLI_EPOCH,
         clarity_version,
     )
 }

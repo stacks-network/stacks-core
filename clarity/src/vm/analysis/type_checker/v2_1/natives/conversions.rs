@@ -1,6 +1,6 @@
 use crate::vm::analysis::read_only_checker::check_argument_count;
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-use crate::vm::analysis::type_checker::{TypeChecker, TypeResult};
+use super::{TypeChecker, TypeResult};
 use crate::vm::analysis::CheckError;
 use crate::vm::types::{BufferLength, SequenceSubtype, TypeSignature};
 use crate::vm::SymbolicExpression;
