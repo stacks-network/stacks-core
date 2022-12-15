@@ -4802,7 +4802,7 @@ pub mod test {
 
         let initial_balances = vec![(addr.to_account_principal(), 100000000000)];
 
-        let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 32019, 32020);
+        let mut peer_config = TestPeerConfig::new(function_name!(), 32019, 32020);
         peer_config.initial_balances = initial_balances;
         peer_config.epochs = Some(vec![
             StacksEpoch {
