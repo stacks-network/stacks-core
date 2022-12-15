@@ -78,7 +78,7 @@ use clarity::vm::test_util::TEST_BURN_STATE_DB;
 
 #[test]
 fn test_build_anchored_blocks_empty() {
-    let peer_config = TestPeerConfig::new(stdext::function_name!(), 2000, 2001);
+    let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
     let mut peer = TestPeer::new(peer_config);
 
     let chainstate_path = peer.chainstate_path.clone();
@@ -453,7 +453,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2004, 2005);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2004, 2005);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -1180,7 +1180,7 @@ fn test_build_anchored_blocks_incrementing_nonces() {
         .map(|addr| (addr.to_account_principal(), 100000000000))
         .collect();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2030, 2031);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2030, 2031);
     peer_config.initial_balances = initial_balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -1348,7 +1348,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     initial_balances.push((addr.to_account_principal(), 100000000000));
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2006, 2007);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2006, 2007);
     peer_config.initial_balances = initial_balances;
     peer_config.epochs = Some(vec![StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
@@ -1557,7 +1557,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2008, 2009);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2008, 2009);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -1705,7 +1705,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2010, 2011);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2010, 2011);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -2000,7 +2000,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
 #[test]
 fn test_build_anchored_blocks_invalid() {
-    let peer_config = TestPeerConfig::new(stdext::function_name!(), 2014, 2015);
+    let peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
     let mut peer = TestPeer::new(peer_config);
 
     let chainstate_path = peer.chainstate_path.clone();
@@ -2459,7 +2459,7 @@ fn test_build_microblock_stream_forks() {
         balances.push((addr.to_account_principal(), initial_balance));
     }
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2014, 2015);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -3221,7 +3221,7 @@ fn test_contract_call_across_clarity_versions() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2024, 2025);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2024, 2025);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
@@ -3798,7 +3798,7 @@ fn test_is_tx_problematic() {
     initial_balances.push((addr.to_account_principal(), 100000000000));
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2018, 2019);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
     peer_config.initial_balances = initial_balances;
     peer_config.epochs = Some(vec![
         StacksEpoch {

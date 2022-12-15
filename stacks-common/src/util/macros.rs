@@ -646,3 +646,14 @@ macro_rules! impl_byte_array_rusqlite_only {
         }
     };
 }
+
+// Test hepler to get the name of the current function.
+#[macro_export]
+macro_rules! function_name {
+    () => {
+        stdext::function_name!()
+            .rsplit_once("::")
+            .expect("Failed to split current function name")
+            .1
+    };
+}

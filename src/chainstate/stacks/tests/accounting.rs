@@ -94,7 +94,7 @@ fn test_bad_microblock_fees_pre_v210() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2018, 2019);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
@@ -408,7 +408,7 @@ fn test_bad_microblock_fees_fix_transition() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2020, 2021);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
@@ -763,7 +763,7 @@ fn test_get_block_info_v210() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2022, 2023);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
@@ -1133,7 +1133,7 @@ fn test_get_block_info_v210_no_microblocks() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2022, 2023);
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
