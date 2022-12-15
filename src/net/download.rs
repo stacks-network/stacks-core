@@ -2628,8 +2628,8 @@ pub mod test {
     #[test]
     fn test_get_block_availability() {
         with_timeout(600, || {
-            let mut peer_1_config = TestPeerConfig::new("test_get_block_availability", 3210, 3211);
-            let mut peer_2_config = TestPeerConfig::new("test_get_block_availability", 3212, 3213);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 3210, 3211);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 3212, 3213);
 
             // don't bother downloading blocks
             peer_1_config.connection_opts.disable_block_download = true;
@@ -3087,7 +3087,7 @@ pub mod test {
     pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
         with_timeout(600, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_2_peers_download_plain",
+                stdext::function_name!(),
                 3200,
                 2,
                 |ref mut peer_configs| {
@@ -3448,7 +3448,7 @@ pub mod test {
     pub fn test_get_blocks_and_microblocks_5_peers_star() {
         with_timeout(600, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_5_peers_star",
+                stdext::function_name!(),
                 3210,
                 5,
                 |ref mut peer_configs| {
@@ -3524,7 +3524,7 @@ pub mod test {
     pub fn test_get_blocks_and_microblocks_5_peers_line() {
         with_timeout(600, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_5_peers_line",
+                stdext::function_name!(),
                 3220,
                 5,
                 |ref mut peer_configs| {
@@ -3599,7 +3599,7 @@ pub mod test {
     pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
         with_timeout(600, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_overwhelmed_connections",
+                stdext::function_name!(),
                 3230,
                 5,
                 |ref mut peer_configs| {
@@ -3683,7 +3683,7 @@ pub mod test {
         // this one can go for a while
         with_timeout(1200, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_overwhelmed_sockets",
+                stdext::function_name!(),
                 3240,
                 5,
                 |ref mut peer_configs| {
@@ -3780,7 +3780,7 @@ pub mod test {
         });
 
         run_get_blocks_and_microblocks(
-            "test_get_blocks_and_microblocks_ban_url",
+            stdext::function_name!(),
             3250,
             2,
             |ref mut peer_configs| {
@@ -3854,7 +3854,7 @@ pub mod test {
     pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_descendants() {
         with_timeout(600, || {
             run_get_blocks_and_microblocks(
-                "test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_descendants",
+                stdext::function_name!(),
                 3260,
                 2,
                 |ref mut peer_configs| {

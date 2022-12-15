@@ -3181,16 +3181,8 @@ mod test {
 
     #[test]
     fn test_sync_inv_set_blocks_microblocks_available() {
-        let mut peer_1_config = TestPeerConfig::new(
-            "test_sync_inv_set_blocks_microblocks_available",
-            31981,
-            41981,
-        );
-        let mut peer_2_config = TestPeerConfig::new(
-            "test_sync_inv_set_blocks_microblocks_available",
-            31982,
-            41982,
-        );
+        let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31981, 41981);
+        let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 31982, 41982);
 
         let peer_1_test_path = TestPeer::make_test_path(&peer_1_config);
         let peer_2_test_path = TestPeer::make_test_path(&peer_2_config);
@@ -3424,7 +3416,7 @@ mod test {
 
     #[test]
     fn test_sync_inv_make_inv_messages() {
-        let peer_1_config = TestPeerConfig::new("test_sync_inv_make_inv_messages", 31985, 41986);
+        let peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31985, 41986);
 
         let reward_cycle_length = peer_1_config.burnchain.pox_constants.reward_cycle_length;
         let num_blocks = peer_1_config.burnchain.pox_constants.reward_cycle_length * 2;
@@ -3850,7 +3842,7 @@ mod test {
 
     #[test]
     fn test_sync_inv_diagnose_nack() {
-        let peer_config = TestPeerConfig::new("test_sync_inv_diagnose_nack", 31983, 41983);
+        let peer_config = TestPeerConfig::new(stdext::function_name!(), 31983, 41983);
         let neighbor = peer_config.to_neighbor();
         let neighbor_key = neighbor.addr.clone();
         let nack_no_block = NackData {
@@ -3956,10 +3948,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_plain() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_plain", 31992, 41992);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_plain", 31993, 41993);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31992, 41992);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 31993, 41993);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -4134,10 +4124,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_stale() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_stale", 31994, 41995);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_stale", 31995, 41996);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31994, 41995);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 31995, 41996);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -4244,10 +4232,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_unstable() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31996, 41997);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31997, 41998);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31996, 41997);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 31997, 41998);
 
             let stable_confs = peer_1_config.burnchain.stable_confirmations as u64;
 
@@ -4459,10 +4445,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_different_pox_vectors() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_different_pox_vectors", 31998, 41998);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_different_pox_vectors", 31999, 41999);
+            let mut peer_1_config = TestPeerConfig::new(stdext::function_name!(), 31998, 41998);
+            let mut peer_2_config = TestPeerConfig::new(stdext::function_name!(), 31999, 41999);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());

@@ -2695,10 +2695,12 @@ pub mod test {
                             conf.setup_code.len()
                         );
 
-                        let smart_contract = TransactionPayload::SmartContract(
-                            TransactionSmartContract {
-                                name: ContractName::try_from(conf.test_name.as_str())
-                                    .expect("FATAL: invalid boot-code contract name"),
+                        let smart_contract =
+                            TransactionPayload::SmartContract(TransactionSmartContract {
+                                name: ContractName::try_from(
+                                    conf.test_name.replace("::", "-").to_string(),
+                                )
+                                .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
                                     .expect("FATAL: invalid boot code body"),
                             },
