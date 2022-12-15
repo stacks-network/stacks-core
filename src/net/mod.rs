@@ -2695,8 +2695,8 @@ pub mod test {
                             conf.setup_code.len()
                         );
 
-                        let smart_contract =
-                            TransactionPayload::SmartContract(TransactionSmartContract {
+                        let smart_contract = TransactionPayload::SmartContract(
+                            TransactionSmartContract {
                                 name: ContractName::try_from(
                                     conf.test_name.replace("::", "-").to_string(),
                                 )

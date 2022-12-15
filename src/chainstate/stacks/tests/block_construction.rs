@@ -453,8 +453,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config =
-        TestPeerConfig::new(stdext::function_name!(), 2004, 2005);
+    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2004, 2005);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -1349,8 +1348,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     initial_balances.push((addr.to_account_principal(), 100000000000));
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-    let mut peer_config =
-        TestPeerConfig::new(stdext::function_name!(), 2006, 2007);
+    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2006, 2007);
     peer_config.initial_balances = initial_balances;
     peer_config.epochs = Some(vec![StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
@@ -1559,8 +1557,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config =
-        TestPeerConfig::new(stdext::function_name!(), 2008, 2009);
+    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2008, 2009);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -1708,8 +1705,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config =
-        TestPeerConfig::new(stdext::function_name!(), 2010, 2011);
+    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2010, 2011);
     peer_config.initial_balances = balances;
 
     let mut peer = TestPeer::new(peer_config);
@@ -3225,8 +3221,7 @@ fn test_contract_call_across_clarity_versions() {
     )
     .unwrap();
 
-    let mut peer_config =
-        TestPeerConfig::new(stdext::function_name!(), 2024, 2025);
+    let mut peer_config = TestPeerConfig::new(stdext::function_name!(), 2024, 2025);
     peer_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
