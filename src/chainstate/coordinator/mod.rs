@@ -699,6 +699,7 @@ impl<
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
     pub fn handle_new_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+        debug!("Handle new Stacks block");
         if let Some(pox_anchor) = self.process_ready_blocks()? {
             self.process_new_pox_anchor(pox_anchor, &mut HashSet::new())
         } else {
@@ -1407,8 +1408,8 @@ impl<
 
                         debug!("Canonical Stacks tip after invalidations is {}/{} height {} am `{}`", &canonical_ch, &canonical_bhh, canonical_height, &stacks_am);
 
-                        for (valid_sn_height, valid_sn) in valid_sortition_ids.iter() {
-                            test_debug!("Revalidate snapshot {},{}", valid_sn_height, valid_sn);
+                        for (_valid_sn_height, valid_sn) in valid_sortition_ids.iter() {
+                            test_debug!("Revalidate snapshot {},{}", _valid_sn_height, valid_sn);
 
                             #[cfg(any(test, feature = "testing"))]
                             {
@@ -2016,6 +2017,12 @@ impl<
                 "burn_height" => next_snapshot.block_height
             );
 
+            // always bump canonical sortition tip:
+            //   if this code path is invoked, the canonical burnchain tip
+            //   has moved, so we should move our canonical sortition tip as well.
+            self.canonical_sortition_tip = Some(sortition_id.clone());
+            last_processed_ancestor = sortition_id;
+
             // we may already have the associated Stacks block, but linked to a different sortition
             // history.  For example, if an anchor block was selected but PoX was voted disabled or
             // not voted to activate, then the same Stacks blocks could be chosen but with
@@ -2024,12 +2031,6 @@ impl<
             if next_snapshot.sortition {
                 self.try_replay_stacks_block(&canonical_snapshot, &next_snapshot)?;
             }
-
-            // always bump canonical sortition tip:
-            //   if this code path is invoked, the canonical burnchain tip
-            //   has moved, so we should move our canonical sortition tip as well.
-            self.canonical_sortition_tip = Some(sortition_id.clone());
-            last_processed_ancestor = sortition_id;
 
             if let Some(pox_anchor) = self.process_ready_blocks()? {
                 if let Some(expected_anchor_block_hash) =
