@@ -85,7 +85,6 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 3);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -106,7 +105,6 @@ Clarinet.test({
                 ],
                 bob.address),
         ]);
-        assertEquals(block.height, 4);
         // should return (err ERR_BLOCK_ALREADY_COMMITTED)
         block.receipts[0].result
             .expectErr()
@@ -123,7 +121,6 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 5);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 2, 2, 2, 2]));
@@ -368,7 +365,6 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 9);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1282,7 +1278,6 @@ Clarinet.test({
                 ],
                 alice.address),
         ]);
-        assertEquals(block.height, 4);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1386,7 +1381,6 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 4);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1488,7 +1482,6 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 6);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
@@ -1607,7 +1600,6 @@ Clarinet.test({
                 ],
                 miner.address),
         ]);
-        assertEquals(block.height, 6);
         block.receipts[0].result
             .expectOk()
             .expectBuff(new Uint8Array([0, 1, 1, 1, 1]));
