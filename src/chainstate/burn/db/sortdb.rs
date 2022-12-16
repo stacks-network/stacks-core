@@ -3776,11 +3776,12 @@ impl SortitionDB {
         query_row(conn, qry, NO_PARAMS)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
-    
+
     /// Get the highest burn chain tip even if it's not PoX-valid.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_highest_known_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        let qry = "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
+        let qry =
+            "SELECT * FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1";
         query_row(conn, qry, NO_PARAMS)
             .map(|opt| opt.expect("CORRUPTION: No canonical burnchain tip"))
     }
