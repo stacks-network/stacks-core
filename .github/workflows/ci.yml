@@ -191,7 +191,7 @@ jobs:
       - name: "Make Clarinet executable"
         run: chmod +x ./clarinet
       - name: "Execute Clarinet tests"
-        run: ./clarinet test --coverage --manifest-path=./core-contracts/Clarinet.toml
+        run: ./clarinet test --coverage --manifest-path=./core-contracts/Clarinet.toml --import-map=./core-contracts/import_map.json --allow-net
       - name: "Export code coverage"
         uses: codecov/codecov-action@v1
         with:
