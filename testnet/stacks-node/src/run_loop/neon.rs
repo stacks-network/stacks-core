@@ -709,7 +709,7 @@ impl RunLoop {
             );
             return;
         }
-        
+
         // NOTE: this could be lower than the highest_sn
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not read sortition DB");
