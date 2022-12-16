@@ -1,4 +1,4 @@
-import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land/x/clarinet@v1.1.0/index.ts';
+import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land/x/clarinet@v1.2.0/index.ts';
 import { assertEquals } from "https://deno.land/std@0.90.0/testing/asserts.ts";
 
 import { decode as decHex, encode as encHex } from "https://deno.land/std@0.149.0/encoding/hex.ts";
