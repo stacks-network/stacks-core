@@ -21,6 +21,7 @@ use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
 use serde_json::Value as JSONValue;
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
 use crate::vm::errors::{
@@ -613,7 +614,7 @@ impl Value {
                 }
 
                 if let Some(list_type) = list_type {
-                    Value::list_with_type(items, list_type.clone())
+                    Value::list_with_type(&StacksEpochId::latest(), items, list_type.clone())
                         .map_err(|_| "Illegal list type".into())
                 } else {
                     Value::list_from(items).map_err(|_| "Illegal list type".into())
@@ -659,7 +660,7 @@ impl Value {
                 }
 
                 if let Some(tuple_type) = tuple_type {
-                    TupleData::from_data_typed(items, tuple_type)
+                    TupleData::from_data_typed(&StacksEpochId::latest(), items, tuple_type)
                         .map_err(|_| "Illegal tuple type".into())
                         .map(Value::from)
                 } else {

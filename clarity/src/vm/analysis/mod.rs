@@ -130,15 +130,15 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
+        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                TypeChecker2_05::run_pass(&mut contract_analysis, db)
+                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
-            StacksEpochId::Epoch21 => TypeChecker2_1::run_pass(&mut contract_analysis, db),
+            StacksEpochId::Epoch21 => TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db),
             StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
         }?;
-        TraitChecker::run_pass(&mut contract_analysis, db)?;
+        TraitChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         if STORE_CONTRACT_SRC_INTERFACE {

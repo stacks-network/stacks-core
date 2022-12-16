@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
@@ -134,8 +136,12 @@ pub fn check_special_filter(
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
-        let filter_type =
-            function_type.check_args(checker, &[input_type], context.epoch, context.clarity_version)?;
+        let filter_type = function_type.check_args(
+            checker,
+            &[input_type],
+            context.epoch,
+            context.clarity_version,
+        )?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
@@ -215,8 +221,11 @@ pub fn check_special_concat(
                     let (rhs_entry_type, rhs_max_len) =
                         (rhs_list.get_list_item_type(), rhs_list.get_max_len());
 
-                    let list_entry_type =
-                        TypeSignature::least_supertype(lhs_entry_type, rhs_entry_type)?;
+                    let list_entry_type = TypeSignature::least_supertype(
+                        &StacksEpochId::Epoch21,
+                        lhs_entry_type,
+                        rhs_entry_type,
+                    )?;
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(CheckErrors::MaxLengthOverflow)?;
@@ -268,7 +277,11 @@ pub fn check_special_append(
 
             analysis_typecheck_cost(checker, &lhs_entry_type, &rhs_type)?;
 
-            let list_entry_type = TypeSignature::least_supertype(&lhs_entry_type, &rhs_type)?;
+            let list_entry_type = TypeSignature::least_supertype(
+                &StacksEpochId::Epoch21,
+                &lhs_entry_type,
+                &rhs_type,
+            )?;
             let new_len = lhs_max_len
                 .checked_add(1)
                 .ok_or(CheckErrors::MaxLengthOverflow)?;

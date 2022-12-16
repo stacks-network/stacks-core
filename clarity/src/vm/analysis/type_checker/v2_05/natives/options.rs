@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::TypeSignature;
 
@@ -117,7 +119,7 @@ pub fn check_special_default_to(
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
-        TypeSignature::least_supertype(&default, &contained_type)
+        TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &default, &contained_type)
             .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
     } else {
         return Err(CheckErrors::ExpectedOptionalType(input).into());
@@ -324,8 +326,12 @@ fn check_special_match_opt(
 
     analysis_typecheck_cost(checker, &some_branch_type, &none_branch_type)?;
 
-    TypeSignature::least_supertype(&some_branch_type, &none_branch_type)
-        .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
+    TypeSignature::least_supertype(
+        &StacksEpochId::Epoch2_05,
+        &some_branch_type,
+        &none_branch_type,
+    )
+    .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
 }
 
 fn check_special_match_resp(
@@ -363,7 +369,7 @@ fn check_special_match_resp(
 
     analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
-    TypeSignature::least_supertype(&ok_branch_type, &err_branch_type)
+    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &ok_branch_type, &err_branch_type)
         .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
 }
 

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{CheckErrors, CheckResult};
@@ -31,6 +33,7 @@ const SERIALIZE_FAIL_MESSAGE: &str =
 
 pub trait AnalysisPass {
     fn run_pass(
+        epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()>;
@@ -186,6 +189,7 @@ impl ContractAnalysis {
 
     pub fn check_trait_compliance(
         &self,
+        epoch: &StacksEpochId,
         trait_identifier: &TraitIdentifier,
         trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
     ) -> CheckResult<()> {
@@ -199,7 +203,7 @@ impl ContractAnalysis {
                 (Some(FunctionType::Fixed(func)), None)
                 | (None, Some(FunctionType::Fixed(func))) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
-                    if !expected_sig.check_args_trait_compliance(args_sig)? {
+                    if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
@@ -207,7 +211,7 @@ impl ContractAnalysis {
                         .into());
                     }
 
-                    if !expected_sig.returns.admits_type(&func.returns)? {
+                    if !expected_sig.returns.admits_type(epoch, &func.returns)? {
                         return Err(CheckErrors::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),

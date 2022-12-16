@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::types::StacksEpochId;
+
 use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
     TypeResult, TypingContext,
@@ -307,7 +309,7 @@ fn check_special_set_var(
     )?;
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
 
-    if !expected_value_type.admits_type(&value_type)? {
+    if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
         return Err(CheckError::new(CheckErrors::TypeError(
             expected_value_type.clone(),
             value_type,
@@ -329,7 +331,7 @@ fn check_special_equals(
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
-        arg_type = TypeSignature::least_supertype(&x_type, &arg_type)
+        arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch21, &x_type, &arg_type)
             .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
     }
 
@@ -352,7 +354,7 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(expr1, expr2)
+    TypeSignature::least_supertype(&StacksEpochId::Epoch21, expr1, expr2)
         .and_then(|t| t.concretize())
         .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }

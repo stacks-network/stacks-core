@@ -19,6 +19,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::iter::FromIterator;
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::costs::{cost_functions, runtime_cost};
 
 use crate::vm::analysis::errors::CheckErrors;
@@ -191,7 +193,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(value)? {
+                        if !type_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
                                 type_sig.clone(),
                                 value.clone(),
@@ -232,7 +234,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(&cast_value)? {
+                        if !type_sig.admits(env.epoch(), &cast_value)? {
                             return Err(
                                 CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
                             );
@@ -261,6 +263,7 @@ impl DefinedFunction {
 
     pub fn check_trait_expectations(
         &self,
+        epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
     ) -> Result<()> {
@@ -277,7 +280,7 @@ impl DefinedFunction {
                 ))?;
 
         let args = self.arg_types.iter().map(|a| a.clone()).collect();
-        if !expected_sig.check_args_trait_compliance(args)? {
+        if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
             );
