@@ -260,6 +260,10 @@ use crate::types::chainstate::{
 };
 use crate::util_lib::boot::boot_code_id;
 
+use serde::de::Error as de_Error;
+use serde::ser::Error as ser_Error;
+use serde::{Deserialize, Serialize};
+
 /// Affirmation map entries.  By building on a PoX-mined block,
 /// a PoB-mined block (in a PoX reward cycle),
 /// or no block in reward cycle _i_, a sortition's miner
@@ -317,6 +321,23 @@ impl fmt::Display for AffirmationMap {
 impl fmt::Debug for AffirmationMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl Serialize for AffirmationMap {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let am_str = self.encode();
+        s.serialize_str(am_str.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AffirmationMap {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<AffirmationMap, D::Error> {
+        let am_str = String::deserialize(d)?;
+        let am = AffirmationMap::decode(&am_str).ok_or(de_Error::custom(
+            "Failed to decode affirmation map".to_string(),
+        ))?;
+        Ok(am)
     }
 }
 

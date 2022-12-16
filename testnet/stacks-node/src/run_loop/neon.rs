@@ -17,6 +17,7 @@ use stacks::deps::ctrlc as termination;
 use stacks::deps::ctrlc::SignalId;
 
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
@@ -44,6 +45,7 @@ use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
+use stacks_common::util::get_epoch_time_secs;
 
 use libc;
 use stacks::util::hash::Hash160;
@@ -145,6 +147,9 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
+    /// times of the last attempt to recover from a PoX reorg, in seconds
+    last_stacks_pox_reorg_recover_time: u128,
+    last_burn_pox_reorg_recover_time: u128,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -191,6 +196,8 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
+            last_stacks_pox_reorg_recover_time: 0,
+            last_burn_pox_reorg_recover_time: 0,
         }
     }
 
@@ -518,11 +525,18 @@ impl RunLoop {
             ))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .spawn(move || {
+                debug!(
+                    "chains-coordinator thread ID is {:?}",
+                    thread::current().id()
+                );
                 let mut cost_estimator = moved_config.make_cost_estimator();
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
                 let coord_config = ChainsCoordinatorConfig {
                     always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
+                    require_affirmed_anchor_blocks: moved_config
+                        .node
+                        .require_affirmed_anchor_blocks,
                     ..ChainsCoordinatorConfig::new()
                 };
                 ChainsCoordinator::run(
@@ -557,6 +571,7 @@ impl RunLoop {
             thread::Builder::new()
                 .name("prometheus".to_string())
                 .spawn(move || {
+                    debug!("prometheus thread ID is {:?}", thread::current().id());
                     start_serving_monitoring_metrics(prometheus_bind);
                 })
                 .unwrap();
@@ -593,6 +608,145 @@ impl RunLoop {
             ),
             sn,
         )
+    }
+
+    /// Wake up and drive stacks block processing if there's been a PoX reorg.
+    /// Be careful not to saturate calls to announce new stacks blocks, because that will disable
+    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
+    /// progress).
+    fn drive_pox_reorg_stacks_block_processing(&mut self, globals: &Globals, sortdb: &SortitionDB) {
+        let delay = cmp::max(
+            1,
+            cmp::max(
+                self.config.miner.first_attempt_time_ms,
+                self.config.miner.subsequent_attempt_time_ms,
+            ) / 1000,
+        );
+
+        if self.last_stacks_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into()
+        {
+            // too soon
+            return;
+        }
+
+        // compare stacks and heaviest AMs
+        let burnchain_db = self
+            .get_burnchain()
+            .open_burnchain_db(false)
+            .expect("FATAL: failed to open burnchain DB");
+
+        let heaviest_affirmation_map = match BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+            burnchain_db.conn(),
+            &self.get_burnchain(),
+        ) {
+            Ok(am) => am,
+            Err(e) => {
+                warn!("Failed to find heaviest affirmation map: {:?}", &e);
+                return;
+            }
+        };
+
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: could not read sortition DB");
+        let stacks_tip_affirmation_map = StacksChainState::find_stacks_tip_affirmation_map(
+            &burnchain_db,
+            sortdb.conn(),
+            &sn.canonical_stacks_tip_consensus_hash,
+            &sn.canonical_stacks_tip_hash,
+        )
+        .expect("FATAL: could not query stacks DB");
+
+        if stacks_tip_affirmation_map.len() < heaviest_affirmation_map.len()
+            || stacks_tip_affirmation_map
+                .find_divergence(&heaviest_affirmation_map)
+                .is_some()
+        {
+            debug!("Drive stacks block processing if there's a PoX reorg");
+            globals.coord().announce_new_stacks_block();
+        }
+
+        self.last_stacks_pox_reorg_recover_time = get_epoch_time_secs().into();
+    }
+
+    /// Wake up and drive sortition processing if there's been a PoX reorg.
+    /// Be careful not to saturate calls to announce new burn blocks, because that will disable
+    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
+    /// progress).
+    ///
+    /// only call if no in ibd
+    fn drive_pox_reorg_burn_block_processing(&mut self, globals: &Globals, sortdb: &SortitionDB) {
+        let delay = cmp::max(
+            1,
+            cmp::max(
+                self.config.miner.first_attempt_time_ms,
+                self.config.miner.subsequent_attempt_time_ms,
+            ) / 1000,
+        );
+
+        if self.last_burn_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
+            // too soon
+            return;
+        }
+
+        // compare sortition and heaviest AMs
+        let burnchain_db = self
+            .get_burnchain()
+            .open_burnchain_db(false)
+            .expect("FATAL: failed to open burnchain DB");
+
+        let highest_sn = SortitionDB::get_highest_known_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: could not read sortition DB");
+
+        let canonical_burnchain_tip = burnchain_db
+            .get_canonical_chain_tip()
+            .expect("FATAL: could not read burnchain DB");
+
+        if canonical_burnchain_tip.block_height > highest_sn.block_height {
+            // still processing sortitions
+            debug!(
+                "Drive burn block processing: still processing sortitions ({} > {})",
+                canonical_burnchain_tip.block_height, highest_sn.block_height
+            );
+            return;
+        }
+        
+        // NOTE: this could be lower than the highest_sn
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .expect("FATAL: could not read sortition DB");
+
+        let sortition_tip_affirmation_map = match SortitionDB::find_sortition_tip_affirmation_map(
+            &burnchain_db,
+            sortdb,
+            &sn.sortition_id,
+        ) {
+            Ok(am) => am,
+            Err(e) => {
+                warn!("Failed to find sortition affirmation map: {:?}", &e);
+                return;
+            }
+        };
+
+        let heaviest_affirmation_map = match BurnchainDB::get_heaviest_anchor_block_affirmation_map(
+            burnchain_db.conn(),
+            &self.get_burnchain(),
+        ) {
+            Ok(am) => am,
+            Err(e) => {
+                warn!("Failed to find heaviest affirmation map: {:?}", &e);
+                return;
+            }
+        };
+
+        if sortition_tip_affirmation_map.len() < heaviest_affirmation_map.len()
+            || sortition_tip_affirmation_map
+                .find_divergence(&heaviest_affirmation_map)
+                .is_some()
+        {
+            debug!("Drive burn block processing if there's a PoX reorg");
+            globals.coord().announce_new_stacks_block();
+        }
+
+        self.last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
     }
 
     /// Starts the node runloop.
@@ -673,7 +827,7 @@ impl RunLoop {
             .expect("Unable to get burnchain tip");
 
         // Start the runloop
-        debug!("Begin run loop");
+        debug!("Runloop: Begin run loop");
         self.counters.bump_blocks_processed();
 
         let mut sortition_db_height = rc_aligned_height;
@@ -689,7 +843,7 @@ impl RunLoop {
         );
 
         debug!(
-            "Begin main runloop starting a burnchain block {}",
+            "Runloop: Begin main runloop starting a burnchain block {}",
             sortition_db_height
         );
 
@@ -713,7 +867,7 @@ impl RunLoop {
             let remote_chain_height = burnchain.get_headers_height();
 
             // wait for the p2p state-machine to do at least one pass
-            debug!("Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
+            debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
 
             // wait until it's okay to process the next reward cycle's sortitions
             let ibd = match self.get_pox_watchdog().pox_sync_wait(
@@ -724,7 +878,7 @@ impl RunLoop {
             ) {
                 Ok(ibd) => ibd,
                 Err(e) => {
-                    debug!("PoX sync wait routine aborted: {:?}", e);
+                    debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
                     continue;
                 }
             };
@@ -746,7 +900,7 @@ impl RunLoop {
                     match burnchain.sync(Some(burnchain_height + 1)) {
                         Ok(x) => x,
                         Err(e) => {
-                            warn!("Burnchain controller stopped: {}", e);
+                            warn!("Runloop: Burnchain controller stopped: {}", e);
                             continue;
                         }
                     };
@@ -760,18 +914,20 @@ impl RunLoop {
 
                 if next_sortition_height != last_tenure_sortition_height {
                     info!(
-                        "Downloaded burnchain blocks up to height {}; target height is {}; next_sortition_height = {}, sortition_db_height = {}",
+                        "Runloop: Downloaded burnchain blocks up to height {}; target height is {}; next_sortition_height = {}, sortition_db_height = {}",
                         burnchain_height, target_burnchain_block_height, next_sortition_height, sortition_db_height
                     );
                 }
 
                 if next_sortition_height > sortition_db_height {
                     debug!(
-                        "New burnchain block height {} > {}",
+                        "Runloop: New burnchain block height {} > {}",
                         next_sortition_height, sortition_db_height
                     );
 
                     let mut sort_count = 0;
+
+                    debug!("Runloop: block mining until we process all sortitions");
                     signal_mining_blocked(globals.get_miner_status());
 
                     // first, let's process all blocks in (sortition_db_height, next_sortition_height]
@@ -805,7 +961,7 @@ impl RunLoop {
                         // _this will block if the relayer's buffer is full_
                         if !node.relayer_sortition_notify() {
                             // relayer hung up, exit.
-                            error!("Block relayer and miner hung up, exiting.");
+                            error!("Runloop: Block relayer and miner hung up, exiting.");
                             return;
                         }
                     }
@@ -814,7 +970,7 @@ impl RunLoop {
 
                     num_sortitions_in_last_cycle = sort_count;
                     debug!(
-                        "Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
+                        "Runloop: Synchronized burnchain up to block height {} from {} (chain tip height is {}); {} sortitions",
                         next_sortition_height, sortition_db_height, burnchain_height, num_sortitions_in_last_cycle;
                     );
 
@@ -841,6 +997,9 @@ impl RunLoop {
                     + 1,
             );
 
+            self.drive_pox_reorg_burn_block_processing(&globals, burnchain.sortdb_ref());
+            self.drive_pox_reorg_stacks_block_processing(&globals, burnchain.sortdb_ref());
+
             if sortition_db_height >= burnchain_height && !ibd {
                 let canonical_stacks_tip_height =
                     SortitionDB::get_canonical_burn_chain_tip(burnchain.sortdb_ref().conn())
@@ -848,7 +1007,7 @@ impl RunLoop {
                         .unwrap_or(0);
                 if canonical_stacks_tip_height < mine_start {
                     info!(
-                        "Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
+                        "Runloop: Synchronized full burnchain, but stacks tip height is {}, and we are trying to boot to {}, not mining until reaching chain tip",
                         canonical_stacks_tip_height,
                         mine_start
                     );
@@ -860,7 +1019,7 @@ impl RunLoop {
                     // at tip, and not downloading. proceed to mine.
                     if last_tenure_sortition_height != sortition_db_height {
                         info!(
-                            "Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                            "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
                             sortition_db_height
                         );
                         last_tenure_sortition_height = sortition_db_height;
@@ -868,7 +1027,7 @@ impl RunLoop {
 
                     if !node.relayer_issue_tenure(ibd) {
                         // relayer hung up, exit.
-                        error!("Block relayer and miner hung up, exiting.");
+                        error!("Runloop: Block relayer and miner hung up, exiting.");
                         break;
                     }
                 }

@@ -31,6 +31,7 @@ use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::{DatabaseName, NO_PARAMS};
 
+use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::burnchains::*;
@@ -88,8 +89,11 @@ use crate::net::{
 };
 use crate::net::{BlocksData, GetIsTraitImplementedResponse};
 use crate::net::{ClientError, TipRequest};
+use crate::net::{
+    RPCAffirmationData, RPCLastPoxAnchorData, RPCPeerInfoData, RPCPoxContractVersion,
+    RPCPoxInfoData,
+};
 use crate::net::{RPCNeighbor, RPCNeighborsInfo};
-use crate::net::{RPCPeerInfoData, RPCPoxContractVersion, RPCPoxInfoData};
 use crate::util_lib::db::DBConn;
 use crate::util_lib::db::Error as db_error;
 use clarity::vm::database::clarity_store::make_contract_hash_key;
@@ -259,6 +263,16 @@ impl RPCPeerInfoData {
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
+            affirmations: Some(RPCAffirmationData {
+                heaviest: network.heaviest_affirmation_map.clone(),
+                stacks_tip: network.stacks_tip_affirmation_map.clone(),
+                sortition_tip: network.sortition_tip_affirmation_map.clone(),
+                tentative_best: network.tentative_best_affirmation_map.clone(),
+            }),
+            last_pox_anchor: Some(RPCLastPoxAnchorData {
+                anchor_block_hash: network.last_anchor_block_hash.clone(),
+                anchor_block_txid: network.last_anchor_block_txid.clone(),
+            }),
         }
     }
 }

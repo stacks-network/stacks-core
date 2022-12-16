@@ -687,7 +687,7 @@ check if the associated microblocks can be downloaded
                 .expect("Failed to compute PoX cycle");
 
             match result {
-                Ok((_, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
+                Ok((_, _, _, confirmed_by)) => results.push((eval_height, true, confirmed_by)),
                 Err(confirmed_by) => results.push((eval_height, false, confirmed_by)),
             };
         }
