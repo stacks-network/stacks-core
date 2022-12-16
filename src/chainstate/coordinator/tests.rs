@@ -3319,7 +3319,7 @@ fn test_delegate_stx_btc_ops() {
     let pox_v1_unlock_ht = 12;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
-        5,
+        100,
         3,
         3,
         25,
@@ -3370,10 +3370,8 @@ fn test_delegate_stx_btc_ops() {
     assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
     assert_eq!(ops.consumed_leader_keys.len(), 0);
 
-    let mut started_first_reward_cycle = false;
     // process sequential blocks, and their sortitions...
     let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
-    let mut anchor_blocks = vec![];
 
     for ix in 0..vrf_keys.len() {
         let vrf_key = &vrf_keys[ix];
@@ -3514,26 +3512,6 @@ fn test_delegate_stx_btc_ops() {
         // handle the sortition
         coord.handle_new_burnchain_block().unwrap();
 
-        let new_burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
-        if b.is_reward_cycle_start(new_burnchain_tip.block_height) {
-            started_first_reward_cycle = true;
-            // store the anchor block for this sortition for later checking
-            let ic = sort_db.index_handle_at_tip();
-            let bhh_opt = ic.get_last_anchor_block_hash().unwrap();
-            if new_burnchain_tip.block_height == 31 {
-                // **New in 2.1** -- a reward cycle can contain an anchor block for at most one other reward cycle.
-                // Usually, cycle N contains the anchor block for cycle N+1.
-                // Here, cycle 6 confirms the *same* anchor block as in cycle 5, so it must have
-                // _no_ anchor block.
-                assert!(
-                    bhh_opt.is_none(),
-                    "FATAL: a reward cycle contains two anchor blocks"
-                );
-            } else {
-                anchor_blocks.push(bhh_opt.unwrap());
-            }
-        }
-
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         assert_eq!(&tip.winning_block_txid, &expected_winner);
 
@@ -3553,6 +3531,10 @@ fn test_delegate_stx_btc_ops() {
         // check our delegated balance after Epoch 2.1 begins (at burn height 8)
         let mut chainstate = get_chainstate(path);
         if ix >= 6 {
+            eprintln!(
+                "ix = {}, parent tip = {} = {}/{}, tip height is {}",
+                ix, &parent_tip, &tip.consensus_hash, &block_hash, tip.block_height
+            );
             let first_delegation_info = get_delegation_info_pox_2(
                 &mut chainstate,
                 &sort_db.index_conn(),
@@ -3629,9 +3611,7 @@ fn test_delegate_stx_btc_ops() {
     {
         let ic = sort_db.index_handle_at_tip();
         let pox_id = ic.get_pox_id().unwrap();
-        assert_eq!(&pox_id.to_string(),
-                   "111111111111",
-                   "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
+        assert_eq!(&pox_id.to_string(), "11")
     }
 }
 
