@@ -6111,6 +6111,7 @@ mod test {
     #[test]
     fn test_http_response_type_codec() {
         let test_neighbors_info = RPCNeighborsInfo {
+            bootstrap: vec![],
             sample: vec![
                 RPCNeighbor {
                     network_id: 1,
@@ -6712,9 +6713,9 @@ mod test {
     #[test]
     fn test_http_duplicate_concurrent_streamed_response_fails() {
         // do not permit multiple in-flight chunk-encoded HTTP responses with the same request ID.
-        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n28\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
+        let valid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n37\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
         let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
-        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n29\r\n{\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
+        let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n38\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
         let mut http = StacksHttp::new("127.0.0.1:20443".parse().unwrap());
 
@@ -6745,6 +6746,7 @@ mod test {
             ) => assert_eq!(
                 neighbors_data,
                 RPCNeighborsInfo {
+                    bootstrap: vec![],
                     sample: vec![],
                     inbound: vec![],
                     outbound: vec![]

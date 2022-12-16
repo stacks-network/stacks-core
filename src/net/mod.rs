@@ -1416,6 +1416,7 @@ impl RPCNeighbor {
 /// Struct given back from a call to `/v2/neighbors`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCNeighborsInfo {
+    pub bootstrap: Vec<RPCNeighbor>,
     pub sample: Vec<RPCNeighbor>,
     pub inbound: Vec<RPCNeighbor>,
     pub outbound: Vec<RPCNeighbor>,
@@ -2696,8 +2697,10 @@ pub mod test {
 
                         let smart_contract = TransactionPayload::SmartContract(
                             TransactionSmartContract {
-                                name: ContractName::try_from(conf.test_name.as_str())
-                                    .expect("FATAL: invalid boot-code contract name"),
+                                name: ContractName::try_from(
+                                    conf.test_name.replace("::", "-").to_string(),
+                                )
+                                .expect("FATAL: invalid boot-code contract name"),
                                 code_body: StacksString::from_str(&conf.setup_code)
                                     .expect("FATAL: invalid boot code body"),
                             },

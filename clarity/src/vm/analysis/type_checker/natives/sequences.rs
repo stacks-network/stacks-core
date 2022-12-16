@@ -310,16 +310,16 @@ pub fn check_special_as_max_len(
             )))
         }
         TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
-            TypeSignature::SequenceType(BufferType(BufferLength::try_from(expected_len).unwrap())),
+            TypeSignature::SequenceType(BufferType(BufferLength::try_from(expected_len)?)),
         ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(expected_len).unwrap(),
+                BufferLength::try_from(expected_len)?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(expected_len).unwrap(),
+                StringUTF8Length::try_from(expected_len)?,
             )))),
         )),
         _ => Err(CheckErrors::ExpectedSequence(sequence).into()),

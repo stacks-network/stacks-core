@@ -447,16 +447,16 @@ impl TypeSignature {
         &TypeSignature::NoType == self
     }
 
-    pub fn admits(&self, x: &Value) -> bool {
+    pub fn admits(&self, x: &Value) -> Result<bool> {
         let x_type = TypeSignature::type_of(x);
         self.admits_type(&x_type)
     }
 
-    pub fn admits_type(&self, other: &TypeSignature) -> bool {
+    pub fn admits_type(&self, other: &TypeSignature) -> Result<bool> {
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
-                return false;
+                return Ok(false);
             }
         };
 
@@ -465,41 +465,41 @@ impl TypeSignature {
                 if let SequenceType(SequenceSubtype::ListType(other_list_type)) = &other {
                     if other_list_type.max_len == 0 {
                         // if other is an empty list, a list type should always admit.
-                        true
+                        Ok(true)
                     } else if my_list_type.max_len >= other_list_type.max_len {
                         my_list_type
                             .entry_type
                             .admits_type(&*other_list_type.entry_type)
                     } else {
-                        false
+                        Ok(false)
                     }
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
                 if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = &other {
-                    my_len.0 >= other_len.0
+                    Ok(my_len.0 >= other_len.0)
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
                 if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) =
                     &other
                 {
-                    len.0 >= other_len.0
+                    Ok(len.0 >= other_len.0)
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) =
                     &other
                 {
-                    len.0 >= other_len.0
+                    Ok(len.0 >= other_len.0)
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             OptionalType(ref my_inner_type) => {
@@ -507,12 +507,12 @@ impl TypeSignature {
                     // Option types will always admit a "NoType" OptionalType -- which
                     //   can only be a None
                     if other_inner_type.is_no_type() {
-                        true
+                        Ok(true)
                     } else {
                         my_inner_type.admits_type(other_inner_type)
                     }
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             ResponseType(ref my_inner_type) => {
@@ -527,22 +527,22 @@ impl TypeSignature {
                     } else if other_inner_type.1.is_no_type() {
                         my_inner_type.0.admits_type(&other_inner_type.0)
                     } else {
-                        my_inner_type.1.admits_type(&other_inner_type.1)
-                            && my_inner_type.0.admits_type(&other_inner_type.0)
+                        Ok(my_inner_type.1.admits_type(&other_inner_type.1)?
+                            && my_inner_type.0.admits_type(&other_inner_type.0)?)
                     }
                 } else {
-                    false
+                    Ok(false)
                 }
             }
             TupleType(ref tuple_sig) => {
                 if let TupleType(ref other_tuple_sig) = &other {
                     tuple_sig.admits(other_tuple_sig)
                 } else {
-                    false
+                    Ok(false)
                 }
             }
-            NoType => panic!("NoType should never be asked to admit."),
-            _ => &other == self,
+            NoType => Err(CheckErrors::CouldNotDetermineType),
+            _ => Ok(&other == self),
         }
     }
 
@@ -645,22 +645,22 @@ impl TupleTypeSignature {
         &self.type_map
     }
 
-    pub fn admits(&self, other: &TupleTypeSignature) -> bool {
+    pub fn admits(&self, other: &TupleTypeSignature) -> Result<bool> {
         if self.type_map.len() != other.type_map.len() {
-            return false;
+            return Ok(false);
         }
 
         for (name, my_type_sig) in self.type_map.iter() {
             if let Some(other_type_sig) = other.type_map.get(name) {
-                if !my_type_sig.admits_type(other_type_sig) {
-                    return false;
+                if !my_type_sig.admits_type(other_type_sig)? {
+                    return Ok(false);
                 }
             } else {
-                return false;
+                return Ok(false);
             }
         }
 
-        return true;
+        return Ok(true);
     }
 
     pub fn parse_name_type_pair_list<A: CostTracker>(
@@ -701,17 +701,17 @@ impl FunctionSignature {
         Ok(function_type_size)
     }
 
-    pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> bool {
+    pub fn check_args_trait_compliance(&self, args: Vec<TypeSignature>) -> Result<bool> {
         if args.len() != self.args.len() {
-            return false;
+            return Ok(false);
         }
         let args_iter = self.args.iter().zip(args.iter());
         for (expected_arg, arg) in args_iter {
-            if !arg.admits_type(&expected_arg) {
-                return false;
+            if !arg.admits_type(&expected_arg)? {
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 }
 

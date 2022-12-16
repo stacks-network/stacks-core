@@ -192,7 +192,7 @@ fn bitcoind_integration(segwit_flag: bool) {
             assert_eq!(block.sortition, true);
             assert_eq!(block.num_sortitions, round as u64 + 1);
             assert_eq!(block.block_height, round as u64 + 2003);
-            let leader_key = "eb5b00d8ba6d3e40334364721014ead390dc995e9d00d17d8fd8ee544afd6e58";
+            let leader_key = "f888e0cab5c16de8edf72b544a189ece5c0b95cd9178606c970789ac71d17bb4";
 
             match round {
                 0 => {
