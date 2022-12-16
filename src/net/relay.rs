@@ -552,7 +552,13 @@ impl Relayer {
             consensus_hash,
             &block.block_hash()
         );
-        if Self::fault_injection_is_block_hidden(&block.header) {
+
+        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
+            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+
+        if chainstate.fault_injection.hide_blocks
+            && Self::fault_injection_is_block_hidden(&block.header, block_sn.block_height)
+        {
             return Ok(false);
         }
 
@@ -569,8 +575,6 @@ impl Relayer {
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its
         // txs problematic).
-        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
-            .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
         let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
         let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
             .expect("FATAL: no epoch defined")
@@ -710,8 +714,15 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
-            if Self::fault_injection_is_block_hidden(&block.header) {
-                continue;
+            if chainstate.fault_injection.hide_blocks {
+                if let Some(sn) =
+                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
+                        .expect("FATAL: failed to query downloaded block snapshot")
+                {
+                    if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
+                        continue;
+                    }
+                }
             }
             match Relayer::process_new_anchored_block(
                 sort_ic,
@@ -759,7 +770,10 @@ impl Relayer {
     // fault injection -- don't accept this block if we are to deliberatly ignore
     // it in a test
     #[cfg(any(test, feature = "testing"))]
-    pub fn fault_injection_is_block_hidden(header: &StacksBlockHeader) -> bool {
+    pub fn fault_injection_is_block_hidden(
+        _header: &StacksBlockHeader,
+        burn_block_height: u64,
+    ) -> bool {
         if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
             use serde_json;
             if let Ok(serde_json::Value::Array(height_list_value)) =
@@ -767,9 +781,9 @@ impl Relayer {
             {
                 for height_value in height_list_value {
                     if let Some(fault_height) = height_value.as_u64() {
-                        if fault_height == header.total_work.work {
+                        if fault_height == burn_block_height {
                             debug!(
-                                "Fault injection: hide anchored block at height {}",
+                                "Fault injection: hide anchored block at burn block height {}",
                                 fault_height
                             );
                             return true;
@@ -782,7 +796,10 @@ impl Relayer {
     }
 
     #[cfg(not(any(test, feature = "testing")))]
-    pub fn fault_injection_is_block_hidden(_block: &StacksBlockHeader) -> bool {
+    pub fn fault_injection_is_block_hidden(
+        _block: &StacksBlockHeader,
+        _burn_block_height: u64,
+    ) -> bool {
         false
     }
 
@@ -812,9 +829,6 @@ impl Relayer {
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
-                    if Self::fault_injection_is_block_hidden(&block.header) {
-                        continue;
-                    }
                     match SortitionDB::get_block_snapshot_consensus(
                         sort_ic.conn(),
                         &consensus_hash,
@@ -825,6 +839,14 @@ impl Relayer {
                                     "Consensus hash {} is not on the valid PoX fork",
                                     &consensus_hash
                                 );
+                                continue;
+                            }
+                            if chainstate.fault_injection.hide_blocks
+                                && Self::fault_injection_is_block_hidden(
+                                    &block.header,
+                                    sn.block_height,
+                                )
+                            {
                                 continue;
                             }
                         }
