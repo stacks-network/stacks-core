@@ -453,9 +453,16 @@ impl TypeSignature {
     }
 
     pub fn admits_type(&self, other: &TypeSignature) -> bool {
+        let other = match other.concretize() {
+            Ok(other) => other,
+            Err(_) => {
+                return false;
+            }
+        };
+
         match self {
             SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
-                if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
+                if let SequenceType(SequenceSubtype::ListType(other_list_type)) = &other {
                     if other_list_type.max_len == 0 {
                         // if other is an empty list, a list type should always admit.
                         true
@@ -471,7 +478,7 @@ impl TypeSignature {
                 }
             }
             SequenceType(SequenceSubtype::BufferType(ref my_len)) => {
-                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = other {
+                if let SequenceType(SequenceSubtype::BufferType(ref other_len)) = &other {
                     my_len.0 >= other_len.0
                 } else {
                     false
@@ -479,7 +486,7 @@ impl TypeSignature {
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(len))) => {
                 if let SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(other_len))) =
-                    other
+                    &other
                 {
                     len.0 >= other_len.0
                 } else {
@@ -488,7 +495,7 @@ impl TypeSignature {
             }
             SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(len))) => {
                 if let SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(other_len))) =
-                    other
+                    &other
                 {
                     len.0 >= other_len.0
                 } else {
@@ -496,7 +503,7 @@ impl TypeSignature {
                 }
             }
             OptionalType(ref my_inner_type) => {
-                if let OptionalType(other_inner_type) = other {
+                if let OptionalType(other_inner_type) = &other {
                     // Option types will always admit a "NoType" OptionalType -- which
                     //   can only be a None
                     if other_inner_type.is_no_type() {
@@ -509,7 +516,7 @@ impl TypeSignature {
                 }
             }
             ResponseType(ref my_inner_type) => {
-                if let ResponseType(other_inner_type) = other {
+                if let ResponseType(other_inner_type) = &other {
                     // ResponseTypes admit according to the following rule:
                     //   if other.ErrType is NoType, and other.OkType admits => admit
                     //   if other.OkType is NoType, and other.ErrType admits => admit
@@ -528,28 +535,19 @@ impl TypeSignature {
                 }
             }
             TupleType(ref tuple_sig) => {
-                if let TupleType(ref other_tuple_sig) = other {
+                if let TupleType(ref other_tuple_sig) = &other {
                     tuple_sig.admits(other_tuple_sig)
                 } else {
                     false
                 }
             }
-            PrincipalType => {
-                if other == &PrincipalType {
-                    true
-                } else if let CallableType(CallableSubtype::Principal(_)) = other {
-                    true
-                } else {
-                    false
-                }
-            }
             NoType => panic!("NoType should never be asked to admit."),
-            _ => other == self,
+            _ => &other == self,
         }
     }
 
     /// Concretize the type. The input to this method may include
-    /// `ListUnioonType` and the `CallableType` variant for a `principal.
+    /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
     pub fn concretize(&self) -> Result<TypeSignature> {
         match self {
